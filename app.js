@@ -12795,6 +12795,7 @@ const {
   refreshUsersState,
   refreshMessagesState,
   appendLocalMessage,
+  requestMessagesResync: () => getMessagePager().requestResync(),
   refreshActiveMessageHistory,
   loadMoreInboxMessages,
   loadOlderConversationMessages,

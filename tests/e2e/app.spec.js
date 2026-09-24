@@ -123,6 +123,92 @@ test("SSE reconnect consumes replay and reconciles canonical messages without pa
   } finally { await context.close(); }
 });
 
+for (const surface of ["inbox", "modal"]) {
+  test(`message actions reply forward and delete work in ${surface}`, async ({ browser }) => {
+    const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+      viewport: { width: 390, height: 844 }
+    });
+    const now = new Date().toISOString();
+    let items = [
+      { id: "action-own", senderId: "buyer_seller", receiverId: "market_seller", message: "Original outgoing", timestamp: now },
+      { id: "action-incoming", senderId: "market_seller", receiverId: "buyer_seller", message: "Incoming quote", timestamp: now }
+    ];
+    const sent = [];
+    let deleteAttempts = 0;
+    await context.addInitScript(useShare => {
+      window.__sharedTexts = [];
+      Object.defineProperty(navigator, "share", { configurable: true, value: useShare
+        ? async ({ text }) => { window.__sharedTexts.push(text); } : undefined });
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+        writeText: async text => { window.__sharedTexts.push(text); }
+      } });
+    }, surface === "modal");
+    await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+      items: [{ withUser: "market_seller", displayName: "Market Seller", lastMessageId: items.at(-1).id,
+        latestMessage: items.at(-1).message, timestamp: now, unreadCount: 0 }],
+      hasMore: false, nextCursor: "", totalUnread: 0, totalConversations: 1
+    } }));
+    await context.route("**/api/messages/history?*", route => route.fulfill({ json: { items, hasMore: false, nextCursor: "" } }));
+    await context.route("**/api/messages", route => {
+      if (route.request().method() !== "POST") return route.fulfill({ json: items });
+      const payload = route.request().postDataJSON();
+      sent.push(payload);
+      const message = { ...payload, id: "action-reply", senderId: "buyer_seller", timestamp: now };
+      items = [...items, message];
+      return route.fulfill({ json: message });
+    });
+    await context.route("**/api/messages/action-own", route => {
+      expect(route.request().method()).toBe("DELETE");
+      deleteAttempts++;
+      if (deleteAttempts === 1) return route.fulfill({ status: 503, json: { error: "Test delete rejected" } });
+      items = items.filter(item => item.id !== "action-own");
+      return route.fulfill({ json: { ok: true } });
+    });
+    try {
+      await page.goto("/");
+      if (surface === "inbox") {
+        await openHeaderMenuAction(page, "profile");
+        await page.locator("[data-profile-action='messages']").click();
+        await page.locator(".message-thread-item", { hasText: "Market Seller" }).click();
+      } else {
+        await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
+        await page.locator("#product-detail-modal [data-chat-product]").first().click();
+      }
+      const panel = page.locator(surface === "inbox" ? "#profile-messages-panel" : "#context-chat-modal");
+      const input = panel.locator("textarea").last();
+      await expect(panel.locator("[data-message-bubble-id]")).toHaveCount(2);
+      await input.fill("Reply test draft");
+      await panel.locator('[data-message-menu-toggle="action-incoming"]').click();
+      await expect(panel.locator("[data-message-delete]")).toHaveCount(0);
+      await panel.locator('[data-message-reply="action-incoming"]').click();
+      await expect(panel.locator(".context-chat-reply-bar")).toContainText("Incoming quote");
+      await expect(input).toHaveValue("Reply test draft");
+      await panel.locator("[data-clear-chat-reply]").click();
+      await expect(panel.locator(".context-chat-reply-bar")).toHaveCount(0);
+      await panel.locator('[data-message-bubble-id="action-incoming"]').click({ button: "right" });
+      await panel.locator('[data-message-reply="action-incoming"]').click();
+      await panel.locator(surface === "inbox" ? "#message-compose-form button[type=submit]" : "#context-chat-compose-form button[type=submit]").click();
+      await expect.poll(() => sent.length).toBe(1);
+      expect(sent[0].replyToMessageId).toBe("action-incoming");
+      await expect(panel.locator('[data-message-bubble-id="action-reply"] .message-reply-preview')).toContainText("Incoming quote");
+      await expect(panel.locator(".context-chat-reply-bar")).toHaveCount(0);
+      await panel.locator('[data-message-menu-toggle="action-own"]').click();
+      await panel.locator('[data-message-share="action-own"]').click();
+      await expect.poll(() => page.evaluate(() => window.__sharedTexts)).toEqual(["Original outgoing"]);
+      await panel.locator('[data-message-menu-toggle="action-own"]').click();
+      await panel.locator('[data-message-delete="action-own"]').click();
+      await expect.poll(() => deleteAttempts).toBe(1);
+      await expect(panel.locator('[data-message-bubble-id="action-own"]')).toBeVisible();
+      await expect(panel.locator('[data-message-delete="action-own"]')).toBeEnabled();
+      await panel.locator('[data-message-delete="action-own"]').click();
+      await expect(panel.locator('[data-message-bubble-id="action-own"]')).toHaveCount(0);
+      expect(deleteAttempts).toBe(2);
+      await expect(panel.locator("[data-message-bubble-id]")).toHaveCount(2);
+      await page.screenshot({ path: `test-results/message-actions-${surface}.png` });
+    } finally { await context.close(); }
+  });
+}
+
 test("state-change SSE refreshes canonical read receipts and removes deleted messages", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
   const now = new Date().toISOString();

@@ -26,7 +26,7 @@
         .filter(Boolean)
         .sort()
         .join(",");
-      return `${receiverId}::${productId}::${normalizedMessage}::${productItemIds}`;
+      return `${deps.getCurrentUser()}::${receiverId}::${productId}::${normalizedMessage}::${productItemIds}::${deps.getActiveChatReplyMessageId() || ""}`;
     }
 
     async function runRetrySafeMessageSend(sendKey, task, duplicateCopy) {
@@ -494,11 +494,6 @@
         replaceContextChatModal();
       });
 
-      modal.querySelector("[data-clear-chat-reply]")?.addEventListener("click", () => {
-        deps.setActiveChatReplyMessageId("");
-        replaceContextChatModal();
-      });
-
       modal.querySelector("[data-share-my-phone]")?.addEventListener("click", async () => {
         try {
           await sharePhoneWithActiveChat();
@@ -515,102 +510,9 @@
         }
       });
 
-      modal.querySelectorAll("[data-message-menu-toggle]").forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          const messageId = button.dataset.messageMenuToggle;
-          deps.setOpenChatMessageMenuId(
-            deps.getOpenChatMessageMenuId() === messageId ? "" : messageId
-          );
-          replaceContextChatModal();
-        });
-      });
-
       bindMessageLongPress(modal, replaceContextChatModal);
+      bindConversationMessageActions(modal, replaceContextChatModal);
 
-      modal.querySelectorAll("[data-message-reply]").forEach((button) => {
-        button.addEventListener("click", () => {
-          deps.setActiveChatReplyMessageId(button.dataset.messageReply || "");
-          deps.setOpenChatMessageMenuId("");
-          if (!(deps.getCurrentMessageDraft() || "").trim()) {
-            deps.setCurrentMessageDraft("Naomba ufafanuzi kuhusu hii.");
-          }
-          replaceContextChatModal();
-        });
-      });
-
-      modal.querySelectorAll("[data-message-share]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          const activeMessages = deps.getActiveConversationMessages();
-          const targetMessage = activeMessages.find((item) => item.id === button.dataset.messageShare);
-          if (!targetMessage) {
-            return;
-          }
-          const productItems = deps.getMessageProductItems(targetMessage);
-          const shareText = [
-            targetMessage.message || "",
-            ...productItems.map((item) => `${item.productName} - ${deps.formatProductPrice(item.price)}`)
-          ].filter(Boolean).join("\n");
-
-          try {
-            if (navigator.share) {
-              await navigator.share({ text: shareText });
-            } else if (navigator.clipboard?.writeText) {
-              await navigator.clipboard.writeText(shareText);
-              deps.showInAppNotification?.({
-                title: t("chat.copiedTitle", "Copied"),
-                body: t("chat.copiedBody", "Ujumbe umewekwa kwenye clipboard."),
-                variant: "success"
-              });
-            }
-          } catch (error) {
-            // Ignore share cancellation.
-          } finally {
-            deps.setOpenChatMessageMenuId("");
-            replaceContextChatModal();
-          }
-        });
-      });
-
-      modal.querySelectorAll("[data-message-download]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const activeMessages = deps.getActiveConversationMessages();
-          const targetMessage = activeMessages.find((item) => item.id === button.dataset.messageDownload);
-          const firstImage = deps.getMessageProductItems(targetMessage).find((item) => item.productImage)?.productImage;
-          if (!firstImage) {
-            return;
-          }
-          const link = document.createElement("a");
-          link.href = firstImage;
-          link.download = `${(targetMessage?.productName || "winga-product").replace(/\s+/g, "-").toLowerCase()}.png`;
-          link.click();
-          deps.setOpenChatMessageMenuId("");
-          replaceContextChatModal();
-        });
-      });
-
-      modal.querySelectorAll("[data-message-delete]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          try {
-            await deps.dataLayer.deleteMessage(button.dataset.messageDelete);
-            deps.setOpenChatMessageMenuId("");
-            if (deps.getActiveChatReplyMessageId() === button.dataset.messageDelete) {
-              deps.setActiveChatReplyMessageId("");
-            }
-            await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
-            replaceContextChatModal();
-          } catch (error) {
-            deps.captureError?.("context_message_delete_failed", error, {
-              messageId: button.dataset.messageDelete
-            });
-            deps.showInAppNotification?.({
-              title: t("chat.deleteFailedTitle", "Delete failed"),
-              body: error.message || t("chat.deleteFailedBody", "Imeshindikana kufuta ujumbe."),
-              variant: "error"
-            });
-          }
-        });
-      });
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -890,6 +792,101 @@
           variant: "info"
         });
       }
+    }
+
+    function bindConversationMessageActions(scope, rerender) {
+      const user = deps.getCurrentUser();
+      const partner = deps.getActiveChatContext()?.withUser;
+      const isCurrent = () => user === deps.getCurrentUser()
+        && partner === deps.getActiveChatContext()?.withUser;
+      const findMessage = id => deps.getActiveConversationMessages().find(item => item.id === id);
+      const bind = (selector, action) => scope.querySelectorAll(selector).forEach(button => {
+        button.onclick = async event => {
+          event.stopPropagation();
+          if (button.disabled || !isCurrent()) return;
+          await action(button);
+        };
+      });
+      bind("[data-message-menu-toggle]", button => {
+        const id = button.dataset.messageMenuToggle;
+        deps.setOpenChatMessageMenuId(deps.getOpenChatMessageMenuId() === id ? "" : id);
+        rerender();
+      });
+      bind("[data-message-reply]", button => {
+        if (!findMessage(button.dataset.messageReply)) return;
+        deps.setActiveChatReplyMessageId(button.dataset.messageReply);
+        deps.setOpenChatMessageMenuId("");
+        rerender();
+        scope.querySelector("#message-compose-input, #context-chat-compose-input")?.focus();
+      });
+      bind("[data-clear-chat-reply]", () => {
+        deps.setActiveChatReplyMessageId("");
+        rerender();
+      });
+      bind("[data-message-share]", async button => {
+        const message = findMessage(button.dataset.messageShare);
+        if (!message) return;
+        const text = [
+          message.message || "",
+          ...deps.getMessageProductItems(message).map(item => `${item.productName} - ${deps.formatProductPrice(item.price)}`)
+        ].filter(Boolean).join("\n");
+        button.disabled = true;
+        try {
+          if (navigator.share) await navigator.share({ text });
+          else if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            if (isCurrent()) deps.showInAppNotification?.({
+              title: t("chat.copiedTitle", "Copied"),
+              body: t("chat.copiedBody", "Ujumbe umewekwa kwenye clipboard."),
+              variant: "success"
+            });
+          } else throw new Error(t("chat.sharingFailedTitle", "Sharing failed"));
+        } catch (error) {
+          if (isCurrent() && error.name !== "AbortError") deps.showInAppNotification?.({
+            title: t("chat.sharingFailedTitle", "Sharing failed"),
+            body: t("chat.sharingFailedTitle", "Sharing failed"),
+            variant: "error"
+          });
+        } finally {
+          button.disabled = false;
+          if (isCurrent()) {
+            deps.setOpenChatMessageMenuId("");
+            rerender();
+          }
+        }
+      });
+      bind("[data-message-download]", button => {
+        const message = findMessage(button.dataset.messageDownload);
+        if (!message) return;
+        const image = deps.getMessageProductItems(message).find(item => item.productImage)?.productImage;
+        if (!image) return;
+        const link = document.createElement("a");
+        link.href = image;
+        link.download = `${(message.productName || "winga-product").replace(/\s+/g, "-").toLowerCase()}.png`;
+        link.click();
+        deps.setOpenChatMessageMenuId("");
+        rerender();
+      });
+      bind("[data-message-delete]", async button => {
+        const id = button.dataset.messageDelete;
+        if (findMessage(id)?.senderId !== user) return;
+        button.disabled = true;
+        try {
+          await deps.dataLayer.deleteMessage(id);
+          if (!isCurrent()) return;
+          deps.setOpenChatMessageMenuId("");
+          if (deps.getActiveChatReplyMessageId() === id) deps.setActiveChatReplyMessageId("");
+          deps.requestMessagesResync?.();
+          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          if (isCurrent()) rerender();
+        } catch (error) {
+          if (isCurrent()) deps.showInAppNotification?.({
+            title: t("chat.deleteFailedTitle", "Delete failed"),
+            body: error.message || t("chat.deleteFailedBody", "Imeshindikana kufuta ujumbe."),
+            variant: "error"
+          });
+        } finally { button.disabled = false; }
+      });
     }
 
     function bindMessageActions(scope = deps.getProfileDiv?.(), options = {}) {
@@ -1359,6 +1356,8 @@
             productName: button.dataset.conversationName || ""
           };
           deps.setActiveChatContext(nextChatContext);
+          deps.setActiveChatReplyMessageId("");
+          deps.setOpenChatMessageMenuId("");
           deps.setProfileMessagesMode?.("detail");
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
@@ -1388,6 +1387,7 @@
       });
 
       bindMessageLongPress(scope, () => deps.replaceMessagesPanel(scope));
+      bindConversationMessageActions(scope, () => deps.replaceMessagesPanel(scope));
 
       bindClickOnce("[data-refresh-messages]", "RefreshMessages", async () => {
         try {
@@ -1482,7 +1482,8 @@
             receiverId: activeChatContext.withUser,
             productId: activeChatContext.productId || "",
             productName: activeChatContext.productName || "",
-            message
+            message,
+            replyToMessageId: deps.getActiveChatReplyMessageId()
           }), {
             pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
             completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena.")
@@ -1501,6 +1502,8 @@
             messageInput.value = "";
           }
           deps.setCurrentMessageDraft("");
+          deps.setActiveChatReplyMessageId("");
+          deps.setOpenChatMessageMenuId("");
           deps.setOpenEmojiScope("");
           if (sendResult?.id && !sendResult.isQueued) {
             deps.appendLocalMessage?.(sendResult);

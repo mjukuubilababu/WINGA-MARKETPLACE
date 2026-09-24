@@ -616,6 +616,12 @@
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
                 <form id="message-compose-form" class="messages-compose">
+                  ${activeMessages.some(message => message.id === deps.getActiveChatReplyMessageId()) ? `
+                    <div class="context-chat-reply-bar">
+                      <span>${deps.escapeHtml(deps.getMessagePreviewText(activeMessages.find(message => message.id === deps.getActiveChatReplyMessageId())))}</span>
+                      <button type="button" data-clear-chat-reply="true" aria-label="${deps.escapeHtml(t("common.cancel", "Cancel"))}">&times;</button>
+                    </div>
+                  ` : ""}
                   <textarea id="message-compose-input" rows="2" maxlength="1000" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}">${deps.escapeHtml(currentMessageDraft)}</textarea>
                   ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
