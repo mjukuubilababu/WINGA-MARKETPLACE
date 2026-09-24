@@ -1337,13 +1337,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const replay = handlers.replayState;
       let closed = false;
       let recovering = false;
+      let recoveryRequested = false;
       let recoveryTimer = null;
       const isCurrent = () => !closed && (!handlers.isCurrent || handlers.isCurrent());
       async function recover() {
-        if (!replay || !handlers.reconcile || recovering || !isCurrent()) return;
+        if (!replay || !handlers.reconcile || !isCurrent()) return;
+        if (recovering) { recoveryRequested = true; return; }
+        clearTimeout(recoveryTimer);
+        recoveryTimer = null;
+        recoveryRequested = false;
         recovering = true;
         let cursor = replay.cursor || "";
         let hasMore = false;
+        let resyncRequired = false;
         try {
           for (let page = 0; page < 5; page += 1) {
             let result;
@@ -1363,24 +1369,28 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             hasMore = result.hasMore === true;
             // Initial checkpoint precedes reconciliation; catch up again afterwards
             // so messages committed during that reconciliation are not skipped.
-            if (result.resyncRequired) { hasMore = true; break; }
+            if (result.resyncRequired) { resyncRequired = true; hasMore = true; break; }
             if (!hasMore) break;
           }
           if (!isCurrent()) return;
-          await handlers.reconcile();
+          await handlers.reconcile({ resyncRequired });
           if (!isCurrent()) return;
           replay.cursor = cursor;
           if (hasMore) recoveryTimer = setTimeout(recover, 250);
         } catch (_error) {
           // Optional recovery cannot disable human chat or advance a failed batch.
           if (isCurrent()) {
-            try { await handlers.reconcile(); } catch (_fallbackError) { /* Existing refresh telemetry owns this failure. */ }
+            try { await handlers.reconcile({ resyncRequired: true }); } catch (_fallbackError) { /* Existing refresh telemetry owns this failure. */ }
           }
         } finally {
           recovering = false;
+          if (recoveryRequested && isCurrent() && !recoveryTimer) {
+            recoveryTimer = setTimeout(recover, 250);
+          }
         }
       }
       source.addEventListener("open", recover);
+      source.addEventListener("message_state_changed", recover);
       const parseEvent = (event) => {
         try {
           return event?.data ? JSON.parse(event.data) : null;
@@ -16876,6 +16886,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const reset = () => { state = { user: getUser(), mode: "unknown", inbox: emptyPage(), histories: new Map(), seen: new Set(), revision: 0, totalUnread: 0 }; };
     const current = () => { if (!state || state.user !== getUser()) reset(); return state; };
     const valid = (s) => state === s && s.user === getUser();
+    function requestResync() {
+      const s = current();
+      s.revision += 1;
+      s.inbox.needsResync = true;
+      for (const target of s.histories.values()) {
+        target.revision += 1;
+        target.needsResync = true;
+      }
+    }
     const timeKey = (value) => {
       const date = new Date(value);
       if (!Number.isFinite(date.getTime())) return "";
@@ -16895,9 +16914,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function inbox(append = false) {
       const s = current(), target = s.inbox;
       if (!s.user || s.mode === "legacy") return false;
-      if (target.pending) return target.pending;
+      if (target.pending) {
+        if (!target.needsResync) return target.pending;
+        await target.pending;
+        if (!valid(s)) return false;
+        return inbox(false);
+      }
+      if (target.needsResync) append = false;
       if (append && (!target.loaded || !target.hasMore)) return true;
-      const revision = s.revision;
+      const revision = s.revision, resync = Boolean(target.needsResync);
       const cursor = append ? target.nextCursor : "";
       target.loading = true; target.error = false;
       target.pending = (async () => {
@@ -16907,16 +16932,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (!page) { s.mode = "legacy"; return false; }
           if (!Array.isArray(page.items)) throw new Error("INVALID_INBOX_PAGE");
           s.mode = "paged";
-          if (revision !== s.revision) return true;
+          if (revision !== s.revision) {
+            if (resync) throw new Error("MESSAGE_RESYNC_CHANGED");
+            return true;
+          }
           const boundary = page.items[page.items.length - 1];
-          const retained = append ? target.items : boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          const retained = append ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
           target.items = merge(retained, page.items, "withUser").sort((a,b) => compare(b,a));
+          if (resync || !page.hasMore) target.extended = false;
           if (append || !target.extended || !page.items.length) {
             target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
             target.nextCursor = page.nextCursor || "";
           }
           if (append) target.extended = true;
           target.loaded = true;
+          target.needsResync = false;
           s.totalUnread = Math.max(0, Number(page.totalUnread) || 0);
           target.totalConversations = Math.max(0, Number(page.totalConversations) || 0);
           return true;
@@ -16932,24 +16962,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function loadHistory(withUser, older = false) {
       const s = current(), target = history(withUser);
       if (!s.user || s.mode !== "paged" || !withUser) return;
-      if (target.pending) return target.pending;
+      if (target.pending) {
+        if (!target.needsResync) return target.pending;
+        await target.pending;
+        if (!valid(s) || s.histories.get(withUser) !== target) return;
+        return loadHistory(withUser);
+      }
+      if (target.needsResync) older = false;
       if (older && (!target.loaded || !target.hasMore)) return;
-      const revision = target.revision, cursor = older ? target.nextCursor : "";
+      const revision = target.revision, cursor = older ? target.nextCursor : "", resync = Boolean(target.needsResync);
       target.loading = true; target.error = false;
       target.pending = (async () => {
         try {
           const page = await dataLayer.loadConversationPage(withUser, { limit: 30, cursor });
-          if (!valid(s) || s.histories.get(withUser) !== target || revision !== target.revision) return;
+          if (!valid(s) || s.histories.get(withUser) !== target) return;
+          if (revision !== target.revision) {
+            if (resync) throw new Error("MESSAGE_RESYNC_CHANGED");
+            return;
+          }
           if (!page || !Array.isArray(page.items)) throw new Error("INVALID_CONVERSATION_PAGE");
           const boundary = page.items[0];
-          const retained = older ? target.items : boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          const retained = older ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
           target.items = merge(retained, page.items, "id").sort(compare);
+          if (resync || !page.hasMore) target.extended = false;
           if (older || !target.extended || !page.items.length) {
             target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
             target.nextCursor = page.nextCursor || "";
           }
           if (older) target.extended = true;
           target.loaded = true;
+          target.needsResync = false;
         } catch (error) { if (valid(s)) target.error = true; throw error; }
         finally { target.loading = false; target.pending = null; }
       })();
@@ -16973,7 +17015,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
-    return { reset, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest };
+    return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest };
   }
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.chat = window.WingaModules.chat || {};

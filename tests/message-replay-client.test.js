@@ -16,7 +16,7 @@ function setup(fetchJson, reconcile = async () => {}) {
   });
   const state = { owner: "a", cursor: "old" };
   const channel = client.openRealtimeChannel({ replayState: state, reconcile, isCurrent: () => current });
-  return { state, channel, open: () => listeners.open(), timers, switchUser() { current = false; } };
+  return { state, channel, open: () => listeners.open(), changed: () => listeners.message_state_changed(), timers, switchUser() { current = false; } };
 }
 const page = (cursor, extra = {}) => ({ version: 1, events: [], cursor, hasMore: false, ...extra });
 
@@ -84,4 +84,45 @@ test("malformed and nonadvancing pages cannot replace checkpoint", async () => {
     const app = setup(async () => result);
     await app.open(); assert.equal(app.state.cursor, "old"); assert.equal(app.timers.size, 0);
   }
+});
+
+test("state change during reconciliation schedules catch-up without advancing early", async () => {
+  let finish;
+  let gets = 0;
+  const app = setup(async () => page(String(++gets)), () => new Promise(resolve => { finish = resolve; }));
+  const running = app.open();
+  await new Promise(setImmediate);
+  await app.changed();
+  await app.changed();
+  assert.equal(app.state.cursor, "old");
+  assert.equal(gets, 1);
+  finish(); await running;
+  assert.equal(app.timers.size, 1);
+  const followUp = [...app.timers.values()][0]();
+  await new Promise(setImmediate);
+  assert.equal(gets, 2);
+  finish(); await followUp;
+  assert.equal(app.state.cursor, "2");
+  app.channel.close();
+  await app.changed();
+  assert.equal(gets, 2);
+});
+
+test("mutation barrier reconciles first and catches messages after the captured head", async () => {
+  const urls = [];
+  const flags = [];
+  let reconciled = 0;
+  const app = setup(async url => {
+    urls.push(url);
+    return urls.length === 1 ? page("barrier", { resyncRequired: true }) : page("after-barrier");
+  }, async ({ resyncRequired }) => { flags.push(resyncRequired); reconciled++; });
+  await app.changed();
+  assert.equal(reconciled, 1);
+  assert.equal(app.state.cursor, "barrier");
+  assert.equal(app.timers.size, 1);
+  await [...app.timers.values()][0]();
+  assert.match(urls[1], /cursor=barrier/);
+  assert.equal(reconciled, 2);
+  assert.equal(app.state.cursor, "after-barrier");
+  assert.deepEqual(flags, [true, false]);
 });

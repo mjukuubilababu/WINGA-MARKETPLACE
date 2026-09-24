@@ -60,11 +60,59 @@ to another persistent store. Closed channels and account changes reject late
 recovery completions. Catch-up scans at most five pages per batch, then yields.
 Invalid cursors reset through initial reconciliation; replay failure falls back
 to the existing refresh without advancing the checkpoint. No delivery
-or read claim is made by advancing a replay position. Existing read/delete and
-commerce events are not journaled by this message-created-only increment.
+or read claim is made by advancing a replay position. Read/delete mutations use
+the reconciliation barriers below. Commerce events are not journaled here.
 
 Durable fan-out jobs, device identity, per-device
 ACKs, event retention, and multi-region writer ownership remain separate work.
+
+## Read/Delete Reconciliation (2026-09-24)
+
+Migration `2026092401_message_replay_resync` adds `resync_position` to each
+owner stream, initially zero. A changed canonical read or sender-authorized
+delete advances both participant counters, records the barrier, and sends a
+version-1 `message_state_changed` NOTIFY in the same transaction. A failed
+transaction rolls back the message mutation and barrier together. Repeated
+read/delete no-ops and unauthorized deletes do not advance counters or notify.
+Counter locks retain sorted owner order. No historical messages are rewritten.
+Historical messages may reference deleted accounts; barriers are written only
+for existing users under a key-share lock, without recreating removed accounts.
+
+The internal event contains only its version, type and at most two owner IDs.
+Each backend forwards `{version: 1}` to those owners' existing authenticated SSE
+connections. It exposes no counterpart, message ID, body or receipt details.
+The browser responds with authorized canonical reads, including notifications.
+Existing local read events remain for older browsers during rolling deployment.
+
+When a replay cursor predates a barrier, the existing version-1 response returns
+`resyncRequired: true`, an empty events array, and a captured head cursor. The
+client reconciles before committing it, then resumes above it to cover mutations
+or sends racing the refresh. This reuses the existing resync contract; deleted
+message IDs never need to be disclosed. Many mutations coalesce into one latest
+barrier per owner rather than an unbounded receipt journal.
+
+Live signals received during an in-flight reconciliation request one follow-up
+batch. Only one recovery runs at a time. Closed channels and account switches
+still reject late completions; failed refreshes cannot commit a checkpoint.
+An authoritative resync replaces cached Inbox/history pages after successful
+reads and resets older-page cursors to the current canonical boundary. Previously
+loaded older pages can be loaded again; they are not retained as stale proof of
+message existence. Failed reads retain visible items and a pending resync flag.
+Inactive cached histories resync when next opened. Complete non-paginated ranges
+also replace old items, fixing deleted oldest messages lingering in the cache.
+LISTEN/NOTIFY is a wake-up hint, not durable fan-out. A missed hint is recovered
+on reconnect through the barrier and the existing reconciliation fallback.
+
+Apply the additive migration before deploying the new backend, then deploy the
+browser bundle. Old backend code remains compatible with the added column;
+rollback must retain it. Changes made through an old writer during mixed-version
+rollout do not create barriers, so ordinary reconnect reconciliation remains
+necessary. This is not device-delivery proof, E2EE, or the complete event protocol.
+
+Capabilities now include `messageStateResync`; the existing authenticated probe
+prints it as `stateChangeReplayEnabled`. A successful probe with this flag proves
+the new code and schema are readable. Two-account writes and real PostgreSQL
+multi-node failure/reconnect still require separate runtime verification.
 
 ## Verification Scope
 
@@ -109,3 +157,17 @@ message writes and reconnect delivery have been verified in production.
   the browser automation tool could not access the existing authenticated session
   because its Windows sandbox failed to initialize. Do not infer runtime migration
   proof from local tests or successful public health checks.
+
+### Read/Delete Resync Verification (2026-09-24)
+
+- `npm run build:vercel` passed (asset version `20260924154017`).
+- `npm run test:ci` passed: browser 139/139, message paging/replay 34/34,
+  frontend core 144/144, extra frontend 47/47, integration 200/200.
+- The new browser test initially exposed a deleted oldest message remaining in
+  the cached history. Canonical page replacement and explicit resync handling
+  fixed it; the original deletion assertion now passes.
+- After full CI, a backend-only compatibility guard was added for historical
+  messages whose counterpart account no longer exists. The final targeted
+  replay, PostgreSQL pagination and integration API suite passed 128/128.
+- These are local checks. New authenticated Render migration reads and real
+  two-account cross-instance read/delete reconnect remain unproven.

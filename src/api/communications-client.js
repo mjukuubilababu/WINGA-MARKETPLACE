@@ -183,13 +183,19 @@
       const replay = handlers.replayState;
       let closed = false;
       let recovering = false;
+      let recoveryRequested = false;
       let recoveryTimer = null;
       const isCurrent = () => !closed && (!handlers.isCurrent || handlers.isCurrent());
       async function recover() {
-        if (!replay || !handlers.reconcile || recovering || !isCurrent()) return;
+        if (!replay || !handlers.reconcile || !isCurrent()) return;
+        if (recovering) { recoveryRequested = true; return; }
+        clearTimeout(recoveryTimer);
+        recoveryTimer = null;
+        recoveryRequested = false;
         recovering = true;
         let cursor = replay.cursor || "";
         let hasMore = false;
+        let resyncRequired = false;
         try {
           for (let page = 0; page < 5; page += 1) {
             let result;
@@ -209,24 +215,28 @@
             hasMore = result.hasMore === true;
             // Initial checkpoint precedes reconciliation; catch up again afterwards
             // so messages committed during that reconciliation are not skipped.
-            if (result.resyncRequired) { hasMore = true; break; }
+            if (result.resyncRequired) { resyncRequired = true; hasMore = true; break; }
             if (!hasMore) break;
           }
           if (!isCurrent()) return;
-          await handlers.reconcile();
+          await handlers.reconcile({ resyncRequired });
           if (!isCurrent()) return;
           replay.cursor = cursor;
           if (hasMore) recoveryTimer = setTimeout(recover, 250);
         } catch (_error) {
           // Optional recovery cannot disable human chat or advance a failed batch.
           if (isCurrent()) {
-            try { await handlers.reconcile(); } catch (_fallbackError) { /* Existing refresh telemetry owns this failure. */ }
+            try { await handlers.reconcile({ resyncRequired: true }); } catch (_fallbackError) { /* Existing refresh telemetry owns this failure. */ }
           }
         } finally {
           recovering = false;
+          if (recoveryRequested && isCurrent() && !recoveryTimer) {
+            recoveryTimer = setTimeout(recover, 250);
+          }
         }
       }
       source.addEventListener("open", recover);
+      source.addEventListener("message_state_changed", recover);
       const parseEvent = (event) => {
         try {
           return event?.data ? JSON.parse(event.data) : null;

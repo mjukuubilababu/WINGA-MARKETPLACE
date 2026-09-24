@@ -2,6 +2,8 @@
 
 Date: 2026-09-22. Repository baseline: `15170f7`.
 Status: foundation review candidate, NOT an implemented E2EE service.
+The audit below is historical; subsequent runtime increments are recorded at the
+end and in `message-replay.md`. It is not a current completion checklist.
 Scope: supplied specification sections 0-109, including the second attachment.
 Section 110 contains only "AFTER FOUNDATION - FEATURE ROAD"; no missing requirements are assumed.
 This document changes no runtime, schema, deployment topology, or public promise.
@@ -601,3 +603,31 @@ is verified. This increment does not complete phases 1-6 or E2EE acceptance.
   device receipts, durable replay outbox and secure offline client remain unverified
   or unimplemented. Render auto-deploy is expected on push; Live must be verified
   independently, not inferred from a generic health response.
+
+## 21. Read/delete reconciliation increment (2026-09-24)
+
+Sections 9, 50, 60, 62-63, 67, 78 and 91 receive an incremental implementation:
+canonical read/delete mutations now commit an owner-scoped replay resync barrier
+and a content-free cross-node wake-up in the same PostgreSQL transaction. The
+existing SSE browser reconciles canonical message/notification state before
+advancing its cursor, including a follow-up for changes racing that refresh.
+See `message-replay.md` for compatibility, migration and rollback contracts.
+
+This preserves the legacy sender-only deletion policy and account-level read
+semantics. It does not add per-device acknowledgements, stronger deletion claims,
+read-receipt privacy preferences, a durable notification worker, or encryption.
+Tests cover unauthorized/repeated mutations, transaction rollback, owner isolation,
+checkpoint races, and visible browser receipt/deletion reconciliation. Executable
+SQL uses PGlite; actual multi-connection locking and LISTEN/NOTIFY failover still
+need PostgreSQL staging proof.
+
+The user-supplied authenticated Render probe for the earlier replay release
+confirmed capability, checkpoint/resume reads and migration readability. It
+explicitly reported `writeAndReconnectProven: false`; it does not verify this
+new migration. Rerun the updated probe after deployment to verify readability.
+
+Remaining foundation work: freeze reviewed protocol/device/recovery choices;
+implement isolated BEAM realtime and its platform authentication contract;
+integrate an audited E2EE implementation and protected endpoint state; implement
+private encrypted media; multi-device/recovery; and measured load, failure,
+security and production acceptance. These phases remain incomplete.

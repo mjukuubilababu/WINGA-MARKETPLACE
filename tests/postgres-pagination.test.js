@@ -1345,6 +1345,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of migration.statements) await db.exec(sql);
     for (const sql of migration.statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-replay").statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-replay-resync").statements) await db.exec(sql);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1376,20 +1377,47 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal((await db.query("SELECT * FROM messages")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM notifications")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM message_replay_events")).rows.length, 2);
+    const beforeRead = await store.readMessageReplay("a");
+    const recipientBeforeRead = await store.readMessageReplay("b");
+    const outsiderBeforeRead = await store.readMessageReplay("c");
     assert.equal((await store.markConversationRead("a", "b")).changed, false);
     assert.equal((await store.markConversationRead("c", "a")).changed, false);
+    assert.equal((await store.deleteMessage(message.id, "c")).deleted, false);
+    assert.equal((await store.readMessageReplay("a")).cursor, beforeRead.cursor);
+    failFanout = true;
+    await assert.rejects(store.markConversationRead("b", "a"), /Injected/);
+    assert.equal((await db.query("SELECT is_read FROM messages WHERE id = 'accepted-1'")).rows[0].is_read, false);
+    assert.equal((await store.readMessageReplay("a")).cursor, beforeRead.cursor);
+    failFanout = false;
     assert.equal((await store.markConversationRead("b", "a")).changed, true);
+    const afterRead = await store.readMessageReplay("a", { cursor: beforeRead.cursor });
+    assert.equal(afterRead.resyncRequired, true);
+    assert.deepEqual(afterRead.events, []);
+    assert.equal((await store.readMessageReplay("b", { cursor: recipientBeforeRead.cursor })).resyncRequired, true);
+    assert.equal((await store.readMessageReplay("c")).cursor, outsiderBeforeRead.cursor);
+    assert.equal((await store.readMessageReplay("a", { cursor: afterRead.cursor })).resyncRequired, false);
     const receipt = (await db.query("SELECT * FROM messages WHERE id = 'accepted-1'")).rows[0];
     assert.equal(receipt.is_read, true);
     assert.equal(receipt.is_delivered, true);
     assert.equal(new Date(receipt.delivered_at).getTime(), new Date(receipt.read_at).getTime());
     assert.equal((await store.markConversationRead("b", "a")).changed, false);
+    assert.equal((await store.readMessageReplay("a")).cursor, afterRead.cursor);
     assert.equal((await store.createMessageWithNotification({ ...message, message: "Changed" }, null, options)).code, "message_idempotency_conflict");
     assert.equal((await store.createMessageWithNotification({ ...message, receiverId: "c" }, null, options)).code, "message_idempotency_conflict");
     await db.exec("INSERT INTO user_blocks VALUES ('b','a')");
     assert.equal((await store.createMessageWithNotification(message, null, options)).code, "message_blocked");
     await db.exec("DELETE FROM user_blocks");
+    failFanout = true;
+    await assert.rejects(store.deleteMessage(message.id, "a"), /Injected/);
+    assert.equal((await db.query("SELECT id FROM messages WHERE id = 'accepted-1'")).rows.length, 1);
+    assert.equal((await store.readMessageReplay("a")).cursor, afterRead.cursor);
+    failFanout = false;
     await store.deleteMessage(message.id, "a");
+    const afterDelete = await store.readMessageReplay("a", { cursor: afterRead.cursor });
+    assert.equal(afterDelete.resyncRequired, true);
+    assert.deepEqual(afterDelete.events, []);
+    assert.equal((await store.deleteMessage(message.id, "a")).deleted, false);
+    assert.equal((await store.readMessageReplay("a")).cursor, afterDelete.cursor);
     assert.equal((await store.createMessageWithNotification(message, null, options)).code, "message_retry_deleted");
     assert.equal((await db.query("SELECT * FROM messages")).rows.length, 0);
     assert.equal((await store.createMessageWithNotification({ ...message, id: "other-owner", senderId: "c" }, null, options)).created, true);
@@ -1404,6 +1432,13 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal((await store.createMessageWithNotification({ ...message, id: "retry-after-rollback" }, null, retryOptions)).created, true);
     await db.exec("UPDATE messages SET created_at = NOW() - INTERVAL '1 day'");
     assert.equal((await store.createMessageWithNotification({ ...message, id: "after-old-window" }, null, retryOptions)).message.id, "retry-after-rollback");
+    // Historical messages can outlive an account: messages have no user FK.
+    await db.exec("UPDATE messages SET sender_id = 'b', receiver_id = 'a' WHERE id = 'other-owner'; DELETE FROM users WHERE username = 'b'");
+    const beforeLegacyRead = await store.readMessageReplay("a");
+    assert.equal((await store.markConversationRead("a", "b")).changed, true);
+    assert.equal((await store.readMessageReplay("a", { cursor: beforeLegacyRead.cursor })).resyncRequired, true);
+    assert.equal((await store.deleteMessage("retry-after-rollback", "a")).deleted, true);
+    assert.equal((await db.query("SELECT * FROM message_replay_streams WHERE owner_id = 'b'")).rows.length, 0);
   } finally { await db.close(); }
 });
 

@@ -9174,9 +9174,10 @@ function connectRealtimeChannel() {
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
     replayState: messageReplayState,
     isCurrent: () => currentUser === replayUser,
-    reconcile: async () => {
+    reconcile: async ({ resyncRequired = false } = {}) => {
       if (currentUser !== replayUser) return;
-      await refreshMessagesState();
+      if (resyncRequired) getMessagePager().requestResync();
+      await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
       if (currentUser !== replayUser) return;
       if (currentView === "profile" && profileDiv) replaceMessagesPanel(profileDiv);
       if (chatUiState.isContextOpen) replaceContextChatModal();

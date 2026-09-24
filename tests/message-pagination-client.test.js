@@ -130,3 +130,73 @@ test("same-time older SSE must not replace newer preview", async () => {
   assert.equal(pager.snapshot().inbox.items[0].lastMessageId, "z");
 });
 
+test("complete canonical pages remove deleted older messages and conversations", async () => {
+  let remaining = false;
+  const { pager } = setup({
+    loadInboxPage: async () => page(remaining ? [summary("other", "z", message("z").timestamp)] : [summary("gone", "a", message("a").timestamp), summary("other", "z", message("z").timestamp)]),
+    loadConversationPage: async () => page(remaining ? [message("z")] : [message("a"), message("z")])
+  });
+  await pager.refreshInbox(); await pager.refreshHistory("other");
+  remaining = true;
+  await pager.refreshInbox(); await pager.refreshHistory("other");
+  assert.deepEqual(Array.from(pager.snapshot().inbox.items, item => item.withUser), ["other"]);
+  assert.deepEqual(Array.from(pager.history("other").items, item => item.id), ["z"]);
+});
+
+test("resync replaces extended pages only after success and restores canonical older cursor", async () => {
+  let fail = false;
+  const { pager } = setup({
+    loadInboxPage: async options => {
+      if (fail) throw new Error("offline");
+      return options.cursor ? page([summary("old", "a", message("a").timestamp)]) : page([summary("other", "z", message("z").timestamp)], "people-next");
+    },
+    loadConversationPage: async (_user, options) => {
+      if (fail) throw new Error("offline");
+      return options.cursor ? page([message("a")]) : page([message("z")], "history-next");
+    }
+  });
+  await pager.refreshInbox(); await pager.loadMore();
+  await pager.refreshHistory("other"); await pager.loadOlder("other");
+  pager.requestResync(); fail = true;
+  await assert.rejects(pager.refreshInbox(), /offline/);
+  await assert.rejects(pager.refreshHistory("other"), /offline/);
+  assert.equal(pager.snapshot().inbox.items.length, 2);
+  assert.equal(pager.history("other").items.length, 2);
+  fail = false;
+  await pager.refreshInbox(); await pager.refreshHistory("other");
+  assert.deepEqual(Array.from(pager.snapshot().inbox.items, item => item.withUser), ["other"]);
+  assert.deepEqual(Array.from(pager.history("other").items, item => item.id), ["z"]);
+  assert.equal(pager.snapshot().inbox.nextCursor, "people-next");
+  assert.equal(pager.history("other").nextCursor, "history-next");
+  await pager.loadOlder("other");
+  assert.equal(pager.history("other").items.length, 2);
+});
+
+test("resync waits out stale in-flight pages and performs a fresh canonical read", async () => {
+  const wait = deferred(); let count = 0;
+  const { pager } = setup({
+    loadInboxPage: async () => page([]),
+    loadConversationPage: async () => ++count === 1 ? wait.promise : page([message("fresh")])
+  });
+  await pager.refreshInbox();
+  const old = pager.refreshHistory("other");
+  pager.requestResync();
+  const fresh = pager.refreshHistory("other");
+  wait.resolve(page([message("deleted")]));
+  await Promise.all([old, fresh]);
+  assert.equal(count, 2);
+  assert.deepEqual(Array.from(pager.history("other").items, item => item.id), ["fresh"]);
+});
+
+test("SSE racing authoritative resync preserves instant message and refuses stale success", async () => {
+  const wait = deferred();
+  const { pager } = setup({ loadInboxPage: async () => page([]), loadConversationPage: () => wait.promise });
+  await pager.refreshInbox();
+  pager.history("other"); pager.requestResync();
+  const pending = pager.refreshHistory("other");
+  pager.ingest(message("instant"));
+  wait.resolve(page([]));
+  await assert.rejects(pending, /MESSAGE_RESYNC_CHANGED/);
+  assert.equal(pager.history("other").items[0].id, "instant");
+  assert.equal(pager.history("other").needsResync, true);
+});

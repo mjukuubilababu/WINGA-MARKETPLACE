@@ -15,6 +15,6 @@ async function main() {
   if (!initial.body.resyncRequired || !initial.body.cursor || !initial.cache?.includes("no-store")) throw new Error("Invalid initial checkpoint contract.");
   const resumed = await read(`/api/messages/replay?limit=1&cursor=${encodeURIComponent(initial.body.cursor)}`);
   if (resumed.body.version !== 1 || resumed.body.resyncRequired !== false || !Array.isArray(resumed.body.events)) throw new Error("Invalid replay resume contract.");
-  console.log(JSON.stringify({ ok: true, origin, authenticated: true, replayEnabled: true, checkpointRead: true, resumeRead: true, noStore: resumed.cache?.includes("no-store") === true, migrationReadable: true, writeAndReconnectProven: false }, null, 2));
+  console.log(JSON.stringify({ ok: true, origin, authenticated: true, replayEnabled: true, stateChangeReplayEnabled: capabilities.body.messageStateResync === true, checkpointRead: true, resumeRead: true, noStore: resumed.cache?.includes("no-store") === true, migrationReadable: true, writeAndReconnectProven: false }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

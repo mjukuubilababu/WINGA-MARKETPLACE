@@ -123,6 +123,54 @@ test("SSE reconnect consumes replay and reconciles canonical messages without pa
   } finally { await context.close(); }
 });
 
+test("state-change SSE refreshes canonical read receipts and removes deleted messages", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  const now = new Date().toISOString();
+  let revision = 0;
+  let items = [
+    { id: "state-one", senderId: "buyer_seller", receiverId: "market_seller", message: "Message to remove", timestamp: now, isRead: false },
+    { id: "state-two", senderId: "buyer_seller", receiverId: "market_seller", message: "Message to retain", timestamp: now, isRead: false }
+  ];
+  await context.addInitScript(() => {
+    window.EventSource = class {
+      constructor() { this.handlers = {}; window.__stateSource = this; }
+      addEventListener(name, handler) { this.handlers[name] = handler; }
+      close() {}
+    };
+  });
+  await context.route("**/api/messages/replay?*", route => {
+    const cursor = `state-${revision}`;
+    return route.fulfill({ json: { version: 1, events: [], cursor, hasMore: false,
+      resyncRequired: new URL(route.request().url()).searchParams.get("cursor") !== cursor } });
+  });
+  await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+    items: [{ withUser: "market_seller", displayName: "Market Seller", lastMessageId: items.at(-1).id,
+      latestMessage: items.at(-1).message, timestamp: now, unreadCount: 0 }],
+    hasMore: false, nextCursor: "", totalUnread: 0, totalConversations: 1
+  } }));
+  await context.route("**/api/messages/history?*", route => route.fulfill({ json: { items, hasMore: false, nextCursor: "" } }));
+  try {
+    await page.goto("/");
+    await openHeaderMenuAction(page, "profile");
+    await page.locator("[data-profile-action='messages']").click();
+    const panel = page.locator("#profile-messages-panel");
+    await panel.locator(".message-thread-item", { hasText: "Market Seller" }).click();
+    await expect(panel.locator(".message-bubble")).toHaveCount(2);
+    const receipt = panel.locator(".message-bubble small").first();
+    const sentText = await receipt.textContent();
+    items = items.map(item => ({ ...item, isRead: true }));
+    revision++;
+    await page.evaluate(() => window.__stateSource.handlers.message_state_changed());
+    await expect(receipt).not.toHaveText(sentText);
+    items = items.slice(1);
+    revision++;
+    await page.evaluate(() => window.__stateSource.handlers.message_state_changed());
+    await expect(panel.locator(".message-bubble")).toHaveCount(1);
+    await expect(panel).toContainText("Message to retain");
+    await expect(panel).not.toContainText("Message to remove");
+  } finally { await context.close(); }
+});
+
 test("durable online message is saved before POST and replays the same ID after reload", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const seen = [];

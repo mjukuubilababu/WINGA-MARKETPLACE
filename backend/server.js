@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { createPostgresStore } = require("./db");
 const { readMessageIdempotencyKey, messageRequestHash } = require("./message-idempotency");
+const { getMessageStateEventOwners } = require("./message-replay");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
@@ -6108,6 +6109,12 @@ async function emitAuthorizedNotification(notificationRecord) {
 }
 
 async function deliverPostgresMessageEvent(event) {
+  if (event?.type === "message_state_changed") {
+    for (const owner of getMessageStateEventOwners(event)) {
+      emitLiveEvent(owner, "message_state_changed", { version: 1 });
+    }
+    return;
+  }
   const message = normalizeMessageRecord(event?.message || {});
   const notification = event?.notification ? normalizeNotificationRecord(event.notification) : null;
   if (!message.id || !message.senderId || !message.receiverId) return;
@@ -10704,7 +10711,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/messages/capabilities") {
         const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
         if (!user) return;
-        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay) });
+        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay), messageStateResync: Boolean(postgresStore?.readMessageReplay) });
         return;
       }
 

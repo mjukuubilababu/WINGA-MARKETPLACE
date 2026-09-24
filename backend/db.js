@@ -6,7 +6,7 @@ const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
 const { createMessagePagesStore } = require("./message-pages");
-const { appendMessageReplay, createMessageReplayStore } = require("./message-replay");
+const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore } = require("./message-replay");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -4330,11 +4330,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return subscription;
   }
   async function deleteMessage(messageId, senderId) {
-    const result = await query(
-      "DELETE FROM messages WHERE id = $1 AND sender_id = $2",
-      [messageId, senderId]
-    );
-    return { deleted: Number(result.rowCount || 0) > 0 };
+    return withTransaction(async (client) => {
+      const result = await client.query(
+        `DELETE FROM messages WHERE id = $1 AND sender_id = $2
+         RETURNING sender_id AS "senderId", receiver_id AS "receiverId"`,
+        [messageId, senderId]
+      );
+      if (result.rowCount) {
+        const message = result.rows[0];
+        await invalidateMessageReplay(client, [message.senderId, message.receiverId]);
+      }
+      return { deleted: Number(result.rowCount || 0) > 0 };
+    });
   }
 
   async function markConversationRead(receiverId, senderId) {
@@ -4357,6 +4364,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           [receiverId, now, conversationIds]
         );
       }
+      if (result.rowCount) await invalidateMessageReplay(client, [receiverId, senderId]);
       return {
         changed: Number(result.rowCount || 0) > 0,
         readAt: now,

@@ -1,8 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PGlite } = require('@electric-sql/pglite');
-const { appendMessageReplay, createMessageReplayStore } = require('../backend/message-replay');
+const { appendMessageReplay, createMessageReplayStore, getMessageStateEventOwners } = require('../backend/message-replay');
 const migration = require('../backend/migrations/message-replay');
+const resyncMigration = require('../backend/migrations/message-replay-resync');
 
 test('replay is bounded, owner-scoped, ordered and respects current blocks/deletion', async () => {
   const db = new PGlite();
@@ -12,6 +13,7 @@ test('replay is bounded, owner-scoped, ordered and respects current blocks/delet
       CREATE TABLE messages(id TEXT PRIMARY KEY, sender_id TEXT, receiver_id TEXT);
       CREATE TABLE user_blocks(blocker_username TEXT, blocked_username TEXT);`);
     for (let i = 0; i < 2; i++) for (const sql of migration.statements) await db.exec(sql);
+    for (let i = 0; i < 2; i++) for (const sql of resyncMigration.statements) await db.exec(sql);
     const store = createMessageReplayStore({ query: (sql, params) => db.query(sql, params) });
     const initial = await store.readMessageReplay('a');
     assert.equal(initial.resyncRequired, true);
@@ -74,4 +76,15 @@ test('journal acquires participant counters in stable order without copying mess
   });
   assert.deepEqual(calls.map(call => call.params), [['a', 'm'], ['z', 'm']]);
   assert.ok(calls.every(call => !JSON.stringify(call).includes('PRIVATE BODY')));
+});
+
+test('state event routing accepts only the versioned bounded owner contract', () => {
+  const event = { version: 1, type: 'message_state_changed', owners: ['alice', 'bob'] };
+  assert.deepEqual(getMessageStateEventOwners(event), ['alice', 'bob']);
+  assert.deepEqual(getMessageStateEventOwners({ ...event, owners: ['alice', 'alice'] }), ['alice']);
+  for (const invalid of [null, {}, { ...event, version: 2 }, { ...event, type: 'message_created' },
+    { ...event, owners: [] }, { ...event, owners: ['alice', 'bob', 'eve'] },
+    { ...event, owners: ['alice', {}] }, { ...event, owners: ['alice', 'bob\nother'] }]) {
+    assert.deepEqual(getMessageStateEventOwners(invalid), []);
+  }
 });
