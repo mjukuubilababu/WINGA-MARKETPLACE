@@ -2673,7 +2673,7 @@ test("boot lifecycle module owns lifecycle epoch and boot target helpers", () =>
   );
 });
 
-test("mobile navigation chrome reports stable transitions and preserves safe-area geometry", () => {
+test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states without coupling bottom navigation", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "navigation", "chrome.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
@@ -2705,7 +2705,13 @@ test("mobile navigation chrome reports stable transitions and preserves safe-are
     cancelAnimationFrame() {}
   });
   vm.runInContext(source, context);
-  const uiState = { mobileHeaderHidden: false };
+  const uiState = {
+    mobileHeaderState: "FULL",
+    mobileHeaderHidden: false,
+    mobileHeaderLastScrollY: 200,
+    mobileHeaderDirection: 0,
+    mobileHeaderDirectionAccumulator: 0
+  };
   const chrome = targetWindow.WingaModules.navigation.createNavigationChromeModule({
     isAuthenticatedUser: () => true,
     canUseSellerFeatures: () => false,
@@ -2719,32 +2725,45 @@ test("mobile navigation chrome reports stable transitions and preserves safe-are
     getViewHomeBackButton: () => null,
     getAuthContainer: () => ({ style: { display: "none" } }),
     getUiRuntimeState: () => uiState,
-    getSearchRuntimeState: () => ({ isMobileSearchOpen: false, isMobileCategoryOpen: false }),
+    getSearchRuntimeState: () => ({ isInputFocused: false, isMobileSearchOpen: false, isMobileCategoryOpen: false }),
     getProfileRuntimeState: () => ({ isHeaderUserMenuOpen: false }),
     getChatUiState: () => ({ isContextOpen: false }),
     reportEvent: (_level, eventName) => events.push(eventName)
   });
 
+  targetWindow.scrollY = 0;
+  uiState.mobileHeaderLastScrollY = 0;
+  chrome.setMobileHeaderState("FULL", { force: true });
+  targetWindow.scrollY = 3;
+  chrome.syncMobileHeaderVisibility();
+  assert.equal(uiState.mobileHeaderState, "HIDDEN", "FULL must disappear immediately after the 2px top boundary");
+  targetWindow.scrollY = 200;
+  uiState.mobileHeaderLastScrollY = 200;
   chrome.setMobileHeaderHidden(true);
   chrome.setMobileHeaderHidden(true, { force: true });
   uiState.mobileHeaderLastScrollY = 720;
-  uiState.mobileHeaderLastToggleY = 720;
-  targetWindow.scrollY = 716;
+  targetWindow.scrollY = 718;
   chrome.syncMobileHeaderVisibility();
   assert.equal(uiState.mobileHeaderHidden, true, "tiny upward movement must not reveal mobile chrome");
-  targetWindow.scrollY = 724;
+  targetWindow.scrollY = 721;
   chrome.syncMobileHeaderVisibility();
   assert.equal(uiState.mobileHeaderHidden, true, "rapid direction reversal must keep mobile chrome stable");
-  targetWindow.scrollY = 712;
+  targetWindow.scrollY = 717;
   chrome.syncMobileHeaderVisibility();
-  assert.equal(uiState.mobileHeaderHidden, false, "an intentional upward movement must reveal mobile chrome");
-  chrome.setMobileHeaderHidden(false);
+  assert.equal(uiState.mobileHeaderState, "SEARCH_ONLY", "an intentional upward movement must reveal only search");
+  chrome.setMobileHeaderState("FULL");
+  assert.equal(uiState.mobileHeaderState, "SEARCH_ONLY", "FULL must be impossible away from the absolute top");
+  targetWindow.scrollY = 0;
+  chrome.syncMobileHeaderVisibility();
 
-  assert.deepEqual(events, ["header_hidden_on_scroll", "header_restored_on_scroll"]);
-  assert.equal(attributes.get("data-mobile-header-state"), "visible");
-  assert.equal(attributes.get("data-mobile-nav-state"), "visible");
+  assert.equal(uiState.mobileHeaderState, "FULL");
+  assert.deepEqual(events, ["header_hidden_on_scroll", "header_search_revealed_on_scroll", "header_full_restored_on_scroll"]);
+  assert.equal(attributes.get("data-mobile-header-state"), "full");
+  assert.equal(classes.has("mobile-bottom-nav-hidden"), false);
+  assert.match(source, /mobileHeaderFullHeight[\s\S]*stableTopBarHeight/);
   assert.match(styleSource, /#bottom-nav\{[\s\S]*padding:7px max\(4px, env\(safe-area-inset-right\)\) max\(7px, env\(safe-area-inset-bottom\)\) max\(4px, env\(safe-area-inset-left\)\);/);
-  assert.match(styleSource, /body\.mobile-bottom-nav-hidden #bottom-nav,[\s\S]*transform:translateY\(calc\(100% \+ env\(safe-area-inset-bottom\)\)\);/);
+  assert.match(styleSource, /body\.mobile-header-search-only #top-bar\{[\s\S]*min-height:52px;[\s\S]*backdrop-filter:blur\(14px\);/);
+  assert.match(styleSource, /body\.mobile-header-search-only #top-bar\.has-business-tools:not\(\.search-engaged\) > #mobile-category-shell\{[\s\S]*display:none !important;/);
 });
 test("app boot helpers avoid duplicate hoisted declarations", () => {
   const root = path.resolve(__dirname, "..");

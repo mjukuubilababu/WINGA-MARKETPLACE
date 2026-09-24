@@ -995,10 +995,11 @@ test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without
 
   const paginationBefore = await page.evaluate(() => window.WingaDataLayer.getProductFeedPagination());
   await page.evaluate(() => window.scrollTo(0, 900));
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(true);
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
+  await expect(page.locator("#bottom-nav")).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 820));
-  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(72);
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(false);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(2);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
   await page.evaluate(() => {
     const dataLayer = window.WingaDataLayer;
     window.__wingaHomeTabRefreshCalls = 0;
@@ -1008,7 +1009,6 @@ test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without
       return Promise.resolve();
     };
   });
-  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "visible");
   await page.locator("#bottom-nav [data-shell-action='home']").click();
 
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
@@ -1018,7 +1018,7 @@ test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without
     nextCursor: paginationBefore.nextCursor,
     hasMore: paginationBefore.hasMore
   });
-  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "visible");
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "full");
   await page.waitForTimeout(600);
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
   const renderedIdsBeforeRefresh = await page.locator("#products-container [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-open-product")).filter(Boolean));
@@ -1038,6 +1038,7 @@ test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without
   expect(duplicatesAfterRefresh).toBeLessThanOrEqual(duplicatesBeforeRefresh);
 
   await page.evaluate(() => window.scrollTo(0, 720));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(700);
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
   await context.close();
 });
@@ -1424,6 +1425,7 @@ test("modern inbox keeps person grouping, search, unread and compact responsive 
     { id: "inbox-b", senderId: "buyer_seller", receiverId: "market_seller", message: "Latest reply", productId: "e2e-prod-1", productName: "Sneaker Classic", timestamp: now, isRead: false },
     { id: "inbox-c", senderId: "buyer-1775249142775-86567c", receiverId: "buyer_seller", message: "Another conversation", productId: "", productName: "Reel", timestamp: now, isRead: true }
   ];
+  await context.route("**/api/messages/stream", route => route.fulfill({ status: 204 }));
   await context.route("**/api/messages", async route => {
     if (route.request().method() !== "GET") return route.continue();
     await route.fulfill({ json: messages });
@@ -1528,6 +1530,8 @@ test("mobile profile messages use a clear conversation list and detail flow", as
   await page.locator("#context-chat-modal .context-chat-close").click();
   await page.locator("#product-detail-modal .product-detail-back").click();
 
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "full");
   await page.locator("#header-user-trigger").click();
   await page.locator("[data-header-menu-action='profile']").click();
   await page.locator("[data-profile-action='messages']").click();
@@ -2268,28 +2272,77 @@ test("mobile product-detail home clears search context and returns to a clean ho
   await context.close();
 });
 
-test("mobile header hides on downward scroll, reappears on upward scroll, and stays visible near the top", async ({ browser }) => {
+test("mobile Home header cycles FULL, HIDDEN, SEARCH_ONLY, HIDDEN, then FULL only at absolute top", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }
   });
   await page.goto("/");
 
   await expect(page.locator("#top-bar")).toBeVisible();
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "full");
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
 
   await page.evaluate(() => window.scrollTo(0, 720));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(true);
-  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "hidden");
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "hidden");
+  await expect(page.locator("#bottom-nav")).toBeVisible();
 
   await page.evaluate(() => window.scrollTo(0, 712));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThan(720);
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-bottom-nav-hidden"))).toBe(false);
-  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "visible");
+  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-search-only"))).toBe(true);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
+  await expect(page.locator("#header-brand")).not.toBeVisible();
+  await expect(page.locator("#quick-discovery-rail")).not.toBeVisible();
+  await expect(page.locator("#header-search-area")).toBeVisible();
+  const compactHeaderHeight = await page.locator("#top-bar").evaluate((element) => element.getBoundingClientRect().height);
+  expect(compactHeaderHeight).toBeGreaterThanOrEqual(48);
+  expect(compactHeaderHeight).toBeLessThanOrEqual(58);
+
+  await page.evaluate(() => window.scrollTo(0, 720));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(712);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "hidden");
 
   await page.evaluate(() => window.scrollTo(0, 24));
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThan(100);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(2);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
+  await expect(page.locator("#header-brand")).not.toBeVisible();
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(2);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "full");
+  await expect(page.locator("#header-brand")).toBeVisible();
   await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  await context.close();
+});
+
+test("mobile slim search remains stable while focused through viewport and scroll changes", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true
+  });
+  await page.goto("/");
+  await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "hidden");
+  await page.evaluate(() => window.scrollTo(0, 892));
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
+
+  await page.locator("#search-input").focus();
+  await expect(page.locator("#search-input")).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 620 });
+  await page.evaluate(() => window.scrollTo(0, 908));
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
+  await expect(page.locator("#search-input")).toBeFocused();
+
+  await page.locator("#search-input").blur();
+  await page.waitForTimeout(150);
+  await page.evaluate(() => window.scrollTo(0, 920));
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "hidden");
 
   await context.close();
 });
@@ -2308,8 +2361,8 @@ test("mobile header auto-hide does not reflow the feed container while users scr
   const hiddenPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
 
   await page.evaluate(() => window.scrollTo(0, 32));
-  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(72);
-  await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(2);
+  await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
   const restoredPaddingTop = await page.locator("#app-container").evaluate((element) => window.getComputedStyle(element).paddingTop);
 
   expect(hiddenPaddingTop).toBe(initialPaddingTop);

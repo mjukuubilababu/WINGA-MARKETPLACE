@@ -62,94 +62,151 @@
       return currentView === "offers" || currentView === "shops" || currentView === "profile" || currentView === "upload" || currentView === "admin";
     }
 
+    const MOBILE_HEADER_STATE = Object.freeze({
+      FULL: "FULL",
+      SEARCH_ONLY: "SEARCH_ONLY",
+      HIDDEN: "HIDDEN"
+    });
+    const MOBILE_HEADER_TOP_THRESHOLD = 2;
+    const MOBILE_HEADER_DIRECTION_THRESHOLD = 4;
+
     function isMobileHeaderAutoHideEnabled() {
-      const searchState = deps.getSearchRuntimeState();
-      const profileState = deps.getProfileRuntimeState();
-      const chatState = deps.getChatUiState();
       return getViewportWidth() <= 720
         && deps.getAppContainer()?.style.display !== "none"
         && deps.getCurrentView() === "home"
         && !document.body.classList.contains("auth-modal-open")
         && !document.body.classList.contains("product-detail-open")
-        && !searchState.isMobileSearchOpen
-        && !searchState.isMobileCategoryOpen
-        && !profileState.isHeaderUserMenuOpen
-        && !chatState.isContextOpen;
+        && !deps.getChatUiState().isContextOpen;
     }
 
-    function setMobileHeaderHidden(hidden, options = {}) {
+    function isMobileHeaderInteractionLocked() {
+      const searchState = deps.getSearchRuntimeState();
+      const profileState = deps.getProfileRuntimeState();
+      return Boolean(
+        searchState.isInputFocused
+        || searchState.isMobileSearchOpen
+        || searchState.isMobileCategoryOpen
+        || profileState.isHeaderUserMenuOpen
+      );
+    }
+
+    function normalizeMobileHeaderState(state, currentScrollY) {
+      if (!isMobileHeaderAutoHideEnabled()) {
+        return MOBILE_HEADER_STATE.FULL;
+      }
+      if (currentScrollY <= MOBILE_HEADER_TOP_THRESHOLD) {
+        return MOBILE_HEADER_STATE.FULL;
+      }
+      return state === MOBILE_HEADER_STATE.FULL
+        ? MOBILE_HEADER_STATE.SEARCH_ONLY
+        : state;
+    }
+
+    function setMobileHeaderState(state, options = {}) {
       const uiState = deps.getUiRuntimeState();
-      const nextHidden = Boolean(hidden) && isMobileHeaderAutoHideEnabled();
-      const wasHidden = Boolean(uiState.mobileHeaderHidden);
-      if (uiState.mobileHeaderHidden === nextHidden && !options.force) {
+      const currentScrollY = Math.max(window.scrollY || 0, 0);
+      const requestedState = Object.values(MOBILE_HEADER_STATE).includes(state)
+        ? state
+        : MOBILE_HEADER_STATE.FULL;
+      const nextState = normalizeMobileHeaderState(requestedState, currentScrollY);
+      const previousState = uiState.mobileHeaderState || (uiState.mobileHeaderHidden
+        ? MOBILE_HEADER_STATE.HIDDEN
+        : MOBILE_HEADER_STATE.FULL);
+      if (previousState === nextState && !options.force) {
         return;
       }
 
-      uiState.mobileHeaderHidden = nextHidden;
-      document.body.classList.toggle("mobile-header-hidden", nextHidden);
-      document.body.classList.toggle("mobile-bottom-nav-hidden", nextHidden);
-      deps.getTopBar()?.setAttribute("data-mobile-header-state", nextHidden ? "hidden" : "visible");
-      deps.getBottomNav()?.setAttribute("data-mobile-nav-state", nextHidden ? "hidden" : "visible");
-      if (wasHidden !== nextHidden) {
+      uiState.mobileHeaderState = nextState;
+      uiState.mobileHeaderHidden = nextState === MOBILE_HEADER_STATE.HIDDEN;
+      document.body.classList.toggle("mobile-header-hidden", nextState === MOBILE_HEADER_STATE.HIDDEN);
+      document.body.classList.toggle("mobile-header-search-only", nextState === MOBILE_HEADER_STATE.SEARCH_ONLY);
+      document.body.classList.toggle("mobile-bottom-nav-hidden", false);
+      deps.getTopBar()?.setAttribute("data-mobile-header-state", nextState.toLowerCase());
+      if (previousState !== nextState) {
+        const eventName = nextState === MOBILE_HEADER_STATE.HIDDEN
+          ? "header_hidden_on_scroll"
+          : nextState === MOBILE_HEADER_STATE.SEARCH_ONLY
+            ? "header_search_revealed_on_scroll"
+            : "header_full_restored_on_scroll";
         deps.reportEvent?.(
           "info",
-          nextHidden ? "header_hidden_on_scroll" : "header_restored_on_scroll",
-          nextHidden ? "Mobile navigation chrome hidden on downward scroll." : "Mobile navigation chrome restored on upward scroll.",
-          { category: "navigation", view: deps.getCurrentView() }
+          eventName,
+          `Mobile Home header changed from ${previousState} to ${nextState}.`,
+          { category: "navigation", view: deps.getCurrentView(), previousState, nextState }
         );
       }
+    }
+
+    function setMobileHeaderHidden(hidden, options = {}) {
+      const currentScrollY = Math.max(window.scrollY || 0, 0);
+      const nextState = hidden
+        ? MOBILE_HEADER_STATE.HIDDEN
+        : currentScrollY <= MOBILE_HEADER_TOP_THRESHOLD
+          ? MOBILE_HEADER_STATE.FULL
+          : MOBILE_HEADER_STATE.SEARCH_ONLY;
+      setMobileHeaderState(nextState, options);
     }
 
     function syncMobileHeaderVisibility(force = false) {
       const uiState = deps.getUiRuntimeState();
       if (!isMobileHeaderAutoHideEnabled()) {
-        setMobileHeaderHidden(false, { force });
+        setMobileHeaderState(MOBILE_HEADER_STATE.FULL, { force });
         uiState.mobileHeaderLastScrollY = Math.max(window.scrollY || 0, 0);
         uiState.mobileHeaderLastToggleY = uiState.mobileHeaderLastScrollY;
-        uiState.mobileHeaderPendingDirection = 0;
-        uiState.mobileHeaderObservedScrollY = uiState.mobileHeaderLastScrollY;
+        uiState.mobileHeaderDirection = 0;
+        uiState.mobileHeaderDirectionAccumulator = 0;
         return;
       }
 
       const currentScrollY = Math.max(window.scrollY || 0, 0);
-      const previousScrollY = uiState.mobileHeaderLastScrollY || 0;
+      const previousScrollY = Number.isFinite(uiState.mobileHeaderLastScrollY)
+        ? uiState.mobileHeaderLastScrollY
+        : currentScrollY;
       const delta = currentScrollY - previousScrollY;
-      const pendingDirection = Number(uiState.mobileHeaderPendingDirection || 0);
-      const nearTopThreshold = 72;
-      const hideThreshold = 64;
-      const movementThreshold = 8;
-
       uiState.mobileHeaderLastScrollY = currentScrollY;
-      uiState.mobileHeaderPendingDirection = 0;
 
-      if (currentScrollY <= nearTopThreshold) {
+      if (currentScrollY <= MOBILE_HEADER_TOP_THRESHOLD) {
         uiState.mobileHeaderLastToggleY = currentScrollY;
-        setMobileHeaderHidden(false, { force });
+        uiState.mobileHeaderDirection = 0;
+        uiState.mobileHeaderDirectionAccumulator = 0;
+        setMobileHeaderState(MOBILE_HEADER_STATE.FULL, { force });
         return;
       }
 
-      if (uiState.mobileHeaderHidden) {
-        if (pendingDirection > 0 || delta > 0) {
-          uiState.mobileHeaderLastToggleY = currentScrollY;
-          return;
-        }
-        if ((pendingDirection < 0 || delta < 0)
-          && (uiState.mobileHeaderLastToggleY || currentScrollY) - currentScrollY >= movementThreshold) {
-          uiState.mobileHeaderLastToggleY = currentScrollY;
-          setMobileHeaderHidden(false);
-        }
+      if (isMobileHeaderInteractionLocked()) {
+        uiState.mobileHeaderDirection = 0;
+        uiState.mobileHeaderDirectionAccumulator = 0;
+        setMobileHeaderState(MOBILE_HEADER_STATE.SEARCH_ONLY, { force });
         return;
       }
 
-      if (Math.abs(delta) < movementThreshold && !force) {
+      if (!uiState.mobileHeaderState || uiState.mobileHeaderState === MOBILE_HEADER_STATE.FULL) {
+        setMobileHeaderState(MOBILE_HEADER_STATE.HIDDEN, { force });
+      }
+
+      if (delta === 0) {
         return;
       }
 
-      if ((pendingDirection > 0 || delta > 0) && !uiState.mobileHeaderHidden) {
-        if (currentScrollY - (uiState.mobileHeaderLastToggleY || 0) >= hideThreshold) {
-          uiState.mobileHeaderLastToggleY = currentScrollY;
-          setMobileHeaderHidden(true);
-        }
+      const direction = delta > 0 ? 1 : -1;
+      if (direction !== Number(uiState.mobileHeaderDirection || 0)) {
+        uiState.mobileHeaderDirection = direction;
+        uiState.mobileHeaderDirectionAccumulator = delta;
+      } else {
+        uiState.mobileHeaderDirectionAccumulator = Number(uiState.mobileHeaderDirectionAccumulator || 0) + delta;
+      }
+
+      const accumulatedDelta = Number(uiState.mobileHeaderDirectionAccumulator || 0);
+      if (accumulatedDelta >= MOBILE_HEADER_DIRECTION_THRESHOLD) {
+        uiState.mobileHeaderLastToggleY = currentScrollY;
+        uiState.mobileHeaderDirection = 0;
+        uiState.mobileHeaderDirectionAccumulator = 0;
+        setMobileHeaderState(MOBILE_HEADER_STATE.HIDDEN);
+      } else if (accumulatedDelta <= -MOBILE_HEADER_DIRECTION_THRESHOLD) {
+        uiState.mobileHeaderLastToggleY = currentScrollY;
+        uiState.mobileHeaderDirection = 0;
+        uiState.mobileHeaderDirectionAccumulator = 0;
+        setMobileHeaderState(MOBILE_HEADER_STATE.SEARCH_ONLY);
       }
     }
 
@@ -162,16 +219,6 @@
         }
         return;
       }
-      const currentScrollY = Math.max(window.scrollY || 0, 0);
-      const previousObservedScrollY = Number.isFinite(uiState.mobileHeaderObservedScrollY)
-        ? uiState.mobileHeaderObservedScrollY
-        : currentScrollY;
-      if (currentScrollY > previousObservedScrollY + 1) {
-        uiState.mobileHeaderPendingDirection = 1;
-      } else if (currentScrollY < previousObservedScrollY - 1) {
-        uiState.mobileHeaderPendingDirection = -1;
-      }
-      uiState.mobileHeaderObservedScrollY = currentScrollY;
       if (uiState.mobileHeaderScrollFrame) {
         return;
       }
@@ -227,8 +274,19 @@
       const topBarPosition = window.getComputedStyle(topBar).position;
       const bottomNavPosition = window.getComputedStyle(bottomNav).position;
       const isBottomNavVisible = shouldShowBottomNav() && window.getComputedStyle(bottomNav).display !== "none";
+      const uiState = deps.getUiRuntimeState();
+      const measuredTopBarHeight = Math.ceil(topBar.getBoundingClientRect().height);
+      const isMobileHomeHeader = getViewportWidth() <= 720 && deps.getCurrentView() === "home";
+      if (isMobileHomeHeader
+        && (uiState.mobileHeaderState || MOBILE_HEADER_STATE.FULL) === MOBILE_HEADER_STATE.FULL
+        && measuredTopBarHeight > 0) {
+        uiState.mobileHeaderFullHeight = measuredTopBarHeight;
+      }
+      const stableTopBarHeight = isMobileHomeHeader && Number(uiState.mobileHeaderFullHeight || 0) > 0
+        ? Number(uiState.mobileHeaderFullHeight)
+        : measuredTopBarHeight;
       const topPadding = topBarPosition === "fixed"
-        ? Math.ceil(topBar.getBoundingClientRect().height) + 20
+        ? stableTopBarHeight + 20
         : 16;
       const bottomPadding = isBottomNavVisible && bottomNavPosition === "fixed"
         ? Math.ceil(bottomNav.getBoundingClientRect().height) + 24
@@ -255,6 +313,7 @@
       shouldShowPostProductFab,
       shouldShowViewHomeBack,
       isMobileHeaderAutoHideEnabled,
+      setMobileHeaderState,
       setMobileHeaderHidden,
       syncMobileHeaderVisibility,
       scheduleMobileHeaderScrollSync,
