@@ -7,6 +7,7 @@ const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
 const { signVideoSafetyPayload } = require("../backend/video-safety");
+const { verifySessionRevocation } = require("../scripts/verify-message-session-runtime");
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-test-"));
 const port = 43000 + Math.floor(Math.random() * 1000);
@@ -2894,6 +2895,20 @@ test("logout stops an existing SSE session while another session still receives 
     controller.abort();
     await Promise.all(readers.map(reader => reader.cancel().catch(() => {})));
   }
+  const probeLogin = await request("/auth/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "realtime_receiver", password: "Pass1234!Secure" })
+  });
+  assert.equal(probeLogin.response.status, 200);
+  const probeResult = await verifySessionRevocation({
+    origin: isolatedUrl.slice(0, -4), allowLogout: true,
+    revokeToken: decodeURIComponent(getAuthCookieHeader(probeLogin.response).slice("winga_auth=".length)),
+    controlToken: decodeURIComponent(otherSession.slice("winga_auth=".length))
+  });
+  assert.equal(probeResult.ok, true, JSON.stringify(probeResult));
+  assert.equal(probeResult.idleRevocationProven, true);
+  assert.equal(probeResult.controlSessionAlive, true);
+  assert.equal(probeResult.messageDeliveryRevocationProven, false);
   } finally {
     const stopped = waitForProcessExit(child);
     child.kill();

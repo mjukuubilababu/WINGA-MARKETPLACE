@@ -698,3 +698,32 @@ paging/replay 34/34, commerce 71/71, frontend core 144/144, additional frontend
 47/47, integration 202/202 and Playwright 141/141. Product-finder context retention
 also passed three consecutive focused runs. Localization and module-sync gates,
 static build, Worker deployment dry-run and `git diff --check` passed.
+
+## 23. Opt-in runtime session revocation evidence
+
+`scripts/verify-message-session-runtime.js` adds an explicitly authorized logout
+probe for two sessions of one test account. It checks clean idle-stream closure,
+401 for the revoked token, and a still-authenticated control session with a live
+heartbeat. It sends no messages and cannot prove cross-node failover or delivery
+revocation under load. See `message-session-runtime.md` for consent, hidden token
+prompts, cleanup and interpretation. The read-only replay verifier is unchanged.
+
+This is verification tooling, not a new messaging service or security protocol.
+No migration, frontend rebuild or production runtime change is required. A
+production result still needs locally supplied test-session tokens; absence of
+credentials must not be reported as a passing authenticated runtime test.
+
+Verification: realtime/probe unit tests passed 16/16; the real HTTP fixture
+proved both message-after-logout exclusion and the new idle-heartbeat probe.
+The first full CI run passed integration 202/202 but browser 140/141: the unchanged
+`signed-in home keeps lower rows visible without the hero` test found no product
+showcase row within 10 seconds. Its snapshot retained ordinary product cards.
+Three isolated repetitions passed without application/test/assertion edits;
+intermittency is observed, not a proven root cause or repaired Feed behavior.
+
+The final unchanged `npm run test:ci` rerun passed: realtime/probe 16/16,
+paging/replay 34/34, commerce 71/71, frontend core 144/144, additional frontend
+47/47, integration 202/202 and browser 141/141. Module synchronization,
+localization and diff checks passed. Public production shell/API verification
+also passed for the existing deployed build; authenticated Render revocation
+remains pending the operator's opt-in probe with test-session tokens.
