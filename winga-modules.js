@@ -3337,6 +3337,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               currentSession,
               {
                 restoreView: true,
+                preserveCommerceInteraction: cachedSession.username === session.username
+                  && cachedSession.role === session.role && !isStaffRole(session.role),
                 skipWelcome: true,
                 deferRender: true,
                 forceView: isStaffRole(currentSession.role) ? "admin" : ""

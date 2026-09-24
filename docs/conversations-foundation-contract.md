@@ -766,3 +766,54 @@ UI timing failures and obtain a clean full CI run before claiming that gate done
 The final code includes the partial-SSE-byte rejection checked by the second run.
 Public production shell/API checks passed for build `20260924170158`; no new
 frontend deployment or migration is required for this verification-only patch.
+
+## 25. Message-mode runtime evidence and late session hydration repair
+
+The user supplied a successful authenticated Render message-mode result after
+running the opt-in probe with two test accounts: logout and message send confirmed,
+revoked stream closed, revoked session denied, control session alive with a
+heartbeat, and `messageDeliveryRevocationProven: true`. Together with the earlier
+idle result this covers both observed revocation scenarios. In message mode,
+`idleRevocationProven: false` distinguishes the scenario, not a regression.
+This remains operator-supplied evidence; `crossNodeFailoverProven` is still false.
+
+The earlier Home composer and Profile menu timeouts were reproduced deterministically
+by holding `/api/auth/session` until after opening each surface. Both tests failed
+before the patch: `loginSuccess()` treated background hydration as a fresh login,
+closed the header menu, cleared the upload draft and navigated the composer Home.
+The menu renderer also replaced all buttons on passive updates.
+
+Session runtime now explicitly permits retaining these interactions only when
+the cached and restored username and role match and the role is not staff.
+Login retains an active eligible upload view and its draft instead of resetting it;
+new login, identity/role changes and forced staff navigation keep existing cleanup.
+Header menu rendering retains nodes when action/permission structure is unchanged,
+updating labels/counts in place; identity/structural changes still rebuild it.
+No auth endpoint, authorization policy, messaging transport or database schema changes.
+
+Regression coverage holds the actual restore request on desktop and mobile and
+checks menu visibility, node identity, keyboard focus, changing unread labels,
+image/caption/price drafts, details step and Back. Unit tests cover matching identity,
+different identity, role changes and staff restores. Existing assertions and timeout
+limits remain intact; no forced clicks, retries or test skips were added.
+
+The first full run after this repair passed the new regressions and original
+Home/Profile failures, but finished 144/145 because an existing desktop
+product-detail navigation test used `force: true` on an off-viewport continuation
+card. The matching desktop/mobile tests now use normal Playwright clicks with
+actionability checks; all outcome assertions remain unchanged. Those two tests
+passed six isolated runs (three per viewport). This is test interaction hardening,
+not a claimed change to product-detail runtime behavior.
+
+Final verification: `npm run test:ci` passed in full, including realtime 31/31,
+paging/replay 34/34, frontend core 144/144, integration 202/202 and browser 145/145.
+Module synchronization, commerce, additional frontend and localization gates also
+passed. The passing full run used the final patch with normal actionable clicks,
+not a retry/skip configuration. Earlier failures above remain recorded as evidence.
+
+Next production proof remains cross-node reconnect/failover. It requires an
+explicitly identified isolated staging environment or an approved multi-instance
+production exercise with node identity evidence, test accounts and a rollback plan.
+Do not terminate an arbitrary production instance or infer multi-node proof from
+ordinary SSE reconnect. After a controlled node loss, verify canonical message IDs
+are recovered once by replay for the valid session and denied to the revoked session.

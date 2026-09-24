@@ -1676,6 +1676,18 @@ test("auth session runtime module owns restore token and reporting", async () =>
   assert.equal(currentSession.username, "maria");
   assert.equal(loginPayload[0], "maria");
   assert.equal(loginPayload[3].forceView, "admin");
+  assert.equal(loginPayload[3].preserveCommerceInteraction, false);
+  for (const [cachedUser, cachedRole, restoredUser, restoredRole, expected] of [
+    ["maria", "seller", "maria", "seller", true],
+    ["maria", "buyer", "maria", "seller", false],
+    ["maria", "seller", "another", "seller", false]
+  ]) {
+    runtime.startBackgroundSessionRestore(Promise.resolve({ username: restoredUser, role: restoredRole }), {
+      username: cachedUser, role: cachedRole, token: "cached-token"
+    }, { lifecycleEpoch: 7 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(loginPayload[3].preserveCommerceInteraction, expected);
+  }
   assert.ok(bootPhases.some(([phase, payload]) => phase === "session_restore_started" && payload.hasToken === true));
   assert.ok(bootPhases.some(([phase, payload]) => phase === "session_restore_finished" && payload.outcome === "restored"));
   assert.match(source, /window\.WingaModules\.auth\.createSessionRuntimeModule = createSessionRuntimeModule/);

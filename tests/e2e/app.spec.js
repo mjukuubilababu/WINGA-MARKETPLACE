@@ -831,6 +831,77 @@ test("guest can browse Visual Categories without authentication", async ({ brows
   await expect(page.locator(".visual-category-grid .visual-category-card")).toHaveCount(6);
   await context.close();
 });
+for (const [surface, mobile] of [["menu", false], ["composer", false], ["menu", true], ["composer", true]]) {
+  test(`late same-account session restore preserves active ${surface} on ${mobile ? "mobile" : "desktop"}`, async ({ browser }) => {
+    const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure",
+      mobile ? { viewport: { width: 390, height: 844 }, isMobile: true } : {});
+    let releaseRestore;
+    const restoreGate = new Promise(resolve => { releaseRestore = resolve; });
+    await page.route(`${apiBaseUrl}/auth/session`, async route => {
+      await restoreGate;
+      await route.continue();
+    });
+    try {
+      await page.goto("/");
+      if (surface === "menu") {
+        await page.locator(mobile ? "#mobile-category-button" : "#header-user-trigger").click();
+        await expect(page.locator("#header-user-dropdown")).toBeVisible();
+        await page.evaluate(() => {
+          window.retainedMenuButton = document.querySelector("[data-header-menu-action='profile']");
+          window.retainedMenuButton.focus({ preventScroll: true });
+        });
+        expect(await page.evaluate(() => document.activeElement === window.retainedMenuButton)).toBe(true);
+        expect(await page.evaluate(() => {
+          const getItems = getHeaderMenuItems;
+          try {
+            getHeaderMenuItems = () => getItems().map(item => item.action === "messages"
+              ? { ...item, label: "Messages (7)" } : item);
+            renderHeaderUserMenu();
+            return window.retainedMenuButton.isConnected
+              && document.querySelector("[data-header-menu-action='messages']").textContent === "Messages (7)";
+          } finally {
+            getHeaderMenuItems = getItems;
+            renderHeaderUserMenu();
+          }
+        })).toBe(true);
+      } else {
+        await page.locator(mobile ? "#bottom-nav [data-shell-action='sell']" : "#post-product-fab").click();
+        await page.locator("[data-creation-action='post']").click();
+        await page.locator("#product-name").fill("Draft retained across session restore");
+        await page.locator("#product-image-file").setInputFiles({ name: "draft.png", mimeType: "image/png", buffer: tinyPngBuffer });
+        await expect(page.locator("#image-preview-list img")).toHaveCount(1);
+        await page.locator("#creation-next").click();
+        await page.locator("#product-price").fill("75000");
+      }
+      expect(await page.evaluate(() => isSessionRestorePending)).toBe(true);
+      releaseRestore();
+      await expect.poll(() => page.evaluate(() => isSessionRestorePending)).toBe(false);
+      if (surface === "menu") {
+        await expect(page.locator("#header-user-dropdown")).toBeVisible();
+        expect(await page.evaluate(() => window.retainedMenuButton.isConnected)).toBe(true);
+        expect(await page.evaluate(() => document.activeElement === window.retainedMenuButton)).toBe(true);
+        await page.locator("[data-header-menu-action='profile']").click();
+        await expect(page.locator("#profile-request-box-panel")).toContainText("Hakuna bidhaa kwenye My Requests bado");
+      } else {
+        await expect(page.locator("#upload-form")).toBeVisible();
+        await expect(page.locator("#product-name")).toHaveValue("Draft retained across session restore");
+        expect(await page.evaluate(() => currentView)).toBe("upload");
+        await expect(page.locator("#product-price")).toBeVisible();
+        await expect(page.locator("#product-price")).toHaveValue("75000");
+        await expect(page.locator("#image-preview-list img")).toHaveCount(1);
+        await page.locator("#creation-back").click();
+        await expect(page.locator("#product-name")).toBeVisible();
+        await page.locator("#creation-back").click();
+        await expect(page.locator("#upload-form")).not.toBeVisible();
+        await expect(page.locator("#products-container .product-card").first()).toBeVisible();
+      }
+    } finally {
+      releaseRestore();
+      await context.close();
+    }
+  });
+}
+
 test("session restore preserves Settings opened before authentication hydration completes", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_only", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }, isMobile: true
@@ -2140,13 +2211,13 @@ test("desktop product-detail home clears search context and returns to a clean h
 
   const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
   if (await preferredNextCard.count()) {
-    await preferredNextCard.click({ force: true });
+    await preferredNextCard.click();
   } else {
     const activeProductId = await page.locator("#product-detail-modal .product-detail-image").getAttribute("data-image-action-product");
     const nextProductIndex = await page.locator("#product-detail-modal [data-open-product]").evaluateAll((cards, currentId) => {
       return cards.findIndex((card) => (card.getAttribute("data-open-product") || "") !== currentId);
     }, activeProductId || "");
-    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click({ force: true });
+    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click();
   }
   const homeFab = page.locator("#product-detail-modal [data-product-detail-home]");
   await expect(homeFab).toBeVisible();
@@ -2172,13 +2243,13 @@ test("mobile product-detail home clears search context and returns to a clean ho
 
   const preferredNextCard = page.locator("#product-detail-modal [data-open-product='e2e-prod-delete']").first();
   if (await preferredNextCard.count()) {
-    await preferredNextCard.click({ force: true });
+    await preferredNextCard.click();
   } else {
     const activeProductId = await page.locator("#product-detail-modal .product-detail-image").getAttribute("data-image-action-product");
     const nextProductIndex = await page.locator("#product-detail-modal [data-open-product]").evaluateAll((cards, currentId) => {
       return cards.findIndex((card) => (card.getAttribute("data-open-product") || "") !== currentId);
     }, activeProductId || "");
-    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click({ force: true });
+    await page.locator("#product-detail-modal [data-open-product]").nth(nextProductIndex >= 0 ? nextProductIndex : 0).click();
   }
   const homeFab = page.locator("#product-detail-modal [data-product-detail-home]");
   if (await homeFab.count()) {

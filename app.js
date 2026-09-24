@@ -2264,7 +2264,7 @@ function requestCurrentSurfaceRefresh(reason = "scheduled_render", options = {})
   return true;
 }
 
-function resetTransientChromeState() {
+function resetTransientChromeState(options = {}) {
   searchRuntimeState.isMobileSearchOpen = false;
   searchRuntimeState.isInputFocused = false;
   searchRuntimeState.isMobileCategoryOpen = false;
@@ -2275,7 +2275,7 @@ function resetTransientChromeState() {
   mobileCategoryButton?.setAttribute("aria-expanded", "false");
   mobileCategoriesNav?.setAttribute("aria-expanded", "false");
   pinnedDesktopCategory = "";
-  toggleHeaderUserMenu(false);
+  toggleHeaderUserMenu(options.preserveHeaderMenu === true && profileRuntimeState.isHeaderUserMenuOpen);
   document.body.classList.remove(
     "mobile-category-sheet-open",
     "auth-modal-open",
@@ -5635,6 +5635,7 @@ function renderHeaderUserMenu() {
 
   if (!isAuthenticatedUser()) {
     profileRuntimeState.isHeaderUserMenuOpen = false;
+    delete headerUserDropdown.dataset.renderKey;
     headerUserMenu.classList.remove("open");
     headerUserTrigger.setAttribute("aria-expanded", "false");
     mobileCategoryButton?.setAttribute("aria-expanded", "false");
@@ -5659,8 +5660,15 @@ function renderHeaderUserMenu() {
     headerUserAvatarImage.style.display = profileImage ? "block" : "none";
   }
 
+  const menuItems = getHeaderMenuItems().filter((item) => item.action !== "seller-insights" || headerUserMenu.dataset.menuAnchor === "utility");
+  const renderKey = JSON.stringify([currentUser, menuItems.map(({ label, ...item }) => item)]);
+  // Passive hydration must not detach a focused or about-to-be-clicked button.
+  if (headerUserDropdown.dataset.renderKey === renderKey) {
+    menuItems.forEach((item, index) => setNodeText(headerUserDropdown.children[index].querySelector("span"), item.label));
+    return;
+  }
   headerUserDropdown.replaceChildren(
-    ...getHeaderMenuItems().filter((item) => item.action !== "seller-insights" || headerUserMenu.dataset.menuAnchor === "utility").map((item) => {
+    ...menuItems.map((item) => {
       const button = createElement("button", {
         className: `header-user-menu-item${item.danger ? " danger" : ""}`,
         attributes: {
@@ -5676,6 +5684,7 @@ function renderHeaderUserMenu() {
       return button;
     })
   );
+  headerUserDropdown.dataset.renderKey = renderKey;
 }
 
 function openProfileSection(sectionId = "") {
@@ -19023,6 +19032,12 @@ async function hydrateMissingImageSignatures(productList = products) {
 }
 
 function loginSuccess(username, preferredCategory = "", sessionData = null, options = {}) {
+  const preserveCommerceInteraction = options.restoreView
+    && options.preserveCommerceInteraction === true
+    && currentSession?.username === username
+    && !options.forceView
+    && !isStaffRole(sessionData?.role || currentSession?.role || "");
+  const retainedUpload = preserveCommerceInteraction && currentView === "upload" && canUseSellerFeatures();
   const retainedProfileSection = options.restoreView
     && currentView === "profile"
     && currentSession?.username === username
@@ -19058,7 +19073,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   if (sortSelect) {
     sortSelect.value = "default";
   }
-  resetTransientChromeState();
+  resetTransientChromeState({ preserveHeaderMenu: preserveCommerceInteraction });
   applySessionState(sessionData || {
     username,
     fullName: username,
@@ -19112,7 +19127,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   pendingAnalyticsRestore = null;
   const nextView = forceView && isRestorableView(forceView, currentSession)
     ? forceView
-    : (isStaffUser() ? "admin" : retainedProfileSection ? "profile" : restoreAnalytics ? "analytics" : "home");
+    : (isStaffUser() ? "admin" : retainedUpload ? "upload" : retainedProfileSection ? "profile" : restoreAnalytics ? "analytics" : "home");
   saveSessionUser(currentSession);
   if (!isStaffUser()) {
     scheduleIdleBackgroundWork(() => hydrateAuthoritativeFollowState(
@@ -19140,7 +19155,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     nextSelectedCategory
   );
   refreshPublicEntryChrome();
-  clearUploadForm();
+  if (!retainedUpload) clearUploadForm();
   productShopInput.value = username;
   const activeGuestIntent = pendingGuestIntent || getPendingGuestIntent();
   const activeGuestIntentType = String(activeGuestIntent?.type || "").trim();
@@ -19176,11 +19191,11 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   } else {
     renderCurrentView();
   }
-  if (nextView !== "home") {
+  if (nextView !== "home" && !retainedUpload) {
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "auto" });
     });
-  } else if (!shouldKeepHomeFirst) {
+  } else if (nextView === "home" && !shouldKeepHomeFirst) {
     restoreStoredHomeScrollPosition();
   }
   if (productsContainer?.querySelector(".product-card, .seller-product-card") || nextView !== "home") {
