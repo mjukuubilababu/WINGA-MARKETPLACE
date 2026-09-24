@@ -2673,7 +2673,7 @@ test("boot lifecycle module owns lifecycle epoch and boot target helpers", () =>
   );
 });
 
-test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states without coupling bottom navigation", () => {
+test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states while restoring directional bottom navigation", () => {
   const root = path.resolve(__dirname, "..");
   const source = fs.readFileSync(path.join(root, "src", "navigation", "chrome.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "style.css"), "utf8");
@@ -2737,6 +2737,7 @@ test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states without c
   targetWindow.scrollY = 3;
   chrome.syncMobileHeaderVisibility();
   assert.equal(uiState.mobileHeaderState, "HIDDEN", "FULL must disappear immediately after the 2px top boundary");
+  assert.equal(classes.has("mobile-bottom-nav-hidden"), true, "moving deeper must hide the bottom navigation");
   targetWindow.scrollY = 200;
   uiState.mobileHeaderLastScrollY = 200;
   chrome.setMobileHeaderHidden(true);
@@ -2751,6 +2752,7 @@ test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states without c
   targetWindow.scrollY = 717;
   chrome.syncMobileHeaderVisibility();
   assert.equal(uiState.mobileHeaderState, "SEARCH_ONLY", "an intentional upward movement must reveal only search");
+  assert.equal(classes.has("mobile-bottom-nav-hidden"), false, "reversing upward must restore the bottom navigation");
   chrome.setMobileHeaderState("FULL");
   assert.equal(uiState.mobileHeaderState, "SEARCH_ONLY", "FULL must be impossible away from the absolute top");
   targetWindow.scrollY = 0;
@@ -2759,6 +2761,7 @@ test("mobile Home header enforces FULL, SEARCH_ONLY, and HIDDEN states without c
   assert.equal(uiState.mobileHeaderState, "FULL");
   assert.deepEqual(events, ["header_hidden_on_scroll", "header_search_revealed_on_scroll", "header_full_restored_on_scroll"]);
   assert.equal(attributes.get("data-mobile-header-state"), "full");
+  assert.equal(attributes.get("data-mobile-nav-state"), "visible");
   assert.equal(classes.has("mobile-bottom-nav-hidden"), false);
   assert.match(source, /mobileHeaderFullHeight[\s\S]*stableTopBarHeight/);
   assert.match(styleSource, /#bottom-nav\{[\s\S]*padding:7px max\(4px, env\(safe-area-inset-right\)\) max\(7px, env\(safe-area-inset-bottom\)\) max\(4px, env\(safe-area-inset-left\)\);/);

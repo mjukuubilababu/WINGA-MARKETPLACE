@@ -6705,8 +6705,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       uiState.mobileHeaderHidden = nextState === MOBILE_HEADER_STATE.HIDDEN;
       document.body.classList.toggle("mobile-header-hidden", nextState === MOBILE_HEADER_STATE.HIDDEN);
       document.body.classList.toggle("mobile-header-search-only", nextState === MOBILE_HEADER_STATE.SEARCH_ONLY);
-      document.body.classList.toggle("mobile-bottom-nav-hidden", false);
+      document.body.classList.toggle("mobile-bottom-nav-hidden", nextState === MOBILE_HEADER_STATE.HIDDEN);
       deps.getTopBar()?.setAttribute("data-mobile-header-state", nextState.toLowerCase());
+      deps.getBottomNav()?.setAttribute(
+        "data-mobile-nav-state",
+        nextState === MOBILE_HEADER_STATE.HIDDEN ? "hidden" : "visible"
+      );
       if (previousState !== nextState) {
         const eventName = nextState === MOBILE_HEADER_STATE.HIDDEN
           ? "header_hidden_on_scroll"

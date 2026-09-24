@@ -996,10 +996,14 @@ test("Home tab scrolls, refreshes, and preserves the endless-feed cursor without
   const paginationBefore = await page.evaluate(() => window.WingaDataLayer.getProductFeedPagination());
   await page.evaluate(() => window.scrollTo(0, 900));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
-  await expect(page.locator("#bottom-nav")).toBeVisible();
+  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "hidden");
+  await expect.poll(async () => page.locator("#bottom-nav").evaluate((nav) => (
+    nav.getBoundingClientRect().top >= window.innerHeight - 1
+  ))).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 820));
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(2);
   await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
+  await expect(page.locator("#bottom-nav")).toBeVisible();
   await page.evaluate(() => {
     const dataLayer = window.WingaDataLayer;
     window.__wingaHomeTabRefreshCalls = 0;
@@ -2285,12 +2289,16 @@ test("mobile Home header cycles FULL, HIDDEN, SEARCH_ONLY, HIDDEN, then FULL onl
   await page.evaluate(() => window.scrollTo(0, 720));
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(true);
   await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "hidden");
-  await expect(page.locator("#bottom-nav")).toBeVisible();
+  await expect(page.locator("#bottom-nav")).toHaveAttribute("data-mobile-nav-state", "hidden");
+  await expect.poll(async () => page.locator("#bottom-nav").evaluate((nav) => (
+    nav.getBoundingClientRect().top >= window.innerHeight - 1
+  ))).toBe(true);
 
   await page.evaluate(() => window.scrollTo(0, 712));
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeLessThan(720);
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-hidden"))).toBe(false);
   await expect.poll(async () => page.evaluate(() => document.body.classList.contains("mobile-header-search-only"))).toBe(true);
+  await expect(page.locator("#bottom-nav")).toBeVisible();
   await expect(page.locator("#top-bar")).toHaveAttribute("data-mobile-header-state", "search_only");
   await expect(page.locator("#header-brand")).not.toBeVisible();
   await expect(page.locator("#quick-discovery-rail")).not.toBeVisible();
