@@ -5311,6 +5311,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
   }
 
+  async function readRealtimeSession(token, username) {
+    const result = await query(
+      `SELECT s.username, s.expires_at AS "expiresAt", u.role, u.status
+       FROM sessions s JOIN users u ON u.username = s.username
+       WHERE s.token = $1 AND s.username = $2 AND s.expires_at > $3`,
+      [token, username, Date.now()]
+    );
+    return result.rows[0] || null;
+  }
+
   async function deleteSessionByToken(token) {
     const safeToken = String(token || "").trim().slice(0, 160);
     if (!safeToken) {
@@ -9845,6 +9855,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     reviewReport,
     replaceSession,
     deleteSessionByToken,
+    readRealtimeSession,
     deleteSessionById,
     createUserWithSession,
     createLoginSession,

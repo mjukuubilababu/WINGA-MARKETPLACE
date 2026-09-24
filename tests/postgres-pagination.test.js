@@ -3,6 +3,32 @@ const assert = require("node:assert/strict");
 const { createPostgresStore, resolveDatabasePoolMax } = require("../backend/db");
 const { MIGRATIONS, runSchemaMigrations } = require("../backend/migrations");
 
+test("realtime session reads use primary current user state and exclude revoked or expired tokens", async () => {
+  const { PGlite } = require("@electric-sql/pglite");
+  const db = new PGlite();
+  await db.exec(`CREATE TABLE users (username TEXT PRIMARY KEY, role TEXT, status TEXT);
+    CREATE TABLE sessions (token TEXT PRIMARY KEY, username TEXT, expires_at BIGINT);
+    INSERT INTO users VALUES ('alice', 'buyer', 'active');`);
+  await db.query("INSERT INTO sessions VALUES ($1, $2, $3)", ["secret", "alice", Date.now() + 60000]);
+  let replicaReads = 0;
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test/realtime", queryClient: db,
+    readQueryClient: { query: async () => { replicaReads++; throw new Error("Replica must not authorize SSE"); } }
+  });
+  try {
+    assert.equal((await store.readRealtimeSession("secret", "alice")).role, "buyer");
+    assert.equal(await store.readRealtimeSession("secret", "bob"), null);
+    await db.exec("UPDATE users SET status = 'banned'");
+    assert.equal((await store.readRealtimeSession("secret", "alice")).status, "banned");
+    await db.exec("UPDATE sessions SET expires_at = 0");
+    assert.equal(await store.readRealtimeSession("secret", "alice"), null);
+    await db.query("UPDATE sessions SET expires_at = $1", [Date.now() + 60000]);
+    await db.exec("DELETE FROM sessions");
+    assert.equal(await store.readRealtimeSession("secret", "alice"), null);
+    assert.equal(replicaReads, 0);
+  } finally { await db.close(); }
+});
+
 test("PostgreSQL pool max uses a safe default and accepts positive environment overrides", () => {
   assert.equal(resolveDatabasePoolMax(undefined), 20);
   assert.equal(resolveDatabasePoolMax("40"), 40);

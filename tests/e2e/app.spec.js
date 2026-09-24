@@ -1392,6 +1392,9 @@ test("modern inbox keeps person grouping, search, unread and compact responsive 
 
 test("paged inbox loads summaries first and older history on demand", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  // Synthetic paged rows have no matching replay journal in the file-backed test server.
+  // Reconnect/resync is covered separately; do not reset this pagination fixture on SSE open.
+  await context.route("**/api/messages/stream", route => route.fulfill({ status: 204 }));
   let fullReads = 0, historyReads = 0, failOlder = true;
   const now = new Date().toISOString();
   const latest = { id: "paged-new", senderId: "market_seller", receiverId: "buyer_seller", message: "Latest paged message", timestamp: now, isRead: true };
@@ -1552,6 +1555,7 @@ test("conversation product finder searches canonical supply and opens the seller
   await expect(result).toBeVisible();
   await result.locator("[data-assistant-ask-seller]").click();
   await expect(page.locator("#context-chat-modal")).toBeVisible();
+  await page.evaluate(() => refreshMessagesState());
   await expect(page.locator("#context-chat-title")).toContainText("Market Seller Shop");
   const orderCard=page.locator('#context-chat-modal [data-conversation-order="order-chat-live"]');
   await expect(orderCard).toBeVisible();

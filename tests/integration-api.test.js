@@ -2816,6 +2816,92 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(lastAdminLoginAttempt.response.headers.get("x-ratelimit-remaining"), "0");
 });
 
+test("logout stops an existing SSE session while another session still receives messages", async () => {
+  const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-sse-revocation-"));
+  const isolatedUrl = `http://127.0.0.1:${port + 1}/api`;
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: path.join(process.cwd(), "backend"),
+    env: { ...process.env, PORT: String(port + 1), NODE_ENV: "test", DATABASE_URL: "",
+      R2_ACCOUNT_ID: "", WINGA_DATA_DIR: path.join(isolatedRoot, "data"),
+      WINGA_UPLOADS_DIR: path.join(isolatedRoot, "uploads") },
+    stdio: "ignore"
+  });
+  let csrf;
+  async function request(pathname, options = {}) {
+    if (!csrf) {
+      const response = await fetch(`${isolatedUrl}/auth/csrf-token`);
+      const body = await response.json();
+      const cookie = response.headers.get("set-cookie").match(/winga_csrf=([^;]+)/)[1];
+      csrf = { token: body.csrfToken, cookie: `winga_csrf=${cookie}` };
+    }
+    const headers = new Headers(options.headers);
+    headers.set("Cookie", [headers.get("Cookie"), csrf.cookie].filter(Boolean).join("; "));
+    headers.set("X-CSRF-Token", csrf.token);
+    const response = await fetch(isolatedUrl + pathname, { ...options, headers });
+    return { response, body: await response.json() };
+  }
+  try {
+  await waitForServer(`${isolatedUrl}/health`);
+  const accounts = [];
+  for (const [index, username] of ["realtime_sender", "realtime_receiver"].entries()) {
+    const signup = await request("/auth/signup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password: "Pass1234!Secure", phoneNumber: `25571188990${index}` })
+    });
+    assert.equal(signup.response.status, 200);
+    accounts.push(getAuthCookieHeader(signup.response));
+  }
+  const login = await request("/auth/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "realtime_receiver", password: "Pass1234!Secure" })
+  });
+  assert.equal(login.response.status, 200);
+  const otherSession = getAuthCookieHeader(login.response);
+  assert.notEqual(otherSession, accounts[1]);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const readers = [];
+  try {
+    for (const cookie of [accounts[1], otherSession]) {
+      const stream = await fetch(`${isolatedUrl}/messages/stream`, {
+        headers: { Cookie: cookie }, signal: controller.signal
+      });
+      assert.equal(stream.status, 200);
+      const reader = stream.body.getReader();
+      readers.push(reader);
+      const initial = await reader.read();
+      assert.match(Buffer.from(initial.value).toString(), /event: welcome/);
+    }
+    const logout = await request("/auth/logout", { method: "POST", headers: { Cookie: accounts[1] } });
+    assert.equal(logout.response.status, 200);
+    const sent = await request("/messages", {
+      method: "POST", headers: { Cookie: accounts[0], "Content-Type": "application/json" },
+      body: JSON.stringify({ receiverId: "realtime_receiver", message: "Post logout test message" })
+    });
+    assert.equal(sent.response.status, 200);
+    const revoked = await readers[0].read();
+    assert.equal(revoked.done, true, "revoked stream must close without the private message");
+    let received = "";
+    while (!received.includes("Post logout test message")) {
+      const next = await readers[1].read();
+      assert.equal(next.done, false);
+      received += Buffer.from(next.value).toString();
+    }
+    assert.match(received, /event: message/);
+    assert.equal((await request("/auth/session", { headers: { Cookie: accounts[1] } })).response.status, 401);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    await Promise.all(readers.map(reader => reader.cancel().catch(() => {})));
+  }
+  } finally {
+    const stopped = waitForProcessExit(child);
+    child.kill();
+    await stopped;
+    fs.rmSync(isolatedRoot, { recursive: true, force: true });
+  }
+});
+
 test("production boot still seeds staff accounts when seed env passwords are blank", async () => {
   const productionTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-api-prod-test-"));
   const productionPort = 44000 + Math.floor(Math.random() * 1000);

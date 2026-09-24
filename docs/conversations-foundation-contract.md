@@ -631,3 +631,70 @@ implement isolated BEAM realtime and its platform authentication contract;
 integrate an audited E2EE implementation and protected endpoint state; implement
 private encrypted media; multi-device/recovery; and measured load, failure,
 security and production acceptance. These phases remain incomplete.
+
+### User-reported runtime verification
+
+After `e36ffb9`, the user supplied the authenticated Render probe with
+`stateChangeReplayEnabled`, checkpoint/resume and migration readability all true.
+The probe still reports `writeAndReconnectProven: false`: it is read-only.
+The user subsequently tested two-account messaging/reconnect, reported broken
+Inbox actions, and confirmed all actions worked after `301913e`. Record this as
+user-reported functional acceptance, not independently observed multi-node
+failover, load or security certification.
+
+## 22. Active SSE session authorization
+
+The legacy SSE route previously authenticated once at connection open and sent
+unchecked heartbeats thereafter. An already-open connection could outlive logout,
+session revocation/rotation, expiry or account restrictions.
+
+The existing transport now validates the original token and owner against
+primary PostgreSQL session/current-user state before each queued event. It does
+not use the read replica, a cached user snapshot, or a bearer token in the URL.
+Existing restricted-account and staff rules also apply. Legacy file-backed mode
+re-reads canonical sessions/users for compatibility.
+
+Idle connections revalidate on the 25-second heartbeat. Authorization errors or
+checks exceeding five seconds close the connection without writing the queued
+event. Event checks are serialized per connection, with at most 32 queued events
+and 256 KiB of encoded pending data; slow socket backpressure also closes the
+stream. No plaintext queue or token is written to telemetry or persistent logs.
+The existing browser reconnect/replay remains the recovery path. No new browser
+transport or schema migration is required.
+
+This is current-session authorization at the delivery boundary, not a claim of
+instant distributed revocation or device-bound E2EE. A revocation racing the
+completed authorization read cannot retract already-written bytes. Idle closure
+is bounded by heartbeat plus the check deadline under a responsive event loop.
+Each event incurs a primary indexed lookup per receiving connection; benchmark
+that cost before a large rollout. Check deadlines stop stream delivery but do not
+cancel an already-running database query; database pool timeouts still apply.
+
+Targeted tests passed 133/133: real HTTP logout denies the old stream while
+another session receives; executable SQL excludes wrong-owner/expired/revoked
+tokens and bypasses replicas; isolated stream tests cover failed/hung checks,
+late completion, ordering, queue bounds, heartbeat and socket errors. The first
+HTTP fixture hit the existing signup rate limit; it was moved into an isolated
+test server without changing production limits.
+
+Production two-session revocation remains a separate authenticated check.
+BEAM, audited E2EE, device enrollment/recovery and security/load sign-off remain
+pending; this increment does not freeze the unresolved protocol choices.
+
+Browser verification also exposed a context race: an Inbox refresh could clear
+an explicitly opened product chat while the underlying Inbox remained in list
+mode. `syncActiveChatContext` now preserves an open modal's chosen context; the
+product-finder browser test explicitly refreshes messages before checking seller,
+product and canonical order cards. This small frontend fix requires publishing
+the frontend assets, without redesigning chat.
+
+The synthetic pagination fixture now disables its unrelated SSE transport: its
+mock conversation rows have no corresponding replay journal. Dedicated real
+reconnect/state-change tests remain enabled. The pagination case passed three
+consecutive runs after fixture isolation; no pagination assertions were removed.
+
+Final validation: `npm run test:ci` passed with realtime 6/6, message
+paging/replay 34/34, commerce 71/71, frontend core 144/144, additional frontend
+47/47, integration 202/202 and Playwright 141/141. Product-finder context retention
+also passed three consecutive focused runs. Localization and module-sync gates,
+static build, Worker deployment dry-run and `git diff --check` passed.

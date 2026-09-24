@@ -171,3 +171,12 @@ message writes and reconnect delivery have been verified in production.
   replay, PostgreSQL pagination and integration API suite passed 128/128.
 - These are local checks. New authenticated Render migration reads and real
   two-account cross-instance read/delete reconnect remain unproven.
+
+### Subsequent Runtime Evidence
+
+The user supplied an authenticated Render probe after deployment with
+`stateChangeReplayEnabled: true` and `migrationReadable: true`. They subsequently
+confirmed functional messaging/reconnect and, after the Inbox action fix
+`301913e`, Reply/Forward/Delete. This is user-reported runtime evidence; the probe
+does not execute writes and still correctly prints `writeAndReconnectProven: false`.
+Controlled cross-node failure and primary failover remain staging gates.

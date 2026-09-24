@@ -9441,6 +9441,8 @@ function getMessagePreviewText(message) {
 }
 
 function syncActiveChatContext() {
+  // Inbox reconciliation must not replace an explicitly opened product conversation.
+  if (chatUiState.isContextOpen && chatUiState.activeContext) return;
   const summaries = getConversationSummaries();
   if (currentView === "profile" && chatUiState.profileMessagesMode === "list" && !chatUiState.profileHasSelection) {
     chatUiState.activeContext = null;

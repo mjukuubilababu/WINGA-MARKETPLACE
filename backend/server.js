@@ -7,6 +7,7 @@ const path = require("path");
 const { createPostgresStore } = require("./db");
 const { readMessageIdempotencyKey, messageRequestHash } = require("./message-idempotency");
 const { getMessageStateEventOwners } = require("./message-replay");
+const { createAuthorizedRealtimeClient } = require("./realtime-client");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
@@ -6062,12 +6063,11 @@ function emitLiveEvent(username, eventName, payload) {
     return;
   }
 
-  const chunk = `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
-  clients.forEach((res) => {
+  clients.forEach((client) => {
     try {
-      res.write(chunk);
+      client.send(eventName, payload);
     } catch (error) {
-      removeLiveClient(username, res);
+      client.close();
     }
   });
 }
@@ -8190,22 +8190,20 @@ const server = http.createServer(async (req, res) => {
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no"
       }, req));
-      res.write(`event: welcome\ndata: ${JSON.stringify({ ok: true, time: new Date().toISOString() })}\n\n`);
-      registerLiveClient(user.username, res);
-
-      const heartbeat = setInterval(() => {
-        try {
-          res.write(`event: ping\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
-        } catch (error) {
-          clearInterval(heartbeat);
-          removeLiveClient(user.username, res);
-        }
-      }, 25000);
-
-      req.on("close", () => {
-        clearInterval(heartbeat);
-        removeLiveClient(user.username, res);
+      const client = createAuthorizedRealtimeClient({
+        response: res,
+        authorize: async () => {
+          const current = postgresStore
+            ? await postgresStore.readRealtimeSession(token, user.username)
+            : findSession(await readStore(["users", "sessions"]), token);
+          return Boolean(current && current.username === user.username
+            && Number(current.expiresAt) > Date.now()
+            && !isRestrictedUserStatus(current.status) && !isStaffRole(current.role));
+        },
+        onClose: () => removeLiveClient(user.username, client)
       });
+      registerLiveClient(user.username, client);
+      client.send("welcome", { ok: true, time: new Date().toISOString() });
       return;
     }
 
