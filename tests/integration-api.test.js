@@ -2900,6 +2900,16 @@ test("logout stops an existing SSE session while another session still receives 
     body: JSON.stringify({ username: "realtime_receiver", password: "Pass1234!Secure" })
   });
   assert.equal(probeLogin.response.status, 200);
+  const unsupportedMessageProbe = await verifySessionRevocation({
+    origin: isolatedUrl.slice(0, -4), allowLogout: true, allowMessageSend: true,
+    revokeToken: decodeURIComponent(getAuthCookieHeader(probeLogin.response).slice("winga_auth=".length)),
+    controlToken: decodeURIComponent(otherSession.slice("winga_auth=".length)),
+    senderToken: decodeURIComponent(accounts[0].slice("winga_auth=".length)),
+    receiverUsername: "realtime_receiver"
+  });
+  assert.equal(unsupportedMessageProbe.errorCode, "DURABLE_SEND_REQUIRED");
+  assert.equal(unsupportedMessageProbe.logoutAttempted, false);
+  assert.equal(unsupportedMessageProbe.messageSendAttempted, false);
   const probeResult = await verifySessionRevocation({
     origin: isolatedUrl.slice(0, -4), allowLogout: true,
     revokeToken: decodeURIComponent(getAuthCookieHeader(probeLogin.response).slice("winga_auth=".length)),

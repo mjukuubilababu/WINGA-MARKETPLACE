@@ -727,3 +727,42 @@ paging/replay 34/34, commerce 71/71, frontend core 144/144, additional frontend
 localization and diff checks passed. Public production shell/API verification
 also passed for the existing deployed build; authenticated Render revocation
 remains pending the operator's opt-in probe with test-session tokens.
+
+## 24. User-reported idle runtime proof and message probe extension
+
+The user subsequently supplied a successful authenticated Render result from
+the session verifier: logout confirmed, revoked stream closed, revoked session
+denied, same-account control session alive with a heartbeat, and
+`idleRevocationProven: true`. This is user-supplied runtime evidence, not an
+independently observed security certification. Message delivery after logout and
+cross-node failover were explicitly false/unproven in that result.
+
+The existing verifier now has a separately consented `--send-probe-message` mode.
+It requires a third session from another test account, an explicitly selected
+receiver username, and canonical durable-retry capability BEFORE mutations.
+It logs out only the designated receiver session, sends one labelled synthetic
+message with a logical idempotency key, and correlates the control stream with
+the exact canonical acknowledgement while rejecting events on the revoked stream.
+It neither reads messages as READ nor deletes the synthetic message/history.
+Unknown send outcomes remain explicit and are never automatically re-sent.
+
+This is verification tooling only; no production schema, runtime route, browser
+transport or crypto change is required. Actual message-mode Render evidence
+remains pending the operator's explicit test with fresh sessions. The legacy
+file-backed HTTP fixture has no durable-send capability and must refuse this
+mode before logout; the existing real HTTP test separately checks a post-logout
+message while the correlation/error paths use controlled transport fixtures.
+Cross-node failover, BEAM, E2EE and device delivery acknowledgements remain open.
+
+Local verification on 2026-09-24: targeted verifier tests passed 25/25 and the
+combined realtime suite passed 31/31. Full CI passed module sync, non-browser
+suites and API integration 202/202, but is NOT green: two complete attempts each
+ended at 140/141 browser tests. The first timed out clicking `#creation-back`
+in the seller Home composer test; the second timed out after the Profile menu
+item detached/closed in the empty request-box test. Each failed test subsequently
+passed 3/3 isolated repeats without application or assertion changes. This is
+intermittent UI-test evidence, not a root-cause fix or a full-CI pass. Resolve the
+UI timing failures and obtain a clean full CI run before claiming that gate done.
+The final code includes the partial-SSE-byte rejection checked by the second run.
+Public production shell/API checks passed for build `20260924170158`; no new
+frontend deployment or migration is required for this verification-only patch.
