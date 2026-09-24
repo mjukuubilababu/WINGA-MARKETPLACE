@@ -901,6 +901,28 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(svgProductUpload.response.status, 400);
   assert.match(svgProductUpload.body.error, /picha/i);
 
+  const heicDataImage = `data:image/heic;base64,${Buffer.from("heic image bytes").toString("base64")}`;
+  const heicProductUpload = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-heic",
+      name: "Kiatu HEIC",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [heicDataImage],
+      image: heicDataImage
+    })
+  });
+  assert.equal(heicProductUpload.response.status, 400);
+  assert.match(heicProductUpload.body.error, /picha/i);
+
   const mismatchedPngImage = `data:image/png;base64,${Buffer.from("not a real png").toString("base64")}`;
   const mismatchedImageUpload = await request("/products", {
     method: "POST",

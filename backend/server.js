@@ -4220,6 +4220,19 @@ function parseDataImageValue(value) {
   return { mimeType, encoded, buffer };
 }
 
+function getDeclaredDataImageMimeType(value) {
+  const match = typeof value === "string"
+    ? value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i)
+    : null;
+  return String(match?.[1] || "").toLowerCase();
+}
+
+function createProductImageError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 function imageBufferMatchesMime(buffer, mimeType) {
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     return false;
@@ -4328,11 +4341,11 @@ function saveDataUrlImage(value) {
 
   const { mimeType, buffer } = parsedImage;
   if (!imageBufferMatchesMime(buffer, mimeType)) {
-    throw new Error("Aina ya picha haijaruhusiwa.");
+    throw createProductImageError("INVALID_PRODUCT_IMAGE", "Picha haiwezi kusomwa au kuboreshwa kwa usalama.");
   }
   const extension = getMimeExtension(mimeType);
   if (!extension) {
-    throw new Error("Aina ya picha haijaruhusiwa.");
+    throw createProductImageError("UNSUPPORTED_IMAGE_TYPE", "Aina ya picha haijaruhusiwa.");
   }
 
   const fileName = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${extension}`;
@@ -4348,9 +4361,13 @@ async function persistIncomingProductImages(product) {
     if (typeof value !== "string" || !value.startsWith("data:image/")) return value;
     if (!persistedValues.has(value)) {
       persistedValues.set(value, (async () => {
+        const declaredMimeType = getDeclaredDataImageMimeType(value);
+        if (declaredMimeType && !ALLOWED_DATA_IMAGE_MIME_TYPES.has(declaredMimeType)) {
+          throw createProductImageError("UNSUPPORTED_IMAGE_TYPE", "Aina ya picha haijaruhusiwa.");
+        }
         const parsedImage = parseDataImageValue(value);
         if (!parsedImage || !imageBufferMatchesMime(parsedImage.buffer, parsedImage.mimeType)) {
-          throw new Error("Aina ya picha haijaruhusiwa.");
+          throw createProductImageError("INVALID_PRODUCT_IMAGE", "Picha haiwezi kusomwa au kuboreshwa kwa usalama.");
         }
         let processed;
         try {
@@ -14594,6 +14611,24 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 400, {
         error: "Picha haiwezi kusomwa au kuboreshwa kwa usalama.",
         code: "invalid_product_image"
+      });
+      return;
+    }
+
+    if (error?.code === "UNSUPPORTED_IMAGE_TYPE") {
+      requestMeta.statusCode = 400;
+      logStructuredEvent("warn", "route_error", {
+        requestId: requestMeta.requestId,
+        route: requestMeta.route,
+        method: requestMeta.method,
+        durationMs: Date.now() - requestMeta.startedAt,
+        cfRay: requestMeta.cfRay || "",
+        error: "UNSUPPORTED_IMAGE_TYPE",
+        memory: getMemoryUsageSnapshot()
+      });
+      sendJson(res, 400, {
+        error: "Aina hii ya picha haiungwi mkono. Tumia JPG, PNG, WebP, AVIF au GIF; badilisha HEIC/HEIF kuwa JPG kwanza.",
+        code: "unsupported_image_type"
       });
       return;
     }
