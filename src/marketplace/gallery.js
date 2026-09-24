@@ -216,6 +216,7 @@
         `;
       }).join("");
       const playbackLabel = translateUi("video.playProduct", {}, "Play product video");
+      const soundOnLabel = translateUi("video.soundOn", {}, "Turn sound on");
       const videoContentType = String(product?.category || "").trim().toLowerCase() === "reels" ? "reel" : "video";
       const videoSlides = videoItems.map((item, videoIndex) => {
         const providerPoster = String(item.posterUrl || item.thumbnailUrl || "").trim();
@@ -241,6 +242,14 @@
             ${posterMarkup}
             <span class="feed-video-play-icon" aria-hidden="true"></span>
           </div>
+          <button class="feed-video-audio-toggle" type="button"
+            data-video-audio-toggle
+            data-video-audio-state="off"
+            aria-label="${escapeHtml(soundOnLabel)}"
+            title="${escapeHtml(soundOnLabel)}"
+            aria-pressed="false">
+            <img data-video-audio-icon src="/icons/navigation/volume-x.svg" width="20" height="20" alt="">
+          </button>
         </div>
       `;
       }).join("");

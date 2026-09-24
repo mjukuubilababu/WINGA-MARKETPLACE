@@ -241,6 +241,9 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal((videoOnlyHtml.match(/data-feed-gallery-slide=/g) || []).length, 1);
   assert.match(videoOnlyHtml, /data-video-provider-id="stream-video-only"/);
   assert.match(videoOnlyHtml, /data-video-content-type="video"/);
+  assert.match(videoOnlyHtml, /data-video-audio-toggle/);
+  assert.match(videoOnlyHtml, /data-video-audio-state="off"/);
+  assert.match(videoOnlyHtml, /icons\/navigation\/volume-x\.svg/);
   assert.match(videoOnlyHtml, /data-feed-gallery-stable-ratio="0.5625"/);
   assert.match(videoOnlyHtml, /--fit-media-aspect-ratio:0.5625/);
   assert.equal(gallery.getStableFeedMediaRatio({
@@ -282,6 +285,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(playbackSource, /new Hls\(getHlsConfig\(playbackProfile, options\)\)/);
   assert.match(playbackSource, /state\.hls\.destroy/);
   assert.match(buildSource, /node_modules\/hls\.js\/dist\/hls\.light\.min\.js/);
+  assert.match(buildSource, /"volume-2", "volume-x"/);
   assert.match(buildSource, /"src\/marketplace\/video-playback\.js"/);
   assert.match(serverSource, /SESSION_ONLY_STORE_TABLES/);
   assert.match(serverSource, /key: "\/api\/media\/videos\/:providerId\/playback-token"/);
@@ -289,6 +293,8 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.match(workerSource, /const stableMediaRatio = getStableFeedMediaRatio\(product\);/);
   assert.match(playbackSource, /reportMetric\(event, Object\.freeze\(\{ \.\.\.detail \}\)\)/);
   assert.match(playbackSource, /video_playback_started/);
+  assert.equal(playbackSource.includes("soundEnabledByUser"), true);
+  assert.equal(playbackSource.includes("setVideoAudio(node, state, player, enableSound)"), true);
   assert.equal(playbackSource.includes("maxConcurrentPrewarms"), true);
   assert.equal(playbackSource.includes("prewarmRootMargin"), true);
   assert.equal(playbackSource.includes('prewarmRootMargin || "1800px 0px"'), true);
@@ -319,6 +325,7 @@ test("marketplace gallery adds one secure ready video slide without collapsing p
   assert.equal(workerSource.includes("function getReadyStreamVideoItems(product)"), true);
   assert.equal(workerSource.includes('data-video-prewarm="true"'), true);
   assert.equal(workerSource.includes('data-video-content-type="${escapeHtml(videoContentType)}"'), true);
+  assert.equal(workerSource.includes("data-video-audio-toggle"), true);
   assert.equal(workerSource.includes("const slidesMarkup ="), true);
   assert.equal(workerSource.includes("__WINGA_BIG_PIPE_VIDEO_TOKEN_PROMISES__"), true);
   assert.equal(workerSource.includes('slice(0, 3)'), true);

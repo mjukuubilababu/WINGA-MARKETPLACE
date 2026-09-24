@@ -1123,6 +1123,8 @@
                      "ui.label.1911ff50be5f":  "Vaa Pendeza",
                      "video.playProduct":  "Cheza video ya bidhaa",
                      "video.playerLabel":  "Video ya bidhaa: {title}",
+                     "video.soundOn":  "Washa sauti",
+                     "video.soundOff":  "Zima sauti",
                      "video.playbackRuntimeTimeout":  "Video imechukua muda mrefu kuanza kucheza.",
                      "video.playbackUnsupported":  "Kifaa hiki hakiwezi kucheza video hii.",
                      "video.playbackRuntimeFailed":  "Video haikuweza kuanza kucheza.",

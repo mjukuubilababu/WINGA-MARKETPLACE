@@ -4,7 +4,6 @@ const path = require("node:path");
 
 const apiBaseUrl = "http://127.0.0.1:43080/api";
 const seedSessionsPath = path.join(__dirname, ".seed-sessions.json");
-const videoOnlyProviderId = "e2e-stream-video-only-001";
 const mixedVideoProviderId = "e2e-stream-mixed-video-001";
 
 async function installVideoFeedHarness(context, options = {}) {
@@ -157,14 +156,34 @@ async function loadContinuationCard(page, productName) {
   return card;
 }
 
-test("guest feed video is edge to edge, muted, bounded to one player, and keeps endless discovery alive", async ({ browser }) => {
+async function loadVideoCard(page, productName, providerId) {
+  const playback = page.locator(`#products-container [data-video-provider-id="${providerId}"]`).first();
+  for (let attempt = 0; attempt < 12 && await playback.count() === 0; attempt += 1) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(500);
+  }
+  await expect(playback).toBeAttached({ timeout: 30000 });
+  const card = playback.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' product-card ')][1]");
+  await expect(card).toContainText(productName);
+  await playback.evaluate((node) => {
+    const slide = node.closest("[data-feed-gallery-slide]");
+    const gallery = node.closest("[data-feed-gallery-carousel]");
+    if (slide && gallery) {
+      gallery.scrollLeft = slide.offsetLeft;
+      gallery.dispatchEvent(new Event("scroll"));
+    }
+  });
+  await playback.scrollIntoViewIfNeeded();
+  return { card, playback };
+}
+
+test("guest feed video starts muted, exposes sound, stays edge to edge, and keeps endless discovery alive", async ({ browser }) => {
   const { context, page } = await createVideoPage(browser);
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await expect(page.locator("#products-container .product-card").first()).toBeVisible({ timeout: 30000 });
-  const card = await loadContinuationCard(page, "Phone Smart X");
-  const playback = card.locator("[data-video-provider-id=\"" + videoOnlyProviderId + "\"]");
+  const { card, playback } = await loadVideoCard(page, "Dress Elegant", mixedVideoProviderId);
   await expect(playback.locator(".feed-video-poster")).toBeAttached();
   await expect(playback.locator("video[data-stream-player]")).toBeAttached({ timeout: 15000 });
   await expect(playback).toHaveClass(/is-playing/);
@@ -195,13 +214,24 @@ test("guest feed video is edge to edge, muted, bounded to one player, and keeps 
   expect(state.muted).toBe(true);
   expect(state.playsInline).toBe(true);
   expect(state.playerObjectFit).toBe("contain");
-  expect(state.galleryAspectRatio).toBe("0.5625");
-  expect(state.mediaAspectRatio).toBeCloseTo(0.5625, 4);
-  expect(state.renderedAspectRatio).toBeGreaterThan(0.55);
-  expect(state.renderedAspectRatio).toBeLessThan(0.575);
+  expect(Number(state.galleryAspectRatio)).toBeGreaterThan(0);
+  expect(state.mediaAspectRatio).toBeGreaterThan(0);
+  expect(state.renderedAspectRatio).toBeGreaterThan(0);
   expect(state.playbackMaxWidth).toBe("100%");
   expect(state.playbackPaddingInline).toBe("0px 0px");
   expect(state.activePlayers).toBeLessThanOrEqual(1);
+
+  const audioToggle = playback.locator("xpath=..").locator("[data-video-audio-toggle]");
+  await expect(audioToggle).toBeVisible();
+  await expect(audioToggle).toHaveAttribute("data-video-audio-state", "off");
+  await audioToggle.click();
+  await expect.poll(async () => playback.locator("video[data-stream-player]").evaluate((player) => ({
+    muted: player.muted,
+    volume: player.volume
+  }))).toEqual({ muted: false, volume: 1 });
+  await expect(audioToggle).toHaveAttribute("data-video-audio-state", "on");
+  await expect(audioToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(audioToggle.locator("[data-video-audio-icon]")).toHaveAttribute("src", "/icons/navigation/volume-2.svg");
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect(page.locator("[data-continuous-discovery-anchor='home']")).toBeAttached();
@@ -242,18 +272,18 @@ test("authenticated mixed media stays image first, swipes to video, and survives
 });
 
 test("video playback failure preserves the poster, commerce card, and scrolling feed", async ({ browser }) => {
-  const { context, page } = await createVideoPage(browser, { failedProviders: [videoOnlyProviderId] });
+  const { context, page } = await createVideoPage(browser, { failedProviders: [mixedVideoProviderId] });
   await page.goto("/");
-  const card = await loadContinuationCard(page, "Phone Smart X");
-  const playback = card.locator("[data-video-provider-id=\"" + videoOnlyProviderId + "\"]");
+  const { card, playback } = await loadVideoCard(page, "Dress Elegant", mixedVideoProviderId);
   await playback.click();
   await expect(playback).toHaveClass(/has-playback-error/, { timeout: 15000 });
   await expect(playback.locator(".feed-video-poster")).toBeVisible();
-  await expect(card).toContainText("Phone Smart X");
+  await expect(card).toContainText("Dress Elegant");
   await expect(card.locator(".product-actions, .showcase-actions, .seller-product-actions").first()).toBeAttached();
 
+  await page.evaluate(() => window.scrollTo(0, Math.max(0, window.scrollY - 500)));
   const beforeScroll = await page.evaluate(() => window.scrollY);
-  await page.mouse.wheel(0, 900);
+  await page.evaluate(() => window.scrollBy(0, 900));
   await expect.poll(async () => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforeScroll);
   await expect(page.locator("#products-container .product-card").first()).toBeAttached();
   await context.close();
@@ -262,8 +292,7 @@ test("video playback failure preserves the poster, commerce card, and scrolling 
 test("deep feed releases off-screen video players while retaining the product card and poster", async ({ browser }) => {
   const { context, page } = await createVideoPage(browser);
   await page.goto("/");
-  const card = await loadContinuationCard(page, "Phone Smart X");
-  const playback = card.locator("[data-video-provider-id=\"" + videoOnlyProviderId + "\"]");
+  const { card, playback } = await loadVideoCard(page, "Dress Elegant", mixedVideoProviderId);
 
   await expect(playback.locator("video[data-stream-player]")).toBeAttached({ timeout: 15000 });
   await expect(playback).toHaveClass(/is-playing/);

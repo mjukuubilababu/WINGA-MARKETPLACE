@@ -1127,6 +1127,8 @@
                      "ui.label.1911ff50be5f":  "متعة الارتداء",
                      "video.playProduct":  "تشغيل فيديو المنتج",
                      "video.playerLabel":  "فيديو المنتج: {title}",
+                     "video.soundOn":  "تشغيل الصوت",
+                     "video.soundOff":  "إيقاف الصوت",
                      "video.playbackRuntimeTimeout":  "استغرق تشغيل الفيديو وقتًا طويلًا.",
                      "video.playbackUnsupported":  "هذا الجهاز لا يدعم تشغيل هذا الفيديو.",
                      "video.playbackRuntimeFailed":  "تعذر بدء تشغيل الفيديو.",

@@ -1123,6 +1123,8 @@
                      "ui.label.1911ff50be5f":  "Wear Fun",
                      "video.playProduct":  "Play product video",
                      "video.playerLabel":  "Product video: {title}",
+                     "video.soundOn":  "Turn sound on",
+                     "video.soundOff":  "Turn sound off",
                      "video.playbackRuntimeTimeout":  "Video playback took too long to start.",
                      "video.playbackUnsupported":  "Video playback is not supported on this device.",
                      "video.playbackRuntimeFailed":  "Video playback could not start.",

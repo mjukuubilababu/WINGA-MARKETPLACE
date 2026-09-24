@@ -11638,6 +11638,36 @@ button:hover,
   touch-action:pan-x pan-y;
 }
 
+.feed-video-audio-toggle{
+  position:absolute;
+  z-index:14;
+  top:10px;
+  left:10px;
+  width:40px;
+  height:40px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid rgba(255,255,255,.42);
+  border-radius:50%;
+  background:rgba(0,0,0,.64);
+  box-shadow:0 4px 14px rgba(0,0,0,.22);
+  cursor:pointer;
+  touch-action:manipulation;
+}
+
+.feed-video-audio-toggle img{
+  width:20px;
+  height:20px;
+  filter:brightness(0) invert(1);
+  pointer-events:none;
+}
+
+.feed-video-audio-toggle:focus-visible{
+  outline:3px solid rgba(255,255,255,.92);
+  outline-offset:2px;
+}
+
 .feed-video-poster,
 .feed-video-player{
   position:absolute;

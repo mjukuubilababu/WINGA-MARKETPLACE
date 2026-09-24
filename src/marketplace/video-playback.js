@@ -71,6 +71,7 @@
     let networkHandlersInstalled = false;
     let commerceHandlerInstalled = false;
     let reducedMotionHandlerInstalled = false;
+    let soundEnabledByUser = false;
     const dominanceSwitchDelta = Math.max(0.05, Math.min(0.3, Number(deps.dominanceSwitchDelta || 0.12)));
     const reducedMotionQuery = targetWindow.matchMedia?.("(prefers-reduced-motion: reduce)") || null;
 
@@ -543,6 +544,7 @@
         state.hasPlayed = false;
         state.autoplayRequested = false;
         state.userInitiatedPlayback = false;
+        state.audioRequested = false;
         state.prewarmQueued = false;
         state.awaitingNetwork = false;
         state.networkRecoveryAttempts = 0;
@@ -590,6 +592,47 @@
       if (!state) return;
       if (state.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       state.releaseTimer = targetWindow.setTimeout(() => releaseNode(node), releaseDelayMs);
+    }
+
+    function isVideoAudible(video) {
+      return Boolean(video && !video.muted && Number(video.volume ?? 1) > 0);
+    }
+
+    function getVideoAudioControl(node) {
+      return node?.querySelector?.("[data-video-audio-toggle]")
+        || node?.parentElement?.querySelector?.("[data-video-audio-toggle]")
+        || null;
+    }
+
+    function syncVideoAudioControl(node, video) {
+      const control = getVideoAudioControl(node);
+      if (!control) return;
+      const audible = isVideoAudible(video);
+      const label = translateUi(
+        audible ? "video.soundOff" : "video.soundOn",
+        {},
+        audible ? "Turn sound off" : "Turn sound on"
+      );
+      control.setAttribute?.("aria-label", label);
+      control.setAttribute?.("title", label);
+      control.setAttribute?.("aria-pressed", audible ? "true" : "false");
+      control.dataset.videoAudioState = audible ? "on" : "off";
+      const icon = control.querySelector?.("[data-video-audio-icon]");
+      if (icon) {
+        icon.src = audible
+          ? "/icons/navigation/volume-2.svg"
+          : "/icons/navigation/volume-x.svg";
+      }
+    }
+
+    function setVideoAudio(node, state, video, enabled) {
+      if (!video) return;
+      const nextEnabled = enabled === true;
+      if (nextEnabled && Number(video.volume || 0) === 0) video.volume = 1;
+      video.muted = !nextEnabled;
+      soundEnabledByUser = nextEnabled;
+      if (state) state.audioRequested = false;
+      syncVideoAudioControl(node, video);
     }
 
     function requestPlayerPlay(player) {
@@ -781,6 +824,9 @@
       if (state.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       const existingPlayer = node.querySelector("[data-stream-player]");
       if (existingPlayer) {
+        if (options.userInitiated === true && (state.audioRequested === true || soundEnabledByUser)) {
+          setVideoAudio(node, state, existingPlayer, true);
+        }
         if (state.autoplayRequested && state.ready && activeNode === node && !state.userPaused) {
           if (state.hasPlayed && existingPlayer.paused && !state.pauseReason) {
             state.userPaused = true;
@@ -844,7 +890,8 @@
         video.className = "feed-video-player";
         video.title = String(node.dataset.videoTitle || "Product video");
         video.controls = true;
-        video.muted = true;
+        video.muted = !(soundEnabledByUser || state.audioRequested === true || options.userInitiated === true);
+        state.audioRequested = false;
         video.loop = true;
         video.playsInline = true;
         video.preload = options.prewarm === true ? "auto" : "metadata";
@@ -854,6 +901,7 @@
         video.setAttribute("playsinline", "");
         setActiveVideoSemantics(node, state, video);
         node.appendChild(video);
+        syncVideoAudioControl(node, video);
         attachCaptionTracks(video, node, state, providerId, generation);
 
         let playbackStartedReported = false;
@@ -999,6 +1047,8 @@
         };
         const handleVolumeChange = () => {
           const muted = Boolean(video.muted || Number(video.volume || 0) === 0);
+          soundEnabledByUser = !muted;
+          syncVideoAudioControl(node, video);
           if (muted === state.lastMuted) return;
           state.lastMuted = muted;
           emitVideoMetric(node, state, muted ? "video_mute" : "video_unmute", {});
@@ -1248,6 +1298,7 @@
           completionReportedForLoop: false,
           lastCurrentTime: 0,
           lastMuted: true,
+          audioRequested: false,
           summaryGeneration: -1
         });
 
@@ -1262,16 +1313,43 @@
 
         const activateFromUser = (event) => {
           if (event.target?.matches?.("[data-stream-player]")) return;
+          if (event.target?.closest?.("[data-video-audio-toggle]")) return;
           if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
           event.preventDefault();
           event.stopPropagation();
+          soundEnabledByUser = true;
+          stateByNode.get(node).audioRequested = true;
           void activateNode(node, { autoplay: true, userInitiated: true });
         };
+        const toggleAudioFromUser = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const state = stateByNode.get(node);
+          if (!state) return;
+          const player = node.querySelector?.("[data-stream-player]");
+          const enableSound = !isVideoAudible(player);
+          soundEnabledByUser = enableSound;
+          state.audioRequested = enableSound;
+          if (!player) {
+            syncVideoAudioControl(node, null);
+            void activateNode(node, { autoplay: true, userInitiated: true });
+            return;
+          }
+          setVideoAudio(node, state, player, enableSound);
+          if (enableSound) {
+            claimActiveNode(node);
+            state.autoplayRequested = true;
+            requestPlayerPlay(player);
+          }
+        };
+        const audioToggle = getVideoAudioControl(node);
         node.addEventListener("click", activateFromUser);
         node.addEventListener("keydown", activateFromUser);
+        audioToggle?.addEventListener?.("click", toggleAudioFromUser);
         node.__wingaVideoCleanup = () => {
           node.removeEventListener("click", activateFromUser);
           node.removeEventListener("keydown", activateFromUser);
+          audioToggle?.removeEventListener?.("click", toggleAudioFromUser);
           observer?.unobserve?.(node);
           boundNodes.delete(node);
           const state = stateByNode.get(node);

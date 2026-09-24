@@ -1191,6 +1191,14 @@ function renderFeedGalleryMarkup(product, options = {}) {
           ${posterMarkup}
           <span class="feed-video-play-icon" aria-hidden="true"></span>
         </div>
+        <button class="feed-video-audio-toggle" type="button"
+          data-video-audio-toggle
+          data-video-audio-state="off"
+          aria-label="Turn sound on"
+          title="Turn sound on"
+          aria-pressed="false">
+          <img data-video-audio-icon src="/icons/navigation/volume-x.svg" width="20" height="20" alt="">
+        </button>
       </div>
     `;
   }).join("");
