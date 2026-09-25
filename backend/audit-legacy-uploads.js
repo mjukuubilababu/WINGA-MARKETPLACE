@@ -32,6 +32,19 @@ function addReferences(value, names, invalid) {
   }
 }
 
+function withStoredVariants(names, inventory) {
+  const candidates = new Set(names);
+  for (const name of names) {
+    const match = name.match(/^(.*)-(?:320|640|1080)\.webp$/);
+    if (!match) continue;
+    for (const width of [320, 640, 1080]) {
+      const variant = match[1] + "-" + width + ".webp";
+      if (inventory.files.has(variant)) candidates.add(variant);
+    }
+  }
+  return candidates;
+}
+
 async function readUploadInventory(directory) {
   const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   const files = new Map();
@@ -59,8 +72,27 @@ function analyzeLegacyUploads(inventory, records) {
     sessions: new Set(), privateIdentity: new Set()
   };
   const invalid = { count: 0 };
+  const productRowsByAccess = {
+    approvedPublic: 0, approvedFollowers: 0, approvedPrivate: 0,
+    pending: 0, rejected: 0, other: 0
+  };
+  const approvedPublicNames = new Set();
+  const restrictedProductNames = new Set();
   for (const row of records.products || []) {
-    addReferences([row.image, row.images, row.media_items], groups.products, invalid);
+    const rowNames = new Set();
+    addReferences([row.image, row.images, row.media_items], rowNames, invalid);
+    const status = String(row.status || "").toLowerCase();
+    const visibility = String(row.visibility || "").toLowerCase();
+    const access = status === "approved"
+      ? (["public", "followers", "private"].includes(visibility)
+        ? "approved" + visibility[0].toUpperCase() + visibility.slice(1) : "other")
+      : (status === "pending" || status === "rejected" ? status : "other");
+    productRowsByAccess[access] += 1;
+    const target = access === "approvedPublic" ? approvedPublicNames : restrictedProductNames;
+    for (const name of rowNames) {
+      groups.products.add(name);
+      target.add(name);
+    }
   }
   for (const row of records.orders || []) addReferences(row.product_image, groups.orders, invalid);
   for (const row of records.users || []) {
@@ -71,15 +103,9 @@ function analyzeLegacyUploads(inventory, records) {
 
   const publicNames = new Set([...groups.products, ...groups.orders, ...groups.profiles, ...groups.sessions]);
   const allNames = new Set([...publicNames, ...groups.privateIdentity]);
-  const copyCandidates = new Set(publicNames);
-  for (const name of publicNames) {
-    const match = name.match(/^(.*)-(?:320|640|1080)\.webp$/);
-    if (!match) continue;
-    for (const width of [320, 640, 1080]) {
-      const variant = match[1] + "-" + width + ".webp";
-      if (inventory.files.has(variant)) copyCandidates.add(variant);
-    }
-  }
+  const copyCandidates = withStoredVariants(publicNames, inventory);
+  const approvedPublicCandidates = withStoredVariants(approvedPublicNames, inventory);
+  const restrictedProductCandidates = withStoredVariants(restrictedProductNames, inventory);
   const missing = [...allNames].filter((name) => !inventory.files.has(name)).length;
   const unsupportedCandidates = [...copyCandidates].filter((name) =>
     !IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()) || inventory.files.get(name) === 0
@@ -88,10 +114,17 @@ function analyzeLegacyUploads(inventory, records) {
   const unclassifiedFiles = unclassifiedNames.length;
   const embeddedNames = new Set((records.embeddedReferences || []).map((entry) => entry.name));
   const embeddedOnDisk = [...embeddedNames].filter((name) => inventory.files.has(name));
+  const approvedPublicMissing = [...approvedPublicNames].filter((name) => !inventory.files.has(name)).length;
+  const approvedPublicUnsupported = [...approvedPublicCandidates].filter((name) =>
+    !IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()) || inventory.files.get(name) === 0
+  ).length;
+  const approvedPublicRestrictedOverlap = [...approvedPublicCandidates]
+    .filter((name) => restrictedProductCandidates.has(name) || groups.privateIdentity.has(name)).length;
   const embeddedReferenceRows = Number(records.embeddedReferenceRows || 0);
   return {
     ok: true,
     mode: "read-only",
+    schemaVersion: "2026-09-25.legacy-uploads.v2",
     disk: {
       files: inventory.files.size,
       totalBytes: inventory.totalBytes,
@@ -108,6 +141,14 @@ function analyzeLegacyUploads(inventory, records) {
       profiles: groups.profiles.size,
       sessions: groups.sessions.size,
       privateIdentity: groups.privateIdentity.size,
+      productRowsByAccess,
+      approvedPublicImages: approvedPublicNames.size,
+      restrictedProductImages: restrictedProductNames.size,
+      approvedPublicCopyCandidates: approvedPublicCandidates.size,
+      approvedPublicMissing,
+      approvedPublicUnsupported,
+      approvedPublicRestrictedOverlap,
+      restrictedProductFiles: [...restrictedProductCandidates].filter((name) => inventory.files.has(name)).length,
       embeddedReferenceRows,
       embeddedMessageRows: Number(records.embeddedMessageRows || 0),
       embeddedProductItemRows: Number(records.embeddedProductItemRows || 0),
@@ -115,6 +156,7 @@ function analyzeLegacyUploads(inventory, records) {
       embeddedUniqueFiles: embeddedNames.size,
       embeddedOnDisk: embeddedOnDisk.length,
       embeddedCoveredByPublic: embeddedOnDisk.filter((name) => copyCandidates.has(name)).length,
+      embeddedCoveredByApprovedPublic: embeddedOnDisk.filter((name) => approvedPublicCandidates.has(name)).length,
       embeddedUnclassified: embeddedOnDisk.filter((name) => !copyCandidates.has(name)).length,
       embeddedMissing: embeddedNames.size - embeddedOnDisk.length,
       invalid: invalid.count,
@@ -122,16 +164,26 @@ function analyzeLegacyUploads(inventory, records) {
       copyCandidates: copyCandidates.size,
       unsupportedCandidates
     },
+    publicSubsetCopyReady: approvedPublicCandidates.size > 0
+      && approvedPublicMissing === 0 && approvedPublicUnsupported === 0
+      && approvedPublicRestrictedOverlap === 0 && invalid.count === 0,
     publicCopyPreflightPassed: groups.privateIdentity.size === 0
       && embeddedReferenceRows === 0 && invalid.count === 0 && missing === 0
       && unsupportedCandidates === 0 && inventory.unexpectedEntries === 0
-      && unclassifiedFiles === 0,
+      && unclassifiedFiles === 0 && restrictedProductCandidates.size === 0,
     diskRemovalReady: false
   };
 }
 
 async function readReferenceRows(client) {
-  const products = await client.query("SELECT image, images, media_items FROM products WHERE image LIKE '%/uploads/%' OR images::text LIKE '%/uploads/%' OR media_items::text LIKE '%/uploads/%'");
+  const products = await client.query(`
+    SELECT p.image, p.images, p.media_items, p.status,
+      COALESCE((SELECT visibility FROM public_content_visibility
+        WHERE content_type = 'product' AND content_id = p.id), 'public') AS visibility
+    FROM products p
+    WHERE p.image LIKE '%/uploads/%' OR p.images::text LIKE '%/uploads/%'
+      OR p.media_items::text LIKE '%/uploads/%'
+  `);
   const orders = await client.query("SELECT product_image FROM orders WHERE product_image LIKE '%/uploads/%'");
   const users = await client.query("SELECT profile_image, identity_document_image FROM users WHERE profile_image LIKE '%/uploads/%' OR identity_document_image LIKE '%/uploads/%'");
   const sessions = await client.query("SELECT profile_image FROM sessions WHERE profile_image LIKE '%/uploads/%'");

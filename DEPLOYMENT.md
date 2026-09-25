@@ -260,7 +260,9 @@ npm run audit:legacy-uploads
 
 The output contains aggregate counts only. It checks product and order image references, profile images, private identity-document references, embedded message/notification links, unclassified files, missing files, and generated image variants. `publicCopyPreflightPassed` is not permission to detach the disk: no files are copied or database URLs rewritten by this command, and `diskRemovalReady` remains false. Keep `WINGA_UPLOADS_DIR` and the disk until a separately verified migration and a diskless deploy have completed.
 
-`embeddedCoveredByPublic` counts message/notification image paths already covered by public product media; `embeddedUnclassified` counts paths outside that set. `unclassifiedFiles` and `unclassifiedBytes` may include old or private media, so they must not be copied to the public R2 domain solely because they are present on disk. The audit never prints filenames or message bodies.
+`embeddedCoveredByPublic` is a legacy overlap count across all referenced product media, including restricted products; `embeddedCoveredByApprovedPublic` is the narrower approved-public overlap. `embeddedUnclassified` counts paths outside the legacy set. `unclassifiedFiles` and `unclassifiedBytes` may include old or private media, so they must not be copied to the public R2 domain solely because they are present on disk. The audit never prints filenames or message bodies.
+
+`copyCandidates` is a legacy inventory count, not a public-copy permission: it includes product media regardless of moderation and visibility. Only `approvedPublicCopyCandidates` are referenced by currently approved, public products, and `publicSubsetCopyReady` additionally rejects missing, unsupported, or privacy-overlapping files. This audit still copies nothing and does not solve future visibility revocation; keep the disk attached.
 
 ## Staging load tests with k6
 

@@ -31,7 +31,9 @@ test("audit counts public references, image variants and unclassified files with
       products: [{
         image: "/uploads/photo-1080.webp",
         images: ["/uploads/photo-1080.webp"],
-        media_items: [{ url: "/uploads/photo-1080.webp" }]
+        media_items: [{ url: "/uploads/photo-1080.webp" }],
+        status: "approved",
+        visibility: "public"
       }],
       orders: [{ product_image: "/uploads/photo-1080.webp" }],
       users: [],
@@ -51,6 +53,9 @@ test("audit counts public references, image variants and unclassified files with
     assert.equal(result.references.products, 1);
     assert.equal(result.references.orders, 1);
     assert.equal(result.references.copyCandidates, 3);
+    assert.equal(result.references.productRowsByAccess.approvedPublic, 1);
+    assert.equal(result.references.approvedPublicCopyCandidates, 3);
+    assert.equal(result.publicSubsetCopyReady, true);
     assert.equal(result.references.embeddedUniqueFiles, 3);
     assert.equal(result.references.embeddedCoveredByPublic, 1);
     assert.equal(result.references.embeddedUnclassified, 1);
@@ -61,6 +66,44 @@ test("audit counts public references, image variants and unclassified files with
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("only approved public product images are eligible for public R2 copy", () => {
+  const inventory = {
+    files: new Map([
+      ["public.webp", 100], ["private.webp", 100],
+      ["pending.webp", 100], ["rejected.webp", 100]
+    ]),
+    totalBytes: 400, unexpectedEntries: 0, emptyFiles: 0, unsupportedFiles: 0
+  };
+  const result = analyzeLegacyUploads(inventory, {
+    products: [
+      { image: "/uploads/public.webp", status: "approved", visibility: "public" },
+      { image: "/uploads/private.webp", status: "approved", visibility: "private" },
+      { image: "/uploads/pending.webp", status: "pending", visibility: "public" },
+      { image: "/uploads/rejected.webp", status: "rejected", visibility: "public" }
+    ]
+  });
+  assert.equal(result.references.copyCandidates, 4);
+  assert.equal(result.references.approvedPublicCopyCandidates, 1);
+  assert.equal(result.references.restrictedProductFiles, 3);
+  assert.equal(result.references.productRowsByAccess.approvedPrivate, 1);
+  assert.equal(result.references.productRowsByAccess.pending, 1);
+  assert.equal(result.references.productRowsByAccess.rejected, 1);
+  assert.equal(result.publicSubsetCopyReady, true);
+  assert.equal(result.publicCopyPreflightPassed, false);
+});
+
+test("shared private identity image blocks public subset copying", () => {
+  const result = analyzeLegacyUploads({
+    files: new Map([["shared.webp", 100]]),
+    totalBytes: 100, unexpectedEntries: 0, emptyFiles: 0, unsupportedFiles: 0
+  }, {
+    products: [{ image: "/uploads/shared.webp", status: "approved", visibility: "public" }],
+    users: [{ identity_document_image: "/uploads/shared.webp" }]
+  });
+  assert.equal(result.references.approvedPublicRestrictedOverlap, 1);
+  assert.equal(result.publicSubsetCopyReady, false);
 });
 
 test("database audit queries run sequentially and return path tokens, not private message bodies", async () => {
@@ -94,17 +137,21 @@ test("PostgreSQL audit extracts only legacy path tokens from messages and notifi
   const db = new PGlite();
   try {
     await db.exec(`
-      CREATE TABLE products (image TEXT, images JSONB, media_items JSONB);
+      CREATE TABLE products (id TEXT, image TEXT, images JSONB, media_items JSONB, status TEXT);
+      CREATE TABLE public_content_visibility (content_type TEXT, content_id TEXT, visibility TEXT);
       CREATE TABLE orders (product_image TEXT);
       CREATE TABLE users (profile_image TEXT, identity_document_image TEXT);
       CREATE TABLE sessions (profile_image TEXT);
       CREATE TABLE messages (message TEXT, product_items JSONB);
       CREATE TABLE notifications (body TEXT);
-      INSERT INTO products VALUES ('/uploads/public.webp', '[]', '[]');
+      INSERT INTO products VALUES ('public-1', '/uploads/public.webp', '[]', '[]', 'approved');
+      INSERT INTO public_content_visibility VALUES ('product', 'public-1', 'public');
       INSERT INTO messages VALUES ('Private note with /uploads/private.jpg', '["/uploads/public.webp"]');
       INSERT INTO notifications VALUES ('See /uploads/public.webp');
     `);
     const records = await readReferenceRows(db);
+    assert.equal(records.products[0].status, "approved");
+    assert.equal(records.products[0].visibility, "public");
     assert.equal(records.embeddedReferenceRows, 2);
     assert.equal(records.embeddedProductItemRows, 1);
     assert.equal(records.embeddedNotificationRows, 1);
