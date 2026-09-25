@@ -291,6 +291,7 @@ const CLIENT_EVENT_BOT_DROP_ENABLED = String(process.env.CLIENT_EVENT_BOT_DROP_E
 const recentClientEventDedupeKeys = new Map();
 const AUTOMATION_USER_AGENT_PATTERN = /\b(bot|crawler|spider|scraper|curl|wget|python-requests|httpclient|headlesschrome|phantomjs|selenium|playwright)\b/i;
 const liveClients = new Map();
+const realtimeBootId = crypto.randomUUID();
 let messageEventSubscription = null;
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
@@ -8190,11 +8191,19 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      const opsNodeHeaders = OPS_HEALTH_TOKEN && isValidOpsHealthToken(req)
+        ? {
+            "X-Winga-Ops-Instance": String(process.env.RENDER_INSTANCE_ID || "local"),
+            "X-Winga-Ops-Boot": realtimeBootId,
+            "X-Winga-Ops-Commit": String(process.env.RENDER_GIT_COMMIT || "local")
+          }
+        : {};
       res.writeHead(200, buildSecurityHeaders(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
-        "X-Accel-Buffering": "no"
+        "X-Accel-Buffering": "no",
+        ...opsNodeHeaders
       }, req));
       const client = createAuthorizedRealtimeClient({
         response: res,

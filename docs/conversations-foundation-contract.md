@@ -832,3 +832,12 @@ Local verification on 2026-09-25: `npm run test:ci` passed, including module
 sync, PostgreSQL/integration tests 203/203, and browser E2E 146/146. The
 listener-recovery and browser replay unit tests passed. Production listener
 recovery and controlled cross-node failover are still unverified.
+
+## 27. Controlled cross-node verifier prepared
+
+The ops-only SSE node evidence and the two-stage verifier are described in
+`docs/message-cross-node-failover.md`. Preflight is non-disruptive and cannot
+claim failover. The exercise requires an explicit operator-controlled drain,
+two simultaneously observed same-commit instances, one test message and a
+single post-failure replay reference. No production node was drained while
+preparing this verifier; live cross-node acceptance remains pending.

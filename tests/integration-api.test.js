@@ -144,6 +144,8 @@ test.before(async () => {
       ALLOWED_ORIGINS: "http://localhost:3000,https://wingamarket.com",
       PAYMENT_WEBHOOK_SECRET: "integration-webhook-secret",
       OPS_HEALTH_TOKEN: "integration-ops-health-token",
+      RENDER_INSTANCE_ID: "integration-node-a",
+      RENDER_GIT_COMMIT: "integration-commit",
       VIDEO_SAFETY_SCAN_WEBHOOK_URL: "https://scanner.example/scan",
       VIDEO_SAFETY_SCAN_WEBHOOK_SECRET: "integration-video-delivery-secret-0001",
       VIDEO_SAFETY_RESULT_WEBHOOK_SECRET: "integration-video-callback-secret-0001",
@@ -508,9 +510,48 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     });
     assert.equal(cookieStreamResponse.status, 200);
     assert.match(cookieStreamResponse.headers.get("content-type") || "", /text\/event-stream/);
+    assert.equal(cookieStreamResponse.headers.get("x-winga-ops-instance"), null);
   } finally {
     clearTimeout(cookieStreamTimeout);
     await cookieStreamResponse?.body?.cancel().catch(() => {});
+  }
+
+  const opsStreamController = new AbortController();
+  let opsStreamResponse = null;
+  try {
+    opsStreamResponse = await fetch(`${baseUrl}/messages/stream`, {
+      headers: {
+        Cookie: getAuthCookieHeader(sellerSignup.response),
+        "X-Ops-Health-Token": "integration-ops-health-token"
+      },
+      signal: opsStreamController.signal
+    });
+    assert.equal(opsStreamResponse.status, 200);
+    assert.equal(opsStreamResponse.headers.get("x-winga-ops-instance"), "integration-node-a");
+    assert.match(opsStreamResponse.headers.get("x-winga-ops-boot") || "", /^[0-9a-f-]{36}$/);
+    assert.equal(opsStreamResponse.headers.get("x-winga-ops-commit"), "integration-commit");
+  } finally {
+    opsStreamController.abort();
+    await opsStreamResponse?.body?.cancel().catch(() => {});
+  }
+
+  const wrongOpsStreamController = new AbortController();
+  let wrongOpsStreamResponse = null;
+  try {
+    wrongOpsStreamResponse = await fetch(`${baseUrl}/messages/stream`, {
+      headers: {
+        Cookie: getAuthCookieHeader(sellerSignup.response),
+        "X-Ops-Health-Token": "wrong-token"
+      },
+      signal: wrongOpsStreamController.signal
+    });
+    assert.equal(wrongOpsStreamResponse.status, 200);
+    assert.equal(wrongOpsStreamResponse.headers.get("x-winga-ops-instance"), null);
+    assert.equal(wrongOpsStreamResponse.headers.get("x-winga-ops-boot"), null);
+    assert.equal(wrongOpsStreamResponse.headers.get("x-winga-ops-commit"), null);
+  } finally {
+    wrongOpsStreamController.abort();
+    await wrongOpsStreamResponse?.body?.cancel().catch(() => {});
   }
 
   const legacyPrimaryCategoryUpdate = await request("/users/primary-category", {
