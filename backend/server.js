@@ -15,7 +15,7 @@ const { createSearchDemandService, summarizeSearchDemandEvents } = require("./se
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
-const { normalizeProductMediaItems } = require("./product-media");
+const { MAX_PRODUCT_MEDIA_ITEMS, normalizeProductMediaItems } = require("./product-media");
 const { buildAudienceKey, buildCommerceOpportunities } = require("./commerce-opportunity");
 const {
   createCloudflareStreamClient,
@@ -4415,12 +4415,17 @@ async function persistIncomingProductImages(product) {
 
   const image = await persistValue(product.image);
   const mediaItems = [];
-  for (const item of normalizeProductMediaItems(product)) {
-    if (item.type !== "image") {
+  const sourceImages = new Set([...(Array.isArray(product.images) ? product.images : []), product.image].filter(Boolean));
+  const sourceMediaItems = Array.isArray(product.mediaItems) && product.mediaItems.length
+    ? product.mediaItems.slice(0, MAX_PRODUCT_MEDIA_ITEMS)
+    : normalizeProductMediaItems(product);
+  for (const item of sourceMediaItems) {
+    if (String(item?.type || "").toLowerCase() !== "image") {
       mediaItems.push(item);
       continue;
     }
     const sourceUrl = item.url;
+    if (!sourceImages.has(sourceUrl)) continue;
     const persistedUrl = await persistValue(sourceUrl);
     const processedMetadata = persistedMetadata.get(sourceUrl);
     mediaItems.push({

@@ -777,6 +777,35 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(productCreate.body.mediaItems[1].providerId, "stream-integration-video-001");
   assert.equal(productCreate.body.mediaItems[1].moderationStatus, "approved");
 
+  const largeImageBuffer = await sharp(crypto.randomBytes(96 * 96 * 3), {
+    raw: { width: 96, height: 96, channels: 3 }
+  }).png().toBuffer();
+  const largeImage = `data:image/png;base64,${largeImageBuffer.toString("base64")}`;
+  assert.ok(largeImage.length > 4096);
+  const largeImageProduct = await request("/products", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sellerToken}`
+    },
+    body: JSON.stringify({
+      id: "product-test-large-media-url",
+      name: "Kiatu Large Media URL",
+      price: 25000,
+      shop: "Seller One Shop",
+      whatsapp: "255700111111",
+      uploadedBy: "seller_one",
+      category: "viatu",
+      images: [largeImage],
+      image: largeImage,
+      mediaItems: [{ type: "image", status: "ready", url: largeImage, thumbnailUrl: largeImage, position: 0 }]
+    })
+  });
+  assert.equal(largeImageProduct.response.status, 200);
+  assert.match(largeImageProduct.body.image, /^\/uploads\/.*-1080\.webp$/);
+  assert.equal(largeImageProduct.body.mediaItems[0].url, largeImageProduct.body.image);
+  assert.equal(largeImageProduct.body.mediaItems[0].thumbnailUrl, largeImageProduct.body.image);
+
   const buyerOwnedProductCreate = await request("/products", {
     method: "POST",
     headers: {
