@@ -260,6 +260,8 @@ npm run audit:legacy-uploads
 
 The output contains aggregate counts only. It checks product and order image references, profile images, private identity-document references, embedded message/notification links, unclassified files, missing files, and generated image variants. `publicCopyPreflightPassed` is not permission to detach the disk: no files are copied or database URLs rewritten by this command, and `diskRemovalReady` remains false. Keep `WINGA_UPLOADS_DIR` and the disk until a separately verified migration and a diskless deploy have completed.
 
+`embeddedCoveredByPublic` counts message/notification image paths already covered by public product media; `embeddedUnclassified` counts paths outside that set. `unclassifiedFiles` and `unclassifiedBytes` may include old or private media, so they must not be copied to the public R2 domain solely because they are present on disk. The audit never prints filenames or message bodies.
+
 ## Staging load tests with k6
 
 WINGA keeps load testing outside npm dependencies. Install the current k6 CLI separately using the official Grafana package for your operating system. On Windows, either package-manager command can be used:

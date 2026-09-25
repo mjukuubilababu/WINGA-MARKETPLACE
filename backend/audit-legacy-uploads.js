@@ -84,7 +84,10 @@ function analyzeLegacyUploads(inventory, records) {
   const unsupportedCandidates = [...copyCandidates].filter((name) =>
     !IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()) || inventory.files.get(name) === 0
   ).length;
-  const unclassifiedFiles = [...inventory.files.keys()].filter((name) => !copyCandidates.has(name)).length;
+  const unclassifiedNames = [...inventory.files.keys()].filter((name) => !copyCandidates.has(name));
+  const unclassifiedFiles = unclassifiedNames.length;
+  const embeddedNames = new Set((records.embeddedReferences || []).map((entry) => entry.name));
+  const embeddedOnDisk = [...embeddedNames].filter((name) => inventory.files.has(name));
   const embeddedReferenceRows = Number(records.embeddedReferenceRows || 0);
   return {
     ok: true,
@@ -95,7 +98,9 @@ function analyzeLegacyUploads(inventory, records) {
       unexpectedEntries: inventory.unexpectedEntries,
       emptyFiles: inventory.emptyFiles,
       unsupportedFiles: inventory.unsupportedFiles,
-      unclassifiedFiles
+      unclassifiedFiles,
+      unclassifiedBytes: unclassifiedNames.reduce((total, name) => total + inventory.files.get(name), 0),
+      unclassifiedVariants: unclassifiedNames.filter((name) => /-(?:320|640|1080)\.webp$/i.test(name)).length
     },
     references: {
       products: groups.products.size,
@@ -104,6 +109,14 @@ function analyzeLegacyUploads(inventory, records) {
       sessions: groups.sessions.size,
       privateIdentity: groups.privateIdentity.size,
       embeddedReferenceRows,
+      embeddedMessageRows: Number(records.embeddedMessageRows || 0),
+      embeddedProductItemRows: Number(records.embeddedProductItemRows || 0),
+      embeddedNotificationRows: Number(records.embeddedNotificationRows || 0),
+      embeddedUniqueFiles: embeddedNames.size,
+      embeddedOnDisk: embeddedOnDisk.length,
+      embeddedCoveredByPublic: embeddedOnDisk.filter((name) => copyCandidates.has(name)).length,
+      embeddedUnclassified: embeddedOnDisk.filter((name) => !copyCandidates.has(name)).length,
+      embeddedMissing: embeddedNames.size - embeddedOnDisk.length,
       invalid: invalid.count,
       missing,
       copyCandidates: copyCandidates.size,
@@ -118,16 +131,34 @@ function analyzeLegacyUploads(inventory, records) {
 }
 
 async function readReferenceRows(client) {
-  const [products, orders, users, sessions, embedded] = await Promise.all([
-    client.query("SELECT image, images, media_items FROM products WHERE image LIKE '%/uploads/%' OR images::text LIKE '%/uploads/%' OR media_items::text LIKE '%/uploads/%'"),
-    client.query("SELECT product_image FROM orders WHERE product_image LIKE '%/uploads/%'"),
-    client.query("SELECT profile_image, identity_document_image FROM users WHERE profile_image LIKE '%/uploads/%' OR identity_document_image LIKE '%/uploads/%'"),
-    client.query("SELECT profile_image FROM sessions WHERE profile_image LIKE '%/uploads/%'"),
-    client.query("SELECT (SELECT COUNT(*) FROM messages WHERE message LIKE '%/uploads/%' OR product_items::text LIKE '%/uploads/%') + (SELECT COUNT(*) FROM notifications WHERE body LIKE '%/uploads/%') AS count")
-  ]);
+  const products = await client.query("SELECT image, images, media_items FROM products WHERE image LIKE '%/uploads/%' OR images::text LIKE '%/uploads/%' OR media_items::text LIKE '%/uploads/%'");
+  const orders = await client.query("SELECT product_image FROM orders WHERE product_image LIKE '%/uploads/%'");
+  const users = await client.query("SELECT profile_image, identity_document_image FROM users WHERE profile_image LIKE '%/uploads/%' OR identity_document_image LIKE '%/uploads/%'");
+  const sessions = await client.query("SELECT profile_image FROM sessions WHERE profile_image LIKE '%/uploads/%'");
+  const embedded = await client.query("SELECT (SELECT COUNT(*) FROM messages WHERE message LIKE '%/uploads/%' OR product_items::text LIKE '%/uploads/%') AS message_rows, (SELECT COUNT(*) FROM messages WHERE product_items::text LIKE '%/uploads/%') AS product_item_rows, (SELECT COUNT(*) FROM notifications WHERE body LIKE '%/uploads/%') AS notification_rows");
+  // Extract only path tokens in SQL; private message bodies never leave PostgreSQL.
+  const embeddedPaths = await client.query(`
+    SELECT upload_match FROM (
+      SELECT regexp_matches(message, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+        FROM messages WHERE message LIKE '%/uploads/%'
+      UNION ALL
+      SELECT regexp_matches(product_items::text, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+        FROM messages WHERE product_items::text LIKE '%/uploads/%'
+      UNION ALL
+      SELECT regexp_matches(body, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+        FROM notifications WHERE body LIKE '%/uploads/%'
+    ) AS embedded_paths
+  `);
+  const messageRows = Number(embedded.rows[0]?.message_rows || 0);
+  const notificationRows = Number(embedded.rows[0]?.notification_rows || 0);
   return {
     products: products.rows, orders: orders.rows, users: users.rows, sessions: sessions.rows,
-    embeddedReferenceRows: Number(embedded.rows[0]?.count || 0)
+    embeddedReferenceRows: messageRows + notificationRows,
+    embeddedMessageRows: messageRows,
+    embeddedProductItemRows: Number(embedded.rows[0]?.product_item_rows || 0),
+    embeddedNotificationRows: notificationRows,
+    embeddedReferences: embeddedPaths.rows.map((row) => ({ name: row.upload_match?.[0] || "" }))
+      .filter((entry) => SAFE_NAME.test(entry.name) && !entry.name.includes(".."))
   };
 }
 
@@ -162,4 +193,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { analyzeLegacyUploads, getUploadName, readUploadInventory };
+module.exports = { analyzeLegacyUploads, getUploadName, readReferenceRows, readUploadInventory };
