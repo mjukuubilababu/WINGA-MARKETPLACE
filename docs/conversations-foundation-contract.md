@@ -817,3 +817,18 @@ production exercise with node identity evidence, test accounts and a rollback pl
 Do not terminate an arbitrary production instance or infer multi-node proof from
 ordinary SSE reconnect. After a controlled node loss, verify canonical message IDs
 are recovered once by replay for the valid session and denied to the revoked session.
+
+## 26. Listener reconnect gap
+
+The browser's existing replay covered SSE reconnect, but not a PostgreSQL
+`LISTEN` interruption while an SSE stream remained open. A successful listener
+resubscription now prompts authenticated live clients to run bounded canonical
+replay; it sends no message body or private metadata in the prompt. Unit tests
+cover the listener's recovery signal and browser consumer. This is a Phase 1
+transport-recovery improvement, not a Phase 2 BEAM deployment or a cross-node
+runtime proof. The remaining contract decisions and later phases above stay open.
+
+Local verification on 2026-09-25: `npm run test:ci` passed, including module
+sync, PostgreSQL/integration tests 203/203, and browser E2E 146/146. The
+listener-recovery and browser replay unit tests passed. Production listener
+recovery and controlled cross-node failover are still unverified.

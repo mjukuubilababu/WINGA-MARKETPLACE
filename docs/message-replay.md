@@ -180,3 +180,15 @@ confirmed functional messaging/reconnect and, after the Inbox action fix
 `301913e`, Reply/Forward/Delete. This is user-reported runtime evidence; the probe
 does not execute writes and still correctly prints `writeAndReconnectProven: false`.
 Controlled cross-node failure and primary failover remain staging gates.
+
+### PostgreSQL listener recovery
+
+An open browser SSE stream does not necessarily reconnect when its server's
+PostgreSQL `LISTEN` connection drops. After a failed listener subscription is
+successfully restored, that server now sends a content-free `replay_required`
+event to its authenticated live SSE clients. The browser uses the existing
+bounded, owner-scoped replay and canonical reconciliation path. The initial
+successful subscription does not broadcast, and repeated disconnect signals
+coalesce into one reconnect. This closes the missed-NOTIFY interval without
+polling every heartbeat. It does not prove cross-node failover or replace the
+durable replay journal.

@@ -16,7 +16,7 @@ function setup(fetchJson, reconcile = async () => {}) {
   });
   const state = { owner: "a", cursor: "old" };
   const channel = client.openRealtimeChannel({ replayState: state, reconcile, isCurrent: () => current });
-  return { state, channel, open: () => listeners.open(), changed: () => listeners.message_state_changed(), timers, switchUser() { current = false; } };
+  return { state, channel, open: () => listeners.open(), changed: () => listeners.message_state_changed(), replayRequired: () => listeners.replay_required(), timers, switchUser() { current = false; } };
 }
 const page = (cursor, extra = {}) => ({ version: 1, events: [], cursor, hasMore: false, ...extra });
 
@@ -33,6 +33,17 @@ test("SSE open and reconnect checkpoint only after canonical reconciliation", as
   assert.equal(app.state.cursor, "new");
   const second = app.open(); await new Promise(setImmediate); finish(); await second;
   assert.equal(gets, 2);
+});
+
+test("listener recovery requests bounded replay while the SSE stream remains open", async () => {
+  let gets = 0;
+  let reconciled = 0;
+  const app = setup(async () => page(String(++gets)), async () => { reconciled++; });
+  await app.open();
+  await app.replayRequired();
+  assert.equal(gets, 2);
+  assert.equal(reconciled, 2);
+  assert.equal(app.state.cursor, "2");
 });
 
 test("closed channel and account switch cannot commit late checkpoints", async () => {

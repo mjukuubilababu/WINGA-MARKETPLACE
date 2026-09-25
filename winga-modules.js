@@ -1391,6 +1391,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       source.addEventListener("open", recover);
       source.addEventListener("message_state_changed", recover);
+      source.addEventListener("replay_required", recover);
       const parseEvent = (event) => {
         try {
           return event?.data ? JSON.parse(event.data) : null;

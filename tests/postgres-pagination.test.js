@@ -3270,6 +3270,48 @@ test("PostgreSQL message events publish after persistence and reach a dedicated 
   assert.equal(listener.listenerCount("notification"), 0);
 });
 
+test("PostgreSQL listener recovery requests replay only after a successful resubscription", async () => {
+  const { EventEmitter } = require("node:events");
+  const listeners = [];
+  let recoveryCount = 0;
+  let signalRecovery;
+  const recovered = new Promise((resolve) => { signalRecovery = resolve; });
+  const store = createPostgresStore({
+    databaseUrl: "postgres://test.invalid/winga",
+    queryClient: { async query() { return { rows: [] }; } },
+    listenClientFactory: () => {
+      const listener = new EventEmitter();
+      listener.connect = async () => {};
+      listener.query = async (sql) => {
+        assert.equal(sql, "LISTEN winga_messages");
+        return { rows: [] };
+      };
+      listener.end = async () => {};
+      listeners.push(listener);
+      return listener;
+    }
+  });
+  const subscription = store.subscribeToMessageEvents(() => {}, {
+    baseDelayMs: 50,
+    onResubscribe() { recoveryCount++; signalRecovery(); }
+  });
+  try {
+    await subscription.ready;
+    assert.equal(recoveryCount, 0);
+    listeners[0].emit("end");
+    listeners[0].emit("end");
+    await Promise.race([
+      recovered,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Listener did not recover")), 1500))
+    ]);
+    assert.equal(listeners.length, 2);
+    assert.equal(recoveryCount, 1);
+  } finally {
+    await subscription.close();
+    await store.close();
+  }
+});
+
 test("PostgreSQL read replica serves public catalog reads while strong reads stay primary", async () => {
   const primaryCalls = [];
   const replicaCalls = [];

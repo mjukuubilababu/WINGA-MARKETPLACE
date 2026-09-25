@@ -4318,7 +4318,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         client.on("end", () => scheduleReconnect());
         await client.connect?.();
         await client.query("LISTEN winga_messages");
+        const recoveredFromFailure = state.attempts > 0;
         state.attempts = 0;
+        if (recoveredFromFailure && typeof options.onResubscribe === "function") {
+          try { Promise.resolve(options.onResubscribe()).catch(() => {}); } catch (_error) {}
+        }
       } catch (error) {
         await scheduleReconnect();
         throw error;

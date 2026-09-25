@@ -6072,6 +6072,12 @@ function emitLiveEvent(username, eventName, payload) {
   });
 }
 
+function requestMessageReplayForLiveClients() {
+  for (const username of liveClients.keys()) {
+    emitLiveEvent(username, "replay_required", { version: 1 });
+  }
+}
+
 const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "offer", "follow", "content"]);
 
 async function emitAuthorizedNotifications(notificationRecords = []) {
@@ -14741,7 +14747,9 @@ server.listen(PORT, async () => {
     await initializeStoreAtBoot();
     if (serverLifecycle.phase === "draining") return;
     if (postgresStore?.subscribeToMessageEvents) {
-      messageEventSubscription = postgresStore.subscribeToMessageEvents(deliverPostgresMessageEvent);
+      messageEventSubscription = postgresStore.subscribeToMessageEvents(deliverPostgresMessageEvent, {
+        onResubscribe: requestMessageReplayForLiveClients
+      });
       messageEventSubscription.ready.catch((error) => {
         safeConsole("warn", "PostgreSQL message listener is reconnecting", error?.message || error);
       });
