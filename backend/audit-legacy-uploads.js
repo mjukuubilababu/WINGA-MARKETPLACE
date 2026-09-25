@@ -132,11 +132,11 @@ async function readReferenceRows(client) {
 }
 
 async function main() {
-  require("../backend/load-env");
+  require("./load-env");
   if (process.argv.length > 2 || !process.env.DATABASE_URL || !process.env.WINGA_UPLOADS_DIR) {
     throw new Error("DATABASE_URL and WINGA_UPLOADS_DIR are required on the Render API service.");
   }
-  const { Client } = require("../backend/node_modules/pg");
+  const { Client } = require("pg");
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
     ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true"

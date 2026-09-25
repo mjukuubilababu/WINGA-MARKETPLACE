@@ -13,6 +13,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "audit:legacy-uploads": "node audit-legacy-uploads.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

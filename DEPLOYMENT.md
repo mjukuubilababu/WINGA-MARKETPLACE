@@ -255,7 +255,7 @@ Before moving legacy uploads off a Render disk, run the read-only inventory from
 
 ```bash
 cd /opt/render/project/src/backend
-node ../scripts/audit-legacy-uploads.js
+npm run audit:legacy-uploads
 ```
 
 The output contains aggregate counts only. It checks product and order image references, profile images, private identity-document references, embedded message/notification links, unclassified files, missing files, and generated image variants. `publicCopyPreflightPassed` is not permission to detach the disk: no files are copied or database URLs rewritten by this command, and `diskRemovalReady` remains false. Keep `WINGA_UPLOADS_DIR` and the disk until a separately verified migration and a diskless deploy have completed.

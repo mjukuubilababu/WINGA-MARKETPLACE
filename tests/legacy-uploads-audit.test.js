@@ -7,7 +7,7 @@ const {
   analyzeLegacyUploads,
   getUploadName,
   readUploadInventory
-} = require("../scripts/audit-legacy-uploads");
+} = require("../backend/audit-legacy-uploads");
 
 test("legacy upload names accept only flat local image paths", () => {
   assert.equal(getUploadName("/uploads/photo-1080.webp"), "photo-1080.webp");
