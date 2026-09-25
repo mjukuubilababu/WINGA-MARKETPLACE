@@ -45,6 +45,38 @@ function withStoredVariants(names, inventory) {
   return candidates;
 }
 
+function classifyProductReferences(records) {
+  const invalid = { count: 0 };
+  const rowsByAccess = {
+    approvedPublic: 0, approvedFollowers: 0, approvedPrivate: 0,
+    pending: 0, rejected: 0, other: 0
+  };
+  const allNames = new Set();
+  const approvedPublicNames = new Set();
+  const restrictedNames = new Set();
+  for (const row of records.products || []) {
+    const rowNames = new Set();
+    addReferences([row.image, row.images, row.media_items], rowNames, invalid);
+    const status = String(row.status || "").toLowerCase();
+    const visibility = String(row.visibility || "").toLowerCase();
+    const access = status === "approved"
+      ? (["public", "followers", "private"].includes(visibility)
+        ? "approved" + visibility[0].toUpperCase() + visibility.slice(1) : "other")
+      : (status === "pending" || status === "rejected" ? status : "other");
+    rowsByAccess[access] += 1;
+    for (const name of rowNames) {
+      allNames.add(name);
+      (access === "approvedPublic" ? approvedPublicNames : restrictedNames).add(name);
+    }
+  }
+  return { invalid, rowsByAccess, allNames, approvedPublicNames, restrictedNames };
+}
+
+function getApprovedPublicCopyNames(inventory, records) {
+  const classified = classifyProductReferences(records);
+  return [...withStoredVariants(classified.approvedPublicNames, inventory)].sort();
+}
+
 async function readUploadInventory(directory) {
   const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   const files = new Map();
@@ -71,29 +103,10 @@ function analyzeLegacyUploads(inventory, records) {
     products: new Set(), orders: new Set(), profiles: new Set(),
     sessions: new Set(), privateIdentity: new Set()
   };
-  const invalid = { count: 0 };
-  const productRowsByAccess = {
-    approvedPublic: 0, approvedFollowers: 0, approvedPrivate: 0,
-    pending: 0, rejected: 0, other: 0
-  };
-  const approvedPublicNames = new Set();
-  const restrictedProductNames = new Set();
-  for (const row of records.products || []) {
-    const rowNames = new Set();
-    addReferences([row.image, row.images, row.media_items], rowNames, invalid);
-    const status = String(row.status || "").toLowerCase();
-    const visibility = String(row.visibility || "").toLowerCase();
-    const access = status === "approved"
-      ? (["public", "followers", "private"].includes(visibility)
-        ? "approved" + visibility[0].toUpperCase() + visibility.slice(1) : "other")
-      : (status === "pending" || status === "rejected" ? status : "other");
-    productRowsByAccess[access] += 1;
-    const target = access === "approvedPublic" ? approvedPublicNames : restrictedProductNames;
-    for (const name of rowNames) {
-      groups.products.add(name);
-      target.add(name);
-    }
-  }
+  const classified = classifyProductReferences(records);
+  const { invalid, approvedPublicNames, restrictedNames: restrictedProductNames } = classified;
+  const productRowsByAccess = classified.rowsByAccess;
+  groups.products = classified.allNames;
   for (const row of records.orders || []) addReferences(row.product_image, groups.orders, invalid);
   for (const row of records.users || []) {
     addReferences(row.profile_image, groups.profiles, invalid);
@@ -245,4 +258,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { analyzeLegacyUploads, getUploadName, readReferenceRows, readUploadInventory };
+module.exports = {
+  analyzeLegacyUploads, getApprovedPublicCopyNames, getUploadName,
+  readReferenceRows, readUploadInventory
+};
