@@ -58,6 +58,7 @@
     const tokenSafetyMs = Math.max(10000, Number(deps.tokenSafetyMs || 30000));
     const maxConcurrentPrewarms = Math.max(1, Math.min(4, Number(deps.maxConcurrentPrewarms || 2)));
     const prewarmTimeoutMs = Math.max(3000, Number(deps.prewarmTimeoutMs || 12000));
+    const startupTimeoutMs = Math.max(3000, Number(deps.startupTimeoutMs || 20000));
     const prewarmRootMargin = String(deps.prewarmRootMargin || "1800px 0px");
     const maxNetworkRecoveries = Math.max(0, Math.min(3, Number(deps.maxNetworkRecoveries ?? 2)));
     const maxMediaRecoveries = Math.max(0, Math.min(2, Number(deps.maxMediaRecoveries ?? 1)));
@@ -417,8 +418,10 @@
     }
 
     function settleReadyState(state) {
+      if (state?.startupTimer) targetWindow.clearTimeout(state.startupTimer);
       state?.resolveReady?.();
       if (state) {
+        state.startupTimer = 0;
         state.resolveReady = null;
         state.readyPromise = null;
       }
@@ -449,6 +452,9 @@
     function markPlaybackFailed(node, state, context = {}) {
       if (!state || state.generation !== context.generation) return;
       clearRecoveryTimer(state);
+      state.retryWhenVisible = state.speculative && !state.autoplayRequested && !state.inPlaybackViewport;
+      // Invalidate pending token/runtime work before releasing this failed player.
+      state.generation += 1;
       state.failed = true;
       state.ready = false;
       state.loading = false;
@@ -470,6 +476,8 @@
       if (player?.pause && !player.paused) player.pause();
       state.hls?.destroy?.();
       state.hls = null;
+      player?.removeAttribute?.("src");
+      player?.load?.();
       player?.remove?.();
       setIdleVideoSemantics(node, state);
       settleReadyState(state);
@@ -538,6 +546,7 @@
       if (options.forget === true && userPauseLockNode === node) userPauseLockNode = null;
       if (state) {
         state.generation += 1;
+        state.releaseTimer = 0;
         state.loading = false;
         state.ready = false;
         state.failed = false;
@@ -545,6 +554,9 @@
         state.autoplayRequested = false;
         state.userInitiatedPlayback = false;
         state.audioRequested = false;
+        state.programmaticallyPaused = false;
+        state.retryWhenVisible = false;
+        state.speculative = false;
         state.prewarmQueued = false;
         state.awaitingNetwork = false;
         state.networkRecoveryAttempts = 0;
@@ -653,6 +665,7 @@
       const player = node.querySelector("[data-stream-player]");
       if (!player?.pause) return;
       if (player.paused) return;
+      state.programmaticallyPaused = true;
       state.pauseReason = reason;
       player.pause();
     }
@@ -820,6 +833,7 @@
         if (options.userInitiated !== true && (!isNetworkOnline() || isSaveDataEnabled())) return state.readyPromise;
         claimActiveNode(node);
         state.autoplayRequested = true;
+        state.speculative = false;
       }
       if (state.releaseTimer) targetWindow.clearTimeout(state.releaseTimer);
       const existingPlayer = node.querySelector("[data-stream-player]");
@@ -828,7 +842,7 @@
           setVideoAudio(node, state, existingPlayer, true);
         }
         if (state.autoplayRequested && state.ready && activeNode === node && !state.userPaused) {
-          if (state.hasPlayed && existingPlayer.paused && !state.pauseReason) {
+          if (state.hasPlayed && existingPlayer.paused && !state.pauseReason && !state.programmaticallyPaused) {
             state.userPaused = true;
             state.autoplayRequested = false;
             userPauseLockNode = node;
@@ -846,6 +860,8 @@
       state.loading = true;
       state.ready = false;
       state.failed = false;
+      state.retryWhenVisible = false;
+      state.speculative = options.prewarm === true && !state.autoplayRequested;
       state.awaitingNetwork = false;
       state.pauseReason = "";
       state.generation += 1;
@@ -870,6 +886,9 @@
       state.readyPromise = new Promise((resolve) => {
         state.resolveReady = resolve;
       });
+      state.startupTimer = targetWindow.setTimeout(() => {
+        markPlaybackFailed(node, state, { generation, startedAt, code: "video_startup_timeout", retryOnOnline: !isNetworkOnline() });
+      }, startupTimeoutMs);
       node.classList.add("is-loading", "is-buffering");
       node.classList.toggle("is-prewarming", options.prewarm === true);
       node.classList.remove("has-playback-error");
@@ -981,6 +1000,7 @@
         };
         const handlePlay = () => {
           if (state.generation !== generation || !node.isConnected) return;
+          state.programmaticallyPaused = false;
           state.userPaused = false;
           if (isReducedMotionEnabled()) state.userInitiatedPlayback = true;
           state.pendingPlaybackCycle = true;
@@ -1001,6 +1021,7 @@
             watchedMs: Math.max(0, Math.round(Number(state.watchedMs || 0)))
           });
           if (pauseReason) return;
+          state.programmaticallyPaused = false;
           state.userPaused = true;
           state.autoplayRequested = false;
           state.userInitiatedPlayback = false;
@@ -1155,13 +1176,26 @@
     async function prewarmNode(node) {
       const state = stateByNode.get(node);
       if (!state || state.failed || !node.isConnected || !state.nearViewport || !shouldPrewarmVideo()) return;
-      await activateNode(node, { autoplay: false, prewarm: true });
-      const latestState = stateByNode.get(node);
-      if (!latestState?.readyPromise || latestState.ready) return;
-      await Promise.race([
-        latestState.readyPromise,
-        new Promise((resolve) => targetWindow.setTimeout(resolve, prewarmTimeoutMs))
-      ]);
+      const activation = activateNode(node, { autoplay: false, prewarm: true });
+      const generation = state.generation;
+      const ready = state.readyPromise;
+      let timeoutId;
+      try {
+        // Bound the whole preload, including token acquisition, not only decoding.
+        await Promise.race([
+          ready || activation,
+          new Promise((resolve) => {
+            timeoutId = targetWindow.setTimeout(() => {
+              if (state.generation === generation && !state.autoplayRequested && activeNode !== node) {
+                releaseNode(node, { reason: "prewarm_timeout" });
+              }
+              resolve();
+            }, prewarmTimeoutMs);
+          })
+        ]);
+      } finally {
+        targetWindow.clearTimeout(timeoutId);
+      }
     }
 
     function drainPrewarmQueue() {
@@ -1216,6 +1250,10 @@
           if (!state) return;
           state.intersectionRatio = entry.isIntersecting ? Math.max(0, Number(entry.intersectionRatio || 0)) : 0;
           state.inPlaybackViewport = entry.isIntersecting && state.intersectionRatio >= 0.55;
+          if (state.inPlaybackViewport && state.retryWhenVisible) {
+            state.retryWhenVisible = false;
+            state.failed = false;
+          }
           if (state.inPlaybackViewport && !state.impressionReported) {
             state.impressionReported = true;
             emitVideoMetric(entry.target, state, "video_impression", {
@@ -1271,6 +1309,10 @@
           autoplayRequested: false,
           playLabel: String(node.getAttribute?.("aria-label") || translateUi("video.playProduct", {}, "Play product video")),
           releaseTimer: 0,
+          startupTimer: 0,
+          speculative: false,
+          retryWhenVisible: false,
+          programmaticallyPaused: false,
           hls: null,
           readyPromise: null,
           resolveReady: null,

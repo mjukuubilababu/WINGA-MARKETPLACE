@@ -61,7 +61,7 @@
         method: "POST",
         headers: jsonHeaders(),
         body: "{}",
-        timeoutMs: productUploadTimeoutMs
+        timeoutMs: 15000
       });
     }
     async function readVideoCaptions(providerId) {

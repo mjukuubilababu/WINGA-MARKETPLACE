@@ -289,6 +289,47 @@ test("video playback failure preserves the poster, commerce card, and scrolling 
   await context.close();
 });
 
+test("eight sequential feed videos play and resume when scrolling back", async ({ browser }) => {
+  const { context, page } = await createVideoPage(browser);
+  try {
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "hardwareConcurrency", { configurable: true, value: 8 });
+      Object.defineProperty(navigator, "deviceMemory", { configurable: true, value: 8 });
+    });
+    await page.goto("/");
+    await loadVideoCard(page, "Dress Elegant", mixedVideoProviderId);
+    await page.evaluate(() => {
+      const template = document.querySelector('[data-video-provider-id="e2e-stream-mixed-video-001"]').closest(".product-card");
+      const cards = [];
+      for (let i = 0; i < 8; i += 1) {
+        const card = template.cloneNode(true);
+        card.removeAttribute("data-open-product");
+        card.dataset.scrollVideo = String(i);
+        card.querySelectorAll("[data-feed-gallery-slide]:not([data-feed-video-slide]), [data-feed-gallery-count]").forEach((element) => element.remove());
+        card.querySelectorAll("[data-stream-player]").forEach((player) => player.remove());
+        card.querySelectorAll("[data-video-playback]").forEach((node) => {
+          node.dataset.videoPlaybackBound = "false";
+          node.dataset.videoProviderId = `scroll-regression-${i}`;
+          node.className = "feed-video-playback";
+        });
+        cards.push(card);
+      }
+      document.querySelector("#products-container").prepend(...cards);
+      cards.forEach((card) => getMarketplaceVideoPlaybackTools().bind(card));
+    });
+    for (const index of [0, 1, 2, 3, 4, 5, 6, 7, 6, 7]) {
+      const node = page.locator(`[data-scroll-video="${index}"] [data-video-playback]`);
+      await node.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+      await expect.poll(() => node.locator("video").evaluateAll((players) => players.some((player) => !player.paused))).toBe(true);
+      await expect.poll(() => page.locator("video[data-stream-player]").evaluateAll((players) => players.filter((player) => !player.paused).length)).toBe(1);
+    }
+    await expect.poll(() => page.locator("[data-scroll-video=\"0\"] video").count(), { timeout: 6000 }).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
 test("deep feed releases off-screen video players while retaining the product card and poster", async ({ browser }) => {
   const { context, page } = await createVideoPage(browser);
   await page.goto("/");
