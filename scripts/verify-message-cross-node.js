@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const readline = require("node:readline/promises");
 
 class ProbeError extends Error {
-  constructor(code) { super(code); this.code = code; }
+  constructor(code, details = null) { super(code); this.code = code; this.details = details; }
 }
 
 function requireCheck(condition, code) {
@@ -79,7 +79,13 @@ async function verifyCrossNodeFailover({
       const commit = response.headers.get("x-winga-ops-commit") || "";
       if (!instance || instance === "local" || !boot || !commit || commit === "local") {
         await response.body.cancel().catch(() => {});
-        throw new ProbeError("NODE_EVIDENCE_UNAVAILABLE");
+        throw new ProbeError("NODE_EVIDENCE_UNAVAILABLE", {
+          instanceHeaderPresent: Boolean(instance),
+          bootHeaderPresent: Boolean(boot),
+          commitHeaderPresent: Boolean(commit),
+          instanceIsLocal: instance === "local",
+          commitIsLocal: commit === "local"
+        });
       }
       const reader = response.body.getReader();
       const state = { instance, boot, commit, welcome: false, closed: false, cancelled: false, parserFailed: false };
@@ -118,6 +124,12 @@ async function verifyCrossNodeFailover({
       requireCheck(state.welcome && !state.closed, "WELCOME_FAILED");
       return state;
     }
+
+    const opsResponse = await request("/api/ops/media/storage-policy", jars.receiver, {
+      headers: { "X-Ops-Health-Token": opsToken }
+    });
+    requireCheck(opsResponse.status === 200, "OPS_TOKEN_NOT_ACCEPTED");
+    await opsResponse.body?.cancel().catch(() => {});
 
     const receiver = await read("/api/auth/session", jars.receiver);
     const sender = await read("/api/auth/session", jars.sender);
@@ -206,7 +218,11 @@ async function verifyCrossNodeFailover({
     result.replayedOnce = true;
     return { ...result, ok: true, crossNodeFailoverProven: true };
   } catch (error) {
-    return { ...result, errorCode: error instanceof ProbeError ? error.code : "PROBE_REQUEST_FAILED" };
+    return {
+      ...result,
+      errorCode: error instanceof ProbeError ? error.code : "PROBE_REQUEST_FAILED",
+      ...(error instanceof ProbeError && error.details ? { nodeEvidence: error.details } : {})
+    };
   } finally {
     controller.abort();
     await Promise.all(streams.map((stream) => stream.close?.().catch(() => {})));

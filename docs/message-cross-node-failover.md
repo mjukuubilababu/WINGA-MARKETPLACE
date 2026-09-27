@@ -104,3 +104,6 @@ confirmation, an SSE that stays open, or a changed B boot ID stops before the
 test send. `SEND_OUTCOME_UNKNOWN` does not retry.
 `EXACTLY_ONCE_REPLAY_NOT_PROVEN` means a completed send is not enough to claim
 durable recovery; inspect replay and canonical history before rerunning.
+`OPS_TOKEN_NOT_ACCEPTED` means the ops token was rejected by the direct API
+origin. `nodeEvidence` reports only whether each node header was present or a
+local placeholder; it never prints header values or credentials.

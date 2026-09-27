@@ -8,7 +8,7 @@ function json(body, headers = {}) {
   });
 }
 
-function fixture({ oneNode = false, noEvidence = false, sendFails = false, duplicate = false } = {}) {
+function fixture({ oneNode = false, noEvidence = false, invalidOps = false, sendFails = false, duplicate = false } = {}) {
   const streamControllers = [];
   const calls = [];
   let sentMessage = null;
@@ -17,6 +17,9 @@ function fixture({ oneNode = false, noEvidence = false, sendFails = false, dupli
     const search = new URL(url).searchParams;
     calls.push({ path, method: options.method || "GET" });
     const receiver = String(options.headers?.Cookie || "").includes("receiver-token");
+    if (path === "/api/ops/media/storage-policy") {
+      return invalidOps ? new Response(null, { status: 401 }) : json({ ok: true });
+    }
     if (path === "/api/auth/session") {
       return json({ username: receiver ? "receiver" : "sender" });
     }
@@ -106,6 +109,26 @@ test("one instance or absent ops evidence cannot claim cross-node readiness", as
     assert.equal(result.crossNodeFailoverProven, false);
     assert.equal(testServer.calls.some(call => call.method === "POST"), false);
   }
+});
+
+test("ops token is checked before opening a stream", async () => {
+  const testServer = fixture({ invalidOps: true });
+  const result = await verifyCrossNodeFailover({ ...options, fetchImpl: testServer.fetchImpl });
+  assert.equal(result.errorCode, "OPS_TOKEN_NOT_ACCEPTED");
+  assert.equal(testServer.calls.some(call => call.path === "/api/messages/stream"), false);
+});
+
+test("missing node headers are diagnosed without exposing their values", async () => {
+  const testServer = fixture({ noEvidence: true });
+  const result = await verifyCrossNodeFailover({ ...options, fetchImpl: testServer.fetchImpl });
+  assert.equal(result.errorCode, "NODE_EVIDENCE_UNAVAILABLE");
+  assert.deepEqual(result.nodeEvidence, {
+    instanceHeaderPresent: false,
+    bootHeaderPresent: false,
+    commitHeaderPresent: false,
+    instanceIsLocal: false,
+    commitIsLocal: false
+  });
 });
 
 test("exercise proves surviving node and exactly one durable replay reference", async () => {
