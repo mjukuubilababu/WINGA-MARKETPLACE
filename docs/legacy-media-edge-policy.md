@@ -116,3 +116,39 @@ files after the updated verifier is Live. Exact Render commit remains an
 operator `echo "$RENDER_GIT_COMMIT"` check. Disk detachment, cross-node failover,
 private CDN revocation, old browser-cache expiry and physical-device checks
 remain unproven. No disk or instance configuration was changed.
+
+## Full-inventory failure diagnostics
+
+The operator's full edge verification at Render commit `ab480e5` returned
+`COMPAT_HTTP_FAILED` before the first 25-file progress report. That response did
+not contain HTTP status or failing phase, so neither WAF, missing/denied media,
+rate limiting nor temporary backend failure is established as the cause.
+A subsequent three-public-image smoke still passed (200,854 bytes); this does
+not supersede the failed full-inventory gate.
+
+The verifier now includes sanitized failure status, method, phase, UTC time,
+validated Cloudflare Ray ID, content/source classifications and completed-file
+counts. It never prints filenames, full image URLs, raw headers, response bodies,
+cookies or exception text. Failed requests still stop the run; no automatic
+retries, skipping, auth relaxation or success from an origin-only response.
+
+After the updated verifier is Live, run in Render Shell:
+
+```bash
+cd /opt/render/project/src/backend
+echo "$RENDER_GIT_COMMIT"
+WINGA_MEDIA_VERIFY_ORIGIN=https://wingamarket.com WINGA_MEDIA_VERIFY_EDGE=true npm run verify:legacy-upload-compat -- --diagnose
+```
+
+On failure only, --diagnose makes one bounded request with the same method/path
+to the fixed Render API origin for comparison. This is enabled only when the
+target is a known Winga frontend origin and edge verification is requested.
+The comparison is not a byte proof and cannot change FAIL to PASS. Other target
+hosts never cause extra requests to production. With no flag there is no extra
+request. This change affects operational verifier code/tests/docs only; Worker,
+API serving, storage permissions, data and disk are unchanged.
+
+Verification: affected media suite 75/75 passed, including five new diagnostic
+tests. The earlier full CI pass applies to the Worker implementation; full CI
+is not rerun for this verifier-only follow-up. Full production inventory proof
+and the underlying cause remain pending the diagnostic result.

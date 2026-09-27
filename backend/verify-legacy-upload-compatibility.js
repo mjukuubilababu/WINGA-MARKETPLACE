@@ -2,6 +2,30 @@ const crypto = require("node:crypto");
 const { validName } = require("./legacy-public-media");
 function check(value, code) { if (!value) throw new Error(code); }
 const digest = (value) => crypto.createHash("sha256").update(value).digest("hex");
+const failureDiagnostics = new WeakMap();
+const API_ORIGIN = "https://winga-pflp.onrender.com";
+
+function responseDiagnostics(response) {
+  const type = response?.headers.get("content-type") || "";
+  const source = response?.headers.get("x-winga-media-source");
+  const ray = response?.headers.get("cf-ray") || "";
+  return {
+    httpStatus: response?.status || null,
+    cfRay: /^[a-f0-9]{16,32}-[A-Z]{3}$/.test(ray) ? ray : null,
+    contentKind: /^image\//i.test(type) ? "image" : /application\/json/i.test(type) ? "json"
+      : /text\/html/i.test(type) ? "html" : type ? "other" : "absent",
+    mediaSource: source === "r2" || source === "disk_fallback" ? source : source ? "other" : "absent",
+    edgePolicyObserved: response?.headers.get("x-winga-legacy-delivery") === "origin-no-store-v1",
+    privateNoStoreObserved: response?.headers.get("cache-control") === "private, no-store"
+  };
+}
+
+function formatCompatibilityFailure(error) {
+  return { ok: false, errorCode: /^COMPAT_[A-Z_]+$/.test(error?.message || "") ? error.message : "COMPAT_PROBE_FAILED",
+    privacy: "aggregate-only", ...(failureDiagnostics.has(error) ? { diagnostics: failureDiagnostics.get(error) } : {}),
+    databaseChanged: false, filesChanged: false, diskRemoved: false, diskRemovalReady: false,
+    crossNodeFailoverProven: false };
+}
 
 async function readCompatibilityManifest(db) {
   const rows = (await db.query("SELECT id, source_hashes FROM legacy_public_media_cutovers WHERE state='applied' ORDER BY id LIMIT 101")).rows;
@@ -18,16 +42,17 @@ async function readCompatibilityManifest(db) {
   return { journals: rows.map((row) => row.id), files: [...files].sort(([a], [b]) => a.localeCompare(b)) };
 }
 
-async function verifyLegacyUploadCompatibility({ readManifest, origin = "https://winga-pflp.onrender.com", requireEdgePolicy = false, fetchImpl = fetch, onProgress = () => {} }) {
+async function verifyLegacyUploadCompatibility({ readManifest, origin = API_ORIGIN, requireEdgePolicy = false, diagnose = false, fetchImpl = fetch, onProgress = () => {} }) {
   const base = new URL(origin);
   check(base.protocol === "https:" && !base.username && !base.password && base.pathname === "/" && !base.search && !base.hash, "COMPAT_ORIGIN_INVALID");
   const manifest = await readManifest();
   check(Array.isArray(manifest?.files) && manifest.files.length > 0 && manifest.files.length <= 1000, "COMPAT_INVENTORY_LIMIT");
   let verified = 0;
   let verifiedBytes = 0;
-  const request = async (pathname, expectedHash, method = "GET", expectedSize = 0) => {
-    const response = await fetchImpl(base.origin + pathname, { method, redirect: "error", signal: AbortSignal.timeout(20000), headers: { "Cache-Control": "no-cache" } });
+  const request = async (pathname, expectedHash, method = "GET", expectedSize = 0, phase = "legacy-get") => {
+    let response;
     try {
+      response = await fetchImpl(base.origin + pathname, { method, redirect: "error", signal: AbortSignal.timeout(20000), headers: { "Cache-Control": "no-cache" } });
       check(response.ok, "COMPAT_HTTP_FAILED");
       check(response.headers.get("x-winga-media-source") === "r2", "COMPAT_R2_NOT_PROVEN");
       check(response.headers.get("cache-control") === "private, no-store", "COMPAT_CACHE_UNSAFE");
@@ -51,18 +76,36 @@ async function verifyLegacyUploadCompatibility({ readManifest, origin = "https:/
       }
       check(received === size && hash.digest("hex") === expectedHash, "COMPAT_BYTES_DIFFER");
       return received;
+    } catch (error) {
+      const failure = new Error(/^COMPAT_[A-Z_]+$/.test(error?.message || "") ? error.message : "COMPAT_REQUEST_FAILED");
+      const diagnostics = { observedAt: new Date().toISOString(), phase, method, fileNumber: verified + 1, verifiedFiles: verified,
+        plannedFiles: manifest.files.length, ...responseDiagnostics(response) };
+      // Compare only the known production edge with its canonical API. Never log
+      // filenames, response bodies, arbitrary upstream headers or exception text.
+      if (diagnose && requireEdgePolicy && ["https://wingamarket.com", "https://www.wingamarket.com"].includes(base.origin)) {
+        if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {});
+        let direct;
+        try {
+          direct = await fetchImpl(API_ORIGIN + pathname, { method, redirect: "error",
+            signal: AbortSignal.timeout(10000), headers: { "Cache-Control": "no-cache" } });
+          diagnostics.directOrigin = responseDiagnostics(direct);
+        } catch (_error) { diagnostics.directOrigin = { requestFailed: true }; }
+        finally { if (direct?.body && !direct.body.locked) await direct.body.cancel().catch(() => {}); }
+      }
+      failureDiagnostics.set(failure, diagnostics);
+      throw failure;
     } finally {
-      if (response.body && !response.body.locked) await response.body.cancel().catch(() => {});
+      if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {});
     }
   };
   for (const [name, hash] of manifest.files) {
     const bytes = await request("/uploads/" + name, hash);
     if (verified === 0) {
-      await request("/uploads/" + name, hash, "HEAD", bytes);
+      await request("/uploads/" + name, hash, "HEAD", bytes, "legacy-head");
       const proxyPath = "/__winga-image__?u=" + encodeURIComponent("/uploads/" + name);
-      await request(proxyPath, hash);
-      await request(proxyPath, hash, "HEAD", bytes);
-      if (requireEdgePolicy) await request("/uploads/" + name, hash);
+      await request(proxyPath, hash, "GET", 0, "proxy-get");
+      await request(proxyPath, hash, "HEAD", bytes, "proxy-head");
+      if (requireEdgePolicy) await request("/uploads/" + name, hash, "GET", 0, "legacy-repeat-get");
     }
     verified += 1;
     verifiedBytes += bytes;
@@ -78,7 +121,8 @@ async function verifyLegacyUploadCompatibility({ readManifest, origin = "https:/
 
 async function main() {
   require("./load-env");
-  check(process.argv.length === 2, "COMPAT_UNEXPECTED_ARGUMENTS");
+  const args = process.argv.slice(2);
+  check(args.length === 0 || (args.length === 1 && args[0] === "--diagnose"), "COMPAT_UNEXPECTED_ARGUMENTS");
   check(process.env.DATABASE_URL, "COMPAT_DATABASE_REQUIRED");
   const { Client } = require("pg");
   const db = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000,
@@ -90,13 +134,13 @@ async function main() {
     const result = await verifyLegacyUploadCompatibility({ readManifest: () => readCompatibilityManifest(db),
       origin: process.env.WINGA_MEDIA_VERIFY_ORIGIN || undefined,
       requireEdgePolicy: process.env.WINGA_MEDIA_VERIFY_EDGE === "true",
+      diagnose: args.includes("--diagnose"),
       onProgress: (value) => console.log(JSON.stringify(value)) });
     console.log(JSON.stringify(result, null, 2));
   } finally { await db.end().catch(() => {}); }
 }
 if (require.main === module) main().catch((error) => {
-  console.error(JSON.stringify({ ok: false, errorCode: /^COMPAT_[A-Z_]+$/.test(error.message || "") ? error.message : "COMPAT_PROBE_FAILED",
-    databaseChanged: false, diskRemoved: false, diskRemovalReady: false }));
+  console.error(JSON.stringify(formatCompatibilityFailure(error)));
   process.exitCode = 1;
 });
-module.exports = { readCompatibilityManifest, verifyLegacyUploadCompatibility };
+module.exports = { readCompatibilityManifest, verifyLegacyUploadCompatibility, formatCompatibilityFailure };

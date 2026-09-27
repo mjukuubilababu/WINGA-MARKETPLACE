@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const crypto = require("node:crypto");
-const { verifyLegacyUploadCompatibility } = require("../backend/verify-legacy-upload-compatibility");
+const { verifyLegacyUploadCompatibility, formatCompatibilityFailure } = require("../backend/verify-legacy-upload-compatibility");
 
 const source = fs.readFileSync(path.join(__dirname, "../worker.js"), "utf8")
   .replace("export default {", "globalThis.worker = {");
@@ -157,4 +157,115 @@ test("edge proof rejects missing policy, cached success and stale cache age", as
       readManifest: async () => ({ files: [["photo.webp", hash]] }),
       fetchImpl: async () => new Response(bytes, { headers: { ...headers, ...extra } }) }), /COMPAT_EDGE_/);
   }
+});
+
+const diagnosticManifest = { files: [["private-filename.webp", crypto.createHash("sha256").update(bytes).digest("hex")]] };
+const successfulProbe = (method) => new Response(method === "HEAD" ? null : bytes,
+  { headers: { ...headers, "X-Winga-Legacy-Delivery": "origin-no-store-v1" } });
+
+test("HTTP failure diagnostics expose only status and aggregate evidence, never raw upstream data", async () => {
+  for (const status of [403, 404, 429, 503]) {
+    let calls = 0;
+    await assert.rejects(verifyLegacyUploadCompatibility({ origin: "https://wingamarket.com", requireEdgePolicy: true,
+      readManifest: async () => diagnosticManifest,
+      fetchImpl: async () => { calls++; return new Response("SECRET_BODY", { status, headers: {
+        "content-type": "text/html; SECRET_TYPE", "x-winga-media-source": "SECRET_SOURCE",
+        "x-request-id": "SECRET_ID", "set-cookie": "SECRET_COOKIE", "cf-ray": "SECRET_RAY"
+      } }); } }), (error) => {
+      const result = formatCompatibilityFailure(error);
+      assert.equal(result.errorCode, "COMPAT_HTTP_FAILED");
+      assert.equal(result.diagnostics.httpStatus, status);
+      assert.equal(result.diagnostics.contentKind, "html");
+      assert.equal(result.diagnostics.mediaSource, "other");
+      assert.equal(result.diagnostics.cfRay, null);
+      assert.ok(Number.isFinite(Date.parse(result.diagnostics.observedAt)));
+      assert.equal(result.diagnostics.phase, "legacy-get");
+      assert.equal(result.diagnostics.fileNumber, 1);
+      assert.equal(result.diagnostics.verifiedFiles, 0);
+      assert.equal(result.diagnostics.plannedFiles, 1);
+      assert.equal(result.diskRemovalReady, false);
+      assert.doesNotMatch(JSON.stringify(result), /SECRET|private-filename|https:|stack/);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test("diagnosis compares the exact failed method and path once but never turns failure into success", async () => {
+  const phases = ["legacy-get", "legacy-head", "proxy-get", "proxy-head", "legacy-repeat-get"];
+  for (let failedCall = 1; failedCall <= phases.length; failedCall++) {
+    const edge = [];
+    const direct = [];
+    await assert.rejects(verifyLegacyUploadCompatibility({ origin: "https://wingamarket.com", requireEdgePolicy: true, diagnose: true,
+      readManifest: async () => diagnosticManifest,
+      fetchImpl: async (url, options) => {
+        assert.equal(options.redirect, "error");
+        assert.ok(options.signal instanceof AbortSignal);
+        const target = new URL(url);
+        if (target.origin === "https://winga-pflp.onrender.com") {
+          direct.push({ path: target.pathname + target.search, method: options.method });
+          return successfulProbe(options.method);
+        }
+        edge.push({ path: target.pathname + target.search, method: options.method });
+        return edge.length === failedCall ? new Response(null, { status: 503 }) : successfulProbe(options.method);
+      } }), (error) => {
+      const result = formatCompatibilityFailure(error);
+      assert.equal(result.ok, false);
+      assert.equal(result.diagnostics.phase, phases[failedCall - 1]);
+      assert.equal(result.diagnostics.httpStatus, 503);
+      assert.equal(result.diagnostics.directOrigin.httpStatus, 200);
+      assert.equal(result.crossNodeFailoverProven, false);
+      return true;
+    });
+    assert.equal(edge.length, failedCall);
+    assert.deepEqual(direct, [edge.at(-1)]);
+  }
+});
+
+test("diagnosis is opt-in and does not send arbitrary-host failures to production", async () => {
+  for (const options of [
+    { origin: "https://wingamarket.com", requireEdgePolicy: true },
+    { origin: "https://unrelated.example", requireEdgePolicy: true, diagnose: true },
+    { origin: "https://winga-pflp.onrender.com", requireEdgePolicy: true, diagnose: true },
+    { origin: "https://wingamarket.com", requireEdgePolicy: false, diagnose: true }
+  ]) {
+    let calls = 0;
+    await assert.rejects(verifyLegacyUploadCompatibility({ ...options, readManifest: async () => diagnosticManifest,
+      fetchImpl: async () => { calls++; return new Response(null, { status: 404 }); } }), /COMPAT_HTTP_FAILED/);
+    assert.equal(calls, 1);
+  }
+});
+
+test("transport failure and failed counterpart remain sanitized and keep original failure", async () => {
+  let calls = 0;
+  await assert.rejects(verifyLegacyUploadCompatibility({ origin: "https://wingamarket.com", requireEdgePolicy: true, diagnose: true,
+    readManifest: async () => diagnosticManifest,
+    fetchImpl: async () => { calls++; throw new Error("SECRET https://private.example/filename"); } }), (error) => {
+    const result = formatCompatibilityFailure(error);
+    assert.equal(result.errorCode, "COMPAT_REQUEST_FAILED");
+    assert.equal(result.diagnostics.httpStatus, null);
+    assert.deepEqual(result.diagnostics.directOrigin, { requestFailed: true });
+    assert.doesNotMatch(JSON.stringify(result), /SECRET|private.example|filename/);
+    return true;
+  });
+  assert.equal(calls, 2);
+  const unknown = new Error("SECRET");
+  unknown.diagnostics = { url: "SECRET", body: "SECRET" };
+  assert.equal(formatCompatibilityFailure(unknown).diagnostics, undefined);
+  assert.doesNotMatch(JSON.stringify(formatCompatibilityFailure(unknown)), /SECRET/);
+});
+
+test("diagnostics count fully verified files without exposing the failing filename", async () => {
+  let calls = 0;
+  await assert.rejects(verifyLegacyUploadCompatibility({
+    readManifest: async () => ({ files: [...diagnosticManifest.files, ["another-private.webp", diagnosticManifest.files[0][1]]] }),
+    fetchImpl: async (_url, options) => ++calls <= 4 ? successfulProbe(options.method) : new Response(null, { status: 404 })
+  }), (error) => {
+    const result = formatCompatibilityFailure(error);
+    assert.equal(result.diagnostics.fileNumber, 2);
+    assert.equal(result.diagnostics.verifiedFiles, 1);
+    assert.equal(result.diagnostics.plannedFiles, 2);
+    assert.doesNotMatch(JSON.stringify(result), /another-private|private-filename/);
+    return true;
+  });
 });

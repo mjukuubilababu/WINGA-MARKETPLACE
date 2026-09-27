@@ -1112,3 +1112,15 @@ verification still requires the documented Render Shell command.
 See `docs/legacy-media-edge-policy.md` for scope, commands and limitations.
 Direct public CDN access and previously downloaded/browser-cached copies are
 not revoked by this policy. Disk detachment and cross-node proof remain false.
+
+## 36. Full edge inventory proof blocked on an unidentified HTTP response
+
+The operator ran the edge verifier at Render `ab480e5`; it stopped with
+`COMPAT_HTTP_FAILED`, without enough status/phase evidence to identify cause.
+A repeat three-image public smoke passed, but does not prove all 357 journal
+files. The read-only verifier now exposes privacy-safe failure diagnostics and
+an opt-in, bounded same-request comparison against the fixed API origin.
+No retries skip a failure, no permissions are relaxed and no success is inferred
+from the comparison. Media tests 75/75 pass; full CI is not rerun for this
+verifier-only follow-up. Run the --diagnose command in
+`docs/legacy-media-edge-policy.md`; retain disk and all existing failover gates.
