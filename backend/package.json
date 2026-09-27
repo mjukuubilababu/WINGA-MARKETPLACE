@@ -17,6 +17,7 @@
     "copy:legacy-public-media": "node copy-legacy-public-media.js",
     "backup:legacy-private-media": "node backup-legacy-private-media.js",
     "verify:legacy-public-r2": "node verify-legacy-public-r2.js",
+    "verify:legacy-public-r2:all": "node verify-legacy-public-inventory.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

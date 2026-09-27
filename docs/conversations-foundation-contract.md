@@ -940,3 +940,49 @@ pagination test passed in that complete run. `git diff --cached --check` also
 passed. Canary production authorization/R2 reads remain pending deployment,
 flag enablement and the operator's `verify:legacy-public-r2` result. Physical
 device checks, serving cutover and cross-node failover are not proven here.
+
+## 31. Production public-read sample passed; full inventory verification
+
+Operator evidence from Render commit `2879d549f03c4b48f820605b60348b3d02ebc109`
+confirms the HTTP R2 canary: 3 images, 181,240 bytes, `r2ReadProven: true`,
+`legacyBytesMatch: true`. This supersedes section 30's pending sample execution,
+not its pending serving-path cutover, physical-device or cross-node gates.
+
+The next CLI, `npm run verify:legacy-public-r2:all` in backend, compares every
+current approved-public legacy candidate and stored variant using primary
+authorization, bounded local reads and metadata-verified direct R2 GETs. It
+fails closed on changed selection, source bytes, permissions or unavailable
+storage; it cannot substitute disk fallback for R2. It reuses existing audit
+and canary helpers and runs PostgreSQL in read-only mode without migrations.
+No existing serving route, Worker, UI or media reference changes in this patch.
+
+The disk-coupling audit remains unchanged: `resolveProductImageForDelivery`
+tests local existence; `repairNormalizedProductImageState` drops missing local
+references; `normalizeProductImages`/metadata/cleanup retain disk assumptions;
+`worker.js:handleImageCache` still serves cached public bytes before origin.
+These need coordinated delivery, cache, private-media and writer changes, not
+just successful checksums. Full-inventory runtime results remain pending the
+operator command; `diskRemovalReady` and `servingPathSwitched` remain false.
+
+Focused media verification tests passed 25/25. The first complete CI run passed
+integration 220/220 and browser 146/147. The existing `load-more commits its
+primary page before background runway prefetch` test observed requests
+`[1,2,3]` where it expected `[1,2]` before its second append call. Three isolated
+repetitions passed unchanged. This is an intermittent assertion observation,
+not a demonstrated media regression or a fixed Home defect. No Home runtime
+or existing browser assertion was changed; retain this risk for separate triage.
+
+The second complete CI run also exited 1 with browser 146/147: prefetch passed,
+but `lost publish response reconciles the posted reel without another upload
+or duplicate post` observed zero writes before its 25-second timeout. That
+unchanged photo-reel test then passed three isolated repetitions. These results
+do NOT constitute a green complete CI run or a fix for either intermittent
+failure. Both full runs passed integration 220/220 and focused media tests
+25/25. Existing runtime and browser-test files have an empty diff in this patch.
+
+The new CLI also rejected `--copy-public` with `UNEXPECTED_ARGUMENTS` before
+storage/database initialization. `git diff --cached --check` passed. This patch
+ships only the manual read-only CLI, command/test wiring and documentation;
+it is not invoked by API startup or production traffic. Full CI stability,
+production full-inventory execution and all serving/disk cutover gates remain
+explicitly unverified. Do not describe the entire migration or spec as complete.

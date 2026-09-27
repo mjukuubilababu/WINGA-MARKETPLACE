@@ -100,6 +100,64 @@ patch. The frontend Worker does not need deployment for this canary.
 
 ## Remaining cutover gates
 
+### Production sample and full-inventory verification
+
+The operator ran commit `2879d549f03c4b48f820605b60348b3d02ebc109` on Render.
+The HTTP canary verified 3 images / 181,240 bytes with `r2ReadProven: true`
+and `legacyBytesMatch: true`. No database or serving-path changes occurred.
+This closes the sampled HTTP-read gate only, not inventory or disk independence.
+
+After the full-inventory verifier commit is Live, run in Render Shell:
+
+```bash
+cd /opt/render/project/src/backend
+echo "$RENDER_GIT_COMMIT"
+npm run verify:legacy-public-r2:all
+```
+
+This command uses the existing DATABASE_URL, WINGA_UPLOADS_DIR and public R2
+configuration. No new token or configuration is needed. It is a sequential,
+read-only CLI, not a public API endpoint. PostgreSQL uses read-only transactions
+with a 20-second statement timeout; the command does not initialize schemas.
+
+It reuses the public-copy audit to select current approved-public references
+and their stored responsive variants. It then applies the same primary owner,
+visibility and restricted-overlap checks as the canary before and after each
+R2 read. SHA-256 metadata and actual remote bytes must match bounded source
+disk bytes. There is no local fallback for remote failure and no PUT/DELETE.
+Unclassified/private files are not uploaded or read as media by this verifier.
+
+At the end it rechecks authorization and source hashes for every selected file,
+then rereads the inventory and canonical references to detect selection/size
+changes. A changed or unavailable source, denied permission, database failure,
+missing/corrupt remote object, empty selection or scope drift returns `ok: false`
+and a sanitized code. Partial verified counts are not a success. Progress and
+results contain aggregate counts only. Each media read remains capped at 8 MiB;
+over 10,000 candidates or over 30 minutes fails instead of claiming completion.
+
+Success requires `fullPublicInventoryVerified`, `inventoryStable` and
+`authorizationRechecked` all true, and `verified === planned`. The planned
+count is derived from current records, not hard-coded to the earlier 357.
+`sourceDiskRequired` stays true because the source is the comparison authority.
+`httpDeliveryVerified` stays false: the full command reads the S3 API directly,
+not the HTTP canary. Keep the separate three-image HTTP proof.
+
+This is a live, point-in-time check, not a lock or transaction spanning disk,
+PostgreSQL and R2. It cannot guarantee future writes or detect every transient
+change that is reverted between checks. Rerun close to a coordinated cutover;
+never treat it as permanent authorization or a migration manifest. If selection
+drifts, rerun after the relevant posting/moderation activity settles. If it
+fails, keep disk and current URLs and investigate the aggregate error first.
+
+Direct S3 reads avoid CDN caches; cached custom-domain responses have separate
+invalidation requirements. See Cloudflare's
+[R2 consistency and caching documentation](https://developers.cloudflare.com/r2/reference/consistency/).
+
+Rollback is simply to stop using the new command (or revert its code). No
+automatic remediation, copying, credential changes or disk removal occurs.
+
+### Serving cutover still pending
+
 Current-media reference/index design, authorized private/profile/identity media,
 old public mirror revocation, Worker caching/invalidation, missing-local repair
 logic, all remaining disk writes, historical missing-reference recovery or
