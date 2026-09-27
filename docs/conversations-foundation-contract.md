@@ -986,3 +986,37 @@ ships only the manual read-only CLI, command/test wiring and documentation;
 it is not invoked by API startup or production traffic. Full CI stability,
 production full-inventory execution and all serving/disk cutover gates remain
 explicitly unverified. Do not describe the entire migration or spec as complete.
+
+## 32. Full public inventory verified; reversible product reference cutover
+
+Operator evidence from Render commit `a48cc4256a70cc42df34526536514fdbf7755133`
+verified 357/357 files and 43,063,737 bytes: inventory stable, authorization
+rechecked, full public inventory verified. This closes section 31's pending
+full-inventory execution only. It did not switch serving or remove disk.
+
+The next implementation adds an operator-only, default-dry-run product IMAGE
+reference cutover using the same public CDN URL format as current R2 uploads.
+An additive schema migration creates its durable apply/rollback journal; no
+products change on deployment. Explicit apply requires the reviewed plan ID,
+fresh local/R2/CDN byte verification, current primary authorization, bounded
+table locks, media-field comparisons and atomic journal/write commit. An
+uncertain COMMIT acknowledgement is reconciled by repeating the same plan ID.
+
+Rollback verifies retained source hashes and rejects later media/ownership or
+visibility changes. Unrelated price/views/likes survive either direction.
+Public CDN visibility-revocation limitations, historical URLs, private writers,
+Worker caching and missing chat image recovery remain separate pending work.
+See `docs/legacy-public-media-cutover.md` for exact scope, operational write-lock
+risk, rollout, rollback, and post-apply acceptance. Product cutover has NOT been
+executed in production by this implementation turn.
+
+Verification for this patch: `npm run test:ci` passed module synchronization,
+private backup 17/17, legacy media 39/39 (including 14 cutover tests), the other
+Node suites 38/38, 35/35, 71/71, 54/54, and integration 220/220. Browser E2E
+finished 146/147: `mobile header auto-hide does not reflow the feed container
+while users scroll` at `tests/e2e/app.spec.js:2373` expected `search_only` but
+observed `hidden`. The unchanged test passed three isolated repetitions. This
+does not constitute a green full CI run or a fix for that intermittent failure.
+No Home/header, browser-test, Worker or normal API-route code changed here.
+Production dry-run/apply, real PostgreSQL lock timing under traffic, CDN/UI
+acceptance after cutover, and all disk-detachment gates remain pending.
