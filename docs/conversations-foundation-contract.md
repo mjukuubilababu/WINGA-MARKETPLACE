@@ -1020,3 +1020,37 @@ does not constitute a green full CI run or a fix for that intermittent failure.
 No Home/header, browser-test, Worker or normal API-route code changed here.
 Production dry-run/apply, real PostgreSQL lock timing under traffic, CDN/UI
 acceptance after cutover, and all disk-detachment gates remain pending.
+
+## 33. Production public reference cutover applied; audit retained dependencies
+
+Operator output from `f6c113096e8bc1d2b8679d09640277c20cda37ee` confirms plan
+`82291d13ea32112820a8a9e86ba54962cbecc37b727961530b506870b7572a8c` applied to
+93 products / 303 references after all 357 source/R2/CDN files were verified.
+`publicDeliveryVerified` and `databaseChanged` were true; disk/file deletion and
+disk-removal readiness were false. The user reported that images display
+correctly. This supersedes the pending production apply in section 32, not the
+remaining disk-independence, lock-load, cache/privacy or cross-node gates.
+
+The existing audit now optionally accepts `--post-cutover` alongside `--diagnose`.
+Applied journal evidence identifies retained public files even when canonical
+URLs no longer contain `/uploads/`. Structured chat snapshots are classified
+into exact journal candidates, different current images needing review, missing
+products, restricted products, no verified replacement and invalid references.
+It reads no message bodies, exposes only aggregates, performs no repairs and
+does not claim the 19 missing historical files recovered. Database reads use
+a repeatable-read read-only transaction. Malformed JSON, missing schema and
+bounded scan failures remain distinguishable from empty results.
+
+The code audit found legacy local writes in product normalization and the
+unconfigured-R2 fallback, local image delivery/repair/metadata/cleanup, and Worker
+legacy cache dependencies. Current profile/identity upload validation accepts
+data URLs; a current private-media disk writer was not proven and must not be
+assumed. No server routes, frontend or Worker code change in this patch.
+See `docs/legacy-post-cutover-audit.md` for the command and remaining decision gates.
+
+Local verification: module sync, private backup 17/17, legacy media 50/50,
+other Node suites and integration 220/220 passed. Full CI failed two of 147
+browser tests in unchanged Home pagination code: extra page-3 request at
+`pagination-bootstrap.spec.js:556`, and loadedCount 13 versus 12 at line 762.
+Both passed three isolated repetitions each (6/6); these are not fixes and do
+not constitute a green full CI run. Production post-cutover audit is pending.

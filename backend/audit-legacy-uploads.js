@@ -314,8 +314,8 @@ function diagnoseLegacyUploads(inventory, records) {
 async function main() {
   require("./load-env");
   const args = process.argv.slice(2);
-  if (args.length > 1 || (args.length === 1 && args[0] !== "--diagnose")) {
-    throw new Error("Only the read-only --diagnose option is supported.");
+  if (new Set(args).size !== args.length || args.some((arg) => !["--diagnose", "--post-cutover"].includes(arg))) {
+    throw new Error("Only the read-only --diagnose and --post-cutover options are supported.");
   }
   if (!process.env.DATABASE_URL || !process.env.WINGA_UPLOADS_DIR) {
     throw new Error("DATABASE_URL and WINGA_UPLOADS_DIR are required on the Render API service.");
@@ -329,12 +329,18 @@ async function main() {
   try {
     await client.connect();
     await client.query("SET statement_timeout = '20s'");
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const [inventory, records] = await Promise.all([
       readUploadInventory(path.resolve(process.env.WINGA_UPLOADS_DIR)),
       readReferenceRows(client)
     ]);
     const report = analyzeLegacyUploads(inventory, records);
     if (args.includes("--diagnose")) report.diagnostics = diagnoseLegacyUploads(inventory, records);
+    if (args.includes("--post-cutover")) {
+      const { readPostCutoverRows, analyzePostCutover } = require("./legacy-post-cutover-audit");
+      report.postCutover = analyzePostCutover(inventory, await readPostCutoverRows(client));
+    }
+    await client.query("COMMIT");
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   } finally {
     await client.end().catch(() => {});
@@ -343,7 +349,8 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    process.stderr.write("Legacy upload audit failed: " + (error.code || error.name || "ERROR") + "\n");
+    const safeCode = /^(POST_CUTOVER_[A-Z_]+|PUBLIC_URL_INVALID)$/.test(error.message || "") ? error.message : error.code || error.name || "ERROR";
+    process.stderr.write("Legacy upload audit failed: " + safeCode + "\n");
     process.exitCode = 1;
   });
 }
