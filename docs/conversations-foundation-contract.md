@@ -869,3 +869,37 @@ Local verification on 2026-09-27: focused audit/copy tests passed 17/17;
 and 147 browser tests. Realtime, message pagination, commerce outcomes,
 localization, frontend and generated-bundle checks also passed. These local
 results do not establish the production disk inventory or cross-node failover.
+
+## 29. Private preservation tooling (runtime execution pending)
+
+The operator subsequently ran diagnostics on Render at e6a4a3d. All 303 product
+references existed; the 19 missing paths belonged to message product-item
+snapshots, not message text. The 238 unclassified files had no known references
+in the inspected sources (78 complete variant families and four standalone
+files). This evidence does not authorize public copying or deletion.
+
+`backup:legacy-private-media` now provides dry-run, private-bucket preflight,
+explicit conditional backup and independent R2-only manifest verification.
+It preserves existing upload settings, routes, disk and database. No bucket was
+created or live private backup executed during implementation. Operator bucket
+creation, separate credentials, isolation confirmation and runtime copy/verify
+are required; see `docs/legacy-private-media-backup.md`.
+
+The private manifest preserves names, sizes and hashes for recovery. Cross-node
+proof, disk detachment, authorized serving-path migration and recovery of the
+19 already-missing references remain unverified. No foundation gate is closed
+merely because this backup CLI exists.
+
+Local focused audit/public-copy/private-backup tests passed 34/34. The first
+full CI run passed backend checks and 146/147 browser tests, but the existing
+`signed-in home keeps lower rows visible without the hero` test could not find
+a showcase image row within 10 seconds. Three isolated repetitions then passed
+without changing code or assertions. The cause is not established; preserve
+this intermittent Home-test observation rather than claim it was fixed by
+backup tooling. No Home implementation or test assertions were modified.
+
+The subsequent complete `npm run test:ci` run passed with exit code 0: private
+backup 17/17, realtime 38/38, message pages 35/35, commerce outcomes 71/71,
+frontend checks, integration 220/220 and browser 147/147, including the unchanged
+Home showcase test. Live bucket privacy checks, backup and independent R2
+verification remain pending operator configuration and execution.

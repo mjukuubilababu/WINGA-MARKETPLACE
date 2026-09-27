@@ -15,6 +15,7 @@
     "start": "node server.js",
     "audit:legacy-uploads": "node audit-legacy-uploads.js",
     "copy:legacy-public-media": "node copy-legacy-public-media.js",
+    "backup:legacy-private-media": "node backup-legacy-private-media.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }
