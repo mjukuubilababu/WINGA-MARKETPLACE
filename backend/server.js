@@ -15,6 +15,7 @@ const { createSearchDemandService, summarizeSearchDemandEvents } = require("./se
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { createLegacyPublicMediaHandler, readLegacyLocalMedia } = require("./legacy-public-media");
+const { createLegacyUploadCompatibilityHandler } = require("./legacy-upload-compatibility");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
 const { MAX_PRODUCT_MEDIA_ITEMS, normalizeProductMediaItems } = require("./product-media");
 const { buildAudienceKey, buildCommerceOpportunities } = require("./commerce-opportunity");
@@ -312,6 +313,14 @@ const handleLegacyPublicMedia = createLegacyPublicMediaHandler({
   },
   readLocal: (name) => readLegacyLocalMedia(UPLOADS_DIR, name),
   onOutcome: (result) => logStructuredEvent(result.status >= 500 ? "warn" : "info", "legacy_public_media_read", result)
+});
+const handleLegacyUploadCompatibility = createLegacyUploadCompatibilityHandler({
+  enabled: process.env.WINGA_LEGACY_UPLOADS_R2_COMPAT_ENABLED === "true",
+  authorize: (name) => {
+    if (!postgresStore) throw new Error("LEGACY_MEDIA_DATABASE_REQUIRED");
+    return postgresStore.authorizeLegacyUploadCompatibility(name);
+  },
+  onOutcome: (result) => logStructuredEvent(result.status >= 500 ? "warn" : "info", "legacy_upload_compatibility_read", result)
 });
 const ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION = String(process.env.ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION || "").toLowerCase() === "true";
 const ALLOW_DEFAULT_ORIGIN_FALLBACK = String(process.env.ALLOW_DEFAULT_ORIGIN_FALLBACK || "").toLowerCase() === "true";
@@ -8056,6 +8065,7 @@ const server = http.createServer(async (req, res) => {
 
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
       const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
+      if (target && await handleLegacyUploadCompatibility(req, res, "/uploads/" + path.basename(target.filePath))) return;
       if (!target || !fs.existsSync(target.filePath)) {
         sendJson(res, 404, { error: "Picha haijapatikana." });
         return;
@@ -8071,6 +8081,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/uploads/")) {
+      if (await handleLegacyUploadCompatibility(req, res, url.pathname)) return;
       const filePath = getLocalUploadFilePath(url.pathname);
       if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {
         sendJson(res, 404, { error: "Picha haijapatikana." });

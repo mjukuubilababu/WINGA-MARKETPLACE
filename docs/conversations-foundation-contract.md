@@ -1054,3 +1054,36 @@ browser tests in unchanged Home pagination code: extra page-3 request at
 `pagination-bootstrap.spec.js:556`, and loadedCount 13 versus 12 at line 762.
 Both passed three isolated repetitions each (6/6); these are not fixes and do
 not constitute a green full CI run. Production post-cutover audit is pending.
+
+## 34. Post-cutover audit proved; legacy URL compatibility prepared
+
+The supplied production audit from `35c62d2` supersedes section 33's pending
+audit execution: all 93 applied product entries were unchanged, all 357
+journaled files remained on disk, and 238 files were outside the journal.
+There were 29 chat snapshot items: 7 exact journal candidates and 22 items
+referencing 19 unique missing images, with the corresponding products absent.
+This is not evidence that the missing originals can be reconstructed.
+
+An opt-in backend compatibility layer now serves known public legacy URLs from
+R2 without rewriting messages or their replay/version state. Primary journal
+and current product/owner/visibility checks happen before and after remote I/O;
+private/identity overlap, corruption, missing schema or authorization errors fail
+closed. Known mappings never fall through to disk. Unknown legacy URLs and all
+routes with the flag off retain existing behavior. No new migration is added.
+
+`verify:legacy-upload-compat` checks all applied journal files through direct
+origin HTTP, requires matching checksums and R2/no-store headers, samples proxy
+and HEAD behavior and rechecks journal stability without reading source disk.
+Production activation/verification is pending. Worker legacy caching and public
+CDN revocation limitations remain unresolved, as do disk detachment and actual
+cross-node failover. See `docs/legacy-upload-compatibility.md` for rollout and
+flag rollback; never interpret origin proof as end-to-end edge privacy proof.
+
+Verification: `npm run test:ci` passed in full with media 61/61, private backup
+17/17, realtime 38/38, paging/replay 35/35, commerce 71/71, additional frontend
+54/54, integration 220/220 and browser E2E 147/147, plus module synchronization,
+localization and frontend-core checks. Eleven new compatibility tests include
+real isolated backend GET/HEAD and proxy behavior with the flag off and primary
+unavailable, SQL authorization and an HTTP R2 fixture without source-disk reads.
+No unrelated browser assertions were changed. Production flag activation,
+origin verification, physical-device chat checks and remaining gates are pending.

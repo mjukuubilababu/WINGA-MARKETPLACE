@@ -19,6 +19,7 @@
     "verify:legacy-public-r2": "node verify-legacy-public-r2.js",
     "verify:legacy-public-r2:all": "node verify-legacy-public-inventory.js",
     "cutover:legacy-public-media": "node cutover-legacy-public-media.js",
+    "verify:legacy-upload-compat": "node verify-legacy-upload-compatibility.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

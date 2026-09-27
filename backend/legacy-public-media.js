@@ -129,10 +129,11 @@ async function readLegacyLocalMedia(directory, name) {
 }
 
 function createLegacyPublicMediaHandler({ enabled = false, authorize, readRemote = readLegacyR2Media,
-  readLocal = async () => null, onOutcome = () => {} }) {
+  readLocal = async () => null, onOutcome = () => {}, route = ROUTE, passUnmapped = false }) {
   let inFlight = 0;
   return async function handle(req, res, pathname) {
-    if (!pathname.startsWith(ROUTE)) return false;
+    if (!pathname.startsWith(route)) return false;
+    if (!enabled && passUnmapped) return false;
     const startedAt = Date.now();
     const common = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
       "Cross-Origin-Resource-Policy": "cross-origin", "Access-Control-Allow-Origin": "*" };
@@ -148,13 +149,18 @@ function createLegacyPublicMediaHandler({ enabled = false, authorize, readRemote
     };
     if (!enabled) return finish(404, "disabled");
     if (!["GET", "HEAD"].includes(req.method)) return finish(405, "method_not_allowed");
-    const name = pathname.slice(ROUTE.length);
+    const name = pathname.slice(route.length);
     if (!validName(name)) return finish(404, "invalid_name");
     if (inFlight >= 4) return finish(503, "busy");
     inFlight += 1;
     try {
+      let proof;
+      const permitted = (value) => value === true || /^[a-f0-9]{64}$/.test(value?.sha256 || "");
+      const matches = (value, bytes) => value === true || crypto.createHash("sha256").update(bytes).digest("hex") === value.sha256;
       try {
-        if (!authorize || !await authorize(name)) return finish(404, "denied");
+        proof = authorize ? await authorize(name) : false;
+        if (proof === null && passUnmapped) return false;
+        if (!permitted(proof)) return finish(404, "denied");
       } catch (_error) { return finish(503, "authorization_unavailable"); }
       let bytes;
       let source = "r2";
@@ -164,14 +170,17 @@ function createLegacyPublicMediaHandler({ enabled = false, authorize, readRemote
         try { bytes = await readLocal(name); } catch (_error) { bytes = null; }
       }
       if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_BYTES) return finish(503, "storage_unavailable");
+      if (!matches(proof, bytes)) return finish(503, "integrity_failed");
       // Recheck after I/O so a visibility change during an R2 read does not release bytes.
       try {
-        if (!await authorize(name)) return finish(404, "denied");
+        const currentProof = await authorize(name);
+        if (!permitted(currentProof)) return finish(404, "denied");
+        if (!matches(currentProof, bytes)) return finish(503, "integrity_failed");
       } catch (_error) { return finish(503, "authorization_unavailable"); }
       return finish(200, source, bytes, name);
     } finally { inFlight -= 1; }
   };
 }
 
-module.exports = { ROUTE, validName, familyNames, referenceName, createLegacyPublicMediaStore,
+module.exports = { ROUTE, validName, familyNames, referenceName, productReferences, createLegacyPublicMediaStore,
   readLegacyR2Media, readLegacyLocalMedia, createLegacyPublicMediaHandler };
