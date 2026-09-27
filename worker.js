@@ -5,7 +5,7 @@ const CREATION_ENTRY_HTML = "<button id=\"post-product-fab\" type=\"button\" ari
 /*
  * WINGA BOOT OWNERSHIP
  * 1. Cloudflare Worker owns first paint: inline splash, skeleton shell, streamed first feed batch.
- * 2. Cloudflare Worker owns edge image caching for /uploads/* and API proxy routing.
+ * 2. Cloudflare Worker forwards legacy media without caching; R2 CDN owns public media caching.
  * 3. App JS owns client state, feed continuation, sentinels, carousel, and interactions after first paint.
  * 4. Service Worker is offline-shell only and must not compete with Worker image/API caching.
  */
@@ -16,7 +16,6 @@ const LCP_PRELOAD_TIMEOUT_MS = 3000;
 const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;
 const LCP_PRELOAD_CACHE_TTL_SECONDS = 60 * 5;
 const LCP_PRELOAD_CACHE_URL = "https://wingamarket.com/__winga_lcp_preload_candidate";
-const IMAGE_EDGE_TTL_SECONDS = 60 * 60 * 24;
 const STRICT_TRANSPORT_SECURITY_HEADER = "max-age=31536000; includeSubDomains; preload";
 const encoder = new TextEncoder();
 let cachedAssetBuildVersion = "00000000000000";
@@ -34,8 +33,8 @@ if (url.pathname === "/build-version.json") {
       return streamFeedPage(request, env, ctx);
     }
 
-    if (url.pathname.startsWith("/uploads/")) {
-      return hardenResponseHeaders(await handleImageCache(request, env, ctx), env);
+    if (url.pathname.startsWith("/uploads/") || url.pathname === "/__winga-image__") {
+      return hardenResponseHeaders(await handleLegacyMedia(request, env), env);
     }
 
     if (url.pathname.startsWith("/api/")) {
@@ -1647,54 +1646,47 @@ function getUserInitials(value = "") {
     .toUpperCase() || "S";
 }
 
-async function handleImageCache(request, env, ctx) {
-  const cache = caches.default;
-  const cached = await cache.match(request);
-  if (cached) {
-    return cached;
+async function handleLegacyMedia(request, env) {
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    "CDN-Cache-Control": "no-store",
+    "Cloudflare-CDN-Cache-Control": "no-store",
+    "X-Winga-Legacy-Delivery": "origin-no-store-v1",
+    "X-Content-Type-Options": "nosniff"
+  });
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    headers.set("Allow", "GET, HEAD");
+    return new Response(null, { status: 405, headers });
   }
-
   const origin = getOriginBaseUrl(env);
   const upstreamUrl = new URL(request.url);
   const originUrl = `${origin}${upstreamUrl.pathname}${upstreamUrl.search}`;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(originUrl, {
-        cf: {
-          cacheTtl: IMAGE_EDGE_TTL_SECONDS,
-          cacheEverything: true
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`Image origin failed with ${response.status}`);
-      }
-      const proxied = new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: {
-          "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
-          "Cache-Control": `public, max-age=${IMAGE_EDGE_TTL_SECONDS}`
-        }
-      });
-      ctx.waitUntil(cache.put(request, proxied.clone()));
-      return proxied;
-    } catch (_error) {
-      if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
-      }
+  try {
+    // Old cache entries and conditional requests must never bypass origin authorization.
+    const response = await fetch(originUrl, {
+      method: request.method,
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(20000),
+      headers: { Accept: "image/*", "Cache-Control": "no-store" }
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return new Response(null, { status: 502, headers });
     }
+    for (const name of ["Content-Type", "Content-Length", "Content-Encoding",
+      "Content-Range", "Accept-Ranges", "Retry-After", "Access-Control-Allow-Origin",
+      "Cross-Origin-Resource-Policy", "X-Winga-Media-Source"]) {
+      const value = response.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    return new Response(request.method === "HEAD" ? null : response.body, {
+      status: response.status, headers
+    });
+  } catch (_error) {
+    console.warn(JSON.stringify({ event: "legacy_media_origin_unavailable", status: 503 }));
+    return new Response(null, { status: 503, headers });
   }
-
-  return new Response(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" fill="#f4f4f5"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#d94f00" font-family="Arial, sans-serif" font-size="120">W</text></svg>`,
-    {
-      headers: {
-        "Content-Type": "image/svg+xml; charset=utf-8",
-        "Cache-Control": "no-store"
-      }
-    }
-  );
 }
 
 async function proxyToOrigin(request, env) {

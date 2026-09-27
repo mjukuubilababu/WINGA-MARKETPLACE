@@ -1087,3 +1087,23 @@ real isolated backend GET/HEAD and proxy behavior with the flag off and primary
 unavailable, SQL authorization and an HTTP R2 fixture without source-disk reads.
 No unrelated browser assertions were changed. Production flag activation,
 origin verification, physical-device chat checks and remaining gates are pending.
+
+## 35. Legacy origin proof and Worker cache correction
+
+Operator evidence at `66f1e3c5eb9138b1ddb3770200883cac92db95cc` proves all 357
+legacy files / 43,063,737 bytes through Render HTTP with matching R2 bytes,
+stable manifest, proxy sample, no observed disk fallback, and no verifier disk
+reads. This supersedes section 34's pending origin runtime proof, not its other
+remaining gates. No database/files were changed by the verifier.
+
+The Worker now forwards `/uploads/*` and `/__winga-image__` without consulting
+old edge cache or forcing public TTL. GET/HEAD, origin error statuses and R2
+proof headers survive; failures cannot become a cached or placeholder 200.
+The existing verifier has opt-in frontend edge-policy checks. Nine focused
+tests pass. Full confirmation CI passed, including media 70/70, integration
+220/220 and browser E2E 147/147. The initial run had one unchanged mobile
+search-focus failure (146/147), followed by three isolated passes and the full
+green confirmation; no UI fix is claimed. Actual edge rollout remains pending.
+See `docs/legacy-media-edge-policy.md` for scope, commands and limitations.
+Direct public CDN access and previously downloaded/browser-cached copies are
+not revoked by this policy. Disk detachment and cross-node proof remain false.

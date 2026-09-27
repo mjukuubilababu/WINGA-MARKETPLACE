@@ -93,12 +93,11 @@ previous disk route. No database rollback is required for this feature. Keep
 source files during rollout. Disable this flag BEFORE a separate product-URL
 cutover rollback: rolled-back journals deliberately deny while compatibility is on.
 
-This proves ORIGIN compatibility only. `worker.js:handleImageCache` still serves
-existing cached legacy images and overrides upstream cache headers for new cache
-entries. Direct public R2 URLs also retain their existing public-access policy.
-This patch does NOT claim end-to-end visibility revocation or edge-cache privacy
-is fixed. Worker delivery/cache policy requires coordinated work before removing
-disk or making a stronger access-control promise. No Worker deployment is made here.
+The original patch proved ORIGIN compatibility only. Its Worker cache gap is
+addressed separately in `docs/legacy-media-edge-policy.md`; the original backend
+deployment alone did not change Worker behavior. Direct public R2 URLs retain
+their existing public-access policy. Do not claim end-to-end visibility revocation
+or disk independence from the origin result.
 
 Unknown/private historical files, local normalization/fallback/metadata/cleanup,
 file-store-mode safety and the 19 already-missing image files remain separate
@@ -124,7 +123,8 @@ processes verify that flag-off legacy delivery is preserved and flag-on with no
 primary authority returns 503 even when the file exists locally. The HTTP proof
 fixture has no source-disk dependency. Existing canary regression tests also pass.
 
-Authenticated physical-device chat checks, actual R2 origin proof, production
-load/latency, Worker delivery/privacy and cross-node failover remain unverified
-by these local results. Run the production verifier only after the flagged
-deployment is Live; keep the disk throughout.
+The operator subsequently proved all 357 origin URLs / 43,063,737 bytes at
+`66f1e3c5eb9138b1ddb3770200883cac92db95cc`, including stable journal, proxy sample,
+R2 headers and matching bytes without disk fallback or verifier disk reads.
+Authenticated physical-device chat checks, production load/latency, Worker
+delivery and cross-node failover are not proven by that result. Keep the disk.

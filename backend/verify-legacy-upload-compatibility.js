@@ -18,7 +18,7 @@ async function readCompatibilityManifest(db) {
   return { journals: rows.map((row) => row.id), files: [...files].sort(([a], [b]) => a.localeCompare(b)) };
 }
 
-async function verifyLegacyUploadCompatibility({ readManifest, origin = "https://winga-pflp.onrender.com", fetchImpl = fetch, onProgress = () => {} }) {
+async function verifyLegacyUploadCompatibility({ readManifest, origin = "https://winga-pflp.onrender.com", requireEdgePolicy = false, fetchImpl = fetch, onProgress = () => {} }) {
   const base = new URL(origin);
   check(base.protocol === "https:" && !base.username && !base.password && base.pathname === "/" && !base.search && !base.hash, "COMPAT_ORIGIN_INVALID");
   const manifest = await readManifest();
@@ -31,6 +31,11 @@ async function verifyLegacyUploadCompatibility({ readManifest, origin = "https:/
       check(response.ok, "COMPAT_HTTP_FAILED");
       check(response.headers.get("x-winga-media-source") === "r2", "COMPAT_R2_NOT_PROVEN");
       check(response.headers.get("cache-control") === "private, no-store", "COMPAT_CACHE_UNSAFE");
+      if (requireEdgePolicy) {
+        check(response.headers.get("x-winga-legacy-delivery") === "origin-no-store-v1", "COMPAT_EDGE_POLICY_NOT_PROVEN");
+        check(!/^(HIT|STALE|UPDATING|REVALIDATED)$/i.test(response.headers.get("cf-cache-status") || ""), "COMPAT_EDGE_CACHE_HIT");
+        check(!response.headers.has("age"), "COMPAT_EDGE_CACHE_HIT");
+      }
       check(/^image\/(jpeg|png|webp|avif|gif)(;|$)/i.test(response.headers.get("content-type") || ""), "COMPAT_CONTENT_TYPE_INVALID");
       const size = Number(response.headers.get("content-length"));
       check(size > 0 && size <= 8 * 1024 * 1024, "COMPAT_SIZE_INVALID");
@@ -57,6 +62,7 @@ async function verifyLegacyUploadCompatibility({ readManifest, origin = "https:/
       const proxyPath = "/__winga-image__?u=" + encodeURIComponent("/uploads/" + name);
       await request(proxyPath, hash);
       await request(proxyPath, hash, "HEAD", bytes);
+      if (requireEdgePolicy) await request("/uploads/" + name, hash);
     }
     verified += 1;
     verifiedBytes += bytes;
@@ -65,6 +71,7 @@ async function verifyLegacyUploadCompatibility({ readManifest, origin = "https:/
   check(digest(JSON.stringify(manifest)) === digest(JSON.stringify(await readManifest())), "COMPAT_MANIFEST_CHANGED");
   return { ok: true, mode: "verify-legacy-upload-compatibility", privacy: "aggregate-only", origin: base.origin,
     verified, verifiedBytes, r2CompatibilityProven: true, manifestStable: true, proxySampleVerified: true,
+    edgePolicyVerified: requireEdgePolicy,
     sourceDiskReadByVerifier: false, diskFallbackObserved: false, databaseChanged: false, filesChanged: false,
     diskRemoved: false, diskRemovalReady: false, crossNodeFailoverProven: false };
 }
@@ -82,6 +89,7 @@ async function main() {
     await db.query("SET statement_timeout='20s'");
     const result = await verifyLegacyUploadCompatibility({ readManifest: () => readCompatibilityManifest(db),
       origin: process.env.WINGA_MEDIA_VERIFY_ORIGIN || undefined,
+      requireEdgePolicy: process.env.WINGA_MEDIA_VERIFY_EDGE === "true",
       onProgress: (value) => console.log(JSON.stringify(value)) });
     console.log(JSON.stringify(result, null, 2));
   } finally { await db.end().catch(() => {}); }
