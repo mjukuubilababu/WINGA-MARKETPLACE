@@ -6,6 +6,7 @@ const path = require("node:path");
 const { PGlite } = require("@electric-sql/pglite");
 const {
   analyzeLegacyUploads,
+  diagnoseLegacyUploads,
   getUploadName,
   readReferenceRows,
   readUploadInventory
@@ -160,6 +161,12 @@ test("PostgreSQL audit extracts only legacy path tokens from messages and notifi
       new Set(["public.webp", "private.jpg"])
     );
     assert.equal(JSON.stringify(records).includes("Private note"), false);
+    const diagnostic = diagnoseLegacyUploads({ files: new Map(), totalBytes: 0 }, records);
+    assert.equal(diagnostic.byReferenceSource.messageBody.missing, 1);
+    assert.equal(diagnostic.byReferenceSource.messageProductItems.missing, 1);
+    assert.equal(diagnostic.byReferenceSource.notificationBody.missing, 1);
+    assert.equal(diagnostic.missingUnique.missing, 2);
+    assert.equal(JSON.stringify(diagnostic).includes("private.jpg"), false);
   } finally {
     await db.close();
   }
@@ -181,4 +188,85 @@ test("private identity, embedded links and missing files block public copy prefl
   assert.equal(result.references.missing, 2);
   assert.equal(result.references.embeddedReferenceRows, 1);
   assert.equal(result.publicCopyPreflightPassed, false);
+});
+
+test("diagnostics separate private, embedded and unreferenced files without publishing paths", () => {
+  const files = new Map([
+    ["identity-320.webp", 10], ["identity-640.webp", 20], ["identity-1080.webp", 30],
+    ["message-320.webp", 11], ["message-640.webp", 21], ["message-1080.webp", 31],
+    ["unknown-320.webp", 12], ["unknown-640.webp", 22], ["unknown-1080.webp", 32],
+    ["unknown-partial-320.webp", 13], ["standalone.jpg", 14]
+  ]);
+  const result = diagnoseLegacyUploads({ files }, {
+    users: [{ identity_document_image: "/uploads/identity-1080.webp" }],
+    embeddedReferences: [
+      { name: "message-1080.webp", source: "messageBody" },
+      { name: "identity-1080.webp", source: "messageProductItems" }
+    ]
+  });
+  assert.deepEqual(result.unclassified.disposition, {
+    privateIdentityReferenceOrVariant: { files: 3, bytes: 60 },
+    embeddedReferenceOrVariant: { files: 3, bytes: 63 },
+    noKnownReference: { files: 5, bytes: 93 }
+  });
+  assert.equal(result.unclassified.files, 11);
+  assert.equal(result.unclassified.bytes, 216);
+  assert.equal(result.unclassified.variantFamilies, 4);
+  assert.equal(result.unclassified.completeVariantFamilies, 3);
+  assert.equal(result.unclassified.partialVariantFamilies, 1);
+  assert.equal(result.unclassified.standaloneFiles, 1);
+  for (const name of files.keys()) assert.equal(JSON.stringify(result).includes(name), false);
+  assert.equal(result.databaseChanged, false);
+  assert.equal(result.filesChanged, false);
+  assert.equal(result.publicCopyScopeChanged, false);
+  assert.equal(result.diskRemovalReady, false);
+});
+
+test("missing references count exact stored variants as evidence, not as automatic repair", () => {
+  const inventory = { files: new Map([["photo-320.webp", 10], ["unrelated-photo-640.webp", 20]]) };
+  const result = diagnoseLegacyUploads(inventory, {
+    products: [{ image: "/uploads/photo-1080.webp", status: "approved", visibility: "public" }],
+    embeddedReferences: [
+      { name: "photo-1080.webp", source: "messageProductItems" },
+      { name: "photo-1080.webp", source: "messageBody" },
+      { name: "missing.jpg", source: "notificationBody" },
+      { name: "photo.jpg", source: "messageBody" }
+    ]
+  });
+  assert.deepEqual(result.missingUnique, {
+    referenced: 3, missing: 3, missingWithStoredVariant: 1, missingWithoutStoredVariant: 2
+  });
+  assert.equal(result.byReferenceSource.products.missing, 1);
+  assert.equal(result.byReferenceSource.messageProductItems.missingWithStoredVariant, 1);
+  assert.equal(result.byReferenceSource.messageBody.missingWithoutStoredVariant, 1);
+  assert.equal(result.byReferenceSource.notificationBody.missing, 1);
+  assert.equal(result.diskRemovalReady, false);
+});
+
+test("diagnostic unknown source stays private and never changes the existing copy plan", () => {
+  const inventory = {
+    files: new Map([["approved.webp", 10], ["retained.jpg", 20]]),
+    totalBytes: 30, unexpectedEntries: 0, emptyFiles: 0, unsupportedFiles: 0
+  };
+  const records = {
+    products: [{ image: "/uploads/approved.webp", status: "approved", visibility: "public" }],
+    embeddedReferences: [{ name: "retained.jpg", source: "a-private-message-or-username" }]
+  };
+  const originalRecords = JSON.stringify(records);
+  const before = analyzeLegacyUploads(inventory, records);
+  const result = diagnoseLegacyUploads(inventory, records);
+  assert.equal(result.byReferenceSource.unknownEmbedded.referenced, 1);
+  assert.equal(result.unclassified.disposition.embeddedReferenceOrVariant.files, 1);
+  assert.equal(JSON.stringify(result).includes("a-private-message-or-username"), false);
+  assert.deepEqual(analyzeLegacyUploads(inventory, records), before);
+  assert.equal(JSON.stringify(records), originalRecords);
+  assert.equal(before.references.approvedPublicCopyCandidates, 1);
+});
+
+test("empty diagnostics do not authorize disk removal or invent missing data", () => {
+  const result = diagnoseLegacyUploads({ files: new Map() }, {});
+  assert.equal(result.missingUnique.missing, 0);
+  assert.equal(result.unclassified.files, 0);
+  assert.equal(result.unclassified.variantFamilies, 0);
+  assert.equal(result.diskRemovalReady, false);
 });

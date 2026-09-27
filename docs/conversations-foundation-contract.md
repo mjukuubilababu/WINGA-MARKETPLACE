@@ -841,3 +841,31 @@ claim failover. The exercise requires an explicit operator-controlled drain,
 two simultaneously observed same-commit instances, one test message and a
 single post-failure replay reference. No production node was drained while
 preparing this verifier; live cross-node acceptance remains pending.
+
+## 28. Disk migration dependency and private-reference diagnostics
+
+On 2026-09-27, work resumed at the cross-node prerequisite. The operator's
+public media copy result recorded 357 verified objects without rewriting URLs
+or removing the Render disk. The remaining reported blockers were 238
+unclassified files and 19 missing embedded paths. A public R2 copy alone does
+not make this API deployment stateless or prove multi-instance availability.
+
+`audit:legacy-uploads -- --diagnose` now separates those blockers by aggregate
+reference source and exact stored image-variant family. Private message text
+continues to stay in PostgreSQL; the query returns path tokens and fixed source
+labels, and CLI output contains counts only. Missing siblings are evidence for
+investigation, not automatic replacements or public-copy permission. Existing
+copy allowlists, message routes, replay, ordering and visibility are unchanged.
+
+The disk remains required. The diagnostic needs an operator run on Render;
+local fixtures cannot establish the current production file inventory. Private
+preservation, missing-reference recovery, serving-path migration, disk removal,
+two-instance preflight and controlled cross-node proof remain pending. No node
+was drained and no private or unclassified file was copied or deleted here.
+BEAM, E2EE and the other outstanding foundation gates remain explicitly open.
+
+Local verification on 2026-09-27: focused audit/copy tests passed 17/17;
+`npm run test:ci` completed with exit code 0, including 220 integration tests
+and 147 browser tests. Realtime, message pagination, commerce outcomes,
+localization, frontend and generated-bundle checks also passed. These local
+results do not establish the production disk inventory or cross-node failover.

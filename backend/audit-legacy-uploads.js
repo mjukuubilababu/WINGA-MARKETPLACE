@@ -203,14 +203,17 @@ async function readReferenceRows(client) {
   const embedded = await client.query("SELECT (SELECT COUNT(*) FROM messages WHERE message LIKE '%/uploads/%' OR product_items::text LIKE '%/uploads/%') AS message_rows, (SELECT COUNT(*) FROM messages WHERE product_items::text LIKE '%/uploads/%') AS product_item_rows, (SELECT COUNT(*) FROM notifications WHERE body LIKE '%/uploads/%') AS notification_rows");
   // Extract only path tokens in SQL; private message bodies never leave PostgreSQL.
   const embeddedPaths = await client.query(`
-    SELECT upload_match FROM (
-      SELECT regexp_matches(message, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+    SELECT upload_match, reference_source FROM (
+      SELECT regexp_matches(message, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match,
+        'messageBody' AS reference_source
         FROM messages WHERE message LIKE '%/uploads/%'
       UNION ALL
-      SELECT regexp_matches(product_items::text, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+      SELECT regexp_matches(product_items::text, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match,
+        'messageProductItems' AS reference_source
         FROM messages WHERE product_items::text LIKE '%/uploads/%'
       UNION ALL
-      SELECT regexp_matches(body, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match
+      SELECT regexp_matches(body, '/uploads/([A-Za-z0-9][A-Za-z0-9._-]*)', 'g') AS upload_match,
+        'notificationBody' AS reference_source
         FROM notifications WHERE body LIKE '%/uploads/%'
     ) AS embedded_paths
   `);
@@ -222,14 +225,99 @@ async function readReferenceRows(client) {
     embeddedMessageRows: messageRows,
     embeddedProductItemRows: Number(embedded.rows[0]?.product_item_rows || 0),
     embeddedNotificationRows: notificationRows,
-    embeddedReferences: embeddedPaths.rows.map((row) => ({ name: row.upload_match?.[0] || "" }))
+    embeddedReferences: embeddedPaths.rows.map((row) => ({
+      name: row.upload_match?.[0] || "",
+      ...(["messageBody", "messageProductItems", "notificationBody"].includes(row.reference_source)
+        ? { source: row.reference_source } : {})
+    }))
       .filter((entry) => SAFE_NAME.test(entry.name) && !entry.name.includes(".."))
+  };
+}
+
+function diagnoseLegacyUploads(inventory, records) {
+  const classified = classifyProductReferences(records);
+  const invalid = { count: 0 };
+  const sources = {
+    products: classified.allNames, orders: new Set(), profiles: new Set(),
+    sessions: new Set(), privateIdentity: new Set(), messageBody: new Set(),
+    messageProductItems: new Set(), notificationBody: new Set(), unknownEmbedded: new Set()
+  };
+  for (const row of records.orders || []) addReferences(row.product_image, sources.orders, invalid);
+  for (const row of records.users || []) {
+    addReferences(row.profile_image, sources.profiles, invalid);
+    addReferences(row.identity_document_image, sources.privateIdentity, invalid);
+  }
+  for (const row of records.sessions || []) addReferences(row.profile_image, sources.sessions, invalid);
+  for (const entry of records.embeddedReferences || []) {
+    if (!SAFE_NAME.test(entry.name || "") || entry.name.includes("..")) continue;
+    const source = ["messageBody", "messageProductItems", "notificationBody"].includes(entry.source)
+      ? entry.source : "unknownEmbedded";
+    sources[source].add(entry.name);
+  }
+
+  const hasStoredVariant = (name) => [...withStoredVariants(new Set([name]), inventory)]
+    .some((candidate) => candidate !== name && inventory.files.has(candidate));
+  const summarizeMissing = (names) => {
+    const missing = [...names].filter((name) => !inventory.files.has(name));
+    const withVariant = missing.filter(hasStoredVariant).length;
+    return {
+      referenced: names.size, missing: missing.length,
+      missingWithStoredVariant: withVariant, missingWithoutStoredVariant: missing.length - withVariant
+    };
+  };
+  const allNames = new Set(Object.values(sources).flatMap((names) => [...names]));
+  const canonicalCopyNames = withStoredVariants(new Set([
+    ...sources.products, ...sources.orders, ...sources.profiles, ...sources.sessions
+  ]), inventory);
+  const identityNames = withStoredVariants(sources.privateIdentity, inventory);
+  const embeddedNames = withStoredVariants(new Set([
+    ...sources.messageBody, ...sources.messageProductItems,
+    ...sources.notificationBody, ...sources.unknownEmbedded
+  ]), inventory);
+  const unclassified = [...inventory.files.keys()].filter((name) => !canonicalCopyNames.has(name));
+  const disposition = {
+    privateIdentityReferenceOrVariant: { files: 0, bytes: 0 },
+    embeddedReferenceOrVariant: { files: 0, bytes: 0 },
+    noKnownReference: { files: 0, bytes: 0 }
+  };
+  const families = new Map();
+  let standaloneFiles = 0;
+  for (const name of unclassified) {
+    const group = identityNames.has(name) ? disposition.privateIdentityReferenceOrVariant
+      : embeddedNames.has(name) ? disposition.embeddedReferenceOrVariant : disposition.noKnownReference;
+    group.files += 1;
+    group.bytes += inventory.files.get(name);
+    const variant = name.match(/^(.*)-(320|640|1080)\.webp$/);
+    if (!variant) { standaloneFiles += 1; continue; }
+    const widths = families.get(variant[1]) || new Set();
+    widths.add(variant[2]);
+    families.set(variant[1], widths);
+  }
+  const completeFamilies = [...families.values()].filter((widths) => widths.size === 3).length;
+  return {
+    schemaVersion: "2026-09-27.legacy-upload-diagnostics.v1",
+    mode: "read-only", privacy: "aggregate-only",
+    missingUnique: summarizeMissing(allNames),
+    byReferenceSource: Object.fromEntries(Object.entries(sources).map(([source, names]) => [source, summarizeMissing(names)])),
+    unclassified: {
+      files: unclassified.length,
+      bytes: unclassified.reduce((sum, name) => sum + inventory.files.get(name), 0),
+      disposition,
+      variantFamilies: families.size, completeVariantFamilies: completeFamilies,
+      partialVariantFamilies: families.size - completeFamilies, standaloneFiles
+    },
+    databaseChanged: false, filesChanged: false, publicCopyScopeChanged: false,
+    diskRemovalReady: false
   };
 }
 
 async function main() {
   require("./load-env");
-  if (process.argv.length > 2 || !process.env.DATABASE_URL || !process.env.WINGA_UPLOADS_DIR) {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--diagnose")) {
+    throw new Error("Only the read-only --diagnose option is supported.");
+  }
+  if (!process.env.DATABASE_URL || !process.env.WINGA_UPLOADS_DIR) {
     throw new Error("DATABASE_URL and WINGA_UPLOADS_DIR are required on the Render API service.");
   }
   const { Client } = require("pg");
@@ -245,7 +333,9 @@ async function main() {
       readUploadInventory(path.resolve(process.env.WINGA_UPLOADS_DIR)),
       readReferenceRows(client)
     ]);
-    process.stdout.write(JSON.stringify(analyzeLegacyUploads(inventory, records), null, 2) + "\n");
+    const report = analyzeLegacyUploads(inventory, records);
+    if (args.includes("--diagnose")) report.diagnostics = diagnoseLegacyUploads(inventory, records);
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
   } finally {
     await client.end().catch(() => {});
   }
@@ -259,6 +349,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  analyzeLegacyUploads, getApprovedPublicCopyNames, getUploadName,
+  analyzeLegacyUploads, diagnoseLegacyUploads, getApprovedPublicCopyNames, getUploadName,
   readReferenceRows, readUploadInventory
 };
