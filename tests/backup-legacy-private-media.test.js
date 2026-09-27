@@ -155,8 +155,11 @@ test("copy verifies bytes and a durable manifest, retries safely, and verifies w
     assert.equal(second.uploaded, 0);
     assert.equal(second.alreadyVerified, 2);
     assert.equal(args.client.writes.length, 3);
-    const verified = await verifyPrivateBackup({ config, client: args.client, backupId: first.backupId, fetchImpl: args.fetchImpl });
+    let verifiedEntries;
+    const verified = await verifyPrivateBackup({ config, client: args.client, backupId: first.backupId,
+      fetchImpl: args.fetchImpl, onVerifiedManifest: (entries) => { verifiedEntries = entries; } });
     assert.equal(verified.verified, 2);
+    assert.deepEqual(verifiedEntries.map((entry) => entry.name), ["private.webp", "unknown.jpg"]);
     assert.equal(verified.verifiedBytes, first.verifiedBytes);
     assert.equal(verified.sourceDiskRequired, false);
     assert.equal(verified.filesRestored, false);
@@ -242,10 +245,13 @@ test("verification detects missing or corrupt objects and mismatched manifests",
   await fixture(async (args) => {
     const backup = await backupPrivateMedia({ ...args, copy: true });
     const options = { config, client: args.client, backupId: backup.backupId, fetchImpl: args.fetchImpl };
+    let callbackInvoked = false;
+    options.onVerifiedManifest = () => { callbackInvoked = true; };
     const key = [...args.client.objects.keys()].find((value) => value.includes("/objects/"));
     const bytes = args.client.objects.get(key);
     args.client.objects.delete(key);
     await assert.rejects(verifyPrivateBackup(options), /BACKUP_OBJECT_MISMATCH/);
+    assert.equal(callbackInvoked, false);
     args.client.objects.set(key, Buffer.alloc(bytes.length));
     await assert.rejects(verifyPrivateBackup(options), /BACKUP_OBJECT_MISMATCH/);
     args.client.objects.set(key, bytes);

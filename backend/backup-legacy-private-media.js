@@ -193,7 +193,7 @@ async function backupPrivateMedia({
   return { ...result, manifestVerified: true, backupId };
 }
 
-async function verifyPrivateBackup({ config, client, backupId, fetchImpl }) {
+async function verifyPrivateBackup({ config, client, backupId, fetchImpl, onVerifiedManifest }) {
   if (!HASH.test(backupId || "")) fail("BACKUP_ID_INVALID");
   await assertPrivateBucket(config, fetchImpl);
   const bytes = await getBytes(client, config.bucket, manifestKey(backupId), MAX_MANIFEST_BYTES);
@@ -217,6 +217,7 @@ async function verifyPrivateBackup({ config, client, backupId, fetchImpl }) {
     verifiedBytes += remote.length;
   }
   await assertPrivateBucket(config, fetchImpl);
+  if (onVerifiedManifest) onVerifiedManifest(manifest.entries.map((entry) => ({ ...entry })));
   return {
     ...summary("verify-backup"), backupId, verified: manifest.entries.length, verifiedBytes,
     manifestVerified: true, sourceDiskRequired: false, filesRestored: false
@@ -284,4 +285,4 @@ if (require.main === module) {
 }
 
 module.exports = { readPrivateBackupConfig, assertPrivateBucket, planPrivateBackup,
-  backupPrivateMedia, verifyPrivateBackup, parseArgs };
+  backupPrivateMedia, verifyPrivateBackup, readStableFile, parseArgs };

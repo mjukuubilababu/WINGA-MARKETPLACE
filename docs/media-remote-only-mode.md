@@ -120,3 +120,34 @@ The audit does not recheck local hashes, remote delivery or the private backup
 in one atomic snapshot. Bot Fight Mode restoration to ON is not yet confirmed.
 Keep the disk mounted. Disk detachment, authenticated conversation/profile
 checks on a diskless instance and genuine two-node failover remain unproven.
+
+## Combined retained-disk coverage gate
+
+After deploying the verifier, run this only on the Render API service while
+the original disk remains mounted and `remote_only` remains active:
+
+```bash
+cd /opt/render/project/src/backend
+echo "$RENDER_GIT_COMMIT"
+npm run verify:legacy-disk-coverage -- --backup-id=3e248d86f02a08f01bbcc519f0bd79836ead9c6ee92a261bb3d2393520d64019
+```
+
+The command is read-only. It requires the live ops endpoint to report
+`remote_only`; rechecks the private bucket's non-public status, its manifest
+and every private object; requires every retained disk filename to belong to
+exactly one applied public journal or the verified private manifest; and
+compares local bytes with public R2 hashes or private backup hashes. It reads
+each local file twice, checks live public authorization before/after R2 reads
+and once more at the end, then rechecks disk inventory, relevant database rows
+and the live policy. Results and progress contain aggregate counts only.
+Remote storage/SQL/ops failures, changed hashes, overlaps, gaps or an edited
+cutover product fail closed. The source disk is needed to run this command.
+
+A passing result would establish coverage for the retained snapshot, not
+prove a diskless deploy, browser workflows, private-media recovery, or actual
+cross-node failover. `diskRemovalReady` deliberately stays `false`. The
+private backup is not a public delivery mechanism. Do not delete the disk or
+create a second service from this result alone: another service would execute
+startup migrations/maintenance and background sweepers against shared data.
+Its topology, credentials, ingress, background jobs and rollback need a
+separate controlled review.

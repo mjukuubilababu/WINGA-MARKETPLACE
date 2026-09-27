@@ -1161,3 +1161,17 @@ did not recheck local hashes, remote delivery and private backup atomically;
 the private-backup verifier did not examine live source disk. Bot Fight Mode
 restoration to ON remains unconfirmed. Preserve the mounted disk until a
 separately controlled diskless-instance and authenticated workflow check.
+
+## 39. Combined retained-disk coverage verifier prepared
+
+The new read-only `verify:legacy-disk-coverage` command combines applied
+public journal hashes, current product state, local source bytes, public R2
+objects, current delivery authorization and the previously verified private
+manifest/objects. It rejects
+overlap, uncovered files, changed local/remote bytes, invalid bucket privacy
+and unstable inventory/database state. Progress and failure output remain
+aggregate-only. Tests cover normal and fail-closed paths; the private manifest
+callback is released only after full backup verification. See
+`docs/media-remote-only-mode.md` for the production command and limitations.
+This verifier has not yet been run on Render. It cannot certify disk removal or
+two live nodes; the existing production disk remains the rollback source.
