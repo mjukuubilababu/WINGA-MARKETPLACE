@@ -1,0 +1,96 @@
+# Opt-in remote-only media and artifact policy
+
+## Scope and defaults
+
+`WINGA_MEDIA_STORAGE_MODE=remote_only` is an explicit, reversible backend mode.
+Unset (or `hybrid`) preserves existing production/local-development behavior.
+No deployment command enables the mode automatically. No migration, URL
+rewrite, R2 ACL change, disk deletion or Cloudflare change is part of this patch.
+
+The operator has supplied a successful 357-file frontend compatibility check.
+That is a legacy read gate, not proof every live write or audit is disk-free.
+
+## Audited dependencies and behavior
+
+| Existing owner/function | Remote-only behavior |
+| --- | --- |
+| `initializeStoreAtBoot` / `ensureLocalArtifacts` | No data/upload directory creation or seed file. Any attempted legacy-store access throws. Empty PostgreSQL cannot silently seed from local disk. |
+| `appendAuditLog` | Canonical PostgreSQL audit only; no additional local audit.log. Database failure remains an error, never local fallback. |
+| `persistIncomingProductImages` | Existing bounded Sharp variants and R2 uploader; no local write when configuration is lost or R2 fails. Product persistence occurs after upload success. |
+| `saveDataUrlImage` during historical normalization | Preserves the historical reference/inline data without writing a new local file. New product uploads still go through asynchronous persistence first. |
+| `resolveProductImageForDelivery` / repair | Local absence cannot erase a reference or substitute a placeholder. HTTP authorization/delivery decides availability. |
+| Local metadata backfill | Not queued/read. Existing metadata and new-upload dimensions are retained. Historical missing metadata stays unknown; no unbounded remote fetch is added. |
+| `cleanupUnusedLocalImages` | No local stat/unlink. R2 garbage collection is not introduced. |
+| Legacy compatibility route | Existing primary/journal authorization and integrity checks. Unmapped references return private/no-store 404 without touching disk. Known unavailable R2/authorization returns 503; revoked media 404. |
+| Public read canary | Local fallback disabled; R2 outage remains 503. |
+| Image consistency summary | Remote availability is `not_checked`, with null counts, not fabricated zero broken images. |
+
+Startup requires PostgreSQL configuration, complete R2 configuration with an
+HTTPS public base (not an `/uploads` compatibility URL), and
+`WINGA_LEGACY_UPLOADS_R2_COMPAT_ENABLED=true`. Invalid explicit modes fail closed.
+These are configuration checks, NOT credential, reachability or inventory proof.
+Existing private profile/identity inline storage is unchanged; the private backup
+bucket is not repurposed as public serving storage. The 19 missing historical
+references remain unavailable, not deleted, fabricated or marked recovered.
+
+## Observability
+
+`GET /api/ops/media/storage-policy` reuses `X-Ops-Health-Token` authorization.
+Absent configured token: 503; missing/wrong token: 401. Responses are no-store.
+It reports mode, local-media/local-artifact policy, and compatibility flag only.
+No paths, credentials, filenames, private message content or buyer identifiers.
+`diskRemovalReady` and `crossNodeFailoverProven` remain false. Startup emits the
+aggregate `media_storage_policy` event. Policy is not an actual I/O counter or
+proof of storage connectivity.
+
+## Controlled rollout (disk retained)
+
+1. Confirm Bot Fight Mode is ON again. Do not repeatedly disable protection.
+2. Deploy the tested commit with mode unset; existing behavior remains unchanged.
+3. Check current production audit/inventory and retain the public cutover journal,
+   the independently verified private backup, and the mounted disk. A previous
+   snapshot does not cover any later writes automatically.
+4. For a controlled observation window set only
+   `WINGA_MEDIA_STORAGE_MODE=remote_only` in Render. Keep all existing database,
+   R2, compatibility and uploads-directory settings. Do not detach the disk.
+5. Confirm readiness and inspect mode in Render Shell without printing secrets:
+
+```bash
+node -e 'fetch("http://127.0.0.1:"+(process.env.PORT||3000)+"/api/ops/media/storage-policy",{headers:{"X-Ops-Health-Token":process.env.OPS_HEALTH_TOKEN||""}}).then(async r=>{console.log(JSON.stringify({httpStatus:r.status,...await r.json()},null,2));if(!r.ok)process.exitCode=1}).catch(()=>{console.error("STORAGE_POLICY_CHECK_FAILED");process.exitCode=1})'
+npm run verify:legacy-upload-compat -- --diagnose
+```
+
+The second command defaults to the Render API origin; do not set the edge env
+override while Bot Fight Mode challenges server-side traffic. Earlier edge
+proof remains scoped to its test window. Then verify real-browser Home/images,
+old conversation product cards, authenticated new image upload/edit/delete,
+profile/identity handling and canonical audit persistence. Confirm unavailable
+historical images are handled without losing message/order history.
+
+6. Roll back any regression by restoring mode to `hybrid` and redeploying with
+   the retained disk. No journal/database rollback is required for the mode flag.
+
+## Verification and limits
+
+The focused tests run the real backend HTTP server with test-only database and
+R2 adapters. Filesystem guards fail AND record every attempted data/upload
+access, including exists/stat/read/write/cleanup. Tests cover GET/HEAD/proxy,
+unknown 404, R2/authorization 503, revocation 404, canary no-fallback, retained
+references, optimized upload dimensions, edit/delete cleanup, audit persistence
+and failure, endpoint auth, invalid prerequisites and empty database startup.
+Existing hybrid/local behavior is covered by the existing suites.
+
+These fixtures do not prove live PostgreSQL/R2 availability, disk-detachment
+safety, two-node failover, private CDN revocation or physical mobile behavior.
+An audit failure after a completed domain write can still return 500 under the
+existing contract; this patch does not add transactional outbox/idempotency to
+product mutations. R2 orphan cleanup and storage-aware historical metadata
+backfill are separate work; no data is deleted as a shortcut.
+
+Full `npm run test:ci` passed on this patch: private backup 17/17, legacy media
+78/78 (including the three new remote-only tests), realtime 38/38, message pages
+35/35, commerce 71/71, frontend core 144/144 plus frontend suites 54/54,
+integration 220/220 and browser E2E 147/147. Module synchronization and
+localization gates passed; `git diff --check` passed. No UI changes or test
+assertion weakening were needed. Production mode activation remains pending
+operator configuration and runtime evidence, separately from CI success.

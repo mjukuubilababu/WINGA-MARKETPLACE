@@ -152,3 +152,28 @@ Verification: affected media suite 75/75 passed, including five new diagnostic
 tests. The earlier full CI pass applies to the Worker implementation; full CI
 is not rerun for this verifier-only follow-up. Full production inventory proof
 and the underlying cause remain pending the diagnostic result.
+
+## Operator full edge proof and Cloudflare challenge (2026-09-28)
+
+The diagnostic requests at 2026-09-27 20:57:49Z and 21:17:26Z failed on the
+first proxy GET with HTML 403 and no Worker delivery marker. The identical
+direct-origin requests returned image 200 from R2 with private/no-store.
+Read-only Cloudflare Security Events matched Ray IDs `a41d6c436e9f23f0` and
+`a41d89038c23d09f`: action `managed_challenge`, source `botFight`, rule
+`bot_fight_mode`. No WAF exception or code bypass was added. The existing API
+session cannot read/edit Bot Management configuration (HTTP 403).
+
+After the operator was instructed to temporarily disable only Bot Fight Mode,
+the supplied full Render Shell result passed at `https://wingamarket.com`:
+357 files, 43,063,737 bytes, stable manifest, R2 compatibility, proxy sample and
+edge policy all verified. No observed disk fallback or source-disk read by the
+verifier; no database/file changes. This closes the full edge inventory gate
+for that test window only. It is operator-supplied evidence; the successful
+output did not include the deployed commit or a timestamp.
+
+Bot Fight Mode must be restored immediately after the test. Restoration has
+not yet been confirmed by the operator. Do not claim this server-side verifier
+will pass with Bot Fight Mode restored, or that real-browser behavior has been
+certified. Disk removal and cross-node failover are still NOT proven.
+
+Next: the opt-in policy and rollout gates in `media-remote-only-mode.md`.

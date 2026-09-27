@@ -1124,3 +1124,21 @@ No retries skip a failure, no permissions are relaxed and no success is inferred
 from the comparison. Media tests 75/75 pass; full CI is not rerun for this
 verifier-only follow-up. Run the --diagnose command in
 `docs/legacy-media-edge-policy.md`; retain disk and all existing failover gates.
+
+## 37. Full edge inventory evidence and opt-in remote-only preparation
+
+The operator supplied a successful frontend-domain compatibility result for all
+357 files (43,063,737 bytes), stable journal, R2 source, proxy sample and edge
+policy. Prior proxy HTML 403 responses were matched by exact Ray ID to
+Cloudflare Bot Fight Mode managed challenges, not missing R2 bytes. The passing
+run followed instructions for a temporary Bot Fight Mode test window; restoration
+to ON still requires confirmation. See `docs/legacy-media-edge-policy.md`.
+
+The next code increment adds opt-in `WINGA_MEDIA_STORAGE_MODE=remote_only`,
+defaulting to unchanged hybrid behavior. It prevents local media fallback and
+artifact writes, preserves historical references, uses PostgreSQL audit and the
+existing R2 upload/authorized read contracts, and rejects unsafe prerequisites.
+The operations policy endpoint reports configuration, not successful I/O.
+See `docs/media-remote-only-mode.md` for tests, rollback and runtime gates.
+This does not remove disk, create a new media pipeline, claim historical image
+recovery or establish cross-node failover. Production activation remains pending.

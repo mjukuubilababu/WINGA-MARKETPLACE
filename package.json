@@ -39,7 +39,7 @@
     "update:i18n-baseline": "node scripts/check-hardcoded-ui-strings.js --update-baseline",
     "verify:modules-sync": "node scripts/verify-modules-sync.js",
     "test:private-backup": "node --test tests/backup-legacy-private-media.test.js",
-    "test:legacy-media": "node --test tests/legacy-public-media.test.js tests/legacy-public-inventory.test.js tests/legacy-public-cutover.test.js tests/legacy-post-cutover-audit.test.js tests/legacy-upload-compatibility.test.js tests/worker-legacy-media.test.js",
+    "test:legacy-media": "node --test tests/legacy-public-media.test.js tests/legacy-public-inventory.test.js tests/legacy-public-cutover.test.js tests/legacy-post-cutover-audit.test.js tests/legacy-upload-compatibility.test.js tests/worker-legacy-media.test.js tests/media-storage-policy.test.js",
     "test:ci": "npm run verify:modules-sync && npm run test:private-backup && npm run test:legacy-media && npm test",
     "monitor:video": "node scripts/check-video-health.js",
     "verify:video-production": "node scripts/verify-video-production.js",

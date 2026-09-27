@@ -14,6 +14,7 @@ const { createDemandService, summarizeDemandEvents } = require("./demand-service
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
+const { readMediaStoragePolicy } = require("./media-storage-policy");
 const { createLegacyPublicMediaHandler, readLegacyLocalMedia } = require("./legacy-public-media");
 const { createLegacyUploadCompatibilityHandler } = require("./legacy-upload-compatibility");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
@@ -39,6 +40,7 @@ const { createConversationAvailabilityApi } = require("./conversation-availabili
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const DATABASE_SSL = String(process.env.DATABASE_SSL || "").toLowerCase() === "true";
+const MEDIA_STORAGE_POLICY = readMediaStoragePolicy();
 const DATA_DIR = process.env.WINGA_DATA_DIR
   ? path.resolve(process.env.WINGA_DATA_DIR)
   : path.join(__dirname, "data");
@@ -311,7 +313,7 @@ const handleLegacyPublicMedia = createLegacyPublicMediaHandler({
     if (!postgresStore) throw new Error("LEGACY_MEDIA_DATABASE_REQUIRED");
     return postgresStore.authorizeLegacyPublicMedia(name);
   },
-  readLocal: (name) => readLegacyLocalMedia(UPLOADS_DIR, name),
+  readLocal: (name) => MEDIA_STORAGE_POLICY.remoteOnly ? null : readLegacyLocalMedia(UPLOADS_DIR, name),
   onOutcome: (result) => logStructuredEvent(result.status >= 500 ? "warn" : "info", "legacy_public_media_read", result)
 });
 const handleLegacyUploadCompatibility = createLegacyUploadCompatibilityHandler({
@@ -543,6 +545,7 @@ function normalizeClientIp(value = "") {
 }
 
 function ensureLocalArtifacts() {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) throw new Error("MEDIA_REMOTE_LOCAL_STORE_DISABLED");
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
@@ -1037,8 +1040,10 @@ function writeLegacyStore(store, options = {}) {
 }
 
 async function appendAuditLog(entry) {
-  ensureLocalArtifacts();
-  fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(entry)}\n`);
+  if (!MEDIA_STORAGE_POLICY.remoteOnly) {
+    ensureLocalArtifacts();
+    fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(entry)}\n`);
+  }
   if (postgresStore) {
     await postgresStore.appendAuditLog(entry);
   }
@@ -4355,6 +4360,8 @@ function normalizeStoredImageReference(value) {
 
 function saveDataUrlImage(value) {
   const normalizedValue = normalizeStoredImageReference(value);
+  // Historical records are read-only here. New uploads use the async R2 pipeline.
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return normalizedValue;
   const parsedImage = parseDataImageValue(value);
 
   if (!parsedImage) {
@@ -4402,7 +4409,7 @@ async function persistIncomingProductImages(product) {
         const stem = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
         const storedVariants = await Promise.all(processed.variants.map(async (variant) => {
           const fileName = `${stem}-${variant.width}.webp`;
-          if (isR2StorageEnabled()) {
+          if (MEDIA_STORAGE_POLICY.remoteOnly || isR2StorageEnabled()) {
             return uploadImageToR2(variant.buffer, `products/${fileName}`, {
               contentType: variant.contentType
             });
@@ -4472,6 +4479,7 @@ function buildPersistentImageArchive(value) {
 }
 
 function isMissingLocalUploadReference(value) {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return false;
   const normalizedValue = normalizeStoredImageReference(value);
   if (typeof normalizedValue !== "string" || !normalizedValue.startsWith("/uploads/")) {
     return false;
@@ -4489,6 +4497,7 @@ function pruneProductImageMetadataSeen(now = Date.now()) {
 }
 
 async function enrichStoredProductImageMetadata(job) {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return false;
   const filePath = getLocalUploadFilePath(job.imageUrl);
   if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) return false;
   const stat = await fs.promises.stat(filePath);
@@ -4526,6 +4535,7 @@ async function processProductImageMetadataQueue() {
 }
 
 function scheduleProductImageMetadataBackfill(products = []) {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return;
   if (!postgresStore?.updateProductImageMediaMetadata || !Array.isArray(products)) return;
   const now = Date.now();
   pruneProductImageMetadataSeen(now);
@@ -4552,6 +4562,8 @@ function scheduleProductImageMetadataBackfill(products = []) {
 
 function resolveProductImageForDelivery(value, archiveValue, allowPlaceholder = false) {
   const normalizedValue = normalizeStoredImageReference(value);
+  // Absence on this node says nothing about R2. The media route authorizes reads.
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return normalizedValue;
   if (typeof normalizedValue === "string" && normalizedValue.startsWith("/uploads/")) {
     const filePath = getLocalUploadFilePath(normalizedValue);
     if (!filePath || !fs.existsSync(filePath)) {
@@ -4599,6 +4611,9 @@ function repairNormalizedProductImageState(product) {
 }
 
 function summarizeProductImageConsistency(store) {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) {
+    return { verification: "not_checked", productsWithBrokenImages: null, brokenImageReferences: null, archiveFallbackImages: null };
+  }
   const products = Array.isArray(store?.products) ? store.products : [];
   let productsWithBrokenImages = 0;
   let brokenImageReferences = 0;
@@ -4637,7 +4652,7 @@ function normalizeProductImages(product) {
     }
     const normalizedImage = normalizeStoredImageReference(images[index] || sourceImage || "");
     const filePath = getLocalUploadFilePath(normalizedImage);
-    return Boolean(filePath && fs.existsSync(filePath));
+    return Boolean(!MEDIA_STORAGE_POLICY.remoteOnly && filePath && fs.existsSync(filePath));
   }) || Boolean(product.imageFallbackEligible);
   return {
     ...product,
@@ -4688,6 +4703,7 @@ function resolveProxyImageTarget(value, req) {
 }
 
 function cleanupUnusedLocalImages(previousProduct, nextProduct, allProducts) {
+  if (MEDIA_STORAGE_POLICY.remoteOnly) return;
   const nextImages = new Set((nextProduct?.images || []).filter((image) => image.startsWith("/uploads/")));
   const usedByOtherProducts = new Set(
     (allProducts || [])
@@ -4868,7 +4884,12 @@ function migrateLegacyStore(store) {
 }
 
 async function initializeStoreAtBoot() {
-  ensureLocalArtifacts();
+  if (!MEDIA_STORAGE_POLICY.remoteOnly) ensureLocalArtifacts();
+  logStructuredEvent("info", "media_storage_policy", {
+    mode: MEDIA_STORAGE_POLICY.mode,
+    localMediaAccessAllowed: !MEDIA_STORAGE_POLICY.remoteOnly,
+    diskRemovalReady: false
+  });
   logStructuredEvent("info", "boot_memory_stage", {
     stage: "before_initialize_store",
     memory: getMemoryUsageSnapshot()
@@ -7233,6 +7254,20 @@ const server = http.createServer(async (req, res) => {
     }, { "Cache-Control": "no-store" });
     return;
   }
+  if (req.method === "GET" && url.pathname === "/api/ops/media/storage-policy") {
+    if (!isValidOpsHealthToken(req)) {
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, { ok: false, error: "Unauthorized" }, { "Cache-Control": "no-store" });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true, privacy: "ops-aggregate-only", mode: MEDIA_STORAGE_POLICY.mode,
+      localMediaAccessAllowed: !MEDIA_STORAGE_POLICY.remoteOnly,
+      localArtifactWritesAllowed: !MEDIA_STORAGE_POLICY.remoteOnly,
+      legacyCompatibilityEnabled: process.env.WINGA_LEGACY_UPLOADS_R2_COMPAT_ENABLED === "true",
+      diskRemovalReady: false, crossNodeFailoverProven: false
+    }, { "Cache-Control": "no-store" });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
@@ -8066,8 +8101,8 @@ const server = http.createServer(async (req, res) => {
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
       const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
       if (target && await handleLegacyUploadCompatibility(req, res, "/uploads/" + path.basename(target.filePath))) return;
-      if (!target || !fs.existsSync(target.filePath)) {
-        sendJson(res, 404, { error: "Picha haijapatikana." });
+      if (!target || MEDIA_STORAGE_POLICY.remoteOnly || !fs.existsSync(target.filePath)) {
+        sendJson(res, 404, { error: "Picha haijapatikana." }, { "Cache-Control": "private, no-store" });
         return;
       }
 
@@ -8083,8 +8118,8 @@ const server = http.createServer(async (req, res) => {
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith("/uploads/")) {
       if (await handleLegacyUploadCompatibility(req, res, url.pathname)) return;
       const filePath = getLocalUploadFilePath(url.pathname);
-      if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {
-        sendJson(res, 404, { error: "Picha haijapatikana." });
+      if (MEDIA_STORAGE_POLICY.remoteOnly || !filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: "Picha haijapatikana." }, { "Cache-Control": "private, no-store" });
         return;
       }
 
