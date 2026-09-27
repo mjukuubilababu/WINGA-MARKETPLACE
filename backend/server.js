@@ -14,6 +14,7 @@ const { createDemandService, summarizeDemandEvents } = require("./demand-service
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
+const { createLegacyPublicMediaHandler, readLegacyLocalMedia } = require("./legacy-public-media");
 const { MAX_PRODUCT_IMAGE_BYTES, createProductImageVariants, readProductImageMetadata } = require("./image-processing");
 const { MAX_PRODUCT_MEDIA_ITEMS, normalizeProductMediaItems } = require("./product-media");
 const { buildAudienceKey, buildCommerceOpportunities } = require("./commerce-opportunity");
@@ -303,6 +304,15 @@ const CONFIGURED_ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const handleLegacyPublicMedia = createLegacyPublicMediaHandler({
+  enabled: process.env.WINGA_LEGACY_PUBLIC_R2_READ_ENABLED === "true",
+  authorize: (name) => {
+    if (!postgresStore) throw new Error("LEGACY_MEDIA_DATABASE_REQUIRED");
+    return postgresStore.authorizeLegacyPublicMedia(name);
+  },
+  readLocal: (name) => readLegacyLocalMedia(UPLOADS_DIR, name),
+  onOutcome: (result) => logStructuredEvent(result.status >= 500 ? "warn" : "info", "legacy_public_media_read", result)
+});
 const ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION = String(process.env.ALLOW_LOCAL_DATA_STORE_IN_PRODUCTION || "").toLowerCase() === "true";
 const ALLOW_DEFAULT_ORIGIN_FALLBACK = String(process.env.ALLOW_DEFAULT_ORIGIN_FALLBACK || "").toLowerCase() === "true";
 const TRUST_PROXY_HEADERS = String(process.env.TRUST_PROXY_HEADERS || "").toLowerCase() === "true";
@@ -6599,6 +6609,9 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/playback-token"
     };
   }
+  if (pathname.startsWith("/api/media/legacy-public/")) {
+    return { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/media/legacy-public" };
+  }
   if (normalizedMethod === "GET" && /^\/api\/media\/videos\/[^/]+\/captions(?:\/[^/]+[.]vtt)?$/.test(pathname)) {
     return {
       limit: 240,
@@ -8039,6 +8052,8 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ok: true, blockedUsername, blocked }, { "Cache-Control": "private, no-store" });
       return;
     }
+    if (url.pathname.startsWith("/api/media/legacy-public/") && await handleLegacyPublicMedia(req, res, url.pathname)) return;
+
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/__winga-image__") {
       const target = resolveProxyImageTarget(url.searchParams.get("u") || "", req);
       if (!target || !fs.existsSync(target.filePath)) {

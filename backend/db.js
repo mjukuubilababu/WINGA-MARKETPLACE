@@ -6,6 +6,7 @@ const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
 const { createConversationAvailabilityStore } = require("./conversation-availability-store");
 const { createMessagePagesStore } = require("./message-pages");
+const { createLegacyPublicMediaStore } = require("./legacy-public-media");
 const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore } = require("./message-replay");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
@@ -9959,6 +9960,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...conversationOffersStore,
     ...conversationAvailabilityStore,
     ...createMessagePagesStore({ query }),
+    ...createLegacyPublicMediaStore({ query }),
     ...createMessageReplayStore({ query }),
     close
   };

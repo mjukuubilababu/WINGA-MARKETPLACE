@@ -903,3 +903,40 @@ backup 17/17, realtime 38/38, message pages 35/35, commerce outcomes 71/71,
 frontend checks, integration 220/220 and browser 147/147, including the unchanged
 Home showcase test. Live bucket privacy checks, backup and independent R2
 verification remain pending operator configuration and execution.
+
+## 30. Private backup verified; isolated R2 public-read canary
+
+The operator supplied successful production `check-private`, `backup-private`
+and independent `verify-backup` results. Backup ID:
+`3e248d86f02a08f01bbcc519f0bd79836ead9c6ee92a261bb3d2393520d64019`.
+All 238 manifest entries and 15,202,912 bytes verified from R2 without the
+source disk. No files were restored, database changed or disk removed. This
+supersedes section 29's pending runtime backup status, not its other gates.
+
+The next audit found disk-bound image serving/repair/writes and a Worker cache
+that bypasses origin checks. A default-off `/api/media/legacy-public/` canary
+therefore proves primary-authorized R2 reads independently of the production
+URL/cache paths. It denies restricted/unknown media, verifies remote checksums,
+isolates R2 failures and explicitly labels authorized disk fallback. A runtime
+probe rejects that fallback as evidence of R2 success. No app URL was switched
+and no Worker cache policy was changed. See `docs/legacy-public-media-read-canary.md`
+for evidence, rollout, rollback and the remaining cutover gates.
+
+Local canary tests passed 13/13. The first full CI run passed integration
+220/220 and browser 146/147. The existing `backend appended Home page is
+rendered into the visible feed stream` test observed request pages `[1,2,2]`
+instead of `[1,2]` after its rendering assertions passed. Three isolated
+repetitions passed without code or assertion changes. The cause of the extra
+request remains unestablished; this patch does not claim to fix it. No Home
+implementation or existing browser test was modified.
+
+A read-only public production API check confirmed cursor pagination and eligible
+legacy image samples starting on page two. It did not test the new canary,
+change media URLs or prove disk independence.
+
+The subsequent full `npm run test:ci` completed with exit code 0, including
+canary 13/13, integration 220/220 and browser 147/147 (6.6 minutes). The unchanged
+pagination test passed in that complete run. `git diff --cached --check` also
+passed. Canary production authorization/R2 reads remain pending deployment,
+flag enablement and the operator's `verify:legacy-public-r2` result. Physical
+device checks, serving cutover and cross-node failover are not proven here.

@@ -71,4 +71,4 @@ async function uploadImageToR2(buffer, key, options = {}) {
   return `${config.publicUrlBase}/${encodeObjectKey(normalizedKey)}`;
 }
 
-module.exports = { isR2StorageEnabled, readR2Config, uploadImageToR2 };
+module.exports = { isR2StorageEnabled, readR2Config, getR2Client, uploadImageToR2 };
