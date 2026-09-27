@@ -1142,3 +1142,22 @@ The operations policy endpoint reports configuration, not successful I/O.
 See `docs/media-remote-only-mode.md` for tests, rollback and runtime gates.
 This does not remove disk, create a new media pipeline, claim historical image
 recovery or establish cross-node failover. Production activation remains pending.
+
+## 38. Remote-only production observation and retained-disk audit
+
+Operator evidence from Render `7302396` supersedes section 37's pending
+activation: the policy endpoint reported `remote_only`; direct-origin legacy
+verification passed 357/357 files and 43,063,737 bytes from R2 without observed
+disk fallback. A new product image and historical images were reported visible.
+The follow-up read-only audit showed the retained disk unchanged at 595 files /
+58,266,649 bytes, 93/93 applied-journal products unchanged, 357/357 journal
+files present and 238 files outside that journal. The private backup was
+independently reverified at 238/238 files and 15,202,912 bytes without source
+disk. Historical missing chat images remain 19 unique files; no recovery is
+claimed. See `docs/media-remote-only-mode.md` for the evidence boundary.
+
+This is not disk-detachment or cross-node-failover proof. The post-cutover audit
+did not recheck local hashes, remote delivery and private backup atomically;
+the private-backup verifier did not examine live source disk. Bot Fight Mode
+restoration to ON remains unconfirmed. Preserve the mounted disk until a
+separately controlled diskless-instance and authenticated workflow check.

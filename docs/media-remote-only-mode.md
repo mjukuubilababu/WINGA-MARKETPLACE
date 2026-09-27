@@ -94,3 +94,29 @@ integration 220/220 and browser E2E 147/147. Module synchronization and
 localization gates passed; `git diff --check` passed. No UI changes or test
 assertion weakening were needed. Production mode activation remains pending
 operator configuration and runtime evidence, separately from CI success.
+
+## Production observation after activation
+
+The operator supplied Render evidence from `7302396` showing the policy endpoint
+returned HTTP 200 with `mode: remote_only`, local media/artifact access disabled,
+and legacy compatibility enabled. The direct Render-origin verifier checked all
+357 journaled files (43,063,737 bytes), stable manifest and proxy sample with
+R2 source and no observed disk fallback. `edgePolicyVerified: false` is expected
+for this direct-origin run; earlier frontend-domain edge proof is separate.
+
+The operator then reported a newly uploaded image and historical images visible
+in the app. A subsequent read-only post-cutover audit still counted 595 files /
+58,266,649 bytes on disk, with 93/93 journal products unchanged and all 357
+journaled files retained. The separately verified private backup remained
+238/238 files and 15,202,912 bytes, with a valid manifest and no source-disk
+read by the backup verifier. These observations support the live remote-only
+read/write path, but aggregate disk counts do not prove every file hash stayed
+unchanged or that every application workflow is disk-free.
+
+The 19 unique missing historical chat-image references remain missing. The
+post-cutover audit's 595 unclassified files are expected after product URLs
+moved to R2; this is not a new classification of those files as disposable.
+The audit does not recheck local hashes, remote delivery or the private backup
+in one atomic snapshot. Bot Fight Mode restoration to ON is not yet confirmed.
+Keep the disk mounted. Disk detachment, authenticated conversation/profile
+checks on a diskless instance and genuine two-node failover remain unproven.
