@@ -1103,7 +1103,12 @@ The existing verifier has opt-in frontend edge-policy checks. Nine focused
 tests pass. Full confirmation CI passed, including media 70/70, integration
 220/220 and browser E2E 147/147. The initial run had one unchanged mobile
 search-focus failure (146/147), followed by three isolated passes and the full
-green confirmation; no UI fix is claimed. Actual edge rollout remains pending.
+green confirmation; no UI fix is claimed. Code commit `ab480e5` was pushed and
+Worker version `edc67616-6b7d-497b-b107-b934b5eed6ca` deployed. Production
+three-image smoke passed through wingamarket.com: 200,854 bytes, R2/edge policy,
+GET/HEAD/proxy/repeated-read checks, missing-image 404 and Home HTML 200.
+This sample is not the full primary-journal inventory proof; the 357-file edge
+verification still requires the documented Render Shell command.
 See `docs/legacy-media-edge-policy.md` for scope, commands and limitations.
 Direct public CDN access and previously downloaded/browser-cached copies are
 not revoked by this policy. Disk detachment and cross-node proof remain false.

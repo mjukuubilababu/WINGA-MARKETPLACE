@@ -80,7 +80,7 @@ Nine focused Worker/verifier tests passed. The clean full `npm run test:ci`
 confirmation passed: media 70/70, private backup 17/17, realtime 38/38,
 paging/replay 35/35, commerce 71/71, additional frontend 54/54, integration
 220/220, browser E2E 147/147, module sync and localization/frontend-core checks.
-Frontend build and Wrangler dry-run also passed. Production rollout is pending.
+Frontend build and Wrangler dry-run also passed. Production rollout is recorded below.
 
 Initial full CI passed all Node suites, including media 70/70 and integration
 220/220, but browser E2E finished 146/147: the unchanged mobile search-focus test
@@ -93,3 +93,26 @@ Pre-deploy public-domain HEAD on a migrated image returned HTTP 200 with
 `public, max-age=86400` and no R2/edge-policy header, confirming the audit at
 runtime. Previous Worker version for rollback:
 `7f244a81-18d9-4a84-a56a-4e2db423569b`. New asset build: `20260927202639`.
+
+## Production rollout evidence
+
+Code commit `ab480e5` was pushed to master, triggering configured Render auto-deploy.
+Frontend Worker `mkubwa` deployed successfully to `wingamarket.com/*` and
+`www.wingamarket.com/*`, version `edc67616-6b7d-497b-b107-b934b5eed6ca`.
+
+A read-only production smoke probe selected three migrated images from public
+catalog data and compared their CDN hashes against the frontend legacy URLs:
+3/3, 200,854 bytes, R2 source and edge-policy markers, private/no-store,
+GET/HEAD, proxy sample and repeated read passed. Two nonexistent legacy/proxy
+requests preserved 404 and no-store; Home returned HTML 200. The first probe
+stopped on a non-200 public catalog response during the deployment window;
+origin health/catalog returned 200 before the successful repeat. No media,
+database, disk, credentials, or account state was changed by these probes.
+
+This is a THREE-IMAGE SMOKE test, not the full primary-journal inventory proof.
+The fixed sample manifest was derived from public product/CDN data, not a live
+database journal read. Run the Render Shell command above for all 357 recorded
+files after the updated verifier is Live. Exact Render commit remains an
+operator `echo "$RENDER_GIT_COMMIT"` check. Disk detachment, cross-node failover,
+private CDN revocation, old browser-cache expiry and physical-device checks
+remain unproven. No disk or instance configuration was changed.
