@@ -42,6 +42,22 @@ database-primary failover, or a revoked session after this particular node loss.
 
 ## Preflight (read-only commerce state)
 
+On a local Windows PowerShell terminal, `scripts/run-message-cross-node.ps1`
+prompts for two test-account logins and the ops token without echoing passwords.
+It obtains session cookies in memory, runs the verifier, and clears
+the child-process environment variables afterward. Do not run the exercise
+from a Render instance: that instance could be the one drained.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-message-cross-node.ps1
+```
+
+After preflight passes and the operator approves the drain, run
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-message-cross-node.ps1 -Exercise`
+from the same local machine.
+The script will prompt for credentials again and then wait for the named
+instance drain. Do not run `-Exercise` just to check topology.
+
 Set these variables privately in the terminal:
 
 ```bash
