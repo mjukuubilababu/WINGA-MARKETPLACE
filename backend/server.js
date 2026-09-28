@@ -262,6 +262,7 @@ const RATE_LIMIT_RULES = {
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/receipts": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/subscription": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders/reservations": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reviews": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -300,6 +301,7 @@ const liveClients = new Map();
 const realtimeBootId = crypto.randomUUID();
 let messageEventSubscription = null;
 let messageDispatchWorker = null;
+let webPushWorker = null;
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
     databaseUrl: DATABASE_URL,
@@ -7580,6 +7582,7 @@ const server = http.createServer(async (req, res) => {
   const requestedStoreTables = postgresStore
     ? ((req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay", "/api/messages/device", "/api/messages/pending-delivery"].includes(url.pathname))
       || (req.method === "POST" && url.pathname === "/api/messages/receipts")
+      || url.pathname.startsWith("/api/messages/push/")
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -10815,6 +10818,38 @@ const server = http.createServer(async (req, res) => {
         const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
         if (!user) return;
         sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay), messageStateResync: Boolean(postgresStore?.readMessageReplay), conversationSequence: Boolean(postgresStore?.readConversationPage) });
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/messages/push/")) {
+        const token = readAuthToken(req);
+        const session = findSession(store, token);
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        if (!postgresStore?.readWebPushConfig || process.env.WINGA_WEB_PUSH_ENABLED === "false") {
+          sendJson(res, 503, { code: "push_unavailable" }, { "Cache-Control": "no-store" });
+          return;
+        }
+        const context = { owner: user.username, token, sessionId: session.sessionId };
+        try {
+          let result;
+          if (req.method === "GET" && url.pathname === "/api/messages/push/config") {
+            result = await postgresStore.readWebPushConfig();
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/subscription") {
+            result = await postgresStore.saveWebPush({ ...context, payload: await collectBody(req) });
+          } else if (req.method === "DELETE" && url.pathname === "/api/messages/push/subscription") {
+            result = await postgresStore.removeWebPush(context);
+          } else if (req.method === "GET" && url.pathname === "/api/messages/push/resolve") {
+            result = await postgresStore.resolveWebPush({ ...context, id: url.searchParams.get("id") });
+          } else {
+            sendJson(res, 404, { code: "push_route_not_found" });
+            return;
+          }
+          sendJson(res, 200, result, { "Cache-Control": "private, no-store" });
+        } catch (error) {
+          if (![400, 401, 403, 404, 409].includes(error.status)) throw error;
+          sendJson(res, error.status, { code: "push_request_rejected" }, { "Cache-Control": "no-store" });
+        }
         return;
       }
 
@@ -14847,13 +14882,14 @@ function shutdownServer(signal = "SIGTERM") {
   stopPaymentRefundSweeper();
   stopAdLifecycleSweeper();
   const dispatchStopped = messageDispatchWorker?.stop();
+  const pushStopped = webPushWorker?.stop();
   productImageMetadataQueue.length = 0;
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
     const closePromise = waitForServerClose();
     await Promise.race([
-      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped]),
+      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped, pushStopped]),
       new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
     ]);
     server.closeIdleConnections?.();
@@ -14908,6 +14944,13 @@ server.listen(PORT, async () => {
         onError: (state) => logStructuredEvent("warn", "message_dispatch_retry", state)
       });
       messageDispatchWorker.start();
+    }
+    if (postgresStore?.dispatchWebPushBatch && process.env.WINGA_WEB_PUSH_ENABLED !== "false") {
+      webPushWorker = createMessageDispatchWorker({
+        dispatch: () => postgresStore.dispatchWebPushBatch(),
+        onError: () => logStructuredEvent("warn", "web_push_retry", { privacy: "aggregate-only" })
+      });
+      webPushWorker.start();
     }
     serverLifecycle.phase = "ready";
     serverLifecycle.readyAt = new Date().toISOString();

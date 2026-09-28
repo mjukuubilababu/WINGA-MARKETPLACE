@@ -89,6 +89,33 @@ async function createLoggedInPage(browser, username, password, options = {}) {
   return { context, page };
 }
 
+test("cold push link restores login and opens only the authenticated resolved conversation", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  const id = "33333333-3333-4333-8333-333333333333";
+  let resolved = 0;
+  await context.route("**/api/messages/push/resolve?*", route => {
+    expect(new URL(route.request().url()).searchParams.get("id")).toBe(id);
+    resolved++;
+    return route.fulfill({ json: { withUser: "market_seller" } });
+  });
+  await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+    items: [{ withUser: "market_seller", displayName: "Market Seller", latestMessage: "Push test message", unreadCount: 1 }],
+    hasMore: false, nextCursor: "", totalUnread: 1, totalConversations: 1
+  } }));
+  await context.route("**/api/messages/history?*", route => route.fulfill({ json: {
+    items: [{ id: "push-click-message", senderId: "market_seller", receiverId: "buyer_seller", message: "Push test message", timestamp: new Date().toISOString() }],
+    hasMore: false, nextCursor: ""
+  } }));
+  try {
+    await page.goto(`/#winga-push=${id}`);
+    await expect.poll(() => resolved).toBe(1);
+    await expect(page.locator("#profile-messages-panel")).toBeVisible();
+    await expect(page.locator("#profile-messages-panel")).toContainText("Push test message");
+    expect(await page.evaluate(() => chatUiState.activeContext.withUser)).toBe("market_seller");
+    expect(new URL(page.url()).hash).not.toContain("winga-push");
+  } finally { await context.close(); }
+});
+
 test("background chat waits for foreground before acknowledging incoming messages read", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
   let unread = true;

@@ -1,0 +1,119 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createECDH, randomBytes } = require('node:crypto');
+const { PGlite } = require('@electric-sql/pglite');
+const { createMessageWebPushStore, enqueueMessagePush, validateSubscription } = require('../backend/message-web-push');
+const migration = require('../backend/migrations/message-web-push');
+const fs = require('node:fs');
+const vm = require('node:vm');
+
+function subscription(endpoint = 'https://fcm.googleapis.com/fcm/send/test') {
+  const ec = createECDH('prime256v1'); ec.generateKeys();
+  return { endpoint, keys: { p256dh: ec.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } };
+}
+test('push endpoints reject SSRF, userinfo, fragments, bad keys and lookalike providers', () => {
+  const good = subscription();
+  assert.deepEqual(validateSubscription(good), good);
+  for (const endpoint of ['http://fcm.googleapis.com/x', 'https://127.0.0.1/', 'https://fcm.googleapis.com.attacker.test/x',
+    'https://fcm.googleapis.com:444/x', 'https://user@fcm.googleapis.com/x', 'https://fcm.googleapis.com/x#secret']) {
+    assert.throws(() => validateSubscription({ ...good, endpoint }), { status: 400 });
+  }
+  assert.throws(() => validateSubscription({ ...good, keys: { ...good.keys, p256dh: randomBytes(65).toString('base64url') } }));
+  assert.throws(() => validateSubscription({ ...good, keys: { ...good.keys, auth: 'bad' } }));
+});
+
+test('real SQL: push is durable, private, session-bound, retryable and does not acknowledge messages', async () => {
+  const db = new PGlite();
+  const sent = [];
+  let failure = null;
+  const provider = {
+    generateVAPIDKeys: () => ({ publicKey: 'public-test', privateKey: 'private-test' }),
+    async sendNotification(sub, body, options) { if (failure) throw failure; sent.push({ sub, body: JSON.parse(body), options }); }
+  };
+  const transaction = work => db.transaction(tx => work({ query: (sql, params) =>
+    sql.includes('pg_advisory_xact_lock') ? { rows: [] } : tx.query(sql, params) }));
+  const store = createMessageWebPushStore({ query: db.query.bind(db), withTransaction: transaction, provider });
+  const context = { owner: 'bob', token: 'd1', sessionId: 'd1' };
+  const sub = subscription();
+  const enqueue = id => transaction(client => enqueueMessagePush(client, { id, receiverId: 'bob' }));
+  const rows = async table => (await db.query(`SELECT * FROM ${table}`)).rows;
+  try {
+    await db.exec(`CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT DEFAULT 'active');
+      INSERT INTO users(username) VALUES('alice'),('bob'),('mallory');
+      CREATE TABLE sessions(token TEXT,username TEXT,session_id TEXT,expires_at BIGINT);
+      INSERT INTO sessions VALUES('d1','bob','d1',9999999999999),('d2','bob','d2',9999999999999),('d3','mallory','d3',9999999999999);
+      CREATE TABLE messages(id TEXT PRIMARY KEY,sender_id TEXT,receiver_id TEXT,is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT FALSE);
+      INSERT INTO messages(id,sender_id,receiver_id) VALUES('m1','alice','bob'),('m2','alice','bob'),('m3','alice','bob');
+      CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);`);
+    for (let i=0;i<2;i++) for (const sql of migration.statements) await db.exec(sql);
+    assert.deepEqual(await store.readWebPushConfig(), { supported: true, publicKey: 'public-test' });
+    const restarted = createMessageWebPushStore({ query: db.query.bind(db), withTransaction: transaction, provider: { generateVAPIDKeys() { throw Error('must reuse'); } } });
+    assert.deepEqual(await restarted.readWebPushConfig(), await store.readWebPushConfig());
+    await store.saveWebPush({ ...context, payload: { subscription: sub, locale: 'sw' } });
+    await assert.rejects(store.saveWebPush({ owner: 'mallory', token: 'd3', sessionId: 'd3', payload: { subscription: sub } }), { status: 409 });
+    await assert.rejects(store.saveWebPush({ ...context, token: 'wrong', payload: { subscription: sub } }), { status: 401 });
+    await assert.rejects(transaction(async client => { await enqueueMessagePush(client, { id: 'rollback', receiverId: 'bob' }); throw Error('rollback'); }));
+    assert.equal((await rows('web_push_jobs')).length, 0);
+    await enqueue('m1'); await enqueue('m1');
+    assert.equal((await rows('web_push_jobs')).length, 1);
+    const id = (await rows('web_push_jobs'))[0].id;
+    await assert.rejects(store.resolveWebPush({ owner: 'mallory', token: 'd3', sessionId: 'd3', id }), { status: 404 });
+    await assert.rejects(store.resolveWebPush({ ...context, token: 'd2', sessionId: 'd2', id }), { status: 404 });
+    assert.deepEqual(await store.resolveWebPush({ ...context, id }), { withUser: 'alice' });
+    await db.exec("UPDATE web_push_jobs SET lease_until=NOW()+INTERVAL '5 minutes'");
+    await store.dispatchWebPushBatch(); assert.equal(sent.length, 0);
+    await db.exec('UPDATE web_push_jobs SET lease_until=NULL');
+    failure = { statusCode: 503 };
+    await store.dispatchWebPushBatch();
+    assert.equal((await rows('web_push_jobs'))[0].completed_at, null);
+    assert.equal((await rows('web_push_jobs'))[0].attempts, 1);
+    failure = null;
+    await db.exec('UPDATE web_push_jobs SET next_attempt_at=NOW()');
+    await store.dispatchWebPushBatch(); await store.dispatchWebPushBatch();
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].body, { version: 1, id, locale: 'sw' });
+    assert.equal(sent[0].options.TTL, 86400);
+    assert.equal((await rows('messages'))[0].is_delivered, false);
+    await enqueue('m2');
+    await db.exec("INSERT INTO user_blocks VALUES('bob','alice')");
+    await assert.rejects(store.resolveWebPush({ ...context, id }), { status: 404 });
+    await store.dispatchWebPushBatch(); assert.equal(sent.length, 1);
+    await db.exec('DELETE FROM user_blocks');
+    await enqueue('m3'); failure = { statusCode: 410 };
+    await store.dispatchWebPushBatch();
+    assert.equal((await rows('web_push_subscriptions')).length, 0);
+    assert.equal((await rows('web_push_jobs')).length, 0);
+    failure = null;
+    await store.saveWebPush({ ...context, payload: { subscription: sub } });
+    await enqueue('m1');
+    await db.exec("DELETE FROM sessions WHERE session_id='d1'");
+    await store.dispatchWebPushBatch(); assert.equal(sent.length, 1);
+    assert.equal((await rows('web_push_subscriptions')).length, 0);
+  } finally { await db.close(); }
+});
+
+function workerHarness() {
+  const handlers = {}, shown = [], opened = [], messages = [];
+  let clients = [];
+  const self = { addEventListener: (type, callback) => { handlers[type] = callback; }, location: { origin: 'https://wingamarket.com' },
+    registration: { showNotification: async (title, options) => shown.push({ title, ...options }) },
+    clients: { matchAll: async () => clients, openWindow: async url => opened.push(url) } };
+  vm.runInNewContext(fs.readFileSync('sw.js','utf8'), { self, URL });
+  return { shown, opened, messages, setClients(value) { clients = value; },
+    async fire(type, extra) { let pending; handlers[type]({ ...extra, waitUntil: promise => { pending = promise; } }); await pending; } };
+}
+test('closed-app push only displays fixed private copy; click opens fixed same-origin route', async () => {
+  const worker = workerHarness();
+  const id = '11111111-1111-4111-8111-111111111111';
+  await worker.fire('push', { data: { json: () => ({ id, locale: 'sw', title: 'Alice', body: 'SECRET', url: 'https://attacker.test' }) } });
+  assert.equal(worker.shown[0].title, 'Winga'); assert.equal(worker.shown[0].body, 'Una ujumbe mpya.');
+  assert.equal(JSON.stringify(worker.shown).includes('SECRET'), false);
+  await worker.fire('notificationclick', { notification: { data: { id }, close() {} } });
+  assert.deepEqual(worker.opened, [`/#winga-push=${id}`]);
+  worker.setClients([{ url: 'https://wingamarket.com/', async focus() {}, postMessage: message => worker.messages.push(message) }]);
+  await worker.fire('notificationclick', { notification: { data: { id }, close() {} } });
+  assert.equal(worker.messages[0].id, id); assert.equal(worker.opened.length, 1);
+  worker.setClients([]);
+  await worker.fire('notificationclick', { notification: { data: { id: 'https://attacker.test' }, close() {} } });
+  assert.equal(worker.opened[1], '/');
+});

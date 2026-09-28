@@ -1838,6 +1838,31 @@ function getPwaLifecycleTools() {
   return pwaLifecycleTools;
 }
 
+let webPushTools = null;
+function getWebPushTools() {
+  if (!webPushTools) webPushTools = window.WingaModules.notifications.createPushModule({
+    getSession: () => currentUser && !isSessionRestorePending && !isStaffUser() ? currentSession : null,
+    request: (...args) => window.WingaDataLayer.pushRequest(...args),
+    openConversation: async ({ withUser }) => {
+      openProfileSection("profile-messages-panel");
+      chatUiState.activeContext = { withUser, displayName: getUserDisplayName(withUser), productId: "", productName: "" };
+      chatUiState.currentDraft = loadStoredChatDraft(chatUiState.activeContext);
+      chatUiState.profileMessagesMode = "detail";
+      chatUiState.profileHasSelection = true;
+      chatUiState.profileMessagesFilter = "all";
+      chatUiState.activeReplyMessageId = "";
+      chatUiState.conversationOffers = [];
+      chatUiState.offersWithUser = "";
+      chatUiState.conversationAvailabilityRequests = [];
+      chatUiState.availabilityWithUser = "";
+      renderProfile();
+      await refreshMessagesState();
+    },
+    onUnavailable: () => openProfileSection("profile-messages-panel")
+  });
+  return webPushTools;
+}
+
 function getNotificationPermissionTools() {
   if (!notificationPermissionTools) {
     const factory = window.WingaModules?.notifications?.createNotificationPermissionModule;
@@ -1854,7 +1879,8 @@ function getNotificationPermissionTools() {
       translate: translateUi,
       storageKey: NOTIFICATION_PERMISSION_STATE_KEY,
       promptCooldownMs: NOTIFICATION_PERMISSION_PROMPT_COOLDOWN_MS,
-      allowedTriggers: NOTIFICATION_PERMISSION_TRIGGERS
+      allowedTriggers: NOTIFICATION_PERMISSION_TRIGGERS,
+      onPermissionGranted: () => getWebPushTools().sync()
     });
   }
   return notificationPermissionTools;
@@ -8145,7 +8171,8 @@ function showInAppNotification(notification) {
     }
   }
 
-  if ("Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
+  const handledByPush = webPushTools?.active && (notification.messageId || ["message", "request"].includes(notification.type));
+  if (!handledByPush && "Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
     const deviceContent = getDeviceNotificationContent(notification);
     try {
       new Notification(deviceContent.title, { body: deviceContent.body });
@@ -19354,10 +19381,12 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   }
   if (!isStaffUser()) {
     refreshProductsAfterAuthChange();
+    window.setTimeout(() => getWebPushTools().sync().catch(() => {}), 0);
   }
 }
 
 function logout() {
+  webPushTools?.logout().catch(() => {});
   deviceReceipts?.dispose().catch(() => {});
   deviceReceipts = null;
   beginLifecycleEpoch("logout");
@@ -25375,6 +25404,7 @@ async function bootApp() {
   }
 
   await window.WingaDataLayer.init();
+  getWebPushTools();
   if (!isLifecycleEpochCurrent(lifecycleEpoch)) {
     return;
   }

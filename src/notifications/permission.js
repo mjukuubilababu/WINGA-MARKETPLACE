@@ -188,12 +188,14 @@
       }
       const browserPermission = getBrowserPermission();
       if (browserPermission === "granted" || browserPermission === "denied") {
+        if (browserPermission === "granted") await deps.onPermissionGranted?.();
         return browserPermission;
       }
       if (typeof notificationApi.requestPermission !== "function") {
         return browserPermission;
       }
       const result = await notificationApi.requestPermission();
+      if (result === "granted") await deps.onPermissionGranted?.();
       return String(result || getBrowserPermission() || "default");
     }
 

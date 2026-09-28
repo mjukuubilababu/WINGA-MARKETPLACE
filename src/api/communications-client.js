@@ -296,6 +296,12 @@
       deleteMessage,
       markConversationRead,
       loadChatDevice,
+      pushRequest: (path, payload, method = "GET") => {
+        requireFetcher();
+        return fetchJson(`${baseUrl}/messages/push/${path}`, {
+          method, headers: jsonHeaders(), ...(payload ? { body: JSON.stringify(payload) } : {})
+        });
+      },
       loadPendingMessageDelivery: () => loadMessagePage("pending-delivery"),
       acknowledgeMessages,
       loadConversationOffers,

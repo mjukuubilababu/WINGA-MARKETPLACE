@@ -31,7 +31,7 @@ test("message retry header is permitted only for an allowed CORS origin", async 
 });
 
 test("paged message reads reject unauthenticated callers before querying data", async () => {
-  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device", "/messages/pending-delivery"]) {
+  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device", "/messages/pending-delivery", "/messages/push/config", "/messages/push/resolve?id=forged"]) {
     const { response, body } = await request(path);
     assert.equal(response.status, 401);
     assert.equal(body.items, undefined);
@@ -46,6 +46,14 @@ test("device receipt writes reject missing authentication and CSRF", async () =>
   const noAuth = await request('/messages/receipts', options);
   assert.equal(noAuth.response.status, 401);
   assert.equal(noAuth.body.acknowledged, undefined);
+});
+
+test("push subscription writes reject missing authentication and CSRF", async () => {
+  for (const method of ["POST", "DELETE"]) {
+    const options = { method, headers: { "Content-Type": "application/json" }, body: "{}" };
+    assert.equal((await request('/messages/push/subscription', { ...options, skipCsrf: true })).response.status, 403);
+    assert.equal((await request('/messages/push/subscription', options)).response.status, 401);
+  }
 });
 
 async function waitForServer(url, timeoutMs = 15000) {

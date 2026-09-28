@@ -11,6 +11,7 @@ const { createLegacyUploadCompatibilityStore } = require("./legacy-upload-compat
 const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore } = require("./message-replay");
 const { createMessageDispatchStore } = require("./message-dispatch");
 const { createMessageDeviceReceiptsStore } = require("./message-device-receipts");
+const { createMessageWebPushStore, enqueueMessagePush } = require("./message-web-push");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -4257,6 +4258,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         ]
       );
       message.conversationSequence = insertedMessage.rows[0].conversationSequence;
+      await enqueueMessagePush(client, message);
       if (message.productId) {
         await transitionCommerceGoalsWithClient(client, {
           userId: message.senderId,
@@ -9973,6 +9975,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageReplayStore({ query }),
     ...createMessageDispatchStore({ query, withTransaction }),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
+    ...createMessageWebPushStore({ query, withTransaction }),
     close
   };
 }

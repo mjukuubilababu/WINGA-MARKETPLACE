@@ -1375,6 +1375,10 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of require("../backend/migrations/message-dispatch-outbox").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-conversation-sequence").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-device-receipts").statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-web-push").statements) await db.exec(sql);
+    await db.exec(`CREATE TABLE sessions(session_id TEXT,username TEXT,expires_at BIGINT);
+      INSERT INTO sessions VALUES('device-b','b',9999999999999);
+      INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription) VALUES('push-b','b','device-b','{}');`);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1406,6 +1410,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal(fanouts, 1);
     assert.equal((await db.query("SELECT * FROM messages")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM notifications")).rows.length, 1);
+    assert.equal((await db.query("SELECT * FROM web_push_jobs")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM message_replay_events")).rows.length, 2);
     assert.equal((await store.readMessageDispatchHealth()).pendingOwners, 2);
     await store.dispatchMessageBatch();
@@ -1464,6 +1469,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     const retryOptions = { clientMessageId: "logical-message-0002" };
     await assert.rejects(store.createMessageWithNotification({ ...message, id: "rollback-message" }, null, retryOptions), /Injected/);
     assert.equal((await db.query("SELECT * FROM messages WHERE id = 'rollback-message'")).rows.length, 0);
+    assert.equal((await db.query("SELECT * FROM web_push_jobs WHERE message_id = 'rollback-message'")).rows.length, 0);
     assert.equal((await db.query("SELECT * FROM message_idempotency WHERE client_message_id = 'logical-message-0002'")).rows.length, 0);
     assert.equal((await db.query("SELECT * FROM message_replay_events WHERE message_id = 'rollback-message'")).rows.length, 0);
     failFanout = false;
