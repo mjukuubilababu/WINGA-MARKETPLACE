@@ -1,3 +1,5 @@
+const { enqueueMessageDispatch } = require("./message-dispatch");
+
 function invalidCursor() {
   return Object.assign(new Error("Invalid message replay cursor"), { status: 400 });
 }
@@ -28,6 +30,7 @@ async function appendMessageReplay(client, message) {
     ) INSERT INTO message_replay_events (owner_id, position, message_id)
       SELECT $1, position, $2 FROM next_position`, [owner, message.id]);
   }
+  await enqueueMessageDispatch(client, [message.senderId, message.receiverId]);
 }
 
 function createMessageReplayStore({ query }) {
@@ -91,6 +94,7 @@ async function invalidateMessageReplay(client, participantIds) {
     if (result.rowCount) notifiedOwners.push(owner);
   }
   if (!notifiedOwners.length) return;
+  await enqueueMessageDispatch(client, notifiedOwners);
   await client.query("SELECT pg_notify('winga_messages', $1)", [
     JSON.stringify({ version: 1, type: "message_state_changed", owners: notifiedOwners })
   ]);

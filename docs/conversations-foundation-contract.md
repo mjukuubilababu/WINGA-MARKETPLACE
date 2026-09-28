@@ -1197,3 +1197,24 @@ primary failover, live SSE delivery during node loss, revoked-device behavior,
 E2EE, BEAM deployment, per-device receipts, or production load capacity. The
 earlier sections record their historical state at the time and are not current
 status assertions for this one gate.
+
+## 41. Durable owner wake-up dispatch (2026-09-28)
+
+Message acceptance and read/delete replay invalidations now enqueue a coalesced
+owner wake-up in their existing PostgreSQL transaction. A bounded worker uses
+`FOR UPDATE SKIP LOCKED` and commits its content-free notification and deletion
+together, retaining pending work on rollback. The worker has retry backoff,
+graceful shutdown, a disable switch and an ops-token-protected aggregate queue
+health endpoint. Existing immediate delivery and canonical replay stay intact.
+
+This is a scoped outbox increment for the current SSE/replay architecture, not
+completion of section 4's proposed device-delivery model. Dispatch completion
+does not mark a message delivered/read. Per-device obligations, monotonic
+conversation events, E2EE and BEAM remain separate work. See
+`docs/message-dispatch-outbox.md` for operation, rollback and test boundaries.
+Production deployment/queue drainage is not yet independently confirmed.
+
+Verification: 189/189 focused tests passed across message dispatch, replay,
+PostgreSQL persistence, API integration, server lifecycle, realtime authorization,
+client replay, session runtime and the cross-node verifier. Full browser E2E and
+live multi-connection worker contention were not rerun for this backend increment.

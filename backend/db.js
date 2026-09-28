@@ -9,6 +9,7 @@ const { createMessagePagesStore } = require("./message-pages");
 const { createLegacyPublicMediaStore } = require("./legacy-public-media");
 const { createLegacyUploadCompatibilityStore } = require("./legacy-upload-compatibility");
 const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore } = require("./message-replay");
+const { createMessageDispatchStore } = require("./message-dispatch");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -9964,6 +9965,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createLegacyPublicMediaStore({ query }),
     ...createLegacyUploadCompatibilityStore({ query }),
     ...createMessageReplayStore({ query }),
+    ...createMessageDispatchStore({ query, withTransaction }),
     close
   };
 }

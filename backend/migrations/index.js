@@ -4,6 +4,7 @@ const MIGRATIONS = Object.freeze([
   require("./legacy-public-media-cutover"),
   require("./message-replay"),
   require("./message-replay-resync"),
+  require("./message-dispatch-outbox"),
   require("./message-delivery-default"),
   require("./message-idempotency"),
   require("./message-pages"),

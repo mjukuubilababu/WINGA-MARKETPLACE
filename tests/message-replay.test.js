@@ -4,6 +4,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { appendMessageReplay, createMessageReplayStore, getMessageStateEventOwners } = require('../backend/message-replay');
 const migration = require('../backend/migrations/message-replay');
 const resyncMigration = require('../backend/migrations/message-replay-resync');
+const dispatchMigration = require('../backend/migrations/message-dispatch-outbox');
 
 test('replay is bounded, owner-scoped, ordered and respects current blocks/deletion', async () => {
   const db = new PGlite();
@@ -14,6 +15,7 @@ test('replay is bounded, owner-scoped, ordered and respects current blocks/delet
       CREATE TABLE user_blocks(blocker_username TEXT, blocked_username TEXT);`);
     for (let i = 0; i < 2; i++) for (const sql of migration.statements) await db.exec(sql);
     for (let i = 0; i < 2; i++) for (const sql of resyncMigration.statements) await db.exec(sql);
+    for (const sql of dispatchMigration.statements) await db.exec(sql);
     const store = createMessageReplayStore({ query: (sql, params) => db.query(sql, params) });
     const initial = await store.readMessageReplay('a');
     assert.equal(initial.resyncRequired, true);
@@ -74,7 +76,7 @@ test('journal acquires participant counters in stable order without copying mess
   await appendMessageReplay({ query: async (sql, params) => calls.push({ sql, params }) }, {
     id: 'm', senderId: 'z', receiverId: 'a', message: 'PRIVATE BODY'
   });
-  assert.deepEqual(calls.map(call => call.params), [['a', 'm'], ['z', 'm']]);
+  assert.deepEqual(calls.map(call => call.params), [['a', 'm'], ['z', 'm'], ['a'], ['z']]);
   assert.ok(calls.every(call => !JSON.stringify(call).includes('PRIVATE BODY')));
 });
 

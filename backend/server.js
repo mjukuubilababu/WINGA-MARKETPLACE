@@ -7,6 +7,7 @@ const path = require("path");
 const { createPostgresStore } = require("./db");
 const { readMessageIdempotencyKey, messageRequestHash } = require("./message-idempotency");
 const { getMessageStateEventOwners } = require("./message-replay");
+const { createMessageDispatchWorker } = require("./message-dispatch");
 const { createAuthorizedRealtimeClient } = require("./realtime-client");
 const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
@@ -297,6 +298,7 @@ const AUTOMATION_USER_AGENT_PATTERN = /\b(bot|crawler|spider|scraper|curl|wget|p
 const liveClients = new Map();
 const realtimeBootId = crypto.randomUUID();
 let messageEventSubscription = null;
+let messageDispatchWorker = null;
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
     databaseUrl: DATABASE_URL,
@@ -7252,6 +7254,23 @@ const server = http.createServer(async (req, res) => {
       criticalPath: false,
       ...result
     }, { "Cache-Control": "no-store" });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/ops/messages/dispatch-health") {
+    if (!isValidOpsHealthToken(req)) {
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, { ok: false, error: "Unauthorized" }, { "Cache-Control": "no-store" });
+      return;
+    }
+    if (!postgresStore?.readMessageDispatchHealth) {
+      sendJson(res, 503, { ok: false, code: "message_dispatch_unavailable" }, { "Cache-Control": "no-store" });
+      return;
+    }
+    try {
+      const health = await postgresStore.readMessageDispatchHealth();
+      sendJson(res, 200, { ok: true, privacy: "aggregate-only", workerEnabled: Boolean(messageDispatchWorker), ...health }, { "Cache-Control": "no-store" });
+    } catch (_) {
+      sendJson(res, 503, { ok: false, code: "message_dispatch_unavailable" }, { "Cache-Control": "no-store" });
+    }
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/ops/media/storage-policy") {
@@ -14778,13 +14797,14 @@ function shutdownServer(signal = "SIGTERM") {
   stopCommerceReservationSweeper();
   stopPaymentRefundSweeper();
   stopAdLifecycleSweeper();
+  const dispatchStopped = messageDispatchWorker?.stop();
   productImageMetadataQueue.length = 0;
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
     const closePromise = waitForServerClose();
     await Promise.race([
-      Promise.all([closePromise, waitForBackgroundWork(deadline)]),
+      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped]),
       new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
     ]);
     server.closeIdleConnections?.();
@@ -14833,6 +14853,13 @@ server.listen(PORT, async () => {
     startCommerceReservationSweeper();
     startPaymentRefundSweeper();
     startAdLifecycleSweeper();
+    if (postgresStore?.dispatchMessageBatch && process.env.WINGA_MESSAGE_DISPATCH_ENABLED !== "false") {
+      messageDispatchWorker = createMessageDispatchWorker({
+        dispatch: () => postgresStore.dispatchMessageBatch(),
+        onError: (state) => logStructuredEvent("warn", "message_dispatch_retry", state)
+      });
+      messageDispatchWorker.start();
+    }
     serverLifecycle.phase = "ready";
     serverLifecycle.readyAt = new Date().toISOString();
     console.log(`WINGA backend running on http://localhost:${PORT}${postgresStore ? " (PostgreSQL mode)" : " (File mode)"}`);

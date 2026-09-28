@@ -1372,6 +1372,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of migration.statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-replay").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-replay-resync").statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-dispatch-outbox").statements) await db.exec(sql);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1403,6 +1404,11 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal((await db.query("SELECT * FROM messages")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM notifications")).rows.length, 1);
     assert.equal((await db.query("SELECT * FROM message_replay_events")).rows.length, 2);
+    assert.equal((await store.readMessageDispatchHealth()).pendingOwners, 2);
+    await store.dispatchMessageBatch();
+    assert.equal((await store.readMessageDispatchHealth()).pendingOwners, 0);
+    assert.equal((await store.createMessageWithNotification(message, note, options)).replayed, true);
+    assert.equal((await store.readMessageDispatchHealth()).pendingOwners, 0);
     const beforeRead = await store.readMessageReplay("a");
     const recipientBeforeRead = await store.readMessageReplay("b");
     const outsiderBeforeRead = await store.readMessageReplay("c");
@@ -1416,6 +1422,9 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal((await store.readMessageReplay("a")).cursor, beforeRead.cursor);
     failFanout = false;
     assert.equal((await store.markConversationRead("b", "a")).changed, true);
+    assert.equal((await store.readMessageDispatchHealth()).pendingOwners, 2);
+    assert.equal((await db.query(`SELECT COUNT(*)::int AS mismatched FROM message_dispatch_outbox d
+      JOIN message_replay_streams s USING (owner_id) WHERE d.position <> s.position`)).rows[0].mismatched, 0);
     const afterRead = await store.readMessageReplay("a", { cursor: beforeRead.cursor });
     assert.equal(afterRead.resyncRequired, true);
     assert.deepEqual(afterRead.events, []);

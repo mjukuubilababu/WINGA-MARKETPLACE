@@ -165,6 +165,18 @@ test.after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
+test("message dispatch health is token-protected and unavailable without PostgreSQL", async () => {
+  const denied = await fetch(`${baseUrl}/ops/messages/dispatch-health`);
+  assert.equal(denied.status, 401);
+  assert.equal(denied.headers.get("cache-control"), "no-store");
+  const unavailable = await fetch(`${baseUrl}/ops/messages/dispatch-health`, {
+    headers: { "X-Ops-Health-Token": "integration-ops-health-token" }
+  });
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await unavailable.json(), { ok: false, code: "message_dispatch_unavailable" });
+});
+
 test("ops read replica health requires authorization and exposes no database details", async () => {
   const denied = await fetch(`${baseUrl}/ops/database/read-replica-health`);
   const deniedBody = await denied.json();
