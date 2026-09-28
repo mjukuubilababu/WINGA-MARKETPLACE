@@ -1450,6 +1450,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       deleteMessage,
       markConversationRead,
       loadChatDevice,
+      loadPendingMessageDelivery: () => loadMessagePage("pending-delivery"),
       acknowledgeMessages,
       loadConversationOffers,
       createConversationOffer,
@@ -17330,6 +17331,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
   function createDeviceReceipts({ owner, dataLayer, isCurrent, indexedDB = globalThis.indexedDB }) {
     let device = null, stopped = false, tail = Promise.resolve();
+    let deliverySync = null, deliveryTimer = null, syncAgain = false;
     const stored = new Set(), read = new Set();
     const remember = (set, id) => {
       set.add(id);
@@ -17342,9 +17344,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       tail = result.catch(() => {});
       return result;
     }
-    async function identity() {
+    async function identity(refresh = false) {
       if (!active()) return false;
-      if (!device) device = await dataLayer.loadChatDevice();
+      if (!device || refresh) device = await dataLayer.loadChatDevice();
       if (!active()) return false;
       if (device?.supported !== true) { device = null; return false; }
       if (device.username !== owner || !device.deviceId) throw new Error("Device identity changed."); // i18n-gate: allow -- internal receipt diagnostic, never displayed
@@ -17396,11 +17398,50 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
     }
+    function syncPending() {
+      if (!active()) return Promise.resolve();
+      if (deliverySync) { syncAgain = true; return deliverySync; }
+      clearTimeout(deliveryTimer);
+      deliveryTimer = null;
+      syncAgain = false;
+      let delay = 30000;
+      deliverySync = serial(async () => {
+        if (!await identity(Boolean(device && !device.pendingDelivery)) || !device.pendingDelivery) return;
+        // Drain bounded batches without changing chat selection or read state.
+        for (let page = 0; page < 5 && active(); page++) {
+          const result = await dataLayer.loadPendingMessageDelivery();
+          if (!active()) return;
+          if (!Array.isArray(result?.items) || result.items.length > 50
+            || result.items.some(m => !m?.id || m.receiverId !== owner || m.senderId === owner)
+            || (result.hasMore && !result.items.length)) throw new Error("Invalid delivery batch."); // i18n-gate: allow -- internal receipt diagnostic, never displayed
+          if (!result.items.length) return;
+          result.items.forEach(message => stored.delete(message.id));
+          await receive(result.items, "stored", () => false);
+          if (!result.hasMore) return;
+          delay = 1000;
+        }
+      }).catch(async error => {
+        delay = 15000;
+        if (error.status === 401) {
+          stopped = true;
+          if (device?.deviceId) await writeInbox(indexedDB, scope(), [], true).catch(() => {});
+        }
+        throw error;
+      }).finally(() => {
+        deliverySync = null;
+        if (active() && device?.pendingDelivery) {
+          deliveryTimer = setTimeout(() => syncPending().catch(() => {}), syncAgain ? 250 : delay);
+        }
+      });
+      return deliverySync;
+    }
     return {
+      syncPending,
       persist: messages => submit(messages, "stored"),
       markRead: (messages, visible) => submit(messages, "read", visible),
       dispose() {
         stopped = true;
+        clearTimeout(deliveryTimer);
         return serial(async () => {
           stored.clear(); read.clear();
           if (device?.deviceId) await writeInbox(indexedDB, scope(), [], true);

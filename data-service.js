@@ -2225,6 +2225,9 @@ async loadAdminPayments(filters) {
         async loadChatDevice() {
           return getCommunicationsApiClient().loadChatDevice();
         },
+        async loadPendingMessageDelivery() {
+          return getCommunicationsApiClient().loadPendingMessageDelivery();
+        },
         async acknowledgeMessages(payload) {
           return getCommunicationsApiClient().acknowledgeMessages(payload);
         },
@@ -4150,6 +4153,10 @@ async loadAdminPayments() {
       async loadChatDevice() {
         assertBuyerCapableAccess();
         return state.adapter.loadChatDevice ? state.adapter.loadChatDevice() : { supported: false };
+      },
+      async loadPendingMessageDelivery() {
+        assertBuyerCapableAccess();
+        return state.adapter.loadPendingMessageDelivery ? state.adapter.loadPendingMessageDelivery() : { items: [], hasMore: false };
       },
       async acknowledgeMessages(payload) {
         assertBuyerCapableAccess();

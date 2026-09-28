@@ -155,6 +155,58 @@ test("background chat waits for foreground before acknowledging incoming message
   } finally { await context.close(); }
 });
 
+test("recipient receives Delivered on home after reconnect and Read only after opening chat", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  const message = { id: "offline-backlog", senderId: "market_seller", receiverId: "buyer_seller",
+    message: "Waiting while recipient is offline", timestamp: new Date().toISOString() };
+  let available = false, offline = false, delivered = false, read = false, loads = 0;
+  await context.addInitScript(() => {
+    document.hasFocus = () => true;
+    window.Notification = class { static permission = "granted"; };
+  });
+  await context.route("**/api/messages/device", route => route.fulfill({ json: {
+    supported: true, pendingDelivery: true, deviceId: "home-device", username: "buyer_seller"
+  } }));
+  await context.route("**/api/messages/pending-delivery*", route => {
+    loads++;
+    if (offline) return route.abort("internetdisconnected");
+    return route.fulfill({ json: { items: available && !delivered ? [message] : [], hasMore: false } });
+  });
+  await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+    items: available ? [{ withUser: "market_seller", displayName: "Market Seller", lastMessageId: message.id,
+      latestMessage: message.message, timestamp: message.timestamp, unreadCount: read ? 0 : 1 }] : [],
+    hasMore: false, nextCursor: "", totalUnread: available && !read ? 1 : 0, totalConversations: available ? 1 : 0
+  } }));
+  await context.route("**/api/messages/history?*", route => route.fulfill({ json: {
+    items: [{ ...message, isRead: read }], hasMore: false, nextCursor: ""
+  } }));
+  await context.route("**/api/messages/receipts", route => {
+    const payload = route.request().postDataJSON();
+    expect(payload.messageIds).toEqual([message.id]);
+    if (payload.kind === "stored") delivered = true;
+    if (payload.kind === "read") { expect(delivered).toBe(true); read = true; }
+    return route.fulfill({ json: { ok: true } });
+  });
+  try {
+    await page.goto("/");
+    await expect.poll(() => loads).toBeGreaterThan(0);
+    offline = true;
+    available = true;
+    await page.evaluate(() => getMessageDeviceReceipts().syncPending().catch(() => {}));
+    expect(delivered).toBe(false);
+    expect(read).toBe(false);
+    offline = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(() => delivered).toBe(true);
+    expect(read).toBe(false);
+    expect(await page.evaluate(() => currentView)).toBe("home");
+    await openHeaderMenuAction(page, "profile");
+    await page.locator("[data-profile-action='messages']").click();
+    await page.locator("#profile-messages-panel .message-thread-item", { hasText: "Market Seller" }).click();
+    await expect.poll(() => read).toBe(true);
+  } finally { await context.close(); }
+});
+
 test("Read follows reached bubbles while offscreen history remains unread", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
   const seen = new Set();

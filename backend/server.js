@@ -7578,7 +7578,7 @@ const server = http.createServer(async (req, res) => {
   const isVideoPlaybackRequest = req.method === "POST"
     && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
   const requestedStoreTables = postgresStore
-    ? ((req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay", "/api/messages/device"].includes(url.pathname))
+    ? ((req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay", "/api/messages/device", "/api/messages/pending-delivery"].includes(url.pathname))
       || (req.method === "POST" && url.pathname === "/api/messages/receipts")
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
@@ -10823,7 +10823,19 @@ const server = http.createServer(async (req, res) => {
         const user = ensureMarketplaceUser(store, session, res);
         if (!user) return;
         sendJson(res, 200, { supported: Boolean(postgresStore?.acknowledgeMessageDevice), version: 1,
+          pendingDelivery: Boolean(postgresStore?.readPendingMessageDelivery),
           deviceId: session.sessionId, username: user.username }, { "Cache-Control": "no-store" });
+        return;
+      }
+
+      if (url.pathname === "/api/messages/pending-delivery" && req.method === "GET") {
+        const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
+        if (!user) return;
+        if (!postgresStore?.readPendingMessageDelivery) {
+          sendJson(res, 503, { code: "device_receipts_unavailable" }, { "Cache-Control": "no-store" });
+          return;
+        }
+        sendJson(res, 200, await postgresStore.readPendingMessageDelivery(user.username), { "Cache-Control": "private, no-store" });
         return;
       }
 

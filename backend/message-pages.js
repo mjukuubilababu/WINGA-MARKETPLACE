@@ -93,7 +93,22 @@ function createMessagePagesStore({ query }) {
     const page = pageResult(owner, kind, result.rows, limit, sequenceOrder);
     return { ...page, order: sequenceOrder ? "sequence" : "timestamp", items: page.items.reverse() };
   }
-  return { readInboxPage, readConversationPage };
+  async function readPendingMessageDelivery(owner) {
+    const result = await query(`SELECT m.id, m.sender_id AS "senderId", m.receiver_id AS "receiverId",
+      m.conversation_id AS "conversationId", m.conversation_sequence::text AS "conversationSequence",
+      m.message, m.message_type AS "messageType", m.product_id AS "productId", m.product_name AS "productName",
+      m.product_items AS "productItems", m.reply_to_message_id AS "replyToMessageId", m.timestamp,
+      m.is_read AS "isRead", m.read_at AS "readAt"
+      FROM messages m WHERE m.receiver_id=$1 AND NOT m.is_read
+        AND NOT EXISTS (SELECT 1 FROM message_device_receipts r WHERE r.message_id=m.id
+          AND r.sender_id=m.sender_id AND r.receiver_id=m.receiver_id)
+        AND NOT EXISTS (SELECT 1 FROM user_blocks b
+          WHERE (b.blocker_username=$1 AND b.blocked_username=m.sender_id)
+             OR (b.blocked_username=$1 AND b.blocker_username=m.sender_id))
+      ORDER BY m.timestamp, m.id LIMIT 51`, [owner]);
+    return { items: result.rows.slice(0, 50), hasMore: result.rows.length > 50 };
+  }
+  return { readInboxPage, readConversationPage, readPendingMessageDelivery };
 }
 
 module.exports = { createMessagePagesStore, pageOptions };

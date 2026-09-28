@@ -31,7 +31,7 @@ test("message retry header is permitted only for an allowed CORS origin", async 
 });
 
 test("paged message reads reject unauthenticated callers before querying data", async () => {
-  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device"]) {
+  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device", "/messages/pending-delivery"]) {
     const { response, body } = await request(path);
     assert.equal(response.status, 401);
     assert.equal(body.items, undefined);

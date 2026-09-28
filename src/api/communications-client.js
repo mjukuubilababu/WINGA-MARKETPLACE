@@ -296,6 +296,7 @@
       deleteMessage,
       markConversationRead,
       loadChatDevice,
+      loadPendingMessageDelivery: () => loadMessagePage("pending-delivery"),
       acknowledgeMessages,
       loadConversationOffers,
       createConversationOffer,

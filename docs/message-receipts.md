@@ -34,8 +34,29 @@ Storage is account/device scoped. Writes prune to 1,000 rows and remove entries
 older than seven days; pruning is opportunistic, not a background expiry guarantee.
 Logout and observed 401 revocation queue cleanup behind any in-flight write.
 Browsers can evict storage later. Delivery means the client reported a committed
-transaction, not permanent storage or hardware attestation. Unvisited history may
-remain Sent until a recipient client actually receives and stores its body.
+transaction, not permanent storage or hardware attestation.
+
+### Online and reconnect delivery
+
+Unread messages without recipient storage evidence are now fetched independently
+of the active chat through authenticated `/api/messages/pending-delivery`. The
+primary database returns at most 50 complete incoming messages, excludes both
+block directions, and does not mutate read state. Confirmed receipts remove rows
+from the pending result; no queue migration or historical delivery backfill is
+needed. Existing legacy Read remains Read.
+
+Login, SSE reconciliation, foreground/focus and network-online recovery trigger
+catch-up. A coalesced client drains at most five batches per turn, yields before
+more work, retries failures and performs a 30-second fallback check while active.
+The message is stored before its Delivered acknowledgement even while the person
+is browsing Home. Only actually visible conversation messages receive Read.
+Online means an authenticated recipient client can communicate with the server;
+an internet-connected phone with a closed/suspended app is not delivery proof.
+Offline stays Sent until recipient receipt, then Delivered, then Read when reached.
+
+Verification of this follow-up includes a recipient on Home, simulated offline
+failure followed by reconnect, a 120-message backlog, exact Read on chat opening,
+rolling-upgrade cleanup, and recipient/block-scoped SQL. No new migration is added.
 
 The inbox, server and send queue remain plaintext, not E2EE. Read is viewport
 evidence, not proof of human comprehension. Already-issued requests cannot be

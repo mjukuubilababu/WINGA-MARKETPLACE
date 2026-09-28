@@ -54,6 +54,52 @@ test('native IndexedDB commits full payload before Delivered and reads only visi
   expect(await page.evaluate(() => readInbox())).toEqual([]);
 });
 
+test('online catch-up drains full messages without opening chat or claiming Read', async ({ page }) => {
+  await fixture(page);
+  const result = await page.evaluate(async () => {
+    await receipts.dispose();
+    calls.length = 0;
+    let online = false, loads = 0;
+    let pending = Array.from({ length: 120 }, (_, i) => ({ ...messages[0], id: `backlog-${i}` }));
+    const acknowledge = api.acknowledgeMessages;
+    const recipient = window.WingaModules.chat.createDeviceReceipts({ owner: 'bob', isCurrent: () => active,
+      dataLayer: { ...api,
+        loadChatDevice: async () => ({ supported: true, pendingDelivery: true, username: 'bob', deviceId: 'background-device' }),
+        loadPendingMessageDelivery: async () => {
+          loads++;
+          if (!online) throw Object.assign(new Error('Offline'), { status: 503 });
+          return { items: pending.slice(0, 50), hasMore: pending.length > 50 };
+        },
+        acknowledgeMessages: async payload => {
+          const response = await acknowledge(payload);
+          if (payload.kind === 'stored') pending = pending.filter(m => !payload.messageIds.includes(m.id));
+          return response;
+        }
+      } });
+    await recipient.syncPending().catch(() => {});
+    const offlineCalls = calls.length;
+    online = true;
+    await Promise.all([recipient.syncPending(), recipient.syncPending()]);
+    const delivered = calls.filter(c => c.kind === 'stored').flatMap(c => c.messageIds);
+    const beforeRead = calls.filter(c => c.kind === 'read').length;
+    await recipient.markRead([{ ...messages[0], id: 'backlog-0' }], () => true);
+    const readIds = calls.filter(c => c.kind === 'read').flatMap(c => c.messageIds);
+    await recipient.dispose();
+    return { offlineCalls, delivered: delivered.length, unique: new Set(delivered).size, beforeRead, readIds, loads };
+  });
+  expect(result).toEqual({ offlineCalls: 0, delivered: 120, unique: 120, beforeRead: 0, readIds: ['backlog-0'], loads: 4 });
+});
+
+test('rolling upgrade without pending delivery retains the device identity for logout cleanup', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(async () => {
+    await receipts.persist(messages);
+    await receipts.syncPending();
+    await receipts.dispose();
+  });
+  expect(await page.evaluate(() => readInbox())).toEqual([]);
+});
+
 test('aborted storage, unavailable storage and account switches never acknowledge delivery', async ({ page }) => {
   await fixture(page);
   const result = await page.evaluate(async () => {

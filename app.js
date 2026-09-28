@@ -9176,6 +9176,10 @@ function persistReceivedMessages(messages = currentMessages) {
   getMessageDeviceReceipts()?.persist(messages).catch(() => {});
 }
 
+function syncPendingMessageDelivery() {
+  if (currentUser) getMessageDeviceReceipts()?.syncPending().catch(() => {});
+}
+
 function isActiveConversationVisible() {
   if (!currentUser || !chatUiState.activeContext?.withUser
     || document.visibilityState !== "visible" || !document.hasFocus()) {
@@ -9275,6 +9279,7 @@ function connectRealtimeChannel() {
       if (currentUser !== replayUser) return;
       if (currentView === "profile" && profileDiv) replaceMessagesPanel(profileDiv);
       if (chatUiState.isContextOpen) replaceContextChatModal();
+      markActiveConversationRead().catch(() => {});
     },
     onMessage: async (payload) => {
       if (payload?.message) persistReceivedMessages([payload.message]);
@@ -9622,6 +9627,7 @@ async function loadOlderConversationMessages() {
 async function refreshMessagesState() {
   const startedAt = getPerfNow();
   const user = currentUser;
+  syncPendingMessageDelivery();
   try {
     const paged = await getMessagePager().refreshInbox();
     if (user !== currentUser) return;
@@ -18174,6 +18180,7 @@ function handleAppLifecycleChange() {
   }
 
   startMemoryMonitoring();
+  syncPendingMessageDelivery();
   markActiveConversationRead().catch(() => {});
   if (currentView === "home" || currentView === "profile") {
     if (uiRuntimeState.renderFrame) {
@@ -18198,6 +18205,7 @@ function handleAppLifecycleChange() {
 
 registerAppEvent(document, "visibilitychange", handleAppLifecycleChange, undefined, "document:visibilitychange:app-lifecycle");
 registerAppEvent(window, "focus", () => {
+  syncPendingMessageDelivery();
   markActiveConversationRead().catch(() => {});
 }, undefined, "window:focus:conversation-read");
 let conversationReadTimer = 0;
@@ -19604,6 +19612,7 @@ registerAppEvent(window, "offline", () => {
 }, undefined, "window:offline:network-banner");
 
 registerAppEvent(window, "online", () => {
+  syncPendingMessageDelivery();
   syncNetworkStatusBanner({ justReconnected: true });
   applyReconnectRecoveryHints();
   if (!document.getElementById("payment-intent-modal")?.hidden) {

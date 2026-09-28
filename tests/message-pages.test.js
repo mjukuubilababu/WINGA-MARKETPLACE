@@ -18,13 +18,29 @@ before(async () => {
 });
 after(async () => db?.close());
 beforeEach(async () => {
-  await db.exec(`TRUNCATE messages,user_blocks,message_conversation_streams,message_conversation_positions;
+  await db.exec(`TRUNCATE messages,user_blocks,message_conversation_streams,message_conversation_positions,message_device_receipts;
     INSERT INTO messages(id,sender_id,receiver_id,message,product_id,timestamp,is_read) VALUES
     ('a1','a','me','First','p1','2026-09-16T10:00:00.000001Z',FALSE),
     ('a2','me','a','Reply','p2','2026-09-16T10:00:00.000002Z',FALSE),
     ('a3','a','me','Newest','p3','2026-09-16T10:00:00.000003Z',FALSE),
     ('b1','b','me','Other','p4','2026-09-16T10:00:00.000003Z',TRUE),
     ('secret','outsider','b','Must not leak','','2026-09-16T12:00:00Z',FALSE);`);
+});
+
+test('pending delivery is recipient-scoped, bounded and never marks a message read', async () => {
+  assert.deepEqual((await pages.readPendingMessageDelivery('me')).items.map(m => m.id), ['a1', 'a3']);
+  await db.exec("INSERT INTO message_device_receipts(message_id,device_id,sender_id,receiver_id) VALUES ('a1','online-device','a','me')");
+  assert.deepEqual((await pages.readPendingMessageDelivery('me')).items.map(m => m.id), ['a3']);
+  await db.exec("INSERT INTO user_blocks VALUES ('a','me')");
+  assert.equal((await pages.readPendingMessageDelivery('me')).items.length, 0);
+  await db.exec("DELETE FROM user_blocks; INSERT INTO user_blocks VALUES ('me','a')");
+  assert.equal((await pages.readPendingMessageDelivery('me')).items.length, 0);
+  await db.exec("DELETE FROM user_blocks; INSERT INTO messages(id,sender_id,receiver_id,message,timestamp) SELECT 'pending-'||n,'b','me','Full body',NOW() FROM generate_series(1,60) n");
+  const batch = await pages.readPendingMessageDelivery('me');
+  assert.equal(batch.items.length, 50);
+  assert.equal(batch.hasMore, true);
+  assert.ok(batch.items.every(m => m.receiverId === 'me' && typeof m.message === 'string'));
+  assert.equal((await db.query("SELECT COUNT(*)::int AS count FROM messages WHERE receiver_id='me' AND NOT is_read")).rows[0].count, 62);
 });
 
 test('Inbox groups people across product contexts and preserves global unread totals on every page', async () => {
