@@ -12,6 +12,8 @@ function fixture({ oneNode = false, noEvidence = false, invalidOps = false, send
   const streamControllers = [];
   const calls = [];
   let sentMessage = null;
+  let nodeAAlive = true;
+  let nodeBAlive = true;
   const fetchImpl = async (url, options = {}) => {
     const path = new URL(url).pathname;
     const search = new URL(url).searchParams;
@@ -28,10 +30,12 @@ function fixture({ oneNode = false, noEvidence = false, invalidOps = false, send
     }
     if (path === "/api/messages/stream") {
       const index = streamControllers.length;
-      const instance = oneNode || index === 0 ? "srv-node-a" : "srv-node-b";
+      const instance = oneNode || index === 0 || !nodeBAlive
+        ? "srv-node-a" : "srv-node-b";
+      const routedInstance = nodeAAlive ? instance : "srv-node-b";
       const stream = new ReadableStream({
         start(controller) {
-          streamControllers.push(controller);
+          streamControllers.push({ controller, instance: routedInstance });
           controller.enqueue(new TextEncoder().encode("event: welcome\ndata: {}\n\n"));
         }
       });
@@ -40,8 +44,8 @@ function fixture({ oneNode = false, noEvidence = false, invalidOps = false, send
         headers: {
           "Content-Type": "text/event-stream",
           ...(noEvidence ? {} : {
-            "X-Winga-Ops-Instance": instance,
-            "X-Winga-Ops-Boot": instance === "srv-node-a" ? "boot-a" : "boot-b",
+            "X-Winga-Ops-Instance": routedInstance,
+            "X-Winga-Ops-Boot": routedInstance === "srv-node-a" ? "boot-a" : "boot-b",
             "X-Winga-Ops-Commit": "commit-1"
           })
         }
@@ -73,10 +77,17 @@ function fixture({ oneNode = false, noEvidence = false, invalidOps = false, send
   };
   return {
     fetchImpl, calls, streamControllers,
-    drain() { streamControllers[0].close(); },
+    drainA() { nodeAAlive = false; streamControllers.find(item => item.instance === "srv-node-a").controller.close(); },
+    drainB() { nodeBAlive = false; streamControllers.find(item => item.instance === "srv-node-b").controller.close(); },
+    drainBoth() {
+      nodeAAlive = false;
+      nodeBAlive = false;
+      streamControllers[0].controller.close();
+      streamControllers[1].controller.close();
+    },
     corruptStream() {
-      streamControllers[0].enqueue(new TextEncoder().encode("data: " + "x".repeat(70000)));
-      streamControllers[0].close();
+      streamControllers[0].controller.enqueue(new TextEncoder().encode("data: " + "x".repeat(70000)));
+      streamControllers[0].controller.close();
     },
     get sentMessage() { return sentMessage; }
   };
@@ -131,14 +142,13 @@ test("missing node headers are diagnosed without exposing their values", async (
   });
 });
 
-test("exercise proves surviving node and exactly one durable replay reference", async () => {
+test("exercise proves surviving B and exactly one durable replay reference", async () => {
   const testServer = fixture();
   const result = await verifyCrossNodeFailover({
     ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
-    confirmDrain: async (instance) => {
-      assert.equal(instance, "srv-node-a");
-      testServer.drain();
-      return instance;
+    confirmDrain: async () => {
+      testServer.drainA();
+      return "SCALE_TO_ONE";
     }
   });
   assert.equal(result.ok, true);
@@ -152,13 +162,42 @@ test("exercise proves surviving node and exactly one durable replay reference", 
   assert.equal(testServer.calls.filter(call => call.method === "POST").length, 1);
 });
 
+test("exercise also succeeds when Render removes B", async () => {
+  const testServer = fixture();
+  const result = await verifyCrossNodeFailover({
+    ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
+    confirmDrain: async () => {
+      testServer.drainB();
+      return "SCALE_TO_ONE";
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.survivorObserved, true);
+  assert.equal(result.replayedOnce, true);
+  assert.equal(result.crossNodeFailoverProven, true);
+});
+
+test("both observed nodes closing prevents the test send", async () => {
+  const testServer = fixture();
+  const result = await verifyCrossNodeFailover({
+    ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
+    confirmDrain: async () => {
+      testServer.drainBoth();
+      return "SCALE_TO_ONE";
+    }
+  });
+  assert.equal(result.errorCode, "NO_HEALTHY_SURVIVING_STREAM");
+  assert.equal(result.messageSendAttempted, false);
+  assert.equal(result.crossNodeFailoverProven, false);
+});
+
 test("wrong drain confirmation stops before any send", async () => {
   const testServer = fixture();
   const result = await verifyCrossNodeFailover({
     ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
-    confirmDrain: async () => "wrong-node"
+    confirmDrain: async () => "wrong-action"
   });
-  assert.equal(result.errorCode, "TARGET_DRAIN_NOT_CONFIRMED");
+  assert.equal(result.errorCode, "SCALE_DOWN_NOT_CONFIRMED");
   assert.equal(testServer.sentMessage, null);
 });
 
@@ -166,9 +205,9 @@ test("a malformed oversized SSE frame cannot masquerade as node loss", async () 
   const testServer = fixture();
   const result = await verifyCrossNodeFailover({
     ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
-    confirmDrain: async (instance) => { testServer.corruptStream(); return instance; }
+    confirmDrain: async () => { testServer.corruptStream(); return "SCALE_TO_ONE"; }
   });
-  assert.equal(result.errorCode, "TARGET_STREAM_INVALID_FAILURE");
+  assert.equal(result.errorCode, "NO_HEALTHY_SURVIVING_STREAM");
   assert.equal(result.messageSendAttempted, false);
 });
 
@@ -176,7 +215,7 @@ test("unknown send outcome is never retried or reported as verified", async () =
   const testServer = fixture({ sendFails: true });
   const result = await verifyCrossNodeFailover({
     ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
-    confirmDrain: async (instance) => { testServer.drain(); return instance; }
+    confirmDrain: async () => { testServer.drainA(); return "SCALE_TO_ONE"; }
   });
   assert.equal(result.errorCode, "SEND_OUTCOME_UNKNOWN");
   assert.equal(result.messageSendAttempted, true);
@@ -189,7 +228,7 @@ test("duplicate replay references reject a false exactly-once claim", async () =
   const testServer = fixture({ duplicate: true });
   const result = await verifyCrossNodeFailover({
     ...options, fetchImpl: testServer.fetchImpl, exercise: true, allowTestSend: true,
-    confirmDrain: async (instance) => { testServer.drain(); return instance; }
+    confirmDrain: async () => { testServer.drainA(); return "SCALE_TO_ONE"; }
   });
   assert.equal(result.errorCode, "EXACTLY_ONCE_REPLAY_NOT_PROVEN");
   assert.equal(result.crossNodeFailoverProven, false);

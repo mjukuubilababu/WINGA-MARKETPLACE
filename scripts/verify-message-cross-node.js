@@ -144,12 +144,12 @@ async function verifyCrossNodeFailover({
     let survivor = null;
     for (let attempt = 0; attempt < sampleLimit && !survivor; attempt += 1) {
       const sampled = await openStream();
-      if (sampled.instance !== original.instance) survivor = { instance: sampled.instance, boot: sampled.boot, commit: sampled.commit };
-      await sampled.close();
+      if (sampled.instance !== original.instance) survivor = sampled;
+      else await sampled.close();
     }
     requireCheck(survivor, "TWO_INSTANCES_NOT_OBSERVED");
     requireCheck(survivor.commit === original.commit, "MIXED_DEPLOY_REVISION");
-    requireCheck(!original.closed, "ORIGINAL_STREAM_CLOSED_DURING_PREFLIGHT");
+    requireCheck(!original.closed && !survivor.closed, "STREAM_CLOSED_DURING_PREFLIGHT");
     result.twoInstancesObserved = true;
     result.preflightReady = true;
     if (!exercise) return { ...result, ok: true, crossNodeFailoverProven: false };
@@ -158,16 +158,19 @@ async function verifyCrossNodeFailover({
     requireCheck(baseline.body.version === 1 && baseline.body.resyncRequired === true
       && typeof baseline.body.cursor === "string" && baseline.body.cursor
       && baseline.cache.includes("no-store"), "REPLAY_BASELINE_INVALID");
-    requireCheck(!original.closed, "TARGET_STREAM_CLOSED_BEFORE_DRAIN");
-    const confirmed = await confirmDrain(original.instance);
-    requireCheck(confirmed === original.instance, "TARGET_DRAIN_NOT_CONFIRMED");
+    requireCheck(!original.closed && !survivor.closed, "STREAM_CLOSED_BEFORE_SCALE_DOWN");
+    const confirmed = await confirmDrain();
+    requireCheck(confirmed === "SCALE_TO_ONE", "SCALE_DOWN_NOT_CONFIRMED");
     result.drainConfirmed = true;
-    await waitFor(() => original.closed, drainTimeoutMs, "TARGET_STREAM_DID_NOT_CLOSE", controller.signal);
-    requireCheck(!original.cancelled && !original.parserFailed, "TARGET_STREAM_INVALID_FAILURE");
+    await waitFor(() => original.closed || survivor.closed, drainTimeoutMs, "NO_STREAM_CLOSED_AFTER_SCALE_DOWN", controller.signal);
+    const lost = original.closed ? original : survivor;
+    const remaining = original.closed ? survivor : original;
+    requireCheck(!remaining.closed && !lost.cancelled && !lost.parserFailed,
+      "NO_HEALTHY_SURVIVING_STREAM");
     result.oldStreamClosed = true;
 
     const next = await openStream();
-    requireCheck(next.instance === survivor.instance && next.boot === survivor.boot,
+    requireCheck(next.instance === remaining.instance && next.boot === remaining.boot,
       "SURVIVING_NODE_NOT_OBSERVED");
     result.survivorObserved = true;
     await next.close();
@@ -200,7 +203,7 @@ async function verifyCrossNodeFailover({
     result.messageSendConfirmed = true;
 
     const reconnected = await openStream();
-    requireCheck(reconnected.instance === survivor.instance && reconnected.boot === survivor.boot,
+    requireCheck(reconnected.instance === remaining.instance && reconnected.boot === remaining.boot,
       "RECONNECTED_TO_DIFFERENT_NODE");
     let cursor = baseline.body.cursor;
     let matches = 0, exhausted = false;
@@ -244,8 +247,8 @@ if (require.main === module) {
         opsToken: process.env.OPS_HEALTH_TOKEN,
         exercise,
         allowTestSend: process.argv.includes("--confirm-test-send"),
-        confirmDrain: exercise ? async (instance) => {
-          const answer = await rl.question(`Drain the named test instance outside this script, then type ${instance} to confirm: `);
+        confirmDrain: exercise ? async () => {
+          const answer = await rl.question("Scale the Render service from 2 to 1 instance, then type SCALE_TO_ONE to confirm: ");
           return answer.trim();
         } : undefined
       });

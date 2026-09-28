@@ -11,18 +11,19 @@ receive none of these headers. Preflight requires two distinct live instance IDs
 at the same commit and checks durable retry and replay capabilities. It does not
 send a message or perform a failover.
 
-The optional exercise holds a receiver stream on instance A, records the
-receiver's durable replay checkpoint, and pauses for a human operator to drain
-that **named** instance externally. It refuses to send if A does not close or
-the previously observed instance B (same boot ID) is not available. It then
+The optional exercise holds receiver streams on two distinct instances, records
+the receiver's durable replay checkpoint, and pauses for a human operator to
+scale the service from exactly two instances to one. It refuses to send unless
+exactly one observed stream closes and the other instance remains available
+with the same boot ID. It then
 sends exactly one labelled synthetic message from the second test account,
-opens a new receiver stream on B, and requires the accepted canonical message
+opens a new receiver stream on the surviving node, and requires the canonical message
 ID to appear exactly once in bounded replay after the pre-failure checkpoint.
 No retry occurs after an unknown POST outcome. The synthetic message remains in
 the test accounts' history; the verifier does not delete or mark it read.
 
-This is a controlled, operator-attested A-to-B recovery check, not a claim that
-the script itself terminated A. Keep the Render instance/event timeline as
+This is a controlled, operator-attested node-loss recovery check, not a claim that
+the script itself terminated a node. Keep the Render instance/event timeline as
 separate fault-injection evidence. It does not verify E2EE, device ACKs,
 database-primary failover, or a revoked session after this particular node loss.
 
@@ -37,7 +38,7 @@ database-primary failover, or a revoked session after this particular node loss.
 - Set `WINGA_FAILOVER_ORIGIN` explicitly to the API origin. The verifier accepts
   HTTPS origins only and does not use the frontend Worker as a proxy.
 - In production, obtain explicit approval for reduced capacity, select a quiet
-  window, note the starting instance count, and have a rollback operator ready.
+  window, confirm the starting instance count is exactly two, and have a rollback operator ready.
   Do not drain production merely because preflight passed.
 
 ## Preflight (read-only commerce state)
@@ -55,8 +56,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-message-cross-
 After preflight passes and the operator approves the drain, run
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-message-cross-node.ps1 -Exercise`
 from the same local machine.
-The script will prompt for credentials again and then wait for the named
-instance drain. Do not run `-Exercise` just to check topology.
+The script will prompt for credentials again and then wait for the scale-down
+confirmation. Do not run `-Exercise` just to check topology.
 
 Set these variables privately in the terminal:
 
@@ -81,13 +82,14 @@ assume multiple historical restart IDs imply simultaneous live nodes.
 npm run verify:message-cross-node -- --exercise --confirm-test-send
 ```
 
-The script prints the exact instance ID of A and waits. In the Render dashboard,
-inspect the live instance list and perform the approved drain/scale operation.
-Typing A's ID confirms the **operator's action**, not the result. The verifier
-still requires A's SSE to close and the original B process to remain live before
-it sends a test message. If Render removes B instead, the test fails safely with
-no send. Do not use Render's `Restart service` action for this test: it restarts
-all instances of a scaled service, so it cannot demonstrate a surviving B.
+In the Render dashboard, confirm exactly two live instances, then change
+Compute > Manual Scaling from 2 to 1 and save. Type `SCALE_TO_ONE` in the
+terminal only after saving. This confirms the **operator's action**, not the
+result. The verifier accepts either instance being removed, but still requires
+one observed stream to close and the other original process to remain live
+before it sends a test message. Do not use Render's `Restart service` action
+for this test: it restarts all instances of a scaled service, so it cannot
+demonstrate a surviving node.
 
 After the run, restore the original instance count immediately. Check Render
 Events/instances, `/api/health`, message availability in both test accounts,
@@ -99,8 +101,8 @@ Unset the five environment variables when done.
 ## Failure behavior
 
 `NODE_EVIDENCE_UNAVAILABLE`, `TWO_INSTANCES_NOT_OBSERVED`, or
-`MIXED_DEPLOY_REVISION` means no credible topology proof. A wrong drain
-confirmation, an SSE that stays open, or a changed B boot ID stops before the
+`MIXED_DEPLOY_REVISION` means no credible topology proof. A wrong scale-down
+confirmation, an SSE that stays open, or a changed survivor boot ID stops before the
 test send. `SEND_OUTCOME_UNKNOWN` does not retry.
 `EXACTLY_ONCE_REPLAY_NOT_PROVEN` means a completed send is not enough to claim
 durable recovery; inspect replay and canonical history before rerunning.
