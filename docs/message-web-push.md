@@ -30,9 +30,16 @@ Set `WINGA_WEB_PUSH_ENABLED=false` to stop subscriptions and the push worker.
   is one day. The eight-attempt limit bounds permanent provider/config failures.
 - Delivery is at-least-once. Stable notification tags/provider topics reduce
   duplicates after a crash; push acceptance never marks Delivered or Read.
+- Chat pushes use high urgency so a push provider can wake a sleeping device.
+  This requests prompt delivery; it cannot override OS force-stop or notification restrictions.
 - Pending jobs for read, deleted, blocked or revoked-session messages are skipped.
 - Existing permission controls register the browser; login/reconnect recovers
   registration. A subscription failure retries after one minute.
+- Build updates preserve the canonical service worker registration and subscription.
+  Controller activation and returning to the foreground retry registration after a readiness timeout.
+- `web_push_delivery` logs contain only batch outcome counts and a numeric provider
+  status, never endpoints, keys, message content or account IDs. Provider acceptance
+  is not proof of display on a physical device.
 - The user must grant notification permission. OS/browser settings can prevent
   delivery. iPhone/iPad require a supported Home Screen web app. Force-stopped
   browsers, battery restrictions and network loss are not delivery guarantees.

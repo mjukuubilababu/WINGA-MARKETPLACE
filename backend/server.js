@@ -14947,7 +14947,13 @@ server.listen(PORT, async () => {
     }
     if (postgresStore?.dispatchWebPushBatch && process.env.WINGA_WEB_PUSH_ENABLED !== "false") {
       webPushWorker = createMessageDispatchWorker({
-        dispatch: () => postgresStore.dispatchWebPushBatch(),
+        dispatch: async () => {
+          const result = await postgresStore.dispatchWebPushBatch();
+          if (result.accepted || result.retrying || result.rejected || result.skipped) {
+            logStructuredEvent("info", "web_push_delivery", { privacy: "aggregate-only", ...result });
+          }
+          return result;
+        },
         onError: () => logStructuredEvent("warn", "web_push_retry", { privacy: "aggregate-only" })
       });
       webPushWorker.start();

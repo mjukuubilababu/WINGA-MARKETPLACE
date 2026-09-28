@@ -105,6 +105,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush 
   }
 
   async function dispatchWebPushBatch() {
+    const outcome = { accepted: 0, retrying: 0, rejected: 0, skipped: 0, lastProviderStatus: 0 };
     await query("DELETE FROM web_push_jobs WHERE expires_at<NOW()");
     await query(`DELETE FROM web_push_subscriptions p WHERE NOT EXISTS
       (SELECT 1 FROM sessions s WHERE s.session_id=p.session_id AND s.username=p.owner_id AND s.expires_at>$1)`, [Date.now()]);
@@ -138,21 +139,25 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush 
           const keys = await identity();
           await provider.sendNotification(validateSubscription(row.subscription), JSON.stringify({ version: 1, id: job, locale: row.locale }), {
             vapidDetails: { subject: "https://wingamarket.com", publicKey: keys.public_key, privateKey: keys.private_key },
-            TTL: 86400, timeout: 10000, urgency: "normal", topic: job.replace(/-/g, "")
+            TTL: 86400, timeout: 10000, urgency: "high", topic: job.replace(/-/g, "")
           });
+          outcome.accepted += 1;
         } catch (error) {
+          const status = Number(error.statusCode || 0);
+          outcome.lastProviderStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : 0;
           if ([404, 410].includes(error.statusCode)) {
             await query("DELETE FROM web_push_subscriptions WHERE id=$1 AND subscription=$2::jsonb", [row.subscription_id, JSON.stringify(row.subscription)]);
           } else {
             retry = row.attempts < 8 && error.status !== 400;
           }
+          outcome[retry ? "retrying" : "rejected"] += 1;
         }
-      }
+      } else outcome.skipped += 1;
       await query(`UPDATE web_push_jobs SET completed_at=CASE WHEN $3 THEN NULL ELSE NOW() END,
         next_attempt_at=NOW()+($4 * INTERVAL '1 second'),lease_token=NULL,lease_until=NULL
         WHERE id=$1 AND lease_token=$2`, [job, lease, retry, Math.min(3600, 30 * 2 ** Math.min(Number(row?.attempts || 1), 7))]);
     }
-    return { ok: true };
+    return { ok: true, ...outcome };
   }
   return {
     async readWebPushConfig() { const keys = await identity(); return { supported: true, publicKey: keys.public_key }; },

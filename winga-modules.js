@@ -4320,8 +4320,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       queue = queue.catch(() => {}).then(async () => {
         if (!getSession()?.username || currentEpoch !== epoch || key !== sessionKey()) return false;
         if (win.Notification?.permission !== "granted") { active = false; return false; }
+        if (!nav?.serviceWorker || !win.PushManager) return false;
         const reg = await registration();
-        if (!reg?.pushManager) return false;
+        if (!reg?.pushManager) throw new Error("Push worker not ready"); // i18n-gate: allow -- internal retry diagnostic
         const config = await request("config");
         if (!config?.supported || !config.publicKey || currentEpoch !== epoch || key !== sessionKey()) return false;
         const publicKey = bytes(config.publicKey);
@@ -4366,6 +4367,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     nav?.serviceWorker?.addEventListener("message", event => {
       if (event.data?.type === "winga-push-open") receive(event.data.id);
+    });
+    nav?.serviceWorker?.addEventListener("controllerchange", () => sync().catch(() => {}));
+    win.document.addEventListener("visibilitychange", () => {
+      if (win.document.visibilityState === "visible") sync().catch(() => {});
     });
     win.addEventListener("hashchange", readHash);
     win.addEventListener("online", () => sync().catch(() => {}));

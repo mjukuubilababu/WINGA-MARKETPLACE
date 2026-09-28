@@ -73,6 +73,7 @@ test('real SQL: push is durable, private, session-bound, retryable and does not 
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].body, { version: 1, id, locale: 'sw' });
     assert.equal(sent[0].options.TTL, 86400);
+    assert.equal(sent[0].options.urgency, 'high');
     assert.equal((await rows('messages'))[0].is_delivered, false);
     await enqueue('m2');
     await db.exec("INSERT INTO user_blocks VALUES('bob','alice')");
@@ -102,6 +103,30 @@ function workerHarness() {
   return { shown, opened, messages, setClients(value) { clients = value; },
     async fire(type, extra) { let pending; handlers[type]({ ...extra, waitUntil: promise => { pending = promise; } }); await pending; } };
 }
+test('build cache cleanup preserves canonical push registration but explicit recovery can remove it', async () => {
+  const source = fs.readFileSync('app.js', 'utf8');
+  const cleanup = source.slice(source.indexOf('async function purgeStaleBrowserCacheArtifacts('), source.indexOf('function hasCompletedServiceWorkerFirstRun('));
+  const bootstrap = source.slice(source.indexOf('function initializeBootstrapStorageVersion('), source.indexOf('function getSellerHistoryStorageKey('));
+  const removed = [], caches = [];
+  const registrations = [
+    { scope: 'https://wingamarket.com/', active: { scriptURL: 'https://wingamarket.com/sw.js?v=old' }, unregister: () => removed.push('canonical') },
+    { scope: 'https://wingamarket.com/old/', active: { scriptURL: 'https://wingamarket.com/old-worker.js' }, unregister: () => removed.push('obsolete') }
+  ];
+  const context = { URL, APP_SERVICE_WORKER_PATH: '/sw.js', APP_BOOT_BUILD_VERSION: 'new',
+    getStoredAppStorageSchemaVersion: () => 'old', clearStaleAppBootstrapState() {}, saveAppStorageSchemaVersion() {},
+    navigator: { onLine: true }, window: { location: { origin: 'https://wingamarket.com' },
+      navigator: { serviceWorker: { getRegistrations: async () => registrations } },
+      caches: { keys: async () => ['stale-assets'], delete: async key => caches.push(key) } } };
+  vm.createContext(context);
+  vm.runInContext(cleanup + bootstrap, context);
+  await context.initializeBootstrapStorageVersion();
+  assert.deepEqual(removed, ['obsolete']);
+  assert.deepEqual(caches, ['stale-assets']);
+  removed.length = 0;
+  await context.purgeStaleBrowserCacheArtifacts();
+  assert.deepEqual(removed, ['canonical', 'obsolete']);
+});
+
 test('closed-app push only displays fixed private copy; click opens fixed same-origin route', async () => {
   const worker = workerHarness();
   const id = '11111111-1111-4111-8111-111111111111';

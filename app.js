@@ -1379,11 +1379,17 @@ function clearStaleAppBootstrapState() {
   }
 }
 
-async function purgeStaleBrowserCacheArtifacts() {
+async function purgeStaleBrowserCacheArtifacts({ preservePushRegistration = false } = {}) {
   try {
     if (window.navigator?.serviceWorker?.getRegistrations) {
       const registrations = await window.navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
+      await Promise.all(registrations.map((registration) => {
+        const worker = registration.active || registration.waiting || registration.installing;
+        const script = worker?.scriptURL ? new URL(worker.scriptURL, window.location.origin) : null;
+        if (preservePushRegistration && registration.scope === `${window.location.origin}/`
+          && script?.origin === window.location.origin && script.pathname === APP_SERVICE_WORKER_PATH) return;
+        return registration.unregister();
+      }));
     }
   } catch (error) {
     // Ignore stale service worker cleanup failures.
@@ -1508,7 +1514,8 @@ function initializeBootstrapStorageVersion() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return;
   }
-  return purgeStaleBrowserCacheArtifacts();
+  // Updating assets must not revoke the browser's existing push subscription.
+  return purgeStaleBrowserCacheArtifacts({ preservePushRegistration: true });
 }
 
 function getSellerHistoryStorageKey(username = currentUser) {

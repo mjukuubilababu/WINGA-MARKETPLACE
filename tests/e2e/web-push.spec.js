@@ -22,6 +22,8 @@ async function fixture(page) {
       addEventListener: (...args) => window.addEventListener(...args)
     };
     window.failResolve = false;
+    window.testPushWindow = fakeWindow;
+    window.testPushRegistration = reg;
     window.push = WingaModules.notifications.createPushModule({ getWindow: () => fakeWindow, getSession: () => session,
       request: async (path, payload, method) => {
         calls.push([path, payload, method]);
@@ -42,6 +44,22 @@ test('permission grant subscribes and logout removes subscription and visible no
   expect(await page.evaluate(() => push.active)).toBe(true);
   await page.evaluate(() => push.logout());
   expect(await page.evaluate(() => ({ active: push.active, closedNotifications, unsubscribed }))).toEqual({ active: false, closedNotifications: 1, unsubscribed: 1 });
+});
+
+test('late service worker activation retries subscription without a reload', async ({ page }) => {
+  await fixture(page);
+  const result = await page.evaluate(async () => {
+    testPushWindow.navigator.serviceWorker.ready = new Promise(() => {});
+    testPushWindow.setTimeout = (callback, delay) => window.setTimeout(callback, delay === 10000 ? 5 : delay);
+    const failed = await push.sync().then(() => false, () => true);
+    const inactive = !push.active;
+    testPushWindow.navigator.serviceWorker.ready = Promise.resolve(testPushRegistration);
+    swMessages.controllerchange();
+    return { failed, inactive };
+  });
+  expect(result).toEqual({ failed: true, inactive: true });
+  await expect.poll(() => page.evaluate(() => push.active)).toBe(true);
+  expect(await page.evaluate(() => subscribed)).toBe(1);
 });
 
 test('denied permission never subscribes; notification navigation waits for authenticated owner resolution', async ({ page }) => {
