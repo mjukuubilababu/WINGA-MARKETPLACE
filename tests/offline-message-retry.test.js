@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
-function fixture(storage = new Map()) {
+function fixture(storage = new Map(), navigator = { onLine: true }) {
   const context = vm.createContext({ window: {}, crypto: { randomUUID }, URLSearchParams });
   for (const name of ['offline-queue', 'communications-client']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/api', `${name}.js`), 'utf8'), context);
@@ -18,7 +18,7 @@ function fixture(storage = new Map()) {
     safeStorageGet: key => storage.get(key),
     safeStorageSet: (key, value) => { if (!writable) return false; storage.set(key, value); return true; },
     safeStorageRemove: key => storage.delete(key),
-    getNavigator: () => ({ onLine: true }),
+    getNavigator: () => navigator,
     dispatchEvent: (name, detail) => events.push({ name, detail })
   });
   return { queue, storage, events, api: context.window.WingaModules.api,
@@ -27,13 +27,31 @@ function fixture(storage = new Map()) {
 }
 const payload = { receiverId: 'bob', message: 'Hello' };
 
+async function waitFor(check) {
+  for (let i = 0; i < 100; i++) {
+    if (check()) return;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.fail('Expected asynchronous queue operation did not start');
+}
+
+function sharedLocks() {
+  const tails = new Map();
+  return { request(name, run) {
+    const previous = tails.get(name) || Promise.resolve();
+    const result = previous.then(run);
+    tails.set(name, result.catch(() => {}));
+    return result;
+  } };
+}
+
 test('explicit retry waits for unrelated background work without losing the selected send', async () => {
   const f = fixture();
-  const selected = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  const selected = await f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
   await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
     throw Object.assign(new Error('Denied'), { status: 403 });
   } });
-  f.queue.queueOfflineMessageAction({ ...payload, message: 'Background', clientMessageId: randomUUID() });
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'Background', clientMessageId: randomUUID() });
   let release;
   const seen = [];
   const adapter = { sendMessage: p => {
@@ -43,6 +61,7 @@ test('explicit retry waits for unrelated background work without losing the sele
   const background = f.queue.flushOfflineActionQueue(adapter);
   const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
   const duplicateTap = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  await waitFor(() => release);
   assert.deepEqual(seen, ['Background']);
   release({ id: 'background' });
   await Promise.all([background, retry, duplicateTap]);
@@ -52,15 +71,16 @@ test('explicit retry waits for unrelated background work without losing the sele
 
 test('waiting retry cannot send after account switch', async () => {
   const f = fixture();
-  const selected = f.queue.queueOfflineMessageAction(payload);
+  const selected = await f.queue.queueOfflineMessageAction(payload);
   await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
     throw Object.assign(new Error('Denied'), { status: 403 });
   } });
-  f.queue.queueOfflineMessageAction({ ...payload, message: 'Background' });
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'Background' });
   let release, calls = 0;
   const adapter = { sendMessage: () => { calls++; return new Promise(resolve => { release = resolve; }); } };
   const background = f.queue.flushOfflineActionQueue(adapter);
   const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  await waitFor(() => release);
   f.switchUser('carol');
   release({ id: 'background' });
   await Promise.all([background, retry]);
@@ -70,11 +90,12 @@ test('waiting retry cannot send after account switch', async () => {
 
 test('retry joining a background attempt does not immediately repeat a rejected send', async () => {
   const f = fixture();
-  const selected = f.queue.queueOfflineMessageAction(payload);
+  const selected = await f.queue.queueOfflineMessageAction(payload);
   let reject, calls = 0;
   const adapter = { sendMessage: () => { calls++; return new Promise((resolve, fail) => { reject = fail; }); } };
   const background = f.queue.flushOfflineActionQueue(adapter);
   const retry = f.queue.flushOfflineActionQueue(adapter, selected.id);
+  await waitFor(() => reject);
   reject(Object.assign(new Error('Denied'), { status: 403 }));
   await Promise.all([background, retry]);
   assert.equal(calls, 1);
@@ -84,7 +105,7 @@ test('retry joining a background attempt does not immediately repeat a rejected 
 test('failed messages require explicit scoped retry and retain their logical ID', async () => {
   const f = fixture();
   const clientMessageId = randomUUID();
-  const queued = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId });
+  const queued = await f.queue.queueOfflineMessageAction({ ...payload, clientMessageId });
   let calls = 0;
   await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
     calls++; throw Object.assign(new Error('Denied'), { status: 403 });
@@ -100,7 +121,7 @@ test('failed messages require explicit scoped retry and retain their logical ID'
   assert.equal(f.queue.getPendingMessages('bob').length, 0);
   assert.equal(await f.queue.flushOfflineActionQueue(adapter, queued.id), 0);
   f.switchUser('alice');
-  f.queue.queueOfflineMessageAction({ ...payload, message: 'Leave this queued' });
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'Leave this queued' });
   assert.equal(await f.queue.flushOfflineActionQueue(adapter, queued.id), 1);
   assert.equal(calls, 2);
   assert.equal(f.queue.readOfflineActionQueue().length, 1);
@@ -109,11 +130,12 @@ test('failed messages require explicit scoped retry and retain their logical ID'
 
 test('concurrent explicit retries coalesce to a single attempt', async () => {
   const f = fixture();
-  const queued = f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  const queued = await f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
   let release, calls = 0;
   const adapter = { sendMessage: () => { calls++; return new Promise(resolve => { release = resolve; }); } };
   const first = f.queue.flushOfflineActionQueue(adapter, queued.id);
   const second = f.queue.flushOfflineActionQueue(adapter, queued.id);
+  await waitFor(() => release);
   release({ id: 'accepted' });
   await Promise.all([first, second]);
   assert.equal(calls, 1);
@@ -122,7 +144,7 @@ test('concurrent explicit retries coalesce to a single attempt', async () => {
 
 test('permanent send failure retains message and reports failure', async () => {
   const f = fixture();
-  f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction(payload);
   assert.equal(await f.queue.flushOfflineActionQueue({ sendMessage: async () => { throw Object.assign(new Error('Denied'), { status: 403 }); } }), 0);
   assert.equal(f.queue.readOfflineActionQueue()[0].status, 'FAILED');
   assert.equal(f.events.at(-1).detail.failed, 1);
@@ -141,7 +163,7 @@ test('lost acknowledgement retries the same persisted client ID', async () => {
       return { id: 'canonical-message' };
     }
   };
-  f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction(payload);
   assert.equal(await f.queue.flushOfflineActionQueue(adapter), 0);
   assert.equal(await f.queue.flushOfflineActionQueue(adapter), 1);
   assert.equal(accepted.size, 1);
@@ -153,10 +175,11 @@ test('concurrent flush coalesces and preserves newly queued arrivals', async () 
   let release;
   let calls = 0;
   const adapter = { sendMessage: () => { calls++; return new Promise(resolve => { release = resolve; }); } };
-  f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction(payload);
   const first = f.queue.flushOfflineActionQueue(adapter);
   const second = f.queue.flushOfflineActionQueue(adapter);
-  f.queue.queueOfflineMessageAction({ ...payload, message: 'New arrival' });
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'New arrival' });
+  await waitFor(() => release);
   release({ id: 'accepted' });
   await Promise.all([first, second]);
   assert.equal(calls, 1);
@@ -165,8 +188,8 @@ test('concurrent flush coalesces and preserves newly queued arrivals', async () 
 
 test('account switch stops flush without moving messages between accounts', async () => {
   const f = fixture();
-  f.queue.queueOfflineMessageAction(payload);
-  f.queue.queueOfflineMessageAction({ ...payload, message: 'Second' });
+  await f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'Second' });
   let calls = 0;
   await f.queue.flushOfflineActionQueue({ sendMessage: async () => { calls++; f.switchUser('carol'); return { id: 'accepted' }; } });
   assert.equal(calls, 1);
@@ -175,19 +198,19 @@ test('account switch stops flush without moving messages between accounts', asyn
   assert.equal(f.events.at(-1).detail.username, 'alice');
 });
 
-test('storage failures never claim a queued message or overwrite corruption', () => {
+test('storage failures never claim a queued message or overwrite corruption', async () => {
   const f = fixture();
   f.denyStorage();
-  assert.throws(() => f.queue.queueOfflineMessageAction(payload), /could not be saved/);
+  await assert.rejects(f.queue.queueOfflineMessageAction(payload), /could not be saved/);
   const key = f.queue.getOfflineActionQueueStorageKey();
   f.storage.set(key, 'broken-json');
-  assert.throws(() => f.queue.queueOfflineMessageAction(payload), /could not be read/);
+  await assert.rejects(f.queue.queueOfflineMessageAction(payload), /could not be read/);
   assert.equal(f.storage.get(key), 'broken-json');
 });
 
 test('unconfirmed acknowledgement does not remove queue entry', async () => {
   const f = fixture();
-  f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction(payload);
   await f.queue.flushOfflineActionQueue({ sendMessage: async () => ({ isQueued: true, id: 'local' }) });
   assert.equal(f.queue.readOfflineActionQueue().length, 1);
 });
@@ -223,6 +246,7 @@ test('online send persists before POST and background flush does not resend it',
     return new Promise(resolve => { release = resolve; });
   } };
   const sending = f.queue.sendPersistedMessage(prepared, adapter);
+  await waitFor(() => release);
   assert.equal(await f.queue.flushOfflineActionQueue(adapter), 0);
   release({ id: 'accepted-online' });
   assert.equal((await sending).id, 'accepted-online');
@@ -239,6 +263,7 @@ test('reload after an online lost response replays the original logical ID', asy
     return new Promise(() => {}); // Simulate a closed tab before acknowledgement.
   } });
   assert.ok(pending);
+  await waitFor(() => accepted.size === 1);
   const reloaded = fixture(first.storage);
   assert.equal(await reloaded.queue.flushOfflineActionQueue({ sendMessage: async p => {
     accepted.add(p.clientMessageId);
@@ -263,7 +288,7 @@ test('online network failure retains one queued entry, permanent failure retains
 
 test('online storage failure stops POST and preserves existing queue', async () => {
   const f = fixture();
-  f.queue.queueOfflineMessageAction(payload);
+  await f.queue.queueOfflineMessageAction(payload);
   f.denyStorage();
   let calls = 0;
   await assert.rejects(f.queue.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
@@ -284,6 +309,7 @@ test('account switch while waiting for send lock leaves original owner queue uns
     safeStorageGet: k => storage.get(k),
     safeStorageSet: (k, v) => { storage.set(k, v); return true; },
     getNavigator: () => ({ onLine: true, locks: { request: (key, run) => {
+      if (key.startsWith('winga-offline-queue:')) return Promise.resolve(run());
       assert.equal(key, 'winga-offline-send:alice');
       return new Promise(resolve => { resume = () => resolve(run()); });
     } } })
@@ -292,6 +318,7 @@ test('account switch while waiting for send lock leaves original owner queue uns
   const sending = q.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
     sendMessage: async () => { calls++; return { id: 'unexpected' }; }
   });
+  await waitFor(() => resume);
   session = { username: 'carol' };
   resume();
   assert.equal((await sending).isQueued, true);
@@ -309,4 +336,118 @@ test('unknown online ACK is queued, and accepted ACK survives cleanup failure', 
   });
   assert.equal(result.id, 'accepted');
   assert.equal(f.queue.readOfflineActionQueue().length, 2);
+});
+
+test('two tabs serialize enqueue against the shared owner queue lock', async () => {
+  const storage = new Map();
+  const locks = sharedLocks();
+  const first = fixture(storage, { onLine: true, locks });
+  const second = fixture(storage, { onLine: true, locks });
+  let release;
+  const held = locks.request('winga-offline-queue:winga-offline-action-queue:alice',
+    () => new Promise(resolve => { release = resolve; }));
+  await waitFor(() => release);
+  const a = first.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  const b = second.queue.queueOfflineMessageAction({ ...payload, message: 'Other tab', clientMessageId: randomUUID() });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(storage.size, 0, 'enqueue must not bypass the shared storage lock');
+  release();
+  await held;
+  const results = await Promise.all([a, b]);
+  const entries = first.queue.readOfflineActionQueue();
+  assert.equal(entries.length, 2);
+  assert.deepEqual(Array.from(entries, item => item.id), results.map(item => item.id));
+  assert.equal(new Set(entries.map(item => item.payload.clientMessageId)).size, 2);
+});
+
+test('another tab can persist during network I/O and survives accepted-send cleanup', async () => {
+  const storage = new Map();
+  const locks = sharedLocks();
+  const first = fixture(storage, { onLine: true, locks });
+  const second = fixture(storage, { onLine: true, locks });
+  let release;
+  const send = first.queue.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
+    sendMessage: () => new Promise(resolve => { release = resolve; })
+  });
+  await waitFor(() => release);
+  const arrival = await second.queue.queueOfflineMessageAction({ ...payload, message: 'Other tab', clientMessageId: randomUUID() });
+  assert.equal(second.queue.readOfflineActionQueue().length, 2);
+  release({ id: 'accepted' });
+  assert.equal((await send).id, 'accepted');
+  assert.equal(second.queue.readOfflineActionQueue().length, 1);
+  assert.equal(second.queue.readOfflineActionQueue()[0].id, arrival.id);
+});
+
+test('cross-tab background flush sends each retained entry once', async () => {
+  const storage = new Map();
+  const locks = sharedLocks();
+  const first = fixture(storage, { onLine: true, locks });
+  const second = fixture(storage, { onLine: true, locks });
+  await first.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  await second.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  const sent = [];
+  const adapter = { sendMessage: async p => { sent.push(p.clientMessageId); return { id: p.clientMessageId }; } };
+  const counts = await Promise.all([
+    first.queue.flushOfflineActionQueue(adapter), second.queue.flushOfflineActionQueue(adapter)
+  ]);
+  assert.equal(counts.reduce((a, b) => a + b), 2);
+  assert.equal(sent.length, 2);
+  assert.equal(new Set(sent).size, 2);
+  assert.equal(storage.size, 0);
+});
+
+test('account change while waiting for queue lock prevents enqueue and POST', async () => {
+  const locks = sharedLocks();
+  const f = fixture(new Map(), { onLine: true, locks });
+  let release;
+  const held = locks.request('winga-offline-queue:winga-offline-action-queue:alice',
+    () => new Promise(resolve => { release = resolve; }));
+  await waitFor(() => release);
+  let posts = 0;
+  const sending = f.queue.sendPersistedMessage({ ...payload, clientMessageId: randomUUID() }, {
+    sendMessage: async () => { posts++; return { id: 'unexpected' }; }
+  });
+  const rejection = assert.rejects(sending, /Account changed/);
+  f.switchUser('carol');
+  release();
+  await held;
+  await rejection;
+  assert.equal(posts, 0);
+  assert.equal(f.storage.size, 0);
+});
+
+test('lock acquisition failure never silently falls back to unlocked writes', async () => {
+  const f = fixture(new Map(), { onLine: true, locks: {
+    request: async () => { throw new Error('Lock unavailable'); }
+  } });
+  await assert.rejects(f.queue.queueOfflineMessageAction(payload), /Lock unavailable/);
+  assert.equal(f.storage.size, 0);
+});
+
+test('unknown replay ACK remains retryable with the original logical ID', async () => {
+  for (const ack of [null, { id: 'local', isQueued: true }, { id: 'skip', skipped: true }]) {
+    const f = fixture();
+    const clientMessageId = randomUUID();
+    await f.queue.queueOfflineMessageAction({ ...payload, clientMessageId });
+    assert.equal(await f.queue.flushOfflineActionQueue({ sendMessage: async () => ack }), 0);
+    assert.equal(f.queue.readOfflineActionQueue()[0].status, 'QUEUED');
+    assert.equal(await f.queue.flushOfflineActionQueue({ sendMessage: async p => {
+      assert.equal(p.clientMessageId, clientMessageId);
+      return { id: 'confirmed' };
+    } }), 1);
+    assert.equal(f.queue.readOfflineActionQueue().length, 0);
+  }
+});
+
+test('accepted replay remains successful when cleanup storage write fails', async () => {
+  const f = fixture();
+  await f.queue.queueOfflineMessageAction({ ...payload, clientMessageId: randomUUID() });
+  await f.queue.queueOfflineMessageAction({ ...payload, message: 'Another message', clientMessageId: randomUUID() });
+  const selected = f.queue.readOfflineActionQueue()[0];
+  assert.equal(await f.queue.flushOfflineActionQueue({ sendMessage: async () => {
+    f.denyStorage(); return { id: 'accepted' };
+  } }, selected.id), 1);
+  assert.equal(f.queue.readOfflineActionQueue()[0].status, 'QUEUED');
+  assert.equal(f.queue.readOfflineActionQueue()[0].payload.clientMessageId, selected.payload.clientMessageId);
+  assert.equal(f.events.at(-1).detail.failed, 0);
 });

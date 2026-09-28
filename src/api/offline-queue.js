@@ -45,6 +45,9 @@
       }
       if (!Array.isArray(queue) || !queue.length) {
         safeStorageRemove(storageKey);
+        if (safeStorageGet(storageKey)) {
+          throw new Error("Saved message queue could not be updated on this device.");
+        }
         return;
       }
       if (safeStorageSet(storageKey, JSON.stringify(queue)) !== true) {
@@ -67,7 +70,31 @@
       );
     }
 
-    function queueOfflineMessageAction(payload, session = readSession()) {
+    async function mutateOfflineActionQueue(session, change, requireOwner = false) {
+      const owner = String(session?.username || "").trim();
+      const run = () => {
+        if (requireOwner && String(readSession()?.username || "").trim() !== owner) {
+          throw new Error("Account changed before the message could be saved.");
+        }
+        const { queue, result } = change(readOfflineActionQueue(session));
+        saveOfflineActionQueue(queue, session);
+        return result;
+      };
+      // Keep storage critical sections separate from the network send lock so
+      // another tab can durably enqueue while a request is still in flight.
+      const locks = getNavigator()?.locks;
+      return locks?.request
+        ? locks.request(`winga-offline-queue:${getOfflineActionQueueStorageKey(session)}`, run)
+        : run();
+    }
+
+    function updateQueuedItem(session, id, change) {
+      return mutateOfflineActionQueue(session, queue => ({
+        queue: queue.flatMap(item => item.id === id ? change(item) : [item])
+      }));
+    }
+
+    async function queueOfflineMessageAction(payload, session = readSession()) {
       const username = String(session?.username || "").trim();
       if (!username) {
         throw new Error("Ingia kwanza kabla ya kutuma ujumbe.");
@@ -76,7 +103,7 @@
         throw new Error("Receiver na ujumbe au bidhaa vinahitajika.");
       }
 
-      const queue = readOfflineActionQueue(session);
+      session = { username };
       const createdAt = new Date().toISOString();
       const queuedAction = {
         id: `offline-msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -85,10 +112,11 @@
         createdAt,
         attempts: 0
       };
-      queue.push(queuedAction);
-      saveOfflineActionQueue(queue, session);
+      const count = await mutateOfflineActionQueue(session, queue => ({
+        queue: [...queue, queuedAction], result: queue.length + 1
+      }), true);
       dispatchEvent("winga:offline-actions-updated", {
-        count: queue.length,
+        count,
         username
       });
       return {
@@ -116,13 +144,11 @@
       if (!payload?.clientMessageId || typeof adapter?.sendMessage !== "function") {
         throw new Error("Durable message retry support is required.");
       }
-      const queued = queueOfflineMessageAction(payload, session);
+      session = { username: String(session?.username || "").trim() };
+      const queued = await queueOfflineMessageAction(payload, session);
       const owner = session.username;
       activeMessageSends.add(queued.id);
-      const updateItem = (change) => {
-        const current = readOfflineActionQueue(session);
-        saveOfflineActionQueue(current.flatMap(item => item.id === queued.id ? change(item) : [item]), session);
-      };
+      const updateItem = change => updateQueuedItem(session, queued.id, change);
       const run = async () => {
         if (readSession()?.username !== owner || getNavigator()?.onLine === false) return queued;
         let result;
@@ -133,7 +159,7 @@
           }
         } catch (error) {
           const retryable = isLikelyOfflineActionError(error);
-          updateItem(item => [{ ...item, attempts: Number(item.attempts || 0) + 1,
+          await updateItem(item => [{ ...item, attempts: Number(item.attempts || 0) + 1,
             status: retryable ? "QUEUED" : "FAILED",
             lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80) }]);
           if (retryable) return queued;
@@ -141,7 +167,7 @@
         }
         // An accepted send stays successful even if local cleanup fails. Its ID
         // remains replay-safe when the retained entry is reconciled later.
-        try { updateItem(() => []); } catch (_error) { /* Preserve accepted result. */ }
+        try { await updateItem(() => []); } catch (_error) { /* Preserve accepted result. */ }
         return result;
       };
       try {
@@ -162,7 +188,7 @@
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
         return 0;
       }
-      const session = readSession();
+      const session = { username: String(readSession()?.username || "").trim() };
       if (!session?.username || getNavigator()?.onLine === false) {
         return 0;
       }
@@ -180,34 +206,34 @@
         const queue = readOfflineActionQueue(session);
         let flushedCount = 0;
         let failedCount = 0;
-        // Re-read before each mutation so arrivals during an awaited send survive.
-        const updateItem = (id, change) => {
-          const current = readOfflineActionQueue(session);
-          saveOfflineActionQueue(current.flatMap(item => item.id === id ? change(item) : [item]), session);
-        };
+        const updateItem = (id, change) => updateQueuedItem(session, id, change);
         for (const item of queue) {
-          if (readSession()?.username !== owner) break;
+          if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
           if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
           operation.attemptedIds.add(item.id);
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
-            updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
-            if (readSession()?.username !== owner) break;
+            await updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
+            if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
             const result = await activeAdapter.sendMessage(payload);
-            if (!result?.id || result.isQueued || result.skipped) throw new Error("Message acceptance was not confirmed.");
-            updateItem(item.id, () => []);
-            flushedCount += 1;
+            if (!result?.id || result.isQueued || result.skipped) {
+              throw Object.assign(new Error("Message acceptance was not confirmed."), { retryable: true });
+            }
           } catch (error) {
             const retryable = isLikelyOfflineActionError(error);
-            updateItem(item.id, current => [{
+            await updateItem(item.id, current => [{
               ...current, attempts: Number(current.attempts || 0) + 1,
               status: retryable ? "QUEUED" : "FAILED",
               lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80)
             }]);
             if (!retryable) failedCount += 1;
             if (retryable || readSession()?.username !== owner) break;
+            continue;
           }
+          // Cleanup failure cannot turn a confirmed acceptance into rejection.
+          try { await updateItem(item.id, () => []); } catch (_error) { /* Retry retains the same logical ID. */ }
+          flushedCount += 1;
         }
         const remaining = readOfflineActionQueue(session).length;
         if (flushedCount || failedCount) dispatchEvent("winga:offline-actions-flushed", {
@@ -225,7 +251,6 @@
     return {
       getOfflineActionQueueStorageKey,
       readOfflineActionQueue,
-      saveOfflineActionQueue,
       isLikelyOfflineActionError,
       queueOfflineMessageAction,
       sendPersistedMessage,

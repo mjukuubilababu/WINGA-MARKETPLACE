@@ -1246,3 +1246,34 @@ browser workflows passed, including sequence-order assertions and inspected
 mobile/desktop inbox and modal screenshots. The final history/index predicate
 and order-transition recheck passed 26/26. Full unrelated browser/media suites,
 production migration timing and real multi-connection contention were not tested.
+
+## 43. Dispatch/sequence deployment evidence (2026-09-28)
+
+The operator supplied Render Shell evidence at commit `03eaf04` with
+`verified: true` and both migration ledger rows present:
+`2026092801_message_dispatch_outbox` and
+`2026092802_message_conversation_sequence`. This closes the migration-deployment
+uncertainty in sections 41/42, not a production queue-drainage/load claim.
+Frontend Worker version `c37b1bdb-177e-4988-80df-02b7afff6960` was deployed;
+both production domains served build `20260928005153`, and the production bundle
+hash matched the tested local bundle. Render health separately returned ready
+with PostgreSQL storage. No R2 or cross-node exercise needs repeating for this
+evidence update.
+
+## 44. Cross-tab local retry queue coordination (2026-09-28)
+
+All updated-client local queue mutations now acquire a short owner-scoped
+storage Web Lock, separate from the existing network send lock. Concurrent tabs
+can enqueue while a POST is in flight without overwriting each other's arrivals
+or cleanup. Enqueue awaits persistence, checks the captured owner again inside
+the lock and fails closed if lock acquisition fails. Unconfirmed replay ACKs
+remain retryable; storage cleanup failure cannot reclassify confirmed acceptance
+as a rejected send. The unused whole-queue writer is no longer exposed.
+
+This adds no backend migration or API change. Plaintext localStorage remains;
+unsupported browsers retain the existing single-tab fallback, and pre-update
+tabs must reload to participate. It does not complete encrypted outbox, device
+identity, device delivery obligations or the full conversation event ledger.
+See `docs/message-retry-client.md` for the exact boundary and test evidence:
+144 frontend-core, 62 related frontend (including 26 queue tests), and eight
+targeted browser tests passed, with native cross-tab locking coverage.

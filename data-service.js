@@ -342,10 +342,6 @@
     return getOfflineQueueTools().readOfflineActionQueue(session);
   }
 
-  function saveOfflineActionQueue(queue = [], session = readStoredSession()) {
-    getOfflineQueueTools().saveOfflineActionQueue(queue, session);
-  }
-
   function isLikelyOfflineActionError(error) {
     return getOfflineQueueTools().isLikelyOfflineActionError(error);
   }

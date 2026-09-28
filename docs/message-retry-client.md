@@ -27,7 +27,9 @@ logical ID can be replayed idempotently. Legacy adapters keep their existing pat
 - The existing plaintext queue is now also used briefly for supported online
   sends. It is not protection against same-origin script access, XSS or device
   compromise; encrypted local storage/key lifecycle remains a separate gate.
-- Cross-tab enqueue is not a fully transactional storage operation.
+- Updated tabs use an owner-scoped Web Lock for every queue read/modify/write.
+  Browsers without Web Locks retain the single-tab fallback, without a cross-tab
+  write guarantee. Old tabs must reload to participate in the new storage lock.
 - Failed entries are retained for explicit Retry in the matching conversation;
   background flush skips FAILED entries. Transient failures remain queued.
 - Legacy/non-PostgreSQL adapters do not promise durable idempotency.
@@ -47,14 +49,47 @@ entries remain visible. Read receipts and server-side authorization are unchange
 Queue corruption must not hide canonical history. Private message content is not
 added to telemetry. This is a plaintext local queue bridge, not an encrypted
 outbox or device acknowledgement protocol. Dedicated discard/edit controls,
-transactional cross-tab enqueue, and richer pending media previews remain work.
+transactional storage on browsers without Web Locks, and richer pending media
+previews remain work.
 
 Concurrent retry coordination: when an unrelated flush is active, explicit Retry
 waits for it and then attempts the selected entry if that operation did not already
 attempt it. Same-target taps coalesce, and account ownership is rechecked after
 waiting. An attempt already handled by the active operation is not immediately
 repeated, including a rejected attempt. This does not make localStorage writes
-transactional across tabs.
+transactional across tabs in the original increment; see the follow-up below.
+
+## Cross-tab queue serialization (2026-09-28)
+
+Enqueue, payload preparation, failure-state updates and accepted-send cleanup now
+share a short owner/queue-key-scoped Web Lock. Network sends keep the existing
+separate owner send lock, so a slow POST cannot prevent another tab from saving
+a new message. Enqueue is asynchronous and callers await persistence before
+reporting queued state or making a POST. Read/modify/write runs synchronously
+inside the storage lock; no whole-queue writer is exposed to callers.
+
+Account ownership is rechecked after acquiring the enqueue lock and before each
+send. Cleanup remains scoped to the captured original owner. Lock acquisition
+failure does not fall back to unlocked writes. Corrupt storage is preserved;
+write failure prevents new sends. An unconfirmed replay ACK stays QUEUED with
+its original logical ID, and a confirmed ACK is not turned into FAILED merely
+because cleanup could not write storage. Failed deletion of the last queue entry
+is detected instead of silently claiming local cleanup succeeded.
+
+This is cooperative coordination for updated same-origin tabs with Web Locks,
+not encrypted storage, protection from hostile scripts, or an IndexedDB
+transaction. Old still-open tabs do not acquire the new storage lock. Storage
+eviction, disabled storage, secure key lifecycle and encrypted outbox remain
+separate concerns. Retries are still at-least-once; canonical server idempotency,
+not locks alone, prevents duplicate accepted messages after an uncertain outcome.
+
+Verification: queue unit tests 26/26; frontend core 144/144 and related frontend
+tests 62/62 (including the queue suite). Eight focused browser tests passed,
+including two real same-origin tab tests with native Web Locks/shared localStorage:
+81 simultaneous queued entries retained, a blocked storage writer, enqueue during
+network I/O, and serialized sender/background-flush cleanup. Existing retry,
+reload, SSE, inbox/modal reply/forward/delete workflows also passed. Module sync
+passed. Full unrelated integration/browser suites were not rerun.
 
 Coordination follow-up verification (2026-09-22): queue tests 19/19 and the
 complete CI passed on the first run, including integration 200/200 and browser

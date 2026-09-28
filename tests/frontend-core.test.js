@@ -2351,7 +2351,7 @@ test("offline queue module owns retry-safe message queue behavior", async () => 
   assert.match(moduleSource, /async function flushOfflineActionQueue\(adapter = null, retryId = ""\)/);
   assert.equal(tools.getOfflineActionQueueStorageKey(), "test-offline:seller_one");
 
-  const queuedMessage = tools.queueOfflineMessageAction({
+  const queuedMessage = await tools.queueOfflineMessageAction({
     receiverId: "buyer_one",
     message: "Nahitaji bidhaa hii"
   });
