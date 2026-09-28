@@ -2372,11 +2372,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
       receiverId: "seller_one",
       productId: "product-test-001",
       productName: "Kiatu Safe",
-      messageType: "contact_share"
+      messageType: "contact_share",
+      conversationSequence: "999"
     })
   });
   assert.equal(buyerSharePhone.response.status, 200);
   assert.equal(buyerSharePhone.body.messageType, "contact_share");
+  assert.equal(buyerSharePhone.body.conversationSequence, null);
   assert.equal(buyerSharePhone.body.isDelivered, false);
   assert.equal(buyerSharePhone.body.deliveredAt, "");
   assert.equal(buyerSharePhone.body.isRead, false);

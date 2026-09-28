@@ -1,4 +1,20 @@
 (() => {
+  const timeKey = (value) => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    const fraction = String(value).match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1] || "";
+    return date.toISOString().slice(0, 19) + "." + fraction.padEnd(6, "0").slice(0, 6);
+  };
+  const compareTime = (a, b) => timeKey(a.timestamp).localeCompare(timeKey(b.timestamp)) || String(a.id || a.withUser).localeCompare(String(b.id || b.withUser));
+  function compareConversationMessages(a, b) {
+    const sequence = item => typeof item.conversationSequence === "string" && /^[1-9][0-9]{0,18}$/.test(item.conversationSequence)
+      ? item.conversationSequence : "";
+    const first = sequence(a), second = sequence(b);
+    if (first && second) return first.length - second.length || first.localeCompare(second) || String(a.id || "").localeCompare(String(b.id || ""));
+    // Missing metadata belongs to the legacy view, before sequenced canonical messages.
+    if (first || second) return first ? 1 : -1;
+    return compareTime(a, b);
+  }
   function createMessagePagination({ getUser, dataLayer }) {
     let state;
     const emptyPage = () => ({ items: [], nextCursor: "", hasMore: false, loaded: false, loading: false, error: false, revision: 0 });
@@ -14,13 +30,7 @@
         target.needsResync = true;
       }
     }
-    const timeKey = (value) => {
-      const date = new Date(value);
-      if (!Number.isFinite(date.getTime())) return "";
-      const fraction = String(value).match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1] || "";
-      return date.toISOString().slice(0, 19) + "." + fraction.padEnd(6, "0").slice(0, 6);
-    };
-    const compare = (a, b) => timeKey(a.timestamp).localeCompare(timeKey(b.timestamp)) || String(a.id || a.withUser).localeCompare(String(b.id || b.withUser));
+    const compare = compareTime;
     const merge = (older, newer, key) => Array.from(new Map([...older, ...newer].map(item => [item[key], item])).values());
     function history(withUser) {
       const s = current();
@@ -93,23 +103,26 @@
       target.loading = true; target.error = false;
       target.pending = (async () => {
         try {
-          const page = await dataLayer.loadConversationPage(withUser, { limit: 30, cursor });
+          const page = await dataLayer.loadConversationPage(withUser, { limit: 30, cursor, order: "sequence" });
           if (!valid(s) || s.histories.get(withUser) !== target) return;
           if (revision !== target.revision) {
             if (resync) throw new Error("MESSAGE_RESYNC_CHANGED");
             return;
           }
           if (!page || !Array.isArray(page.items)) throw new Error("INVALID_CONVERSATION_PAGE");
+          const order = page.order === "sequence" ? "sequence" : "timestamp";
+          const orderChanged = target.order && target.order !== order;
           const boundary = page.items[0];
-          const retained = older ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
-          target.items = merge(retained, page.items, "id").sort(compare);
-          if (resync || !page.hasMore) target.extended = false;
+          const retained = orderChanged ? [] : older ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compareConversationMessages(item, boundary) < 0) : [];
+          target.items = merge(retained, page.items, "id").sort(compareConversationMessages);
+          if (resync || orderChanged || !page.hasMore) target.extended = false;
           if (older || !target.extended || !page.items.length) {
             target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
             target.nextCursor = page.nextCursor || "";
           }
           if (older) target.extended = true;
           target.loaded = true;
+          target.order = order;
           target.needsResync = false;
         } catch (error) { if (valid(s)) target.error = true; throw error; }
         finally { target.loading = false; target.pending = null; }
@@ -126,11 +139,11 @@
       s.seen.add(message.id);
       if (s.seen.size > 500) s.seen.delete(s.seen.values().next().value);
       s.revision += 1;
-      if (target) { target.items = merge(target.items, [message], "id").sort(compare); target.revision += 1; }
+      if (target) { target.items = merge(target.items, [message], "id").sort(compareConversationMessages); target.revision += 1; }
       const existing = s.inbox.items.find(item => item.withUser === partner);
       const unread = message.receiverId === s.user && !message.isRead ? 1 : 0;
       const next = { ...existing, withUser: partner, unreadCount: (existing?.unreadCount || 0) + unread };
-      if (!existing || compare(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName });
+      if (!existing || compareConversationMessages(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName, conversationSequence: message.conversationSequence });
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
@@ -139,4 +152,5 @@
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.chat = window.WingaModules.chat || {};
   window.WingaModules.chat.createMessagePagination = createMessagePagination;
+  window.WingaModules.chat.compareConversationMessages = compareConversationMessages;
 })();

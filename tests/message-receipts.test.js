@@ -23,6 +23,21 @@ test('pending messages offer retry without claiming Sent or exposing local error
   assert.doesNotMatch(html, /<script>|private-internal-error|\| Sent/);
 });
 
+test('conversation render follows durable sequence instead of timestamps', () => {
+  const context = vm.createContext({ window: {}, document: { documentElement: { lang: 'en' } } });
+  for (const file of ['pagination.js','ui.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/chat',file),'utf8'),context);
+  const ui = context.window.WingaModules.chat.createChatUiModule({
+    escapeHtml: String, getCurrentUser: () => 'sender',
+    getMessageProductItems: () => [], getReplyPreviewMessage: () => null
+  });
+  const html = ui.renderConversationMessagesMarkup([
+    { id:'late', senderId:'sender', message:'LATER_SEQUENCE', conversationSequence:'9007199254740993', timestamp:'2000-01-01T00:00:00Z' },
+    { id:'early', senderId:'sender', message:'EARLIER_SEQUENCE', conversationSequence:'9007199254740992', timestamp:'2026-09-28T00:00:00Z' }
+  ]);
+  assert.ok(html.includes('EARLIER_SEQUENCE') && html.includes('LATER_SEQUENCE'));
+  assert.ok(html.indexOf('EARLIER_SEQUENCE') < html.indexOf('LATER_SEQUENCE'));
+});
+
 test('receipt migration changes defaults without rewriting historical receipts', async () => {
   const db = new PGlite();
   try {

@@ -12,11 +12,12 @@ before(async () => {
       product_items JSONB DEFAULT '[]',reply_to_message_id TEXT DEFAULT '',timestamp TIMESTAMPTZ,
       is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT TRUE,read_at TIMESTAMPTZ,delivered_at TIMESTAMPTZ);
     INSERT INTO users(username,full_name) VALUES ('me','My name'),('a','Person A'),('b','Person B'),('outsider','Private');`);
+  for (const sql of require('../backend/migrations/message-conversation-sequence').statements) await db.exec(sql);
   pages = createMessagePagesStore({ query: (sql, params) => db.query(sql, params) });
 });
 after(async () => db?.close());
 beforeEach(async () => {
-  await db.exec(`TRUNCATE messages,user_blocks;
+  await db.exec(`TRUNCATE messages,user_blocks,message_conversation_streams,message_conversation_positions;
     INSERT INTO messages(id,sender_id,receiver_id,message,product_id,timestamp,is_read) VALUES
     ('a1','a','me','First','p1','2026-09-16T10:00:00.000001Z',FALSE),
     ('a2','me','a','Reply','p2','2026-09-16T10:00:00.000002Z',FALSE),
@@ -90,6 +91,40 @@ test('New messages between requests do not shift older history cursor boundaries
   const next = await pages.readConversationPage('me','a',{limit:2,cursor:first.nextCursor});
   assert.deepEqual(next.items.map(m=>m.id),['a1','a2']);
 });
+test('Sequence pages ignore clock reversal, retain deleted cursor boundaries and reject cross-owner cursors', async () => {
+  await db.exec("INSERT INTO messages(id,sender_id,receiver_id,timestamp) VALUES ('backwards','me','a','2000-01-01');");
+  const first = await pages.readConversationPage('me','a',{ order: 'sequence', limit: 1 });
+  assert.deepEqual(first.items.map(row => [row.id, row.conversationSequence]), [['backwards','4']]);
+  const token = JSON.parse(Buffer.from(first.nextCursor, 'base64url').toString());
+  assert.equal(token.v, 2);
+  assert.equal(token.sequence, '4');
+  await db.exec("DELETE FROM messages WHERE id='backwards'; INSERT INTO messages(id,sender_id,receiver_id,timestamp) VALUES ('during-page','a','me','1999-01-01');");
+  const next = await pages.readConversationPage('me','a',{ order: 'sequence', limit: 2, cursor: first.nextCursor });
+  assert.deepEqual(next.items.map(row => row.id), ['a2','a3']);
+  const oldest = await pages.readConversationPage('me','a',{ order: 'sequence', limit: 2, cursor: next.nextCursor });
+  assert.deepEqual(oldest.items.map(row => row.id), ['a1']);
+  assert.equal(oldest.hasMore, false);
+  await assert.rejects(pages.readConversationPage('outsider','a',{order:'sequence',cursor:first.nextCursor}), {status:400});
+  await assert.rejects(pages.readConversationPage('me','b',{order:'sequence',cursor:first.nextCursor}), {status:400});
+  await assert.rejects(pages.readInboxPage('me',{order:'sequence',cursor:first.nextCursor}), {status:400});
+  for (const sequence of ['0','-1','1.5','9223372036854775808',7,'01']) {
+    const cursor = Buffer.from(JSON.stringify({...token, sequence})).toString('base64url');
+    await assert.rejects(pages.readConversationPage('me','a',{order:'sequence',cursor}), {status:400});
+  }
+  await db.exec("INSERT INTO user_blocks VALUES ('a','me')");
+  assert.deepEqual((await pages.readConversationPage('me','a',{order:'sequence',cursor:first.nextCursor})).items, []);
+});
+
+test('Sequence opt-in can finish existing v1 pages and inbox latest uses per-pair sequence', async () => {
+  const oldPage = await pages.readConversationPage('me','a',{limit:1});
+  await db.exec("INSERT INTO messages(id,sender_id,receiver_id,timestamp) VALUES ('backwards','me','a','2000-01-01');");
+  const next = await pages.readConversationPage('me','a',{order:'sequence',limit:2,cursor:oldPage.nextCursor});
+  assert.deepEqual(next.items.map(row => row.id), ['a1','a2']);
+  assert.equal(JSON.parse(Buffer.from(next.nextCursor,'base64url')).v, 1);
+  const inbox = await pages.readInboxPage('me');
+  assert.equal(inbox.items.find(row=>row.withUser==='a').lastMessageId, 'backwards');
+});
+
 test('Paging does not mark anything read or leak another pair history', async () => {
   await pages.readInboxPage('me'); await pages.readConversationPage('me','a');
   const rows = await db.query(`SELECT COUNT(*)::int AS n FROM messages WHERE receiver_id='me' AND NOT is_read`);

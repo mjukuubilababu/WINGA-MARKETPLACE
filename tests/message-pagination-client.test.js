@@ -15,6 +15,40 @@ function setup(api = {}) {
 }
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 
+test("conversation sequence orders large values and late SSE without comparing different inbox streams", async () => {
+  const early = { ...message('early','2026-09-28T12:00:00Z'), conversationSequence: '9007199254740992' };
+  const late = { ...message('late','2000-01-01T00:00:00Z'), conversationSequence: '9007199254740993' };
+  const { pager } = setup({
+    loadInboxPage: async () => page([{ ...summary('another','unrelated','2026-09-28T13:00:00Z'), conversationSequence: '1' }]),
+    loadConversationPage: async (_user, options) => { assert.equal(options.order, 'sequence'); return page([late,early]); }
+  });
+  await pager.refreshInbox();
+  await pager.refreshHistory('other');
+  assert.deepEqual(Array.from(pager.history('other').items, item => item.id), ['early','late']);
+  pager.ingest({ ...message('newest','1999-01-01T00:00:00Z'), conversationSequence: '9007199254740995' });
+  pager.ingest({ ...message('delayed','2026-09-28T14:00:00Z'), conversationSequence: '9007199254740994' });
+  assert.deepEqual(Array.from(pager.history('other').items, item => item.id), ['early','late','delayed','newest']);
+  assert.equal(pager.snapshot().inbox.items.find(row=>row.withUser==='other').lastMessageId, 'newest');
+  assert.equal(pager.snapshot().inbox.items[0].withUser, 'another');
+});
+
+test("switching history order discards the old extended cursor before sequence paging", async () => {
+  let count = 0;
+  const { pager } = setup({ loadInboxPage: async () => page([]), loadConversationPage: async () => {
+    count++;
+    if (count === 1) return page([message('legacy-head')], 'time-older');
+    if (count === 2) return page([message('legacy-tail')], 'time-oldest');
+    return { ...page([{ ...message('new-head'), conversationSequence:'30' }], 'sequence-older'), order:'sequence' };
+  } });
+  await pager.refreshInbox();
+  await pager.refreshHistory('other');
+  await pager.loadOlder('other');
+  assert.equal(pager.history('other').nextCursor, 'time-oldest');
+  await pager.refreshHistory('other');
+  assert.equal(pager.history('other').nextCursor, 'sequence-older');
+  assert.deepEqual(Array.from(pager.history('other').items, item=>item.id), ['new-head']);
+});
+
 test("summary load is bounded and does not request conversation history", async () => {
   let histories = 0;
   const { pager } = setup({ loadInboxPage: async options => {

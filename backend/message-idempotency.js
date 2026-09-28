@@ -28,6 +28,7 @@ async function reconcileMessageRetry(client, senderId, key, hash) {
   const result = await client.query(
     `SELECT i.request_hash AS "requestHash", m.id, m.sender_id AS "senderId",
       m.receiver_id AS "receiverId", m.conversation_id AS "conversationId",
+      m.conversation_sequence::text AS "conversationSequence",
       m.message, m.message_type AS "messageType", m.product_id AS "productId",
       m.product_name AS "productName", m.product_items AS "productItems",
       m.reply_to_message_id AS "replyToMessageId", m.timestamp,

@@ -130,8 +130,8 @@ for (const surface of ["inbox", "modal"]) {
     });
     const now = new Date().toISOString();
     let items = [
-      { id: "action-own", senderId: "buyer_seller", receiverId: "market_seller", message: "Original outgoing", timestamp: now },
-      { id: "action-incoming", senderId: "market_seller", receiverId: "buyer_seller", message: "Incoming quote", timestamp: now }
+      { id: "action-own", senderId: "buyer_seller", receiverId: "market_seller", message: "Original outgoing", timestamp: now, conversationSequence: "9007199254740992" },
+      { id: "action-incoming", senderId: "market_seller", receiverId: "buyer_seller", message: "Incoming quote", timestamp: "2000-01-01T00:00:00Z", conversationSequence: "9007199254740993" }
     ];
     const sent = [];
     let deleteAttempts = 0;
@@ -148,12 +148,15 @@ for (const surface of ["inbox", "modal"]) {
         latestMessage: items.at(-1).message, timestamp: now, unreadCount: 0 }],
       hasMore: false, nextCursor: "", totalUnread: 0, totalConversations: 1
     } }));
-    await context.route("**/api/messages/history?*", route => route.fulfill({ json: { items, hasMore: false, nextCursor: "" } }));
+    await context.route("**/api/messages/history?*", route => {
+      expect(new URL(route.request().url()).searchParams.get("order")).toBe("sequence");
+      return route.fulfill({ json: { items, hasMore: false, nextCursor: "" } });
+    });
     await context.route("**/api/messages", route => {
       if (route.request().method() !== "POST") return route.fulfill({ json: items });
       const payload = route.request().postDataJSON();
       sent.push(payload);
-      const message = { ...payload, id: "action-reply", senderId: "buyer_seller", timestamp: now };
+      const message = { ...payload, id: "action-reply", senderId: "buyer_seller", timestamp: now, conversationSequence: "9007199254740994" };
       items = [...items, message];
       return route.fulfill({ json: message });
     });
@@ -177,6 +180,17 @@ for (const surface of ["inbox", "modal"]) {
       const panel = page.locator(surface === "inbox" ? "#profile-messages-panel" : "#context-chat-modal");
       const input = panel.locator("textarea").last();
       await expect(panel.locator("[data-message-bubble-id]")).toHaveCount(2);
+      await expect(panel.locator("[data-message-bubble-id]").first()).toHaveAttribute("data-message-bubble-id", "action-own");
+      const later = page.getByRole("button", { name: /^(Labda baadaye|Maybe later)$/ });
+      if (await later.isVisible()) await later.click();
+      await panel.locator("[data-message-bubble-id]").first().scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `test-results/message-sequence-${surface}-mobile.png` });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await expect(panel.locator("[data-message-bubble-id]").first()).toHaveAttribute("data-message-bubble-id", "action-own");
+      if (await later.isVisible()) await later.click();
+      await panel.locator("[data-message-bubble-id]").first().scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `test-results/message-sequence-${surface}-desktop.png` });
+      await page.setViewportSize({ width: 390, height: 844 });
       await input.fill("Reply test draft");
       await panel.locator('[data-message-menu-toggle="action-incoming"]').click();
       await expect(panel.locator("[data-message-delete]")).toHaveCount(0);

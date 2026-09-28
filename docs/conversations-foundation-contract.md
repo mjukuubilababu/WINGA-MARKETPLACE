@@ -1218,3 +1218,31 @@ Verification: 189/189 focused tests passed across message dispatch, replay,
 PostgreSQL persistence, API integration, server lifecycle, realtime authorization,
 client replay, session runtime and the cross-node verifier. Full browser E2E and
 live multi-connection worker contention were not rerun for this backend increment.
+
+## 42. Durable conversation message ordering (2026-09-28)
+
+An additive PostgreSQL migration now assigns a per-pair message sequence inside
+the acceptance transaction, including writes from old binaries. Historical
+messages receive deterministic timestamp/ID positions without changing their
+content or IDs. Bindings survive deletion/snapshot restoration; failed writes
+roll back allocation, and logical retries return the original sequence.
+
+Send acknowledgements, live events, retries and history expose decimal-string
+`conversationSequence`. Opt-in sequence history uses owner/pair-scoped v2
+cursors while v1 timestamp paging remains compatible. The frontend requests the
+new ordering, resets cursors when ordering changes and renders inbox/modal
+messages by sequence rather than clock order.
+
+This sequences accepted messages, not all conversation events or per-device
+delivery. Existing owner replay and resync still handle reconnect/read/delete;
+sequence holes are not delivery evidence. BEAM, E2EE and device obligations remain
+separate. See `docs/message-conversation-sequence.md` for migration write-lock,
+metadata retention, rollback and verification boundaries. Production deployment
+and frontend Worker activation are not independently confirmed by local tests.
+
+Verification: 239/239 affected messaging, API, PostgreSQL fixture, client replay,
+retry and lifecycle tests passed; frontend core passed 144/144. Seven targeted
+browser workflows passed, including sequence-order assertions and inspected
+mobile/desktop inbox and modal screenshots. The final history/index predicate
+and order-transition recheck passed 26/26. Full unrelated browser/media suites,
+production migration timing and real multi-connection contention were not tested.

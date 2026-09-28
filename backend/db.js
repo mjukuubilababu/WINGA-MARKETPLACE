@@ -1925,6 +1925,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             sender_id AS "senderId",
             receiver_id AS "receiverId",
             conversation_id AS "conversationId",
+            conversation_sequence::text AS "conversationSequence",
             message,
             message_type AS "messageType",
             product_id AS "productId",
@@ -4232,7 +4233,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       if (pressure.duplicate && !retryKey) return { created: false, code: "duplicate_message" };
       if (Number(pressure.burstCount || 0) >= 5) return { created: false, code: "message_burst" };
 
-      await client.query(
+      const insertedMessage = await client.query(
         `INSERT INTO messages (
            id, sender_id, receiver_id, conversation_id, message, message_type,
            product_id, product_name, product_items, reply_to_message_id,
@@ -4241,7 +4242,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10,
            $11, $12, $13, $14, $15, $16, $17, 1
-         )`,
+         ) RETURNING conversation_sequence::text AS "conversationSequence"`,
         [
           message.id, message.senderId, message.receiverId, message.conversationId || "",
           message.message || "", message.messageType || "text", message.productId || "",
@@ -4252,6 +4253,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
           message.readAt || null, Boolean(message.isDelivered), Boolean(message.isRead)
         ]
       );
+      message.conversationSequence = insertedMessage.rows[0].conversationSequence;
       if (message.productId) {
         await transitionCommerceGoalsWithClient(client, {
           userId: message.senderId,
@@ -4283,7 +4285,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       let livePayload = JSON.stringify(liveEvent);
       if (Buffer.byteLength(livePayload, "utf8") > 7800) livePayload = JSON.stringify({ ...liveEvent, message: { ...message, productItems: [] } });
       await client.query("SELECT pg_notify('winga_messages', $1)", [livePayload]);
-      return { created: true, code: "" };
+      return { created: true, code: "", conversationSequence: message.conversationSequence };
     });
   }
 

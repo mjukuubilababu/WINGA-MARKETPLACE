@@ -1373,6 +1373,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of require("../backend/migrations/message-replay").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-replay-resync").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-dispatch-outbox").statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-conversation-sequence").statements) await db.exec(sql);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1389,7 +1390,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
       message: "Hello", messageType: "text", productId: "", productItems: [], createdAt: new Date().toISOString() };
     const note = { id: "note-1", userId: "b", messageId: message.id };
     const options = { clientMessageId: "logical-message-0001" };
-    assert.deepEqual(await store.createMessageWithNotification(message, note, options), { created: true, code: "" });
+    assert.deepEqual(await store.createMessageWithNotification(message, note, options), { created: true, code: "", conversationSequence: "1" });
     assert.equal(calls.at(-1), "COMMIT");
     const ledgerInsert = calls.findIndex(sql => sql.includes("INSERT INTO message_idempotency"));
     assert.ok(ledgerInsert > calls.findIndex(sql => sql.includes("INSERT INTO messages")));
@@ -1398,6 +1399,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     assert.equal(replay.replayed, true);
     assert.equal(replay.message.id, message.id);
     assert.equal(replay.message.message, "Hello");
+    assert.equal(replay.message.conversationSequence, "1");
     assert.equal(replay.message.isDelivered, false);
     assert.equal(replay.message.deliveredAt, null);
     assert.equal(fanouts, 1);
@@ -1468,7 +1470,8 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     await db.exec("UPDATE messages SET created_at = NOW() - INTERVAL '1 day'");
     assert.equal((await store.createMessageWithNotification({ ...message, id: "after-old-window" }, null, retryOptions)).message.id, "retry-after-rollback");
     // Historical messages can outlive an account: messages have no user FK.
-    await db.exec("UPDATE messages SET sender_id = 'b', receiver_id = 'a' WHERE id = 'other-owner'; DELETE FROM users WHERE username = 'b'");
+    await store.createMessageWithNotification({ ...message, id: "historical-inbound", senderId: "b", receiverId: "a" }, null);
+    await db.exec("DELETE FROM users WHERE username = 'b'");
     const beforeLegacyRead = await store.readMessageReplay("a");
     assert.equal((await store.markConversationRead("a", "b")).changed, true);
     assert.equal((await store.readMessageReplay("a", { cursor: beforeLegacyRead.cursor })).resyncRequired, true);
@@ -1485,6 +1488,7 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
       calls.push({ text: sql, params });
       if (sql.includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
       if (sql.includes('AS "burstCount"')) return { rows: [{ burstCount: 1, duplicate: false }], rowCount: 1 };
+      if (sql.includes("INSERT INTO messages")) return { rows: [{ conversationSequence: "1" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
     release() {}
@@ -1503,7 +1507,7 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
     id: "msg-note-1", userId: "seller", title: "Message", body: "New message"
   });
 
-  assert.deepEqual(result, { created: true, code: "" });
+  assert.deepEqual(result, { created: true, code: "", conversationSequence: "1" });
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /pg_advisory_xact_lock/);
   assert.match(calls[4].text, /INSERT INTO messages/);
@@ -3248,6 +3252,7 @@ test("PostgreSQL message events publish after persistence and reach a dedicated 
       calls.push({ text: String(text), params });
       if (String(text).includes("SELECT 1 FROM user_blocks")) return { rows: [], rowCount: 0 };
       if (String(text).includes("COUNT(*)::int")) return { rows: [{ burstCount: 0, duplicate: false }], rowCount: 1 };
+      if (String(text).includes("INSERT INTO messages")) return { rows: [{ conversationSequence: "9007199254740993" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
     release() {}
@@ -3275,6 +3280,7 @@ test("PostgreSQL message events publish after persistence and reach a dedicated 
   listener.emit("notification", { channel: "winga_messages", payload: notifyCall.params[0] });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(received[0].message.id, message.id);
+  assert.equal(received[0].message.conversationSequence, "9007199254740993");
   await store.close();
   assert.equal(listener.listenerCount("notification"), 0);
 });

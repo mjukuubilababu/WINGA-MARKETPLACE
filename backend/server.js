@@ -3234,6 +3234,8 @@ function normalizeMessageRecord(message) {
     senderId,
     receiverId,
     conversationId,
+    conversationSequence: typeof message.conversationSequence === "string" && /^[1-9][0-9]{0,18}$/.test(message.conversationSequence)
+      ? message.conversationSequence : null,
     message: sanitizePlainText(message.message, 1000),
     messageType,
     productId,
@@ -10809,7 +10811,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/messages/capabilities") {
         const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
         if (!user) return;
-        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay), messageStateResync: Boolean(postgresStore?.readMessageReplay) });
+        sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay), messageStateResync: Boolean(postgresStore?.readMessageReplay), conversationSequence: Boolean(postgresStore?.readConversationPage) });
         return;
       }
 
@@ -10844,7 +10846,8 @@ const server = http.createServer(async (req, res) => {
         try {
           const options = {
             limit: url.searchParams.has("limit") ? url.searchParams.get("limit") : undefined,
-            cursor: url.searchParams.get("cursor") || ""
+            cursor: url.searchParams.get("cursor") || "",
+            order: url.searchParams.get("order") || ""
           };
           const page = url.pathname === "/api/messages/inbox"
             ? await postgresStore.readInboxPage(user.username, options)
@@ -11386,7 +11389,8 @@ const server = http.createServer(async (req, res) => {
         }
         const normalizedPayload = normalizeMessageRecord({
           ...payload,
-          senderId: sender.username
+          senderId: sender.username,
+          conversationSequence: null
         });
         const requestHash = clientMessageId ? messageRequestHash(normalizedPayload) : "";
         const validationError = validateMessagePayload(normalizedPayload);
@@ -11551,6 +11555,7 @@ const server = http.createServer(async (req, res) => {
             });
             return;
           }
+          nextMessage.conversationSequence = messageResult.conversationSequence;
         } else {
           await writeStore(store);
         }

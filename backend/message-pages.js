@@ -8,7 +8,11 @@ function pageOptions(owner, kind, options = {}) {
     try {
       if (typeof options.cursor !== "string" || options.cursor.length > 1024) throw new Error();
       cursor = JSON.parse(Buffer.from(options.cursor, "base64url").toString("utf8"));
-      if (cursor.v !== 1 || cursor.owner !== owner || cursor.kind !== kind
+      if (cursor.owner !== owner || cursor.kind !== kind) throw new Error();
+      if (cursor.v === 2 && options.order === "sequence" && kind.startsWith("history:")) {
+        if (typeof cursor.sequence !== "string" || !/^[1-9][0-9]{0,18}$/.test(cursor.sequence)
+          || BigInt(cursor.sequence) > 9223372036854775807n) throw new Error();
+      } else if (cursor.v !== 1
         || typeof cursor.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(cursor.time)
         || !Number.isFinite(Date.parse(cursor.time))
         || new Date(cursor.time).toISOString().slice(0,19) !== cursor.time.slice(0,19)
@@ -18,12 +22,12 @@ function pageOptions(owner, kind, options = {}) {
   return { limit, cursor };
 }
 
-function pageResult(owner, kind, rows, limit) {
+function pageResult(owner, kind, rows, limit, sequenceOrder = false) {
   const hasMore = rows.length > limit;
   const selected = rows.slice(0, limit);
   const last = selected[selected.length - 1];
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({
-    v: 1, owner, kind, time: last.cursorTime, id: last.cursorId
+    ...(sequenceOrder ? { v: 2, sequence: last.conversationSequence } : { v: 1, time: last.cursorTime, id: last.cursorId }), owner, kind
   })).toString("base64url") : "";
   return { items: selected.map(({ cursorTime, cursorId, ...item }) => item), hasMore, nextCursor, limit };
 }
@@ -41,12 +45,13 @@ function createMessagePagesStore({ query }) {
     const { limit, cursor } = pageOptions(owner, "inbox", options);
     // One SQL snapshot supplies both the visible page and global unread totals.
     const result = await query(`${visible}, ranked AS (
-      SELECT *, ROW_NUMBER() OVER (PARTITION BY partner ORDER BY timestamp DESC, id DESC) AS position,
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY partner ORDER BY conversation_sequence DESC) AS position,
         COUNT(*) FILTER (WHERE receiver_id = $1 AND NOT is_read) OVER (PARTITION BY partner)::int AS unread
       FROM visible
     ), summaries AS (SELECT * FROM ranked WHERE position = 1), page AS (
       SELECT s.partner AS "withUser", COALESCE(u.full_name, '') AS "displayName",
         COALESCE(u.profile_image, '') AS "profileImage", s.id AS "lastMessageId",
+        s.conversation_sequence::text AS "conversationSequence",
         s.message AS "latestMessage", s.product_id AS "productId", s.product_name AS "productName",
         s.unread AS "unreadCount", s.timestamp,
         to_char(s.timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime",
@@ -67,17 +72,24 @@ function createMessagePagesStore({ query }) {
     }
     const kind = `history:${withUser}`;
     const { limit, cursor } = pageOptions(owner, kind, options);
+    // Continue v1 cursors in their original timestamp order during rolling upgrades.
+    const sequenceOrder = options.order === "sequence" && (!cursor || cursor.v === 2);
     const result = await query(`${visible}
       SELECT id, sender_id AS "senderId", receiver_id AS "receiverId", conversation_id AS "conversationId",
+        conversation_sequence::text AS "conversationSequence",
         message, message_type AS "messageType", product_id AS "productId", product_name AS "productName",
         product_items AS "productItems", reply_to_message_id AS "replyToMessageId", timestamp,
         is_read AS "isRead", is_delivered AS "isDelivered", read_at AS "readAt", delivered_at AS "deliveredAt",
         to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime", id AS "cursorId"
       FROM visible WHERE partner = $2
-        AND ($3::timestamptz IS NULL OR (timestamp, id) < ($3::timestamptz, $4::text))
-      ORDER BY timestamp DESC, id DESC LIMIT $5`, [owner, withUser, cursor?.time || null, cursor?.id || null, limit + 1]);
-    const page = pageResult(owner, kind, result.rows, limit);
-    return { ...page, items: page.items.reverse() };
+        ${sequenceOrder ? "AND LEAST(sender_id, receiver_id) = LEAST($1::text, $2::text) AND GREATEST(sender_id, receiver_id) = GREATEST($1::text, $2::text)" : ""}
+        AND ${sequenceOrder ? "($3::bigint IS NULL OR conversation_sequence < $3::bigint)" : "($3::timestamptz IS NULL OR (timestamp, id) < ($3::timestamptz, $4::text))"}
+      ORDER BY ${sequenceOrder ? "conversation_sequence DESC" : "timestamp DESC, id DESC"}
+      LIMIT ${sequenceOrder ? "$4" : "$5"}`, sequenceOrder
+      ? [owner, withUser, cursor?.sequence || null, limit + 1]
+      : [owner, withUser, cursor?.time || null, cursor?.id || null, limit + 1]);
+    const page = pageResult(owner, kind, result.rows, limit, sequenceOrder);
+    return { ...page, order: sequenceOrder ? "sequence" : "timestamp", items: page.items.reverse() };
   }
   return { readInboxPage, readConversationPage };
 }
