@@ -2222,6 +2222,12 @@ async loadAdminPayments(filters) {
         async markConversationRead(payload) {
           return getCommunicationsApiClient().markConversationRead(payload);
         },
+        async loadChatDevice() {
+          return getCommunicationsApiClient().loadChatDevice();
+        },
+        async acknowledgeMessages(payload) {
+          return getCommunicationsApiClient().acknowledgeMessages(payload);
+        },
         async loadNotifications() {
           return getCommunicationsApiClient().loadNotifications();
         },
@@ -4140,6 +4146,15 @@ async loadAdminPayments() {
       async loadConversationPage(withUser, options = {}) {
         assertBuyerCapableAccess();
         return state.adapter.loadConversationPage ? state.adapter.loadConversationPage(withUser, options) : null;
+      },
+      async loadChatDevice() {
+        assertBuyerCapableAccess();
+        return state.adapter.loadChatDevice ? state.adapter.loadChatDevice() : { supported: false };
+      },
+      async acknowledgeMessages(payload) {
+        assertBuyerCapableAccess();
+        if (!state.adapter.acknowledgeMessages) throw new Error("Device receipts unavailable.");
+        return state.adapter.acknowledgeMessages(payload);
       },
       async sendMessage(payload) {
         assertBuyerCapableAccess();

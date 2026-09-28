@@ -9155,6 +9155,27 @@ async function refreshPromotionsState() {
   }
 }
 
+let deviceReceipts = null;
+
+function getMessageDeviceReceipts() {
+  if (!currentUser) return null;
+  const owner = currentUser;
+  const sessionKey = currentSession?.sessionId || currentSession?.token || "";
+  if (deviceReceipts?.owner !== owner || deviceReceipts?.sessionKey !== sessionKey) {
+    deviceReceipts?.dispose().catch(() => {});
+    deviceReceipts = { owner, sessionKey, ...window.WingaModules.chat.createDeviceReceipts({
+      owner, dataLayer: window.WingaDataLayer,
+      isCurrent: () => currentUser === owner && (currentSession?.sessionId || currentSession?.token || "") === sessionKey
+    }) };
+  }
+  return deviceReceipts;
+}
+
+function persistReceivedMessages(messages = currentMessages) {
+  if (!currentUser || !messages.some(message => message?.receiverId === currentUser)) return;
+  getMessageDeviceReceipts()?.persist(messages).catch(() => {});
+}
+
 function isActiveConversationVisible() {
   if (!currentUser || !chatUiState.activeContext?.withUser
     || document.visibilityState !== "visible" || !document.hasFocus()) {
@@ -9168,6 +9189,33 @@ function isActiveConversationVisible() {
     && surface.getClientRects().length && window.getComputedStyle(surface).visibility === "visible");
 }
 
+function visibleIncomingMessageIds() {
+  if (!isActiveConversationVisible()) return new Set();
+  const selector = chatUiState.isContextOpen
+    ? "#context-chat-modal [data-chat-read-user]" : "#profile-messages-panel [data-chat-read-user]";
+  const surface = document.querySelector(selector);
+  const bounds = surface.getBoundingClientRect();
+  let top = Math.max(0, bounds.top), bottom = Math.min(window.innerHeight, bounds.bottom);
+  let left = Math.max(0, bounds.left), right = Math.min(window.innerWidth, bounds.right);
+  for (let parent = surface.parentElement; parent; parent = parent.parentElement) {
+    const style = window.getComputedStyle(parent), rect = parent.getBoundingClientRect();
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) { top = Math.max(top, rect.top); bottom = Math.min(bottom, rect.bottom); }
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) { left = Math.max(left, rect.left); right = Math.min(right, rect.right); }
+  }
+  const ids = new Set();
+  surface.querySelectorAll(".message-bubble.incoming[data-message-bubble-id]").forEach(bubble => {
+    const rect = bubble.getBoundingClientRect();
+    if (rect.height > 0 && Math.min(rect.bottom, bottom) - Math.max(rect.top, top) >= Math.min(40, rect.height)
+      && Math.min(rect.right, right) > Math.max(rect.left, left)
+      && window.getComputedStyle(bubble).visibility === "visible") {
+      const x = (Math.max(left, rect.left) + Math.min(right, rect.right)) / 2;
+      const y = (Math.max(top, rect.top) + Math.min(bottom, rect.bottom)) / 2;
+      if (!document.elementFromPoint || bubble.contains(document.elementFromPoint(x, y))) ids.add(bubble.dataset.messageBubbleId);
+    }
+  });
+  return ids;
+}
+
 async function markActiveConversationRead() {
   if (!isActiveConversationVisible()) {
     return;
@@ -9175,18 +9223,13 @@ async function markActiveConversationRead() {
   const owner = currentUser;
   const partner = chatUiState.activeContext.withUser;
 
-  const hasUnread = getConversationSummaries().some((summary) => summary.withUser === chatUiState.activeContext.withUser && summary.unreadCount > 0) || currentMessages.some((message) =>
-    message.receiverId === currentUser
-    && !message.isRead
-    && getMessagePartner(message) === chatUiState.activeContext.withUser
-  );
-  if (!hasUnread) {
-    return;
-  }
-
-  await window.WingaDataLayer.markConversationRead({
-    withUser: partner
-  });
+  const visible = visibleIncomingMessageIds();
+  const reached = currentMessages.filter(message => message.receiverId === owner && message.senderId === partner
+    && !message.isRead && visible.has(message.id));
+  if (!reached.length) return;
+  const changed = await getMessageDeviceReceipts().markRead(reached, id => currentUser === owner
+    && chatUiState.activeContext?.withUser === partner && visibleIncomingMessageIds().has(id));
+  if (!changed) return;
   if (currentUser !== owner || chatUiState.activeContext?.withUser !== partner) return;
   await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
   if (currentUser !== owner || chatUiState.activeContext?.withUser !== partner) return;
@@ -9234,6 +9277,7 @@ function connectRealtimeChannel() {
       if (chatUiState.isContextOpen) replaceContextChatModal();
     },
     onMessage: async (payload) => {
+      if (payload?.message) persistReceivedMessages([payload.message]);
       appendLocalMessage(payload?.message);
       await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
       maybePromptNotificationPermission("reply");
@@ -9557,6 +9601,7 @@ async function refreshActiveMessageHistory() {
   if (!partner) return;
   await getMessagePager().refreshHistory(partner);
   if (currentUser === user && chatUiState.activeContext?.withUser === partner && getMessagePager().snapshot().mode === "paged") currentMessages = getMessagePager().history(partner).items;
+  if (currentUser === user) persistReceivedMessages();
 }
 
 async function loadMoreInboxMessages() {
@@ -9571,6 +9616,7 @@ async function loadOlderConversationMessages() {
   if (getMessagePager().history(partner).loaded) await getMessagePager().loadOlder(partner);
   else await getMessagePager().refreshHistory(partner);
   if (user === currentUser && partner === chatUiState.activeContext?.withUser) currentMessages = getMessagePager().history(partner).items;
+  if (currentUser === user) persistReceivedMessages();
 }
 
 async function refreshMessagesState() {
@@ -9585,6 +9631,7 @@ async function refreshMessagesState() {
       const messages = await window.WingaDataLayer.loadMessages();
       if (user !== currentUser) return;
       currentMessages = Array.isArray(messages) ? messages : [];
+      persistReceivedMessages();
     }
     syncActiveChatContext();
     updateProfileNavBadge();
@@ -18153,6 +18200,14 @@ registerAppEvent(document, "visibilitychange", handleAppLifecycleChange, undefin
 registerAppEvent(window, "focus", () => {
   markActiveConversationRead().catch(() => {});
 }, undefined, "window:focus:conversation-read");
+let conversationReadTimer = 0;
+registerAppEvent(document, "scroll", () => {
+  if (conversationReadTimer) return;
+  conversationReadTimer = window.setTimeout(() => {
+    conversationReadTimer = 0;
+    markActiveConversationRead().catch(() => {});
+  }, 160);
+}, { capture: true, passive: true }, "document:scroll:conversation-read");
 registerAppEvent(window, "pagehide", () => {
   markActiveSearchDemandNoClick();
   if (currentView === "home") {
@@ -19295,6 +19350,8 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
 }
 
 function logout() {
+  deviceReceipts?.dispose().catch(() => {});
+  deviceReceipts = null;
   beginLifecycleEpoch("logout");
   invalidatePendingSessionRestore();
   isSessionRestorePending = false;

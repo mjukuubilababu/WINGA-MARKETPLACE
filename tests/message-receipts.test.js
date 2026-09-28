@@ -8,18 +8,27 @@ const { PGlite } = require('@electric-sql/pglite');
 const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
 
 function receiptFixture() {
-  const surface = { dataset: { chatReadUser: 'bob' }, getClientRects: () => [{}] };
+  const surface = { dataset: { chatReadUser: 'bob' }, getClientRects: () => [{}],
+    getBoundingClientRect: () => ({ top: 0, bottom: 600, left: 0, right: 400 }),
+    querySelectorAll: () => [{ dataset: { messageBubbleId: 'visible' },
+      getBoundingClientRect: () => ({ top: 100, bottom: 180, left: 10, right: 300, height: 80 }) }] };
   const calls = [];
   let refreshes = 0;
   const context = vm.createContext({
     currentUser: 'alice', currentView: 'profile', profileDiv: {},
     replaceMessagesPanel: () => {}, replaceContextChatModal: () => {},
     chatUiState: { activeContext: { withUser: 'bob' }, isContextOpen: false },
-    currentMessages: [{ receiverId: 'alice', senderId: 'bob', isRead: false }],
+    currentMessages: [{ id: 'visible', receiverId: 'alice', senderId: 'bob', isRead: false }],
+    getMessageDeviceReceipts: () => ({ markRead: async (messages, visible) => {
+      if (!messages.some(message => visible(message.id))) return false;
+      await context.window.WingaDataLayer.markConversationRead({ withUser: 'bob' });
+      return true;
+    } }),
     getMessagePartner: message => message.senderId,
     getConversationSummaries: () => [],
     document: { visibilityState: 'visible', hasFocus: () => true, querySelector: () => surface },
     window: {
+      innerHeight: 800, innerWidth: 400,
       getComputedStyle: () => ({ visibility: 'visible' }),
       WingaDataLayer: { markConversationRead: async payload => { calls.push(payload.withUser); } }
     },
@@ -69,6 +78,26 @@ test('foreground inbox and modal acknowledge only their active incoming conversa
   f.context.currentMessages = [{ senderId: 'alice', receiverId: 'bob', isRead: false }];
   await f.context.markActiveConversationRead();
   assert.equal(f.calls.length, 0);
+});
+
+test('viewport reads exclude offscreen history, outgoing messages and occluded bubbles', async () => {
+  const f = receiptFixture();
+  const reached = [];
+  f.surface.querySelectorAll = () => [
+    { dataset: { messageBubbleId: 'visible' }, getBoundingClientRect: () => ({ top: 80, bottom: 160, left: 10, right: 300, height: 80 }) },
+    { dataset: { messageBubbleId: 'offscreen' }, getBoundingClientRect: () => ({ top: 700, bottom: 780, left: 10, right: 300, height: 80 }) }
+  ];
+  f.context.currentMessages.push({ id: 'offscreen', receiverId: 'alice', senderId: 'bob', isRead: false });
+  f.context.getMessageDeviceReceipts = () => ({ markRead: async (rows, visible) => {
+    reached.push(...rows.filter(row => visible(row.id)).map(row => row.id)); return true;
+  } });
+  await f.context.markActiveConversationRead();
+  assert.deepEqual(reached, ['visible']);
+  f.context.document.elementFromPoint = () => ({});
+  f.surface.querySelectorAll = () => [{ dataset: { messageBubbleId: 'visible' }, contains: () => false,
+    getBoundingClientRect: () => ({ top: 80, bottom: 160, left: 10, right: 300, height: 80 }) }];
+  await f.context.markActiveConversationRead();
+  assert.deepEqual(reached, ['visible']);
 });
 
 test('returning to foreground resumes read but a changed account cannot refresh old chat state', async () => {
@@ -179,5 +208,6 @@ test('legacy delivery flag is not presented as recipient proof; canonical read s
   assert.match(ui.renderConversationMessagesMarkup([message]), /\| Sent/);
   assert.doesNotMatch(ui.renderConversationMessagesMarkup([message]), /Delivered/);
   assert.match(ui.renderConversationMessagesMarkup([{ ...message, isRead: true }]), /\| Read/);
+  assert.match(ui.renderConversationMessagesMarkup([{ ...message, deviceDeliveredAt: message.timestamp }]), /\| Delivered/);
   assert.doesNotMatch(ui.renderConversationMessagesMarkup([{ ...message, senderId: 'other' }]), /\| (Sent|Read)/);
 });

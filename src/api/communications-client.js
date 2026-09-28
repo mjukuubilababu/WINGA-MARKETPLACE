@@ -87,6 +87,18 @@
       });
     }
 
+    async function loadChatDevice() {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/messages/device`, { headers: authHeaders() });
+    }
+
+    async function acknowledgeMessages(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/messages/receipts`, {
+        method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload)
+      });
+    }
+
     async function loadConversationOffers(withUser) {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/conversations/${encodeURIComponent(withUser)}/offers`, {
@@ -283,6 +295,8 @@
       sendMessage,
       deleteMessage,
       markConversationRead,
+      loadChatDevice,
+      acknowledgeMessages,
       loadConversationOffers,
       createConversationOffer,
       transitionConversationOffer,

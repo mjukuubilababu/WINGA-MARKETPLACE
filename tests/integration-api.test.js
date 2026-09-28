@@ -31,11 +31,21 @@ test("message retry header is permitted only for an allowed CORS origin", async 
 });
 
 test("paged message reads reject unauthenticated callers before querying data", async () => {
-  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay"]) {
+  for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device"]) {
     const { response, body } = await request(path);
     assert.equal(response.status, 401);
     assert.equal(body.items, undefined);
   }
+});
+
+test("device receipt writes reject missing authentication and CSRF", async () => {
+  const options = { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: "forged", kind: "stored", withUser: "someone", messageIds: ["private"] }) };
+  const noCsrf = await request('/messages/receipts', { ...options, skipCsrf: true });
+  assert.equal(noCsrf.response.status, 403);
+  const noAuth = await request('/messages/receipts', options);
+  assert.equal(noAuth.response.status, 401);
+  assert.equal(noAuth.body.acknowledged, undefined);
 });
 
 async function waitForServer(url, timeoutMs = 15000) {

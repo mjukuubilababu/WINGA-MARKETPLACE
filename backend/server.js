@@ -261,6 +261,7 @@ const RATE_LIMIT_RULES = {
   "/api/feed/rediscovery": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/receipts": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders/reservations": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reviews": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -3246,6 +3247,7 @@ function normalizeMessageRecord(message) {
     createdAt: message.createdAt || message.timestamp || now,
     updatedAt: message.updatedAt || message.createdAt || message.timestamp || now,
     deliveredAt: message.deliveredAt || "",
+    deviceDeliveredAt: message.deviceDeliveredAt || "",
     readAt: message.readAt || "",
     isDelivered: typeof message.isDelivered === "boolean" ? message.isDelivered : false,
     isRead: typeof message.isRead === "boolean" ? message.isRead : Boolean(message.readAt)
@@ -7576,7 +7578,8 @@ const server = http.createServer(async (req, res) => {
   const isVideoPlaybackRequest = req.method === "POST"
     && /^\/api\/media\/videos\/[^/]+\/playback-token$/.test(url.pathname);
   const requestedStoreTables = postgresStore
-    ? (req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay"].includes(url.pathname)
+    ? ((req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay", "/api/messages/device"].includes(url.pathname))
+      || (req.method === "POST" && url.pathname === "/api/messages/receipts")
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -10812,6 +10815,35 @@ const server = http.createServer(async (req, res) => {
         const user = ensureMarketplaceUser(store, findSession(store, readAuthToken(req)), res);
         if (!user) return;
         sendJson(res, 200, { version: 1, durableMessageRetries: Boolean(postgresStore?.createMessageWithNotification), durableMessageReplay: Boolean(postgresStore?.readMessageReplay), messageStateResync: Boolean(postgresStore?.readMessageReplay), conversationSequence: Boolean(postgresStore?.readConversationPage) });
+        return;
+      }
+
+      if (url.pathname === "/api/messages/device" && req.method === "GET") {
+        const session = findSession(store, readAuthToken(req));
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        sendJson(res, 200, { supported: Boolean(postgresStore?.acknowledgeMessageDevice), version: 1,
+          deviceId: session.sessionId, username: user.username }, { "Cache-Control": "no-store" });
+        return;
+      }
+
+      if (url.pathname === "/api/messages/receipts" && req.method === "POST") {
+        const token = readAuthToken(req);
+        const session = findSession(store, token);
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        if (!postgresStore?.acknowledgeMessageDevice) {
+          sendJson(res, 503, { code: "device_receipts_unavailable" }, { "Cache-Control": "no-store" });
+          return;
+        }
+        try {
+          const result = await postgresStore.acknowledgeMessageDevice({ owner: user.username, token,
+            deviceId: session.sessionId, payload: await collectBody(req) });
+          sendJson(res, 200, result, { "Cache-Control": "no-store" });
+        } catch (error) {
+          if (![400, 401, 403, 404, 409].includes(error.status)) throw error;
+          sendJson(res, error.status, { code: "message_receipt_rejected" }, { "Cache-Control": "no-store" });
+        }
         return;
       }
 

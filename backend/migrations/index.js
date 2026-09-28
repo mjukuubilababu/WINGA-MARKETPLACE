@@ -6,6 +6,7 @@ const MIGRATIONS = Object.freeze([
   require("./message-replay-resync"),
   require("./message-dispatch-outbox"),
   require("./message-conversation-sequence"),
+  require("./message-device-receipts"),
   require("./message-delivery-default"),
   require("./message-idempotency"),
   require("./message-pages"),

@@ -80,6 +80,8 @@ function createMessagePagesStore({ query }) {
         message, message_type AS "messageType", product_id AS "productId", product_name AS "productName",
         product_items AS "productItems", reply_to_message_id AS "replyToMessageId", timestamp,
         is_read AS "isRead", is_delivered AS "isDelivered", read_at AS "readAt", delivered_at AS "deliveredAt",
+        (SELECT MIN(r.stored_at) FROM message_device_receipts r WHERE r.message_id=visible.id
+          AND r.sender_id=visible.sender_id AND r.receiver_id=visible.receiver_id) AS "deviceDeliveredAt",
         to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime", id AS "cursorId"
       FROM visible WHERE partner = $2
         ${sequenceOrder ? "AND LEAST(sender_id, receiver_id) = LEAST($1::text, $2::text) AND GREATEST(sender_id, receiver_id) = GREATEST($1::text, $2::text)" : ""}

@@ -34,6 +34,8 @@ async function reconcileMessageRetry(client, senderId, key, hash) {
       m.reply_to_message_id AS "replyToMessageId", m.timestamp,
       m.created_at AS "createdAt", m.updated_at AS "updatedAt",
       m.delivered_at AS "deliveredAt", m.read_at AS "readAt",
+      (SELECT MIN(r.stored_at) FROM message_device_receipts r WHERE r.message_id=m.id
+        AND r.sender_id=m.sender_id AND r.receiver_id=m.receiver_id) AS "deviceDeliveredAt",
       m.is_delivered AS "isDelivered", m.is_read AS "isRead"
      FROM message_idempotency i LEFT JOIN messages m
        ON m.id = i.message_id AND m.sender_id = i.sender_id

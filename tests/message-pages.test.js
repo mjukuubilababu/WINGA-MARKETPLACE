@@ -13,6 +13,7 @@ before(async () => {
       is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT TRUE,read_at TIMESTAMPTZ,delivered_at TIMESTAMPTZ);
     INSERT INTO users(username,full_name) VALUES ('me','My name'),('a','Person A'),('b','Person B'),('outsider','Private');`);
   for (const sql of require('../backend/migrations/message-conversation-sequence').statements) await db.exec(sql);
+  for (const sql of require('../backend/migrations/message-device-receipts').statements) await db.exec(sql);
   pages = createMessagePagesStore({ query: (sql, params) => db.query(sql, params) });
 });
 after(async () => db?.close());

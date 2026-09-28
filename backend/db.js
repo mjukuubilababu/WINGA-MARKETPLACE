@@ -10,6 +10,7 @@ const { createLegacyPublicMediaStore } = require("./legacy-public-media");
 const { createLegacyUploadCompatibilityStore } = require("./legacy-upload-compatibility");
 const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore } = require("./message-replay");
 const { createMessageDispatchStore } = require("./message-dispatch");
+const { createMessageDeviceReceiptsStore } = require("./message-device-receipts");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -1937,6 +1938,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
             updated_at AS "updatedAt",
             delivered_at AS "deliveredAt",
             read_at AS "readAt",
+            (SELECT MIN(r.stored_at) FROM message_device_receipts r WHERE r.message_id=messages.id
+              AND r.sender_id=messages.sender_id AND r.receiver_id=messages.receiver_id) AS "deviceDeliveredAt",
             is_delivered AS "isDelivered",
             is_read AS "isRead",
             row_version AS "rowVersion"
@@ -9741,6 +9744,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const target = String(blockedUsername || "").trim().slice(0, 40);
     if (!blocker || !target || blocker === target) return { updated: false, code: "invalid_block" };
     return withTransaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`winga-message:${[blocker, target].sort().join(":")}`]);
       const user = await client.query("SELECT username FROM users WHERE username = $1 AND status = 'active'", [target]);
       if (!user.rowCount) return { updated: false, code: "user_not_found" };
       if (blocked) {
@@ -9968,6 +9972,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createLegacyUploadCompatibilityStore({ query }),
     ...createMessageReplayStore({ query }),
     ...createMessageDispatchStore({ query, withTransaction }),
+    ...createMessageDeviceReceiptsStore({ withTransaction }),
     close
   };
 }

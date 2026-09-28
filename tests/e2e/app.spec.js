@@ -93,12 +93,14 @@ test("background chat waits for foreground before acknowledging incoming message
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
   let unread = true;
   let reads = 0;
+  let incomingId = "foreground-read";
   const timestamp = new Date().toISOString();
-  const message = () => ({ id: "foreground-read", senderId: "market_seller", receiverId: "buyer_seller",
+  const message = () => ({ id: incomingId, senderId: "market_seller", receiverId: "buyer_seller",
     message: "Incoming private message", timestamp, isRead: !unread });
   await context.addInitScript(() => {
     window.__chatVisible = true;
     window.__chatFocused = true;
+    window.Notification = class { static permission = "granted"; };
     Object.defineProperty(document, "visibilityState", { get: () => window.__chatVisible ? "visible" : "hidden" });
     Object.defineProperty(document, "hidden", { get: () => !window.__chatVisible });
     document.hasFocus = () => window.__chatFocused;
@@ -114,10 +116,14 @@ test("background chat waits for foreground before acknowledging incoming message
     hasMore: false, nextCursor: "", totalUnread: unread ? 1 : 0, totalConversations: 1
   } }));
   await context.route("**/api/messages/history?*", route => route.fulfill({ json: { items: [message()], hasMore: false, nextCursor: "" } }));
-  await context.route("**/api/messages/read", route => {
-    expect(route.request().postDataJSON().withUser).toBe("market_seller");
-    reads++;
-    unread = false;
+  await context.route("**/api/messages/device", route => route.fulfill({ json: {
+    supported: true, deviceId: "foreground-device", username: "buyer_seller"
+  } }));
+  await context.route("**/api/messages/receipts", route => {
+    const payload = route.request().postDataJSON();
+    expect(payload.withUser).toBe("market_seller");
+    expect(payload.messageIds).toEqual([incomingId]);
+    if (payload.kind === "read") { reads++; unread = false; }
     return route.fulfill({ json: { ok: true } });
   });
   try {
@@ -131,6 +137,7 @@ test("background chat waits for foreground before acknowledging incoming message
     await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(0);
     await page.evaluate(() => { window.__chatVisible = false; window.__chatFocused = false; });
     unread = true;
+    incomingId = "foreground-second";
     await page.evaluate(payload => window.__receiptSource.handlers.message({ data: JSON.stringify({ message: payload }) }), message());
     await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(1);
     await page.evaluate(() => markActiveConversationRead());
@@ -145,6 +152,42 @@ test("background chat waits for foreground before acknowledging incoming message
     await expect.poll(() => reads).toBe(2);
     await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(0);
     await expect(panel).toContainText("Incoming private message");
+  } finally { await context.close(); }
+});
+
+test("Read follows reached bubbles while offscreen history remains unread", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  const seen = new Set();
+  const rows = Array.from({ length: 20 }, (_, i) => ({ id: `viewport-${i}`, senderId: "market_seller", receiverId: "buyer_seller",
+    timestamp: new Date(Date.now() - (20 - i) * 1000).toISOString(), message: `Message ${i}: ${"Visible receipt content. ".repeat(12)}` }));
+  await context.addInitScript(() => { document.hasFocus = () => true; });
+  await context.route("**/api/messages/device", route => route.fulfill({ json: { supported: true, deviceId: "viewport-device", username: "buyer_seller" } }));
+  await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+    items: [{ withUser: "market_seller", displayName: "Market Seller", lastMessageId: rows.at(-1).id,
+      latestMessage: "Viewport receipt test", timestamp: rows.at(-1).timestamp, unreadCount: rows.length - seen.size }],
+    hasMore: false, nextCursor: "", totalUnread: rows.length - seen.size, totalConversations: 1
+  } }));
+  await context.route("**/api/messages/history?*", route => route.fulfill({ json: {
+    items: rows.map(row => ({ ...row, isRead: seen.has(row.id) })), hasMore: false, nextCursor: ""
+  } }));
+  await context.route("**/api/messages/receipts", route => {
+    const payload = route.request().postDataJSON();
+    if (payload.kind === "read") payload.messageIds.forEach(id => seen.add(id));
+    return route.fulfill({ json: { ok: true } });
+  });
+  try {
+    await page.goto("/");
+    await openHeaderMenuAction(page, "profile");
+    await page.locator("[data-profile-action='messages']").click();
+    await page.locator("#profile-messages-panel .message-thread-item", { hasText: "Market Seller" }).click();
+    const first = page.locator('[data-message-bubble-id="viewport-0"]');
+    await first.scrollIntoViewIfNeeded();
+    await expect.poll(() => seen.has("viewport-0")).toBe(true);
+    expect(seen.size).toBeLessThan(20);
+    expect(seen.has("viewport-10")).toBe(false);
+    await page.locator('[data-message-bubble-id="viewport-19"]').scrollIntoViewIfNeeded();
+    await expect.poll(() => seen.has("viewport-19")).toBe(true);
+    expect(seen.has("viewport-10")).toBe(false);
   } finally { await context.close(); }
 });
 

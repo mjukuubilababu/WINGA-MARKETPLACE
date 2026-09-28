@@ -1374,6 +1374,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of require("../backend/migrations/message-replay-resync").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-dispatch-outbox").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-conversation-sequence").statements) await db.exec(sql);
+    for (const sql of require("../backend/migrations/message-device-receipts").statements) await db.exec(sql);
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
