@@ -25,7 +25,7 @@ function validateSubscription(value) {
 async function enqueueMessagePush(client, message) {
   const subscriptions = await client.query(`SELECT p.id,p.session_id FROM web_push_subscriptions p
     JOIN sessions s ON s.session_id=p.session_id AND s.username=p.owner_id
-    WHERE p.owner_id=$1 AND s.expires_at>$2`, [message.receiverId, Date.now()]);
+    WHERE p.owner_id=$1 AND s.expires_at>$2 ORDER BY p.id FOR SHARE OF p`, [message.receiverId, Date.now()]);
   for (const row of subscriptions.rows) {
     await client.query(`INSERT INTO web_push_jobs(id,subscription_id,owner_id,session_id,message_id)
       VALUES($1,$2,$3,$4,$5) ON CONFLICT(subscription_id,message_id) DO NOTHING`,
