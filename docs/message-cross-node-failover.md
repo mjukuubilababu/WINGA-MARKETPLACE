@@ -1,6 +1,7 @@
 # Controlled Cross-Node Message Failover Probe
 
-Status: verifier prepared; no production node has been drained by this change.
+Status: operator-reported production exercise passed on 2026-09-28; see the
+latest entry in `docs/conversations-foundation-contract.md` for its limits.
 
 ## What it proves
 

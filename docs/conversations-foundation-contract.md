@@ -1175,3 +1175,25 @@ callback is released only after full backup verification. See
 `docs/media-remote-only-mode.md` for the production command and limitations.
 This verifier has not yet been run on Render. It cannot certify disk removal or
 two live nodes; the existing production disk remains the rollback source.
+
+## 40. Operator-reported production cross-node exercise (2026-09-28)
+
+The operator reported that the Render disk was detached, the service was scaled
+to two live instances, and the direct-origin preflight returned
+`preflightReady: true` and `twoInstancesObserved: true`. The first exercise run
+stopped at `SCALE_DOWN_NOT_CONFIRMED` without attempting a message send. A second
+run, after manual scaling from two instances to one, returned
+`crossNodeFailoverProven: true`: one observed SSE stream closed, the original
+surviving process was seen again, one synthetic message was accepted, and its
+canonical ID appeared exactly once in bounded replay. The operator then
+reported restoring the service to two instances and seeing the test message in
+both accounts. A separate public API health check returned HTTP 200, `ready`,
+with PostgreSQL storage after the exercise.
+
+This is operator-supplied production evidence for the controlled node-loss and
+replay scenario in `docs/message-cross-node-failover.md`. Render's instance/event
+timeline was not independently retrieved here. It does not prove database
+primary failover, live SSE delivery during node loss, revoked-device behavior,
+E2EE, BEAM deployment, per-device receipts, or production load capacity. The
+earlier sections record their historical state at the time and are not current
+status assertions for this one gate.
