@@ -1363,11 +1363,16 @@
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
             await deps.refreshActiveMessageHistory?.();
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
+            await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }
           deps.replaceMessagesPanel(scope);
+          try {
+            await deps.markActiveConversationRead();
+          } catch (_error) {
+            // Keep the rendered conversation available when read sync fails.
+          }
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         });
 

@@ -1277,3 +1277,21 @@ identity, device delivery obligations or the full conversation event ledger.
 See `docs/message-retry-client.md` for the exact boundary and test evidence:
 144 frontend-core, 62 related frontend (including 26 queue tests), and eight
 targeted browser tests passed, with native cross-tab locking coverage.
+
+## 45. Foreground read gating and private device alerts (2026-09-28)
+
+The existing read action now requires a focused visible document and a rendered
+message surface matching the active counterpart. Opening an inbox conversation
+renders before acknowledgement; returning to foreground resumes eligible reads.
+Read synchronization clears confirmed unread badges without replacing the active
+compose surface. Owner/counterpart checks prevent stale acknowledgement refreshes.
+
+Message/request OS notifications now use only a localized generic Winga alert;
+private titles, message text and routing identifiers do not cross the Notification
+constructor boundary. In-app previews and unrelated notifications are unchanged.
+Unsupported device notification constructors fail softly. No backend migration,
+receipt-device protocol, new push service or E2EE is implied. Conversation-wide
+read semantics and server-side plaintext notification storage remain limitations.
+See `docs/message-receipts.md` for scope and verification: 144 core, 67 related
+frontend tests and eight focused browser scenarios passed, with localization
+parity for all four locales. Real mobile OS notification UI is not certified.

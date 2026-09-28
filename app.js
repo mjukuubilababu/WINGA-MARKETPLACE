@@ -8068,6 +8068,17 @@ function bindImageZoomInteractions() {
   });
 }
 
+function getDeviceNotificationContent(notification) {
+  const type = String(notification.type || "").toLowerCase();
+  if (notification.messageId || type === "message" || type === "request") {
+    return {
+      title: translateUi("notification.privateMessageTitle", {}, "Winga"),
+      body: translateUi("notification.privateMessageBody", {}, "Una ujumbe mpya.")
+    };
+  }
+  return { title: notification.title, body: notification.body || "" };
+}
+
 function showInAppNotification(notification) {
   if (!notification || !notification.title) {
     return;
@@ -8135,7 +8146,12 @@ function showInAppNotification(notification) {
   }
 
   if ("Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
-    new Notification(notification.title, { body: notification.body || "" });
+    const deviceContent = getDeviceNotificationContent(notification);
+    try {
+      new Notification(deviceContent.title, { body: deviceContent.body });
+    } catch (_error) {
+      // Unsupported device notification constructors must not interrupt replay.
+    }
   }
 }
 
@@ -9139,10 +9155,25 @@ async function refreshPromotionsState() {
   }
 }
 
+function isActiveConversationVisible() {
+  if (!currentUser || !chatUiState.activeContext?.withUser
+    || document.visibilityState !== "visible" || !document.hasFocus()) {
+    return false;
+  }
+  const selector = chatUiState.isContextOpen
+    ? "#context-chat-modal [data-chat-read-user]"
+    : currentView === "profile" ? "#profile-messages-panel [data-chat-read-user]" : "";
+  const surface = selector ? document.querySelector(selector) : null;
+  return Boolean(surface && surface.dataset.chatReadUser === chatUiState.activeContext.withUser
+    && surface.getClientRects().length && window.getComputedStyle(surface).visibility === "visible");
+}
+
 async function markActiveConversationRead() {
-  if (!currentUser || !chatUiState.activeContext) {
+  if (!isActiveConversationVisible()) {
     return;
   }
+  const owner = currentUser;
+  const partner = chatUiState.activeContext.withUser;
 
   const hasUnread = getConversationSummaries().some((summary) => summary.withUser === chatUiState.activeContext.withUser && summary.unreadCount > 0) || currentMessages.some((message) =>
     message.receiverId === currentUser
@@ -9154,9 +9185,20 @@ async function markActiveConversationRead() {
   }
 
   await window.WingaDataLayer.markConversationRead({
-    withUser: chatUiState.activeContext.withUser
+    withUser: partner
   });
+  if (currentUser !== owner || chatUiState.activeContext?.withUser !== partner) return;
   await Promise.all([refreshMessagesState(), refreshNotificationsState()]);
+  if (currentUser !== owner || chatUiState.activeContext?.withUser !== partner) return;
+  const summary = getConversationSummaries().find(item => item.withUser === partner);
+  if (summary && summary.unreadCount === 0) {
+    // Read sync must not replace the compose field or interrupt a message action.
+    document.querySelectorAll("#profile-messages-panel [data-conversation-user]").forEach(row => {
+      if (row.dataset.conversationUser !== partner) return;
+      row.classList.remove("is-unread");
+      row.querySelector(".thread-badge")?.remove();
+    });
+  }
 }
 
 function disconnectRealtimeChannel() {
@@ -18085,6 +18127,7 @@ function handleAppLifecycleChange() {
   }
 
   startMemoryMonitoring();
+  markActiveConversationRead().catch(() => {});
   if (currentView === "home" || currentView === "profile") {
     if (uiRuntimeState.renderFrame) {
       cancelAnimationFrame(uiRuntimeState.renderFrame);
@@ -18107,6 +18150,9 @@ function handleAppLifecycleChange() {
 }
 
 registerAppEvent(document, "visibilitychange", handleAppLifecycleChange, undefined, "document:visibilitychange:app-lifecycle");
+registerAppEvent(window, "focus", () => {
+  markActiveConversationRead().catch(() => {});
+}, undefined, "window:focus:conversation-read");
 registerAppEvent(window, "pagehide", () => {
   markActiveSearchDemandNoClick();
   if (currentView === "home") {

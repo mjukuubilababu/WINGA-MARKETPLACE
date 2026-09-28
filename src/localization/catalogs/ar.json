@@ -455,6 +455,8 @@
                      "notification.eyebrow":  "الإشعارات",
                      "notification.enabledTitle":  "تم تفعيل الإشعارات",
                      "notification.enabledBody":  "سيرسل Winga تحديثات الرسائل والطلبات والأنشطة المهمة.",
+                     "notification.privateMessageTitle":  "Winga",
+                     "notification.privateMessageBody":  "لديك رسالة جديدة.",
                      "notification.offTitle":  "الإشعارات متوقفة",
                      "notification.deniedBody":  "حظر المتصفح الإشعارات. يمكنك تفعيلها من إعدادات المتصفح.",
                      "notification.dismissedBody":  "تم إيقاف الإشعارات مؤقتا. يمكنك تفعيلها لاحقا.",

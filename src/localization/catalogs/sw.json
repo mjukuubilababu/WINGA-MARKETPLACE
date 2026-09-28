@@ -451,6 +451,8 @@
                      "notification.eyebrow":  "Arifa",
                      "notification.enabledTitle":  "Arifa zimewashwa",
                      "notification.enabledBody":  "Winga itakutumia taarifa za ujumbe, oda na shughuli muhimu.",
+                     "notification.privateMessageTitle":  "Winga",
+                     "notification.privateMessageBody":  "Una ujumbe mpya.",
                      "notification.offTitle":  "Arifa zimezimwa",
                      "notification.deniedBody":  "Browser imezuia arifa. Unaweza kuziwasha kwenye mipangilio ya browser.",
                      "notification.dismissedBody":  "Umesitisha arifa kwa sasa. Unaweza kuziwasha baadaye.",

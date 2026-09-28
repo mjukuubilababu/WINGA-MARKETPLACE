@@ -5,6 +5,123 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { PGlite } = require('@electric-sql/pglite');
 
+const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+
+function receiptFixture() {
+  const surface = { dataset: { chatReadUser: 'bob' }, getClientRects: () => [{}] };
+  const calls = [];
+  let refreshes = 0;
+  const context = vm.createContext({
+    currentUser: 'alice', currentView: 'profile', profileDiv: {},
+    replaceMessagesPanel: () => {}, replaceContextChatModal: () => {},
+    chatUiState: { activeContext: { withUser: 'bob' }, isContextOpen: false },
+    currentMessages: [{ receiverId: 'alice', senderId: 'bob', isRead: false }],
+    getMessagePartner: message => message.senderId,
+    getConversationSummaries: () => [],
+    document: { visibilityState: 'visible', hasFocus: () => true, querySelector: () => surface },
+    window: {
+      getComputedStyle: () => ({ visibility: 'visible' }),
+      WingaDataLayer: { markConversationRead: async payload => { calls.push(payload.withUser); } }
+    },
+    refreshMessagesState: async () => { refreshes++; },
+    refreshNotificationsState: async () => { refreshes++; }
+  });
+  vm.runInContext(appSource.slice(appSource.indexOf('function isActiveConversationVisible()'),
+    appSource.indexOf('function disconnectRealtimeChannel()')), context);
+  return { context, surface, calls, get refreshes() { return refreshes; } };
+}
+
+test('read acknowledgement requires a rendered matching conversation in a focused visible tab', async () => {
+  const changes = [
+    f => { f.context.document.visibilityState = 'hidden'; },
+    f => { f.context.document.hasFocus = () => false; },
+    f => { f.context.currentUser = ''; },
+    f => { f.context.currentView = 'home'; f.context.document.querySelector = () => { throw new Error('No surface lookup expected'); }; },
+    f => { f.context.chatUiState.activeContext = null; },
+    f => { f.context.document.querySelector = () => null; },
+    f => { f.surface.dataset.chatReadUser = 'carol'; },
+    f => { f.surface.getClientRects = () => []; },
+    f => { f.context.window.getComputedStyle = () => ({ visibility: 'hidden' }); }
+  ];
+  for (const change of changes) {
+    const f = receiptFixture();
+    change(f);
+    await f.context.markActiveConversationRead();
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.refreshes, 0);
+  }
+});
+
+test('foreground inbox and modal acknowledge only their active incoming conversation', async () => {
+  for (const modal of [false, true]) {
+    const f = receiptFixture();
+    f.context.chatUiState.isContextOpen = modal;
+    if (modal) f.context.currentView = 'home';
+    f.context.document.querySelector = selector => {
+      assert.equal(selector, modal ? '#context-chat-modal [data-chat-read-user]' : '#profile-messages-panel [data-chat-read-user]');
+      return f.surface;
+    };
+    await f.context.markActiveConversationRead();
+    assert.deepEqual(f.calls, ['bob']);
+    assert.equal(f.refreshes, 2);
+  }
+  const f = receiptFixture();
+  f.context.currentMessages = [{ senderId: 'alice', receiverId: 'bob', isRead: false }];
+  await f.context.markActiveConversationRead();
+  assert.equal(f.calls.length, 0);
+});
+
+test('returning to foreground resumes read but a changed account cannot refresh old chat state', async () => {
+  const f = receiptFixture();
+  f.context.document.visibilityState = 'hidden';
+  await f.context.markActiveConversationRead();
+  f.context.document.visibilityState = 'visible';
+  f.context.window.WingaDataLayer.markConversationRead = async payload => {
+    f.calls.push(payload.withUser);
+    f.context.currentUser = 'carol';
+  };
+  await f.context.markActiveConversationRead();
+  assert.deepEqual(f.calls, ['bob']);
+  assert.equal(f.refreshes, 0);
+});
+
+test('read sync clears only the acknowledged unread badge without replacing the conversation', async () => {
+  for (const modal of [false, true]) {
+    const f = receiptFixture();
+    f.context.chatUiState.isContextOpen = modal;
+    const rendered = [];
+    f.context.replaceMessagesPanel = () => rendered.push('inbox');
+    f.context.replaceContextChatModal = () => rendered.push('modal');
+    const cleared = [];
+    f.context.getConversationSummaries = () => [{ withUser: 'bob', unreadCount: 0 }];
+    f.context.document.querySelectorAll = () => ['bob', 'carol'].map(partner => ({
+      dataset: { conversationUser: partner },
+      classList: { remove: value => cleared.push(`${partner}:${value}`) },
+      querySelector: () => ({ remove: () => cleared.push(`${partner}:badge`) })
+    }));
+    await f.context.markActiveConversationRead();
+    assert.equal(rendered.length, 0);
+    assert.deepEqual(cleared, ['bob:is-unread', 'bob:badge']);
+  }
+});
+
+test('private device notification payload omits sender, message, product and routing metadata', () => {
+  const context = vm.createContext({ translateUi: (key, args, fallback) => fallback });
+  vm.runInContext(appSource.slice(appSource.indexOf('function getDeviceNotificationContent('),
+    appSource.indexOf('function showInAppNotification(')), context);
+  for (const metadata of [{ type: 'message' }, { type: 'request' }, { type: 'MESSAGE' }, { type: 'order', messageId: 'secret-id' }]) {
+    const result = context.getDeviceNotificationContent({ ...metadata,
+      title: 'Private sender', body: 'Private message', productName: 'Private product', fromUser: 'secret-user' });
+    assert.equal(result.title, 'Winga');
+    assert.equal(result.body, 'Una ujumbe mpya.');
+    assert.deepEqual(Object.keys(result), ['title', 'body']);
+    assert.doesNotMatch(JSON.stringify(result), /Private|secret/);
+  }
+  const order = context.getDeviceNotificationContent({ type: 'order', title: 'Order update', body: 'Approved' });
+  assert.equal(order.title, 'Order update');
+  assert.equal(order.body, 'Approved');
+});
+
 test('pending messages offer retry without claiming Sent or exposing local errors', () => {
   const context = vm.createContext({ window: { WingaModules: { chat: {} } } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/chat/ui.js'), 'utf8'), context);

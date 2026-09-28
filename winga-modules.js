@@ -16906,7 +16906,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
-                <div class="messages-thread-body">
+                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}">
                   ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -17035,7 +17035,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               <p>${safeSellerName}</p>
             </div>
           </div>
-          <div class="context-chat-thread">
+          <div class="context-chat-thread" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
             ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
@@ -18635,11 +18635,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
           try {
             await deps.refreshActiveMessageHistory?.();
-            await Promise.all([deps.markActiveConversationRead(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
+            await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }
           deps.replaceMessagesPanel(scope);
+          try {
+            await deps.markActiveConversationRead();
+          } catch (_error) {
+            // Keep the rendered conversation available when read sync fails.
+          }
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         });
 

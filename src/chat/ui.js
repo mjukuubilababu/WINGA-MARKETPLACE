@@ -612,7 +612,7 @@
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
-                <div class="messages-thread-body">
+                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}">
                   ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -741,7 +741,7 @@
               <p>${safeSellerName}</p>
             </div>
           </div>
-          <div class="context-chat-thread">
+          <div class="context-chat-thread" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
             ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>

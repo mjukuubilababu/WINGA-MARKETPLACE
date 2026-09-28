@@ -451,6 +451,8 @@
                      "notification.eyebrow":  "Notifications",
                      "notification.enabledTitle":  "Notifications enabled",
                      "notification.enabledBody":  "Winga will send updates about messages, orders, and important activity.",
+                     "notification.privateMessageTitle":  "Winga",
+                     "notification.privateMessageBody":  "You have a new message.",
                      "notification.offTitle":  "Notifications off",
                      "notification.deniedBody":  "Your browser blocked notifications. You can enable them in browser settings.",
                      "notification.dismissedBody":  "Notifications are paused. You can enable them later.",

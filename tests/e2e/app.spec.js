@@ -89,6 +89,95 @@ async function createLoggedInPage(browser, username, password, options = {}) {
   return { context, page };
 }
 
+test("background chat waits for foreground before acknowledging incoming messages read", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width: 390, height: 844 } });
+  let unread = true;
+  let reads = 0;
+  const timestamp = new Date().toISOString();
+  const message = () => ({ id: "foreground-read", senderId: "market_seller", receiverId: "buyer_seller",
+    message: "Incoming private message", timestamp, isRead: !unread });
+  await context.addInitScript(() => {
+    window.__chatVisible = true;
+    window.__chatFocused = true;
+    Object.defineProperty(document, "visibilityState", { get: () => window.__chatVisible ? "visible" : "hidden" });
+    Object.defineProperty(document, "hidden", { get: () => !window.__chatVisible });
+    document.hasFocus = () => window.__chatFocused;
+    window.EventSource = class {
+      constructor() { this.handlers = {}; window.__receiptSource = this; }
+      addEventListener(name, handler) { this.handlers[name] = handler; }
+      close() {}
+    };
+  });
+  await context.route("**/api/messages/inbox?*", route => route.fulfill({ json: {
+    items: [{ withUser: "market_seller", displayName: "Market Seller", lastMessageId: "foreground-read",
+      latestMessage: message().message, timestamp, unreadCount: unread ? 1 : 0 }],
+    hasMore: false, nextCursor: "", totalUnread: unread ? 1 : 0, totalConversations: 1
+  } }));
+  await context.route("**/api/messages/history?*", route => route.fulfill({ json: { items: [message()], hasMore: false, nextCursor: "" } }));
+  await context.route("**/api/messages/read", route => {
+    expect(route.request().postDataJSON().withUser).toBe("market_seller");
+    reads++;
+    unread = false;
+    return route.fulfill({ json: { ok: true } });
+  });
+  try {
+    await page.goto("/");
+    await openHeaderMenuAction(page, "profile");
+    await page.locator("[data-profile-action='messages']").click();
+    const panel = page.locator("#profile-messages-panel");
+    await panel.locator(".message-thread-item", { hasText: "Market Seller" }).click();
+    await expect(panel.locator("[data-chat-read-user='market_seller']")).toBeVisible();
+    await expect.poll(() => reads).toBe(1);
+    await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(0);
+    await page.evaluate(() => { window.__chatVisible = false; window.__chatFocused = false; });
+    unread = true;
+    await page.evaluate(payload => window.__receiptSource.handlers.message({ data: JSON.stringify({ message: payload }) }), message());
+    await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(1);
+    await page.evaluate(() => markActiveConversationRead());
+    expect(reads).toBe(1);
+    await page.evaluate(() => {
+      window.__chatVisible = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.evaluate(() => markActiveConversationRead());
+    expect(reads).toBe(1);
+    await page.evaluate(() => { window.__chatFocused = true; window.dispatchEvent(new Event("focus")); });
+    await expect.poll(() => reads).toBe(2);
+    await expect.poll(() => page.evaluate(() => getConversationSummaries()[0]?.unreadCount)).toBe(0);
+    await expect(panel).toContainText("Incoming private message");
+  } finally { await context.close(); }
+});
+
+test("device message alerts omit private previews and constructor errors do not break chat", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
+  try {
+    await page.goto("/");
+    const result = await page.evaluate(() => {
+      const alerts = [];
+      Object.defineProperty(document, "visibilityState", { get: () => "hidden", configurable: true });
+      window.Notification = class {
+        static permission = "granted";
+        constructor(title, options) {
+          if (window.__rejectDeviceAlert) throw new TypeError("Device constructor unavailable");
+          alerts.push({ title, options });
+        }
+      };
+      for (const type of ["message", "request"]) {
+        showInAppNotification({ id: `private-${type}`, type, title: "Private sender", body: "Private chat text", messageId: "private-reference", haptic: false });
+      }
+      window.__rejectDeviceAlert = true;
+      showInAppNotification({ id: "constructor-failure", type: "message", title: "Another private sender", body: "Another private text", haptic: false });
+      return { alerts, expectedBody: translateUi("notification.privateMessageBody", {}, "Una ujumbe mpya.") };
+    });
+    expect(result.alerts).toEqual([
+      { title: "Winga", options: { body: result.expectedBody } },
+      { title: "Winga", options: { body: result.expectedBody } }
+    ]);
+    expect(JSON.stringify(result.alerts)).not.toMatch(/Private|private/);
+    await expect(page.locator(".notification-toast").filter({ hasText: "Private chat text" })).toHaveCount(2);
+  } finally { await context.close(); }
+});
+
 test("SSE reconnect consumes replay and reconciles canonical messages without page reload", async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const cursors = [];

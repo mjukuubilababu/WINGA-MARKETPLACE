@@ -30,6 +30,43 @@ already-read timestamps. No order/fulfillment delivery state is changed.
 - Production migration and authenticated two-device behavior require runtime
   evidence; public health checks do not prove them.
 
+## Foreground reads and device notification privacy (2026-09-28)
+
+The client now sends a conversation-read acknowledgement only when the document
+is visible and focused, and the rendered inbox/modal message surface belongs to
+the active counterpart. Missing, hidden and mismatched surfaces do not qualify.
+Selecting an inbox thread renders it before requesting read acknowledgement.
+Visibility/focus restoration retries an eligible unread conversation; switching
+accounts or counterparts prevents an old acknowledgement from refreshing the
+new account's view. Confirmed zero-unread summaries clear only matching row
+badges, without replacing a compose field or interrupting message actions.
+
+Device notifications for message/request events, and any notification carrying
+a messageId, now contain only the Winga title and a localized generic new-message
+body. Sender names, private text, product context and message IDs are not passed
+to the browser Notification constructor. In-app previews and other notification
+types retain their existing behavior. Unsupported notification constructors are
+caught so their failure cannot interrupt the event handler. Four locale catalogs
+include the generic content. No schema/API migration is added.
+
+This is a client policy, not proof of human reading, a per-message viewport
+protocol, a receipt preference, or a device-authenticated acknowledgement. The
+server still uses conversation-wide read state, so hidden history/new arrivals
+within that existing transaction are not bounded to the rendered message set.
+Already-issued requests cannot be recalled when a tab loses focus. The app is
+still plaintext on the server and in its local queue; notifications retained
+in the database and in-app previews are not redacted by this change. No push
+provider, background service-worker delivery or E2EE capability is introduced.
+
+Final verification: frontend core 144/144; related frontend tests 67/67 including
+nine receipt/privacy tests; eight targeted browser scenarios passed. Coverage
+includes hidden/unfocused read suppression, initial foreground selection, focus
+resumption, generic Notification constructor arguments, constructor failure,
+and unchanged retry/reload/SSE/reply/forward/delete workflows. Browser tests
+control visibility/focus and stub the OS constructor; physical-device lock-screen
+rendering is not claimed. Localization passed for four locales/1321 keys each.
+Full unrelated backend/browser suites were not rerun.
+
 ## Tests
 
 Focused tests cover HTTP acceptance before recipient read, sender inability to
