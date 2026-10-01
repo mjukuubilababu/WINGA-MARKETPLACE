@@ -1,0 +1,17 @@
+{
+  "name": "winga-mls-protocol-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build:browser": "esbuild browser/entry.mjs --bundle --minify --platform=browser --format=iife --outfile=browser/dist/spike.js"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.1.1",
+    "@noble/hashes": "2.3.0",
+    "ts-mls": "1.6.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

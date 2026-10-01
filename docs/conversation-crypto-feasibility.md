@@ -51,3 +51,23 @@ multi-tab write serialization on desktop and the actual Android PWA. Measure
 bundle size, startup cost and memory. Select a protocol only after exact-version
 license, dependency, audit and recovery review. Keep existing direct chat on its
 current mode until that gate passes; never silently downgrade an encrypted mode.
+
+## Isolated TypeScript protocol spike
+
+On 2026-10-01, `experiments/mls-protocol-spike/` pinned `ts-mls@1.6.4` for an
+additional, non-production API experiment because it runs in browsers without
+a local Rust/WASM toolchain. The synthetic Node and headless Edge tests passed:
+group create/join, encrypted delivery, serialized-state restore, replay
+rejection, out-of-order delivery and post-removal message exclusion. The Edge
+test also confirmed that synthetic serialized state bytes remain in IndexedDB
+after a tab is closed and reopened. Its minified bundle was 139,868 bytes raw
+and 39,129 bytes gzip in this configuration.
+
+This does not replace the OpenMLS evaluation or pass the production gate.
+`ts-mls` explicitly says it has no formal security audit, and its default
+authentication service accepts any credential. The sample puts raw serialized
+secret state into IndexedDB, so its storage pattern must not be copied into
+the app. The tests use two logical members in one runtime, not two independent
+browser/device stores; decryption after full process restart, Android PWA,
+identity binding, device verification, recovery and multi-tab writes remain
+unproven. No Winga message endpoint or UI was changed.
