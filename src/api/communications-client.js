@@ -5,6 +5,7 @@
     const createAuthHeaders = typeof deps.createAuthHeaders === "function" ? deps.createAuthHeaders : () => ({});
     const getEventSource = typeof deps.getEventSource === "function" ? deps.getEventSource : () => globalThis.EventSource;
     let messageCapabilities = null;
+    let phoenix = null;
 
     async function prepareMessage(payload) {
       requireFetcher();
@@ -63,6 +64,8 @@
 
     async function sendMessage(payload) {
       requireFetcher();
+      const transported = await phoenix?.sendMessage(payload);
+      if (transported) return transported;
       return fetchJson(`${baseUrl}/messages`, {
         method: "POST",
         headers: jsonHeaders(),
@@ -199,6 +202,33 @@
       let recoveryRequested = false;
       let recoveryTimer = null;
       const isCurrent = () => !closed && (!handlers.isCurrent || handlers.isCurrent());
+      phoenix?.close();
+      phoenix = null;
+      let deviceStream = null;
+      const session = deps.getSession?.();
+      const sessionKey = value => JSON.stringify([value?.username || "", value?.sessionId || value?.token || ""]);
+      const ownerKey = sessionKey(session);
+      const transport = window.WingaModules?.api?.phoenix;
+      const config = () => deps.getTransportConfig?.() || {};
+      const transportUrl = transport?.canaryUrl(config(), session);
+      const canStream = () => isCurrent() && ownerKey === sessionKey(deps.getSession?.())
+        && transport?.canaryUrl(config(), deps.getSession?.()) === transportUrl;
+      if (transportUrl && typeof handlers.onDeviceEvents === "function") {
+        loadChatDevice().then(device => {
+          if (!canStream() || device?.supported !== true || device?.eventDelivery !== true
+            || device.username !== session.username || !device.deviceId) return;
+          deviceStream = transport.createPhoenixTransport({
+            url: transportUrl, owner: session.username, deviceId: device.deviceId,
+            isCurrent: canStream,
+            fetchTicket: () => fetchJson(`${baseUrl}/messages/transport-ticket`, {
+              method: "POST", headers: jsonHeaders(), body: "{}"
+            }),
+            onEvents: handlers.onDeviceEvents,
+            onState: handlers.onTransportState
+          });
+          phoenix = deviceStream;
+        }).catch(() => { /* REST/SSE remains active when canary enrollment is unavailable. */ });
+      }
       async function recover() {
         if (!replay || !handlers.reconcile || !isCurrent()) return;
         if (recovering) { recoveryRequested = true; return; }
@@ -281,6 +311,8 @@
       return {
         close() {
           closed = true;
+          deviceStream?.close();
+          if (phoenix === deviceStream) phoenix = null;
           clearTimeout(recoveryTimer);
           source.close();
         }
@@ -289,6 +321,7 @@
 
     return {
       prepareMessage,
+      hasDeviceEventStream: () => phoenix?.isReady() === true,
       loadMessages,
       loadInboxPage: (options) => loadMessagePage("inbox", options),
       loadConversationPage: (withUser, options = {}) => loadMessagePage("history", { ...options, withUser }),

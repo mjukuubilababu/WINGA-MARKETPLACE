@@ -13,12 +13,14 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   const enabled = env.WINGA_PHOENIX_TRANSPORT_ENABLED === 'true';
   const ticketSecret = env.CONVERSATION_TICKET_SECRET || '';
   const serviceSecret = env.CONVERSATION_SERVICE_TOKEN || '';
+  const canaryUsers = new Set(String(env.WINGA_PHOENIX_CANARY_USERS || '').split(',').map(value => value.trim()).filter(Boolean));
+  const canIssue = owner => enabled && canaryUsers.has(owner);
   if (enabled && (ticketSecret.length < 32 || serviceSecret.length < 32 || ticketSecret === serviceSecret)) {
     throw new Error('Distinct conversation ticket and service secrets of at least 32 characters are required.');
   }
   const sign = value => crypto.createHmac('sha256', ticketSecret).update(value).digest('base64url');
   function issue(session) {
-    if (!enabled) throw reject(404);
+    if (!canIssue(session?.username)) throw reject(404);
     const iat = Math.floor(now() / 1000);
     const exp = Math.min(iat + 300, Math.floor(Number(session.expiresAt) / 1000));
     if (!session.token || !session.sessionId || !session.username || exp <= iat) throw reject();
@@ -38,7 +40,7 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
       || !Number.isSafeInteger(claims.iat) || !Number.isSafeInteger(claims.exp)
       || claims.iat > seconds || claims.exp <= seconds || claims.exp - claims.iat > 300
       || typeof claims.sub !== 'string' || typeof claims.sid !== 'string'
-      || typeof claims.binding !== 'string') throw reject();
+      || typeof claims.binding !== 'string' || !canIssue(claims.sub)) throw reject();
     return claims;
   }
   async function authorize(ticket, store) {
@@ -76,7 +78,7 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
     if (input.command === 'receipt') return store.acknowledgeMessageDevice({ ...context, payload: input.payload });
     throw reject(400);
   }
-  return { enabled, issue, verify, authorize, serviceAllowed, validateCommand, execute };
+  return { enabled, canIssue, issue, verify, authorize, serviceAllowed, validateCommand, execute };
 }
 
 module.exports = { createConversationTransport, MAX_COMMAND_BYTES };

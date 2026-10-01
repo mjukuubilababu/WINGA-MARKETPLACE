@@ -15,6 +15,9 @@ const WINGA_DEFAULT_CONFIG = {
   // reliably from file:// URLs.
   enableApiLocalCacheFallback: true,
   enableBootstrapFeedSnapshot: true,
+  phoenixTransportEnabled: false,
+  phoenixTransportUrl: "",
+  phoenixCanaryUsers: [],
   feedPageLimit: 12,
   feedPageLimitMobile: 12,
   feedPageLimitDesktop: 24,

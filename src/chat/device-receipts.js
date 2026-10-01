@@ -138,6 +138,14 @@
       tail = result.catch(() => {});
       return result;
     }
+    async function receiptFailure(error) {
+      if (error.status === 401) {
+        stopped = true;
+        clearTimeout(deliveryTimer);
+        if (device?.deviceId) await writeInbox(indexedDB, scope(), [], true).catch(() => {});
+      }
+      throw error;
+    }
     async function identity(refresh = false) {
       if (!active()) return false;
       if (!device || refresh) device = await dataLayer.loadChatDevice();
@@ -181,16 +189,24 @@
       return changed;
     }
     function submit(messages, kind, visible = () => false) {
-      return serial(async () => {
-        try { return await receive(messages, kind, visible); }
-        catch (error) {
-          if (error.status === 401) {
-            stopped = true;
-            if (device?.deviceId) await writeInbox(indexedDB, scope(), [], true).catch(() => {});
-          }
-          throw error;
-        }
-      });
+      return serial(() => receive(messages, kind, visible).catch(receiptFailure));
+    }
+    async function acceptEventBatch(batch, acknowledge) {
+      if (!await identity() || !active()) return false;
+      validateEventBatch(batch, owner, device.deviceId);
+      if (!batch.events.length) return true;
+      await writeEventInbox(indexedDB, scope(), batch);
+      if (!active()) return false;
+      batch.items.forEach(message => stored.delete(message.id));
+      await receive(batch.items, "stored", () => false);
+      if (!active()) return false;
+      if (batch.events.length) {
+        const result = await acknowledge(batch.events.map(event => event.id));
+        if (result?.ok !== true || result.acknowledged !== batch.events.length) throw new Error("Event ACK not confirmed."); // i18n-gate: allow -- internal diagnostic
+      }
+      if (!active()) return false;
+      onEvents(batch.events);
+      return true;
     }
     function syncPending() {
       if (!active()) return Promise.resolve();
@@ -201,21 +217,13 @@
       let delay = 30000;
       deliverySync = serial(async () => {
         if (!await identity(Boolean(device && !device.pendingDelivery)) || !device.pendingDelivery) return;
+        if (dataLayer.hasDeviceEventStream?.()) return;
         // Drain bounded batches without changing chat selection or read state.
         for (let page = 0; page < 5 && active(); page++) {
           if (device.eventDelivery) {
             const batch = await dataLayer.pollDeviceEvents();
             if (!active()) return;
-            validateEventBatch(batch, owner, device.deviceId);
-            if (!batch.events.length) return;
-            await writeEventInbox(indexedDB, scope(), batch);
-            if (!active()) return;
-            batch.items.forEach(message => stored.delete(message.id));
-            await receive(batch.items, "stored", () => false);
-            if (!active()) return;
-            const result = await dataLayer.acknowledgeDeviceEvents({ deviceId: device.deviceId, eventIds: batch.events.map(event => event.id) });
-            if (result?.ok !== true || result.acknowledged !== batch.events.length) throw new Error("Event ACK not confirmed."); // i18n-gate: allow -- internal diagnostic
-            if (active()) onEvents(batch.events);
+            if (!await acceptEventBatch(batch, eventIds => dataLayer.acknowledgeDeviceEvents({ deviceId: device.deviceId, eventIds }))) return;
             if (!batch.hasMore) return;
             delay = 1000;
             continue;
@@ -233,11 +241,7 @@
         }
       }).catch(async error => {
         delay = 15000;
-        if (error.status === 401) {
-          stopped = true;
-          if (device?.deviceId) await writeInbox(indexedDB, scope(), [], true).catch(() => {});
-        }
-        throw error;
+        return receiptFailure(error);
       }).finally(() => {
         deliverySync = null;
         if (active() && device?.pendingDelivery) {
@@ -247,6 +251,7 @@
       return deliverySync;
     }
     return {
+      acceptEvents: (batch, acknowledge) => serial(() => acceptEventBatch(batch, acknowledge).catch(receiptFailure)),
       syncPending,
       persist: messages => submit(messages, "stored"),
       markRead: (messages, visible) => submit(messages, "read", visible),

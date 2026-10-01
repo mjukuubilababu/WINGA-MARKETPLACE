@@ -51,7 +51,7 @@ defmodule WingaConversations.Adapter do
       {:ok, %{status: status}} when status in [401, 403] ->
         {:error, :unauthorized}
 
-      {:ok, %{status: status}} when status in [400, 404, 409, 410, 413, 429] ->
+      {:ok, %{status: status}} when status in [400, 404, 409, 410, 413] ->
         {:error, :rejected}
 
       _ ->

@@ -69,6 +69,8 @@ const fileCopies = [
   ["mock-data.js", "mock-data.js"],
   ["winga-config.js", "winga-config.js"],
   ["node_modules/hls.js/dist/hls.light.min.js", "vendor/hls.light.min.js"],
+  ["node_modules/phoenix/priv/static/phoenix.min.js", "vendor/phoenix.min.js"],
+  ["node_modules/phoenix/LICENSE.md", "vendor/phoenix-LICENSE.md"],
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
@@ -84,6 +86,7 @@ const bundledModuleSources = [
   "src/api/auth-client.js",
   "src/api/products-client.js",
   "src/api/communications-client.js",
+  "src/api/phoenix-transport.js",
   "src/api/social-client.js",
   "src/api/commerce-client.js",
   "src/api/admin-client.js",

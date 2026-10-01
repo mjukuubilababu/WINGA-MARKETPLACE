@@ -1,8 +1,9 @@
 # Phoenix durable transport
 
-Initial opt-in text transport for existing Winga conversations. This is **not
-E2EE** and is not connected to the production browser client. REST/SSE remains
-the default. PostgreSQL and the Node message writer remain authoritative.
+Opt-in text transport for existing Winga conversations, with a browser adapter
+behind explicit account canary gates. This is **not E2EE**. REST/SSE remains
+the default; no production Phoenix service or browser canary is implied.
+PostgreSQL and the Node message writer remain authoritative.
 Phoenix nodes keep no durable messages, credentials database or local files.
 
 ## Contract
@@ -47,6 +48,9 @@ release gates. A backend outage is never interpreted as successful persistence.
 Node (disabled unless explicitly enabled):
 
 - `WINGA_PHOENIX_TRANSPORT_ENABLED=true`
+- `WINGA_PHOENIX_CANARY_USERS`: comma-separated exact usernames of designated
+  test accounts. Empty means nobody can enroll. Removed accounts lose access
+  to previously issued tickets after the new Node configuration is deployed.
 - `CONVERSATION_TICKET_SECRET`: random secret, at least 32 characters.
 - `CONVERSATION_SERVICE_TOKEN`: separate random secret, at least 32 characters.
 
@@ -88,10 +92,14 @@ WINGA_TEST_POSTGRES_URL=postgresql://postgres@127.0.0.1:55439/postgres npm run t
 WINGA_TEST_POSTGRES_URL=postgresql://postgres@127.0.0.1:55439/postgres npm run test:conversation-concurrency
 ```
 
-The Phoenix test creates and drops a random database, launches the real Node
+The Phoenix test requires installed Microsoft Edge (Playwright's `msedge`
+channel). It creates and drops a random database, launches the real Node
 backend and two Phoenix nodes, simulates failure before write and lost reply
 after commit, terminates one node, retries concurrently on the survivor, and
-checks device ACK isolation, Stored/Read and revocation. It writes synthetic
+checks device ACK isolation, throttling, Stored/Read and revocation. It also runs
+the pinned official Phoenix JS SDK in two real browser contexts with native
+IndexedDB, sends without a REST fallback, loses an ACK and reloads the receiver
+to prove deduplicated replay and explicit Read. It writes synthetic
 fixture logs only into ignored `.tmp-phoenix-e2e-*` directories.
 
 For a host with the toolchain installed, build a release:
@@ -110,11 +118,69 @@ commands.
 
 ## Canary And Rollback
 
-Deploy as a separate service with synthetic accounts first. Keep the public
-frontend on REST/SSE and preserve database migrations/outbox workers. Prove the
-exact deployed commit, TLS/origin rules, ticket renewal, physical-device local
-persistence, writer restart, load/backpressure and node-loss replay before an
-explicit browser routing change. No production switch is implied by local tests.
+### Render service setup
+
+Create a separate Web Service for this repository, without a persistent disk:
+
+| Setting | Value |
+| --- | --- |
+| Branch | `master` |
+| Root Directory | `services/conversations` |
+| Language | `Elixir` |
+| Build Command | `bash build.sh` |
+| Start Command | `_build/prod/rel/winga_conversations/bin/winga_conversations start` |
+| Health Check Path | `/health` |
+
+Set the Phoenix runtime variables listed above, including `PHX_SERVER=true`
+and `MIX_ENV=prod`. Pin `ELIXIR_VERSION` and `ERLANG_VERSION` to the tested
+toolchain, then confirm those versions in the Render build log; local release
+success alone does not prove availability on the host. Do not attach the Node
+database credentials or run database migrations from this service.
+
+This follows Render's [Phoenix service deployment](https://render.com/docs/deploy-phoenix)
+and [runtime version configuration](https://render.com/docs/elixir-erlang-versions),
+with this repository's release name and no frontend asset or Ecto build steps.
+Do not replace the existing Winga Node service or change its start command.
+
+### Browser activation
+
+Deploy as a separate service with synthetic accounts first. Preserve database
+migrations/outbox workers. The browser adapter is shipped disabled and requires
+all three trusted frontend configuration values:
+
+```js
+phoenixTransportEnabled: true,
+phoenixTransportUrl: "wss://<verified-transport-host>/socket",
+phoenixCanaryUsers: ["<designated-test-username>"]
+```
+
+The account must also be in Node's server-side allowlist. Hostnames and account
+names are configuration, not secrets. Never put a ticket or service secret in
+frontend configuration. Self-hosted `/vendor/phoenix.min.js` is built from the
+exact locked npm version; SDK loading does not contact an external CDN.
+
+Before enabling a canary, add only the verified `wss://<transport-host>` to
+the serving shell's CSP `connect-src` (Worker, static `_headers`, or Node as
+applicable). Set the exact frontend HTTPS origin on Phoenix. Do not weaken CSP
+or use wildcard origins to make a test connect. Provisioning the host, its TLS,
+runtime secrets and the explicit CSP change remains an operator release step.
+
+Plain text uses Phoenix only when the authenticated device channel is ready.
+Rich/product/reply messages keep their existing REST path. SSE remains active
+for legacy UI and commerce events. While the durable channel is ready, device
+queue polling pauses; it resumes on the existing bounded timer after disconnect.
+Both paths use the same serial IndexedDB consumer. Stored is sent only after
+local transaction completion; Read still requires visible message IDs.
+
+Tickets renew before expiry and on SDK resume. Commands have an eight-second
+deadline with at most eight outstanding. An uncertain socket send never silently
+retries over REST inside the adapter: the existing offline queue retains the
+same client message ID for a later attempt. A stale account, revoked receipt,
+failed storage transaction or unconfirmed ACK cannot advance the device queue.
+
+Prove the exact deployed commit, TLS/origin rules, physical-device persistence,
+writer restart, load/backpressure and node-loss replay before broadening the
+canary. No production switch is implied by local browser tests.
 
 Rollback: route clients back to REST/SSE, disable
 `WINGA_PHOENIX_TRANSPORT_ENABLED` on Node and stop Phoenix. Keep PostgreSQL

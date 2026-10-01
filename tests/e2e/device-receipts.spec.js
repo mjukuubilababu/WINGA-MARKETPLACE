@@ -96,13 +96,47 @@ test('aborted event storage and a wrong device batch never ACK the queue', async
     const original=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(args[1]==='readwrite')queueMicrotask(()=>tx.abort());return tx;};
     const aborted=await recipient.syncPending().then(()=>false,()=>true);
+    const streamAborted=await recipient.acceptEvents(batch,()=>{acks++;}).then(()=>false,()=>true);
     IDBDatabase.prototype.transaction=original;
     batch.deviceId='other-device';
     const wrongDevice=await recipient.syncPending().then(()=>false,()=>true);
+    const streamWrongDevice=await recipient.acceptEvents(batch,()=>{acks++;}).then(()=>false,()=>true);
     await recipient.dispose();
-    return {aborted,wrongDevice,acks};
+    return {aborted,streamAborted,wrongDevice,streamWrongDevice,acks};
   });
-  expect(result).toEqual({aborted:true,wrongDevice:true,acks:0});
+  expect(result).toEqual({aborted:true,streamAborted:true,wrongDevice:true,streamWrongDevice:true,acks:0});
+});
+
+test('stream receipts fail closed on session revocation and clear the durable inbox', async ({page}) => {
+  await fixture(page);
+  const result=await page.evaluate(async()=>{
+    let acks=0;
+    const batch={version:1,deviceId:'device-one',items:[messages[0]],hasMore:false,events:[{
+      id:'a'.repeat(32)+':1',sequence:'1',currentRevision:'1',messageId:'one',kind:'message_created'
+    }]};
+    api.acknowledgeMessages=async()=>{throw Object.assign(new Error('Revoked'),{status:401});};
+    const revoked=await receipts.acceptEvents(batch,()=>{acks++;}).then(()=>false,error=>error.status===401);
+    const remaining=(await readInbox()).length;
+    const stopped=await receipts.acceptEvents(batch,()=>{acks++;});
+    await receipts.dispose();
+    return {revoked,remaining,stopped,acks};
+  });
+  expect(result).toEqual({revoked:true,remaining:0,stopped:false,acks:0});
+});
+
+test('an account switch during a stored receipt prevents the stream ACK', async ({page}) => {
+  await fixture(page);
+  const result=await page.evaluate(async()=>{
+    let acks=0;
+    const batch={version:1,deviceId:'device-one',items:[messages[0]],hasMore:false,events:[{
+      id:'a'.repeat(32)+':1',sequence:'1',currentRevision:'1',messageId:'one',kind:'message_created'
+    }]};
+    api.acknowledgeMessages=async()=>{active=false;return {ok:true};};
+    const accepted=await receipts.acceptEvents(batch,()=>{acks++;});
+    await receipts.dispose();
+    return {accepted,acks,remaining:(await readInbox()).length};
+  });
+  expect(result).toEqual({accepted:false,acks:0,remaining:0});
 });
 
 test('native IndexedDB commits full payload before Delivered and reads only visible IDs', async ({ page }) => {

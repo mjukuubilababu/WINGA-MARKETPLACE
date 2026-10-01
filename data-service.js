@@ -1829,7 +1829,9 @@ async loadAdminPayments(filters) {
           baseUrl,
           fetchJson,
           createAuthHeaders,
-          getEventSource: () => globalThis.EventSource
+          getEventSource: () => globalThis.EventSource,
+          getSession: readStoredSession,
+          getTransportConfig: () => window.WINGA_CONFIG || config
         });
       }
       return communicationsApiClient;
@@ -2280,6 +2282,9 @@ async loadAdminPayments(filters) {
       },
         openRealtimeChannel(handlers = {}) {
           return getCommunicationsApiClient().openRealtimeChannel(handlers);
+        },
+        hasDeviceEventStream() {
+          return getCommunicationsApiClient().hasDeviceEventStream();
         },
         async loadReviews(productId = "") {
           return getCommerceApiClient().loadReviews(productId);
@@ -4331,6 +4336,9 @@ async loadAdminPayments() {
       },
       openRealtimeChannel(handlers = {}) {
         return state.adapter.openRealtimeChannel ? state.adapter.openRealtimeChannel(handlers) : null;
+      },
+      hasDeviceEventStream() {
+        return state.adapter.hasDeviceEventStream?.() === true;
       },
       async loadReviews(productId) {
         return state.adapter.loadReviews ? state.adapter.loadReviews(productId) : { reviews: [], summaries: {} };

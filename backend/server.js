@@ -11171,6 +11171,9 @@ const server = http.createServer(async (req, res) => {
         const session = findSession(store, token);
         const user = ensureMarketplaceUser(store, session, res);
         if (!user) return;
+        if (!conversationTransport.canIssue(user.username)) {
+          sendJson(res, 404, { code: "transport_unavailable" }, { "Cache-Control": "no-store" }); return;
+        }
         await postgresStore.registerConversationDevice({ owner: user.username, token, deviceId: session.sessionId });
         sendJson(res, 200, conversationTransport.issue(session), { "Cache-Control": "no-store" });
         return;

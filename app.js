@@ -9306,10 +9306,15 @@ function connectRealtimeChannel() {
   }
 
   const replayUser = currentUser;
+  const replaySession = currentSession?.sessionId || currentSession?.token || "";
   if (messageReplayState?.owner !== replayUser) messageReplayState = { owner: replayUser, cursor: "" };
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
     replayState: messageReplayState,
-    isCurrent: () => currentUser === replayUser,
+    isCurrent: () => currentUser === replayUser && (currentSession?.sessionId || currentSession?.token || "") === replaySession,
+    onDeviceEvents: (batch, acknowledge) => {
+      if (currentUser !== replayUser || (currentSession?.sessionId || currentSession?.token || "") !== replaySession) return false;
+      return getMessageDeviceReceipts()?.acceptEvents(batch, acknowledge);
+    },
     reconcile: async ({ resyncRequired = false } = {}) => {
       if (currentUser !== replayUser) return;
       if (resyncRequired) getMessagePager().requestResync();

@@ -83,7 +83,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   const tempRoot=fs.mkdtempSync(path.join(root,'.tmp-phoenix-e2e-'));
   const childEnv={...process.env,NODE_ENV:'test',DATABASE_URL:local.toString(),DATABASE_SSL:'false',READ_REPLICA_DATABASE_URL:'',
     WINGA_DATA_DIR:path.join(tempRoot,'data'),WINGA_UPLOADS_DIR:path.join(tempRoot,'uploads'),R2_ACCOUNT_ID:'',
-    WINGA_PHOENIX_TRANSPORT_ENABLED:'true',CONVERSATION_SERVICE_TOKEN:serviceToken,
+    WINGA_PHOENIX_TRANSPORT_ENABLED:'true',WINGA_PHOENIX_CANARY_USERS:'alice,bob',CONVERSATION_SERVICE_TOKEN:serviceToken,
     CONVERSATION_TICKET_SECRET:randomBytes(32).toString('hex'),WINGA_WEB_PUSH_ENABLED:'false',
     INTELLIGENCE_QUEUE_PROCESSOR_MODE:'off',WINGA_DISABLE_RATE_LIMIT:'1',ALLOWED_ORIGINS:'http://localhost:4173'};
   function launch(command,args,env,cwd,name){
@@ -116,7 +116,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     try{
       const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=Buffer.concat(chunks);
       const command=JSON.parse(body).command;
-      if(command==='send' && failBefore){failBefore=false;res.writeHead(503).end('{}');return;}
+      if(command==='send' && failBefore){const status=failBefore;failBefore=false;res.writeHead(status).end('{}');return;}
       const upstream=await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceToken}`},body});
       const result=await upstream.text();
       if(command==='send' && dropAfter){dropAfter=false;req.socket.destroy();return;}
@@ -138,7 +138,10 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   async function device(port,ticket){const socket=await connect(port,ticket);sockets.push(socket);return socket;}
   const sender=await device(firstPort,tickets.alice);
   const payload={clientMessageId:randomUUID(),receiverId:'bob',message:'synthetic durable Phoenix message'};
-  failBefore=true;
+  failBefore=429;
+  assert.equal((await sender.command('message.send',payload)).response.code,'outcome_unknown');
+  assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n,0);
+  failBefore=503;
   assert.equal((await sender.command('message.send',payload)).response.code,'outcome_unknown');
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n,0);
   dropAfter=true;
@@ -165,6 +168,9 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   assert.deepEqual((await pool.query('SELECT is_delivered,is_read FROM messages')).rows[0],{is_delivered:true,is_read:false});
   assert.equal((await receiver.command('message.receipt',{kind:'read',withUser:'alice',messageIds:[messageId]})).status,'ok');
   assert.equal((await pool.query('SELECT is_read FROM messages')).rows[0].is_read,true);
+  otherDevice.ws.close();
+  const browserEvidence = await require('./helpers/phoenix-browser-exercise')({root,backend,port:secondPort,tokens,csrf,pool});
+  assert.deepEqual(browserEvidence,{browserSend:true,restSendFallbacks:0,persistedBeforeAck:true,replayedAfterReload:true,readExplicit:true,resumeRenewed:true});
   await pool.query("DELETE FROM sessions WHERE session_id='bob'");
   await receiver.wait(frame=>frame[3]==='phx_close',15000);
   const reply=await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceToken}`},

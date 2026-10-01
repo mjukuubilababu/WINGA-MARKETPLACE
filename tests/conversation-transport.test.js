@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createConversationTransport } = require('../backend/conversation-transport');
 
-const env = { WINGA_PHOENIX_TRANSPORT_ENABLED: 'true',
+const env = { WINGA_PHOENIX_TRANSPORT_ENABLED: 'true', WINGA_PHOENIX_CANARY_USERS: 'alice,bob',
   CONVERSATION_TICKET_SECRET: 't'.repeat(48), CONVERSATION_SERVICE_TOKEN: 's'.repeat(48) };
 const session = { username: 'alice', sessionId: 'device-a', token: 'private-session-token', expiresAt: 900000 };
 
@@ -12,6 +12,8 @@ test('transport is opt-in and requires distinct credentials', () => {
   assert.throws(()=>disabled.issue(session),{status:404});
   assert.throws(()=>createConversationTransport({env:{...env,CONVERSATION_SERVICE_TOKEN:'short'}}));
   assert.throws(()=>createConversationTransport({env:{...env,CONVERSATION_SERVICE_TOKEN:env.CONVERSATION_TICKET_SECRET}}));
+  assert.throws(()=>createConversationTransport({env:{...env,WINGA_PHOENIX_CANARY_USERS:''}}).issue(session),{status:404});
+  assert.throws(()=>createConversationTransport({env}).issue({...session,username:'outside-canary'}),{status:404});
 });
 
 test('tickets bind audience, expiry, registered device and current session token without disclosing it', async () => {
@@ -24,6 +26,8 @@ test('tickets bind audience, expiry, registered device and current session token
   await assert.rejects(transport.authorize(ticket,{resolveConversationTransportSession:async()=>null}),{status:401});
   await assert.rejects(transport.authorize(ticket,{resolveConversationTransportSession:async()=>({...session,token:'rotated'})}),{status:401});
   assert.throws(()=>transport.verify(ticket+'x'),{status:401});
+  const removed=createConversationTransport({env:{...env,WINGA_PHOENIX_CANARY_USERS:'bob'},now:()=>time});
+  assert.throws(()=>removed.verify(ticket),{status:401});
   time=400000;
   assert.throws(()=>transport.verify(ticket),{status:401});
 });
