@@ -296,6 +296,14 @@
       deleteMessage,
       markConversationRead,
       loadChatDevice,
+      pollDeviceEvents: () => {
+        requireFetcher();
+        return fetchJson(`${baseUrl}/messages/device-events/poll`, { method: "POST", headers: jsonHeaders(), body: "{}" });
+      },
+      acknowledgeDeviceEvents: payload => {
+        requireFetcher();
+        return fetchJson(`${baseUrl}/messages/device-events/ack`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) });
+      },
       pushRequest: (path, payload, method = "GET") => {
         requireFetcher();
         return fetchJson(`${baseUrl}/messages/push/${path}`, {

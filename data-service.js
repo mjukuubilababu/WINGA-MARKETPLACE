@@ -2225,6 +2225,8 @@ async loadAdminPayments(filters) {
         async loadChatDevice() {
           return getCommunicationsApiClient().loadChatDevice();
         },
+        async pollDeviceEvents() { return getCommunicationsApiClient().pollDeviceEvents(); },
+        async acknowledgeDeviceEvents(payload) { return getCommunicationsApiClient().acknowledgeDeviceEvents(payload); },
         async pushRequest(path, payload, method) {
           return getCommunicationsApiClient().pushRequest(path, payload, method);
         },
@@ -4156,6 +4158,18 @@ async loadAdminPayments() {
       async loadChatDevice() {
         assertBuyerCapableAccess();
         return state.adapter.loadChatDevice ? state.adapter.loadChatDevice() : { supported: false };
+      },
+      async pollDeviceEvents() {
+        assertBuyerCapableAccess();
+        ensureAdapter();
+        if (!state.adapter.pollDeviceEvents) throw new Error("Device events unavailable.");
+        return state.adapter.pollDeviceEvents();
+      },
+      async acknowledgeDeviceEvents(payload) {
+        assertBuyerCapableAccess();
+        ensureAdapter();
+        if (!state.adapter.acknowledgeDeviceEvents) throw new Error("Device events unavailable.");
+        return state.adapter.acknowledgeDeviceEvents(payload);
       },
       async pushRequest(path, payload, method) {
         assertBuyerCapableAccess();

@@ -182,19 +182,38 @@ test("background chat waits for foreground before acknowledging incoming message
   } finally { await context.close(); }
 });
 
-test("recipient receives Delivered on home after reconnect and Read only after opening chat", async ({ browser }) => {
+for (const eventDelivery of [false, true]) test(`recipient receives Delivered on home after reconnect and Read only after opening chat (${eventDelivery ? 'device events' : 'legacy pending'})`, async ({ browser }) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure");
   const message = { id: "offline-backlog", senderId: "market_seller", receiverId: "buyer_seller",
     message: "Waiting while recipient is offline", timestamp: new Date().toISOString() };
   let available = false, offline = false, delivered = false, read = false, loads = 0;
+  let eventAcknowledged = false;
+  const eventId = 'a'.repeat(32) + ':1';
   await context.addInitScript(() => {
     document.hasFocus = () => true;
     window.Notification = class { static permission = "granted"; };
   });
   await context.route("**/api/messages/device", route => route.fulfill({ json: {
-    supported: true, pendingDelivery: true, deviceId: "home-device", username: "buyer_seller"
+    supported: true, pendingDelivery: true, eventDelivery, deviceId: "home-device", username: "buyer_seller"
   } }));
+  await context.route("**/api/messages/device-events/poll", route => {
+    expect(eventDelivery).toBe(true);
+    loads++;
+    if (offline) return route.abort("internetdisconnected");
+    const pending=available && !eventAcknowledged;
+    return route.fulfill({json:{version:1,deviceId:"home-device",hasMore:false,items:pending?[message]:[],events:pending?[{
+      id:eventId,conversationId:'a'.repeat(32),sequence:'1',currentRevision:'1',revision:'1',membershipVersion:'1',
+      kind:'message_created',messageId:message.id,tombstone:false
+    }]:[]}});
+  });
+  await context.route("**/api/messages/device-events/ack", route => {
+    expect(delivered).toBe(true);
+    expect(route.request().postDataJSON()).toEqual({deviceId:"home-device",eventIds:[eventId]});
+    eventAcknowledged=true;
+    return route.fulfill({json:{ok:true,acknowledged:1}});
+  });
   await context.route("**/api/messages/pending-delivery*", route => {
+    expect(eventDelivery).toBe(false);
     loads++;
     if (offline) return route.abort("internetdisconnected");
     return route.fulfill({ json: { items: available && !delivered ? [message] : [], hasMore: false } });
@@ -225,6 +244,7 @@ test("recipient receives Delivered on home after reconnect and Read only after o
     offline = false;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await expect.poll(() => delivered).toBe(true);
+    if(eventDelivery) await expect.poll(() => eventAcknowledged).toBe(true);
     expect(read).toBe(false);
     expect(await page.evaluate(() => currentView)).toBe("home");
     await openHeaderMenuAction(page, "profile");
@@ -260,11 +280,12 @@ test("Read follows reached bubbles while offscreen history remains unread", asyn
     await page.locator("[data-profile-action='messages']").click();
     await page.locator("#profile-messages-panel .message-thread-item", { hasText: "Market Seller" }).click();
     const first = page.locator('[data-message-bubble-id="viewport-0"]');
-    await first.scrollIntoViewIfNeeded();
+    // Receipt refresh may replace bubbles while Playwright is stabilizing a scroll target.
+    await expect(async () => first.scrollIntoViewIfNeeded()).toPass({ timeout: 5000 });
     await expect.poll(() => seen.has("viewport-0")).toBe(true);
     expect(seen.size).toBeLessThan(20);
     expect(seen.has("viewport-10")).toBe(false);
-    await page.locator('[data-message-bubble-id="viewport-19"]').scrollIntoViewIfNeeded();
+    await expect(async () => page.locator('[data-message-bubble-id="viewport-19"]').scrollIntoViewIfNeeded()).toPass({ timeout: 5000 });
     await expect.poll(() => seen.has("viewport-19")).toBe(true);
     expect(seen.has("viewport-10")).toBe(false);
   } finally { await context.close(); }

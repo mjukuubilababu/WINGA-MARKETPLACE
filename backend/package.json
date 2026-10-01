@@ -23,6 +23,7 @@
     "cutover:legacy-public-media": "node cutover-legacy-public-media.js",
     "verify:legacy-upload-compat": "node verify-legacy-upload-compatibility.js",
     "verify:message-device-receipts": "node verify-message-device-receipts.js",
+    "verify:conversation-events": "node verify-conversation-events.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

@@ -9199,6 +9199,10 @@ function getMessageDeviceReceipts() {
     deviceReceipts?.dispose().catch(() => {});
     deviceReceipts = { owner, sessionKey, ...window.WingaModules.chat.createDeviceReceipts({
       owner, dataLayer: window.WingaDataLayer,
+      onEvents: () => {
+        if (currentUser === owner && (currentSession?.sessionId || currentSession?.token || "") === sessionKey)
+          refreshMessagesState().catch(() => {});
+      },
       isCurrent: () => currentUser === owner && (currentSession?.sessionId || currentSession?.token || "") === sessionKey
     }) };
   }

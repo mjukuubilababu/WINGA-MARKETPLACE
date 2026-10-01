@@ -48,6 +48,17 @@ test("device receipt writes reject missing authentication and CSRF", async () =>
   assert.equal(noAuth.body.acknowledged, undefined);
 });
 
+test("conversation ledger and device queue reject unauthenticated access and missing CSRF", async () => {
+  assert.equal((await request('/messages/events?withUser=someone')).response.status,401);
+  for (const path of ['/messages/device-events/poll','/messages/device-events/ack']) {
+    const options={method:'POST',headers:{'Content-Type':'application/json'},body:'{}'};
+    assert.equal((await request(path,{...options,skipCsrf:true})).response.status,403);
+    const result=await request(path,options);
+    assert.equal(result.response.status,401);
+    assert.equal(result.body.events,undefined);
+  }
+});
+
 test("push subscription writes reject missing authentication and CSRF", async () => {
   for (const method of ["POST", "DELETE"]) {
     const options = { method, headers: { "Content-Type": "application/json" }, body: "{}" };

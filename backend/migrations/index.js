@@ -118,6 +118,7 @@ const MIGRATIONS = Object.freeze([
        ON user_blocks (blocker_username, created_at DESC, blocked_username DESC);`
     ])
   }),
+  require("./conversation-event-ledger"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([

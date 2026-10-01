@@ -12,6 +12,7 @@ const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore }
 const { createMessageDispatchStore } = require("./message-dispatch");
 const { createMessageDeviceReceiptsStore } = require("./message-device-receipts");
 const { createMessageWebPushStore, enqueueMessagePush } = require("./message-web-push");
+const { createConversationEventStore } = require("./conversation-event-ledger");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -1338,6 +1339,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
     try {
       await client.query("BEGIN");
+      await client.query("SELECT set_config('winga.snapshot_restore','on',true)");
       await client.query("DELETE FROM sessions");
       await client.query("DELETE FROM moderation_actions");
         await client.query("DELETE FROM app_settings");
@@ -1728,6 +1730,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         );
       }
 
+      await client.query("SELECT winga_reconcile_conversation_snapshot()");
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -9976,6 +9979,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageDispatchStore({ query, withTransaction }),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
     ...createMessageWebPushStore({ query, withTransaction }),
+    ...createConversationEventStore({ withTransaction }),
     close
   };
 }

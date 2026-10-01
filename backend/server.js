@@ -262,6 +262,8 @@ const RATE_LIMIT_RULES = {
   "/api/messages": { limit: 24, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/read": { limit: 40, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/receipts": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/device-events/poll": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/device-events/ack": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/push/subscription": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders/reservations": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -7582,6 +7584,7 @@ const server = http.createServer(async (req, res) => {
   const requestedStoreTables = postgresStore
     ? ((req.method === "GET" && ["/api/messages/inbox", "/api/messages/history", "/api/messages/capabilities", "/api/messages/replay", "/api/messages/device", "/api/messages/pending-delivery"].includes(url.pathname))
       || (req.method === "POST" && url.pathname === "/api/messages/receipts")
+      || url.pathname.startsWith("/api/messages/device-events/") || url.pathname === "/api/messages/events"
       || url.pathname.startsWith("/api/messages/push/")
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
@@ -10858,6 +10861,7 @@ const server = http.createServer(async (req, res) => {
         const user = ensureMarketplaceUser(store, session, res);
         if (!user) return;
         sendJson(res, 200, { supported: Boolean(postgresStore?.acknowledgeMessageDevice), version: 1,
+          eventDelivery: Boolean(postgresStore?.pollConversationDeviceEvents),
           pendingDelivery: Boolean(postgresStore?.readPendingMessageDelivery),
           deviceId: session.sessionId, username: user.username }, { "Cache-Control": "no-store" });
         return;
@@ -10871,6 +10875,36 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         sendJson(res, 200, await postgresStore.readPendingMessageDelivery(user.username), { "Cache-Control": "private, no-store" });
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/messages/device-events/") || url.pathname === "/api/messages/events") {
+        const token = readAuthToken(req);
+        const session = findSession(store, token);
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        if (!postgresStore?.pollConversationDeviceEvents) {
+          sendJson(res, 503, { code: "conversation_events_unavailable" }, { "Cache-Control": "no-store" });
+          return;
+        }
+        const context = { owner: user.username, token, deviceId: session.sessionId };
+        try {
+          let result;
+          if (req.method === "POST" && url.pathname === "/api/messages/device-events/poll") {
+            result = await postgresStore.pollConversationDeviceEvents(context);
+          } else if (req.method === "POST" && url.pathname === "/api/messages/device-events/ack") {
+            result = await postgresStore.acknowledgeConversationDeviceEvents(context, await collectBody(req));
+          } else if (req.method === "GET" && url.pathname === "/api/messages/events") {
+            result = await postgresStore.readConversationEvents(context, {
+              withUser: url.searchParams.get("withUser"), cursor: url.searchParams.get("cursor") || undefined,
+              limit: url.searchParams.get("limit") || undefined
+            });
+          } else { sendJson(res, 404, { code: "conversation_event_route_not_found" }); return; }
+          sendJson(res, 200, result, { "Cache-Control": "private, no-store" });
+        } catch (error) {
+          if (![400,401,403,404,409].includes(error.status)) throw error;
+          sendJson(res, error.status, { code: "conversation_event_request_rejected" }, { "Cache-Control": "no-store" });
+        }
         return;
       }
 

@@ -1295,3 +1295,34 @@ read semantics and server-side plaintext notification storage remain limitations
 See `docs/message-receipts.md` for scope and verification: 144 core, 67 related
 frontend tests and eight focused browser scenarios passed, with localization
 parity for all four locales. Real mobile OS notification UI is not certified.
+
+## 46. Direct-chat event ledger and independent device queues (2026-10-01)
+
+An additive migration now records ordered direct-conversation mutation metadata,
+current-message revisions and durable deletion tombstones. Existing history is
+explicitly imported rather than assigned fabricated historical events. Symmetric
+block changes version access; current membership and authorization are rechecked
+when reading or acknowledging. Enrolled sessions have independent durable event
+obligations and bounded replay, with atomic IndexedDB persistence before ACK.
+An event ACK is neither a Stored receipt nor Read.
+
+Implementation and focused local regression tests are present, but this migration
+and matching frontend are not deployed. Independent-connection PostgreSQL races,
+production timing and authenticated physical-device queue checks remain gates.
+Old snapshot writers must be drained before migration; an uncontrolled rolling
+deployment is unsafe. See `docs/conversation-events-device-queues.md` for contracts,
+rollout/rollback, verification and retention/capacity limits. This direct-chat
+increment does not add groups, historical plaintext revision recovery, E2EE or
+BEAM and does not complete the full 0-109 specification.
+
+## 47. Independent PostgreSQL connection evidence (2026-10-01)
+
+An isolated local PostgreSQL 18 cluster subsequently passed 10/10 dedicated
+tests, including overlapping writes, independent-device ACKs, lock-observed
+block/revoke races, edit rollback, late cross-conversation commits, enrollment
+repair and migration locking. The actual full store also passed bootstrap,
+Stored/Read, snapshot restore and deletion on that engine. This supersedes the
+local-runtime uncertainty in section 46, not the remaining production rollout,
+production-size timing or physical-device verification gates. No Render or
+frontend deployment was performed; dashboard tool initialization and API access
+were unavailable despite the operator approving a short maintenance window.

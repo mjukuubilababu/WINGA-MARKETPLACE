@@ -10,7 +10,7 @@ async function fixture(page) {
     window.messages = [{ id: 'one', senderId: 'alice', receiverId: 'bob', message: 'Stored private body' },
       { id: 'offscreen', senderId: 'alice', receiverId: 'bob', message: 'Offscreen body' }];
     window.readInbox = () => new Promise((resolve, reject) => {
-      const request = indexedDB.open('winga-received-messages-v1', 1);
+      const request = indexedDB.open('winga-received-messages-v1', 2);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -23,7 +23,7 @@ async function fixture(page) {
       loadChatDevice: async () => ({ supported: true, deviceId: 'device-one', username: 'bob' }),
       acknowledgeMessages: async payload => {
         const rows = await readInbox();
-        if (payload.kind === 'stored' && !payload.messageIds.every(id => rows.some(row => row.message.id === id && row.message.message))) {
+        if (payload.kind === 'stored' && !payload.messageIds.every(id => rows.some(row => row.message?.id === id && row.message.message))) {
           throw new Error('Receipt preceded complete durable payload');
         }
         calls.push(payload);
@@ -33,6 +33,77 @@ async function fixture(page) {
     window.receipts = window.WingaModules.chat.createDeviceReceipts({ owner: 'bob', dataLayer: api, isCurrent: () => active });
   });
 }
+
+test('device event batches commit before ACK, retry lost responses and apply tombstones without Read', async ({ page }) => {
+  await fixture(page);
+  const result = await page.evaluate(async () => {
+    await receipts.dispose();
+    const cid='a'.repeat(32);
+    const event=(sequence,revision,tombstone=false)=>({id:`${cid}:${sequence}`,conversationId:cid,sequence:String(sequence),
+      kind:tombstone?'message_deleted':'message_created',messageId:'one',currentRevision:String(revision),tombstone});
+    let batch={version:1,deviceId:'device-one',events:[event(1,1)],items:[messages[0]],hasMore:false};
+    let lost=true,acknowledged=0,changes=0;
+    const readEvents=()=>new Promise((resolve,reject)=>{
+      const r=indexedDB.open('winga-received-messages-v1',2); r.onerror=()=>reject(r.error);
+      r.onsuccess=()=>{const db=r.result,tx=db.transaction('events'),rows=tx.objectStore('events').getAll();
+        tx.oncomplete=()=>{db.close();resolve(rows.result);};};
+    });
+    const recipient=WingaModules.chat.createDeviceReceipts({owner:'bob',isCurrent:()=>active,onEvents:()=>changes++,dataLayer:{...api,
+      loadChatDevice:async()=>({supported:true,pendingDelivery:true,eventDelivery:true,username:'bob',deviceId:'device-one'}),
+      pollDeviceEvents:async()=>batch,
+      acknowledgeDeviceEvents:async payload=>{
+        const stored=await readEvents();
+        if (!payload.eventIds.every(id=>stored.some(row=>row.event.id===id))) throw new Error('ACK before durable event');
+        if(lost){lost=false;throw new Error('Lost ACK');}
+        acknowledged++;return {ok:true,acknowledged:payload.eventIds.length};
+      }
+    }});
+    const failed=await recipient.syncPending().then(()=>false,()=>true);
+    await recipient.syncPending();
+    await new Promise((resolve,reject)=>{
+      const r=indexedDB.open('winga-received-messages-v1',2);r.onerror=()=>reject(r.error);
+      r.onsuccess=()=>{const db=r.result,tx=db.transaction('messages','readwrite'),rows=tx.objectStore('messages'),all=rows.getAll();
+        all.onsuccess=()=>all.result.forEach(row=>rows.put({...row,savedAt:0}));
+        tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(tx.error);};
+    });
+    batch={...batch,events:[event(2,2)],items:[{...messages[0],message:'Edited body'}]};
+    await recipient.syncPending();
+    const edited=(await readInbox()).find(row=>row.message?.id==='one').message.message;
+    batch={...batch,events:[event(3,3,true)],items:[]};
+    await recipient.syncPending();
+    await recipient.persist(messages.slice(0,1));
+    const tombstone=(await readInbox()).find(row=>row.tombstone)?.message===null;
+    const eventCount=(await readEvents()).length;
+    const reads=calls.filter(call=>call.kind==='read').length;
+    await recipient.dispose();
+    return {failed,acknowledged,changes,edited,tombstone,eventCount,reads,cleared:(await readEvents()).length};
+  });
+  expect(result).toEqual({failed:true,acknowledged:3,changes:3,edited:'Edited body',tombstone:true,eventCount:3,reads:0,cleared:0});
+});
+
+test('aborted event storage and a wrong device batch never ACK the queue', async ({ page }) => {
+  await fixture(page);
+  const result=await page.evaluate(async()=>{
+    await receipts.dispose();let acks=0;
+    const batch={version:1,deviceId:'device-one',items:[],hasMore:false,events:[{
+      id:'a'.repeat(32)+':1',sequence:'1',currentRevision:'0',kind:'membership_initialized'
+    }]};
+    const recipient=WingaModules.chat.createDeviceReceipts({owner:'bob',isCurrent:()=>active,dataLayer:{...api,
+      loadChatDevice:async()=>({supported:true,pendingDelivery:true,eventDelivery:true,username:'bob',deviceId:'device-one'}),
+      pollDeviceEvents:async()=>batch,
+      acknowledgeDeviceEvents:async()=>{acks++;return {ok:true,acknowledged:1};}
+    }});
+    const original=IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction=function(...args){const tx=original.apply(this,args);if(args[1]==='readwrite')queueMicrotask(()=>tx.abort());return tx;};
+    const aborted=await recipient.syncPending().then(()=>false,()=>true);
+    IDBDatabase.prototype.transaction=original;
+    batch.deviceId='other-device';
+    const wrongDevice=await recipient.syncPending().then(()=>false,()=>true);
+    await recipient.dispose();
+    return {aborted,wrongDevice,acks};
+  });
+  expect(result).toEqual({aborted:true,wrongDevice:true,acks:0});
+});
 
 test('native IndexedDB commits full payload before Delivered and reads only visible IDs', async ({ page }) => {
   await fixture(page);
