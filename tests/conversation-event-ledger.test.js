@@ -237,3 +237,39 @@ test('receipt events, queue fan-out and aggregate verification remain transactio
     assert.equal((await verifyConversationEvents(db)).ok,false);
   } finally {await db.close();}
 });
+
+test('aggregate verifier rejects impossible cursors and cross-owner queue rows', async () => {
+  const f=await fixture(); const {db,store,context,poll,ack}=f;
+  try {
+    const batch=await poll(); await ack(batch);
+    assert.equal((await verifyConversationEvents(db)).ok,true);
+    await db.exec('UPDATE conversation_device_progress SET acknowledged_position=3');
+    const ahead=await verifyConversationEvents(db);
+    assert.equal(ahead.ok,false); assert.equal(ahead.progressConsistent,false);
+    await db.exec('UPDATE conversation_device_progress SET acknowledged_position=2');
+    await db.query(`UPDATE conversation_device_deliveries SET acknowledged_at=NULL
+      WHERE device_id='b1' AND event_id=$1`,[batch.events[0].id]);
+    const gap=await verifyConversationEvents(db);
+    assert.equal(gap.ok,false); assert.equal(gap.progressConsistent,false);
+    await db.query(`UPDATE conversation_device_deliveries SET acknowledged_at=NOW()
+      WHERE device_id='b1' AND event_id=$1`,[batch.events[0].id]);
+    await db.query(`UPDATE conversation_device_deliveries SET cancelled_at=NOW()
+      WHERE device_id='b1' AND event_id=$1`,[batch.events[0].id]);
+    const contradictory=await verifyConversationEvents(db);
+    assert.equal(contradictory.ok,false); assert.equal(contradictory.queueConsistent,false);
+    await db.query(`UPDATE conversation_device_deliveries SET cancelled_at=NULL
+      WHERE device_id='b1' AND event_id=$1`,[batch.events[0].id]);
+
+    await store.registerConversationDevice(context('e','eve'));
+    await db.query(`INSERT INTO conversation_device_deliveries(device_id,event_id,owner_id)
+      VALUES('e',$1,'eve')`,[batch.events[0].id]);
+    const foreignQueue=await verifyConversationEvents(db);
+    assert.equal(foreignQueue.ok,false); assert.equal(foreignQueue.queueConsistent,false);
+    await db.exec("DELETE FROM conversation_device_deliveries WHERE device_id='e'");
+    await db.query(`INSERT INTO conversation_device_progress(device_id,conversation_id,acknowledged_position)
+      VALUES('e',$1,0)`,[batch.events[0].conversationId]);
+    const foreignProgress=await verifyConversationEvents(db);
+    assert.equal(foreignProgress.ok,false); assert.equal(foreignProgress.progressConsistent,false);
+    assert.equal(JSON.stringify(foreignProgress).includes('"eve"'),false);
+  } finally { await db.close(); }
+});

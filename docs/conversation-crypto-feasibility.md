@@ -44,13 +44,32 @@ separate evaluation. These remain security design constraints.
 
 ## Next gate
 
-Build a separate pinned OpenMLS browser prototype with synthetic accounts and
-two independent device stores. Prove create/join, encrypted send/open, persisted
-state after restart, out-of-order/replayed events, revoked-device exclusion and
-multi-tab write serialization on desktop and the actual Android PWA. Measure
-bundle size, startup cost and memory. Select a protocol only after exact-version
-license, dependency, audit and recovery review. Keep existing direct chat on its
-current mode until that gate passes; never silently downgrade an encrypted mode.
+The stock pinned OpenMLS v0.9.0 WASM binding is not ready for Winga's browser
+gate. Its exposed group API covers creation, joining and message processing,
+but does not expose a provider/group persistence and restore API. Its own README
+still describes the binding as an experiment. A Winga-specific binding and
+reviewed storage adapter would be required before a restart test is meaningful.
+The local workspace also has no Rust/WASM build toolchain. These are engineering
+constraints, not a security verdict on the underlying OpenMLS library.
+
+Wire CoreCrypto offers browser WASM and persistent storage, but its GPL-3.0
+license requires a separate compatibility review before adoption in Winga.
+The isolated `ts-mls` spike below is not a substitute: its upstream project
+disclaims a formal security audit. No candidate has passed the production
+selection gate, so the current chat remains in its existing plaintext mode.
+
+The next protocol gate is a separately reviewed, pinned browser implementation
+with two independent device stores. It must prove create/join, encrypted
+send/open, persisted state after browser and Android PWA restart,
+out-of-order/replayed events, revoked-device exclusion, multi-tab write
+serialization, identity binding and recovery. Measure bundle size, startup cost
+and memory. Select a protocol only after exact-version license, dependency and
+security review. An encrypted conversation must never silently downgrade.
+
+Binding sources: [OpenMLS v0.9.0 binding](https://github.com/openmls/openmls/blob/openmls-v0.9.0/openmls-wasm/src/lib.rs),
+[OpenMLS WASM status](https://github.com/openmls/openmls/blob/main/openmls-wasm/README.md),
+[Wire CoreCrypto](https://github.com/wireapp/core-crypto), and
+[Wire CoreCrypto license](https://github.com/wireapp/core-crypto/blob/main/LICENSE).
 
 ## Isolated TypeScript protocol spike
 

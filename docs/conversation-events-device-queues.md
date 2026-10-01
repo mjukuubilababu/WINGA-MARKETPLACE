@@ -1,6 +1,7 @@
 # Conversation events and per-device delivery
 
-Status: implemented locally, not deployed or certified on production (2026-10-01).
+Status: backend migration operator-verified and frontend deployed (2026-10-01).
+Authenticated production device delivery remains unverified; see deployment evidence below.
 This is the direct-chat implementation of the next ledger and device-queue
 increments. It does not mark the entire 0-109 foundation contract complete.
 
@@ -203,3 +204,29 @@ is not anonymous just because body copies are absent. Polling order is determini
 per conversation, not a proven fair scheduler under sustained hot-conversation
 load. Lazy backfill can scan historical rows despite bounded writes/responses.
 Measure query plans, queue growth and latency on staging before capacity claims.
+
+## Production deployment evidence (2026-10-01)
+
+Release `87d59ce781f10e4c343e87c7b7ea5b0fd4db5c93` was pushed after the operator
+confirmed Render Auto-Deploy was off. Following the manual deployment, the
+operator supplied `verify-conversation-events` output with `ok:true`, migration,
+queue and enabled-trigger checks true, 8 conversations and 85 events. Sequence
+and queue consistency passed. Registered devices, pending and acknowledged rows
+were all zero at that point. The output did not independently confirm the Render
+commit hash or authenticated device delivery.
+
+The frontend Worker `mkubwa` was then deployed with `--keep-vars` as version
+`de0ecc40-9e7e-4c9a-8edc-f070661d78ff`, serving build `20261001185404`. Read-only
+production-shell verification passed on both `wingamarket.com` and
+`www.wingamarket.com`, including HTML, service worker, versioned JS/CSS, products
+API and CSRF. Both production module SHA-256 hashes match the local release,
+including the new device-event client. Render origin and public `/api/health`
+returned HTTP 200, `ready`, and PostgreSQL storage.
+
+The earlier not-deployed statements above describe prior verification stages.
+Do not treat zero registered devices as proof of queue drainage. Reloaded,
+authenticated clients must enroll and ACK actual events before claiming a live
+device flow. The verifier's `authenticatedDeviceFlowVerified` and
+`crossConnectionConcurrencyVerified` stay false because that read-only command
+does not execute those scenarios. The separate local concurrency evidence is
+unchanged; production authenticated-device evidence is still required.

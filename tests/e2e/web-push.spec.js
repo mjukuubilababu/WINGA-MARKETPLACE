@@ -99,3 +99,45 @@ test('service worker displays generic notification without any open app and rout
   expect(shown).toEqual([{ title: 'Winga', body: 'You have a new message.', data: { id } }]);
   // Browser openWindow requires a trusted OS click; VM tests cover cold routing.
 });
+
+test('browser push wakes a stopped worker with no open Winga window', async ({ page, context }) => {
+  await context.grantPermissions(['notifications']);
+  // Keep DevTools attached to a blank window, not to an open app or worker.
+  const inspector = await context.newPage();
+  const cdp = await context.newCDPSession(inspector);
+  const versions = new Map();
+  cdp.on('ServiceWorker.workerVersionUpdated', ({ versions: updates }) => {
+    for (const version of updates) versions.set(version.versionId, version);
+  });
+  await cdp.send('ServiceWorker.enable');
+  await page.goto('/offline.html');
+  const origin = new URL(page.url()).origin;
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+  });
+  const activeVersion = () => [...versions.values()].find(version =>
+    version.scriptURL === `${origin}/sw.js` && version.status === 'activated');
+  await expect.poll(() => activeVersion()?.runningStatus).toBe('running');
+  const { versionId, registrationId } = activeVersion();
+  await expect.poll(() => context.serviceWorkers().length).toBe(1);
+  const worker = context.serviceWorkers()[0];
+  await page.close();
+  await cdp.send('ServiceWorker.stopWorker', { versionId });
+  await expect.poll(() => versions.get(versionId)?.runningStatus).toBe('stopped');
+
+  const id = '33333333-3333-4333-8333-333333333333';
+  // Browser-injected push tests wake-up, not FCM transport or Android delivery.
+  await cdp.send('ServiceWorker.deliverPushMessage', {
+    origin, registrationId, data: JSON.stringify({ version: 1, id, locale: 'sw' })
+  });
+  await expect.poll(() => versions.get(versionId)?.runningStatus).toBe('running');
+  await expect.poll(() => worker.evaluate(async () => {
+    const notifications = await self.registration.getNotifications();
+    return notifications.map(item => ({ title: item.title, body: item.body, data: item.data }));
+  })).toEqual([{ title: 'Winga', body: 'Una ujumbe mpya.', data: { id } }]);
+  expect(await worker.evaluate(async () => (await self.clients.matchAll({
+    type: 'window', includeUncontrolled: true
+  })).length)).toBe(0);
+  await cdp.detach();
+});

@@ -24,14 +24,26 @@ async function verifyConversationEvents(client) {
       WHERE acknowledged_at IS NULL AND cancelled_at IS NULL) AS "oldestPendingSeconds",
     (SELECT COALESCE(MAX(attempts),0)::int FROM conversation_device_deliveries
       WHERE acknowledged_at IS NULL AND cancelled_at IS NULL) AS "maxPendingAttempts",
-    NOT EXISTS(SELECT 1 FROM conversation_device_progress p JOIN conversation_events e
+    NOT EXISTS(SELECT 1 FROM conversation_device_progress p
+      JOIN conversation_event_streams c ON c.id=p.conversation_id
+      JOIN conversation_delivery_devices v ON v.device_id=p.device_id
+      WHERE p.acknowledged_position>c.position OR NOT EXISTS(
+        SELECT 1 FROM conversation_event_members m
+        WHERE m.conversation_id=p.conversation_id AND m.owner_id=v.owner_id))
+    AND NOT EXISTS(SELECT 1 FROM conversation_device_progress p JOIN conversation_events e
       ON e.conversation_id=p.conversation_id AND e.position<=p.acknowledged_position
       LEFT JOIN conversation_device_deliveries d ON d.device_id=p.device_id AND d.event_id=e.id
       WHERE d.event_id IS NOT NULL AND (d.acknowledged_at IS NULL OR d.cancelled_at IS NOT NULL)) AS "progressConsistent",
     NOT EXISTS(SELECT 1 FROM conversation_event_streams c WHERE c.position<>(SELECT COUNT(*) FROM conversation_events e WHERE e.conversation_id=c.id)
       OR c.position<>COALESCE((SELECT MAX(position) FROM conversation_events e WHERE e.conversation_id=c.id),0)) AS "sequencesConsistent",
-    NOT EXISTS(SELECT 1 FROM conversation_device_deliveries d JOIN conversation_delivery_devices v ON v.device_id=d.device_id
-      WHERE d.owner_id<>v.owner_id OR (d.acknowledged_at IS NOT NULL AND d.offered_at IS NULL)) AS "queueConsistent"`)).rows[0] : {};
+    NOT EXISTS(SELECT 1 FROM conversation_device_deliveries d
+      JOIN conversation_delivery_devices v ON v.device_id=d.device_id
+      JOIN conversation_events e ON e.id=d.event_id
+      WHERE d.owner_id<>v.owner_id OR (d.acknowledged_at IS NOT NULL AND d.offered_at IS NULL)
+        OR (d.acknowledged_at IS NOT NULL AND d.cancelled_at IS NOT NULL)
+        OR NOT EXISTS(SELECT 1 FROM conversation_event_members m
+          WHERE m.conversation_id=e.conversation_id AND m.owner_id=d.owner_id
+            AND e.position>=m.joined_position)) AS "queueConsistent"`)).rows[0] : {};
   return {ok:ready && counts.sequencesConsistent && counts.queueConsistent && counts.progressConsistent,
     mode:'verify-conversation-events',privacy:'aggregate-only',
     ...schema,...counts,databaseChanged:false,authenticatedDeviceFlowVerified:false,crossConnectionConcurrencyVerified:false};

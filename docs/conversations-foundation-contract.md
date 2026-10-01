@@ -1326,3 +1326,15 @@ local-runtime uncertainty in section 46, not the remaining production rollout,
 production-size timing or physical-device verification gates. No Render or
 frontend deployment was performed; dashboard tool initialization and API access
 were unavailable despite the operator approving a short maintenance window.
+
+## 48. Ledger migration and frontend deployment (2026-10-01)
+
+The operator reported a passing production ledger verifier: migration, queue and
+triggers present, 8 conversations, 85 events, consistent sequences/queue, with
+zero registered devices and zero ACKs before the new frontend deployment. The
+frontend Worker was deployed as `de0ecc40-9e7e-4c9a-8edc-f070661d78ff`, build
+`20261001185404`. Production-shell checks passed on both public domains; module
+hashes match the tested local release. Direct Render and public API readiness
+checks returned HTTP 200 and PostgreSQL storage. This supersedes the deployment
+uncertainty in sections 46/47, but does not prove authenticated production device
+delivery. See `docs/conversation-events-device-queues.md` for the exact evidence.
