@@ -1,6 +1,8 @@
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const { test, expect } = require('@playwright/test');
+const { test, expect, chromium } = require('@playwright/test');
 
 let server;
 let url;
@@ -103,5 +105,80 @@ test('separate browser contexts deliver after receiver tab restart', async ({ br
   } finally {
     await aliceContext.close();
     await bobContext.close();
+  }
+});
+
+test('atomic outbox survives full Edge process restart', async () => {
+  test.setTimeout(120000);
+  const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'winga-mls-spike-'));
+  const launch = (name) => chromium.launchPersistentContext(path.join(profileRoot, name), {
+    channel: 'msedge', headless: true,
+  });
+  const loadPage = async (context) => {
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(url);
+    await page.addScriptTag({ path: path.join(__dirname, 'dist', 'device.js') });
+    return page;
+  };
+  let aliceContext;
+  let bobContext;
+  try {
+    aliceContext = await launch('alice');
+    bobContext = await launch('bob');
+    let alice = await loadPage(aliceContext);
+    let bob = await loadPage(bobContext);
+    await alice.evaluate(() => window.syntheticMlsDevice.initialize('alice'));
+    const bobPackage = await bob.evaluate(() => window.syntheticMlsDevice.initialize('bob'));
+    await alice.evaluate(() => window.syntheticMlsDevice.create());
+    const welcome = await alice.evaluate(
+      (bytes) => window.syntheticMlsDevice.addPeer(bytes), bobPackage,
+    );
+    await bob.evaluate((data) => window.syntheticMlsDevice.join(data), welcome);
+
+    const aborted = await alice.evaluate(async () => {
+      try {
+        await window.syntheticMlsDevice.send('aborted', true);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(aborted).toBe(true);
+    expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
+
+    const queuedBytes = await alice.evaluate(
+      () => window.syntheticMlsDevice.send('survives process restart'),
+    );
+    expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toHaveLength(1);
+    await aliceContext.close();
+    aliceContext = undefined;
+    await bobContext.close();
+    bobContext = undefined;
+
+    aliceContext = await launch('alice');
+    bobContext = await launch('bob');
+    alice = await loadPage(aliceContext);
+    bob = await loadPage(bobContext);
+    const pending = await alice.evaluate(() => window.syntheticMlsDevice.pending());
+    expect(pending).toHaveLength(1);
+    expect(pending[0].bytes).toEqual(queuedBytes);
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.hasState())).toBe(true);
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), pending[0].bytes))
+      .toBe('survives process restart');
+    await alice.evaluate((id) => window.syntheticMlsDevice.acknowledgeOutgoing(id), pending[0].id);
+    expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
+
+    const afterAck = await alice.evaluate(() => window.syntheticMlsDevice.send('after ack'));
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), afterAck))
+      .toBe('after ack');
+  } finally {
+    if (aliceContext) await aliceContext.close();
+    if (bobContext) await bobContext.close();
+    const tempRoot = fs.realpathSync(os.tmpdir());
+    const resolved = fs.realpathSync(profileRoot);
+    if (path.dirname(resolved) !== tempRoot || !path.basename(resolved).startsWith('winga-mls-spike-')) {
+      throw new Error('Refusing to remove unexpected browser profile path');
+    }
+    fs.rmSync(resolved, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

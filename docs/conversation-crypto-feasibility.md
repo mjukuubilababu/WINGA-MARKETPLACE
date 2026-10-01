@@ -69,13 +69,24 @@ Alice tabs sent concurrently under a Web Locks guard, and Bob decrypted both;
 this test also passed three repeated runs. The separate-device bundle measured
 139,475 bytes raw and 38,997 bytes gzip.
 
+On 2026-10-02, a third Edge test passed with two separate persistent browser
+profiles. After both Edge processes closed and reopened, Alice recovered a
+pending ciphertext from IndexedDB, Bob decrypted it, Alice removed it from the
+local outbox, and the next message also decrypted. A forced IndexedDB abort
+left no partial outbox entry and the subsequent message remained decryptable.
+In this harness, new MLS state and outgoing ciphertext are written in one
+IndexedDB transaction. The updated device bundle measured 140,559 bytes raw
+and 39,300 bytes gzip.
+
 This does not replace the OpenMLS evaluation or pass the production gate.
 `ts-mls` explicitly says it has no formal security audit, and its default
 authentication service accepts any credential. The sample puts raw serialized
 secret state into IndexedDB, so its storage pattern must not be copied into
 the app. The first test uses two logical members in one runtime; the second
 uses independent browser contexts and guarded multi-tab writes, but not
-separate physical devices. Full browser-process restart, Android PWA, identity
-binding, device verification and recovery remain unproven. Web Locks do not
-make local state and remote message delivery atomic, and this spike has no
-durable outbox. No Winga message endpoint or UI was changed.
+separate physical devices. Desktop Edge process restart passed; browser
+restart on an actual Android PWA, identity binding, device verification and
+recovery have not been tested. The synthetic local outbox is not a production
+delivery/retry design: Web Locks and
+IndexedDB cannot make remote send and acknowledgement atomic with local state.
+No Winga message endpoint or UI was changed.

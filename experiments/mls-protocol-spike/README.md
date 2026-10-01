@@ -31,22 +31,29 @@ Edge test runs Alice and Bob in separate browser contexts, with separate
 IndexedDB stores. Bob closes and reopens a tab, then decrypts a new message
 from the stored state. Two Alice tabs send concurrently through a Web Locks
 guard; Bob decrypts both. The second test passed three repeated runs.
+A third Edge test closes both browser processes, reopens their separate
+persistent profiles, delivers a message recovered from Alice's outbox, and
+confirms Bob can decrypt a subsequent message. It also aborts a synthetic
+IndexedDB transaction and confirms no partial outbox entry remains.
 
 ## Security boundary
 
 The library's own README says it has not received a formal security audit.
 Its default authentication service accepts any credential. This spike does
 not bind device keys to Winga accounts or provide key verification, recovery,
-protected storage, browser-process restart, or Android PWA validation. Web
-Locks serialize writes in this local harness, but do not make state persistence
-and remote delivery atomic or provide a durable outbox. The IndexedDB sample
-stores raw serialized MLS state, which includes secret material; it is
-deliberately unsuitable for production. No code in this directory is imported
-by the live app.
+protected storage, or Android PWA validation. Web Locks serialize writes in
+this local harness. One IndexedDB transaction commits the new MLS state and
+outgoing ciphertext together, but network delivery and remote acknowledgement
+are outside that transaction. The local outbox does not provide a production
+retry policy, server idempotency or crash-safe remote ACK reconciliation. The
+IndexedDB sample stores raw serialized MLS state, which includes secret
+material; it is deliberately unsuitable for production. No code in this
+directory is imported by the live app.
 
 Pinned browser bundle measured 139,868 bytes raw and 39,129 bytes gzip on
-2026-10-01; the separate-device bundle measured 139,475 bytes raw and 38,997
-bytes gzip. `npm audit --omit=dev --audit-level=high` reported zero known
+2026-10-01; after adding the local outbox, the separate-device bundle measured
+140,559 bytes raw and 39,300 bytes gzip on 2026-10-02.
+`npm audit --omit=dev --audit-level=high` reported zero known
 advisories for these runtime dependencies at that time; this is not a crypto
 audit. The package imports `@noble/hashes` at runtime without declaring it as
 a required dependency, so this spike pins it explicitly. A production library

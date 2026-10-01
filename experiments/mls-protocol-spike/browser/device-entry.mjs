@@ -34,11 +34,60 @@ function decodeExact(decode, values) {
 
 async function openStore() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('group');
+    const request = indexedDB.open(databaseName, 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('group')) request.result.createObjectStore('group');
+      if (!request.result.objectStoreNames.contains('outbox')) request.result.createObjectStore('outbox');
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+async function saveOutgoing(state, bytes, abortBeforeCommit) {
+  const db = await openStore();
+  const id = crypto.randomUUID();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(['group', 'outbox'], 'readwrite');
+      tx.objectStore('group').put(encodeGroupState(state), 'state');
+      tx.objectStore('outbox').put({ id, bytes, createdAt: Date.now() }, id);
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error || new Error('Synthetic transaction aborted'));
+      if (abortBeforeCommit) tx.abort();
+    });
+    return id;
+  } finally {
+    db.close();
+  }
+}
+
+async function readOutbox() {
+  const db = await openStore();
+  try {
+    const rows = await new Promise((resolve, reject) => {
+      const request = db.transaction('outbox', 'readonly').objectStore('outbox').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return rows.map(({ id, bytes }) => ({ id, bytes: Array.from(bytes) }));
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteOutgoing(id) {
+  const db = await openStore();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('outbox', 'readwrite');
+      tx.objectStore('outbox').delete(id);
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 async function saveState(state) {
@@ -147,17 +196,20 @@ window.syntheticMlsDevice = {
     });
   },
 
-  async send(content) {
+  async send(content, abortBeforeCommit = false) {
     return withStateLock(async () => {
       const state = await loadState();
       if (!state) throw new Error('Group state missing');
       const result = await createApplicationMessage(state, textEncoder.encode(content), await getCipherSuite());
-      await saveState(result.newState);
-      const bytes = encodeMlsMessage({
-        version: 'mls10', wireformat: 'mls_private_message', privateMessage: result.privateMessage,
-      });
-      clearConsumed(result);
-      return Array.from(bytes);
+      try {
+        const bytes = encodeMlsMessage({
+          version: 'mls10', wireformat: 'mls_private_message', privateMessage: result.privateMessage,
+        });
+        await saveOutgoing(result.newState, bytes, abortBeforeCommit);
+        return Array.from(bytes);
+      } finally {
+        clearConsumed(result);
+      }
     });
   },
 
@@ -178,5 +230,13 @@ window.syntheticMlsDevice = {
 
   async hasState() {
     return Boolean(await loadState());
+  },
+
+  async pending() {
+    return readOutbox();
+  },
+
+  async acknowledgeOutgoing(id) {
+    return deleteOutgoing(id);
   },
 };
