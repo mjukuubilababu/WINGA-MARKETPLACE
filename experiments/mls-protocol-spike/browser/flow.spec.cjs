@@ -6,9 +6,37 @@ const { test, expect, chromium } = require('@playwright/test');
 
 let server;
 let url;
+const accepted = new Map();
+let failNextAck = false;
 
 test.beforeAll(async () => {
-  server = http.createServer((_request, response) => {
+  server = http.createServer(async (request, response) => {
+    if (request.method === 'POST' && request.url === '/synthetic/outbox') {
+      try {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const item = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (typeof item.id !== 'string' || !Array.isArray(item.bytes)) {
+          throw new Error('Invalid synthetic item');
+        }
+        const previous = accepted.get(item.id);
+        if (previous && JSON.stringify(previous.bytes) !== JSON.stringify(item.bytes)) {
+          response.writeHead(409).end();
+          return;
+        }
+        accepted.set(item.id, { bytes: item.bytes, attempts: (previous?.attempts || 0) + 1 });
+        if (failNextAck) {
+          failNextAck = false;
+          response.writeHead(503).end();
+          return;
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ id: item.id }));
+      } catch {
+        if (!response.destroyed) response.writeHead(400).end();
+      }
+      return;
+    }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
     response.end('<!doctype html><title>MLS protocol spike</title>');
   });
@@ -108,8 +136,10 @@ test('separate browser contexts deliver after receiver tab restart', async ({ br
   }
 });
 
-test('atomic outbox survives full Edge process restart', async () => {
+test('atomic outbox retries idempotently after ambiguous ACK and Edge process restart', async () => {
   test.setTimeout(120000);
+  accepted.clear();
+  failNextAck = false;
   const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'winga-mls-spike-'));
   const launch = (name) => chromium.launchPersistentContext(path.join(profileRoot, name), {
     channel: 'msedge', headless: true,
@@ -149,6 +179,21 @@ test('atomic outbox survives full Edge process restart', async () => {
     const queuedBytes = await alice.evaluate(
       () => window.syntheticMlsDevice.send('survives process restart'),
     );
+    const beforeRestart = await alice.evaluate(() => window.syntheticMlsDevice.pending());
+    expect(beforeRestart).toHaveLength(1);
+    failNextAck = true;
+    await expect(alice.evaluate(
+      (endpoint) => window.syntheticMlsDevice.deliverPending(endpoint), `${url}synthetic/outbox`,
+    )).rejects.toThrow();
+    expect(accepted.size).toBe(1);
+    expect(accepted.get(beforeRestart[0].id).attempts).toBe(1);
+    const conflict = await fetch(`${url}synthetic/outbox`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: beforeRestart[0].id, bytes: [0] }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(accepted.get(beforeRestart[0].id).attempts).toBe(1);
     expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toHaveLength(1);
     await aliceContext.close();
     aliceContext = undefined;
@@ -162,13 +207,34 @@ test('atomic outbox survives full Edge process restart', async () => {
     const pending = await alice.evaluate(() => window.syntheticMlsDevice.pending());
     expect(pending).toHaveLength(1);
     expect(pending[0].bytes).toEqual(queuedBytes);
-    expect(await bob.evaluate(() => window.syntheticMlsDevice.hasState())).toBe(true);
-    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), pending[0].bytes))
-      .toBe('survives process restart');
-    await alice.evaluate((id) => window.syntheticMlsDevice.acknowledgeOutgoing(id), pending[0].id);
+    expect(await alice.evaluate(
+      (endpoint) => window.syntheticMlsDevice.deliverPending(endpoint), `${url}synthetic/outbox`,
+    )).toBe(1);
+    expect(accepted.size).toBe(1);
+    expect(accepted.get(pending[0].id)).toEqual({ bytes: queuedBytes, attempts: 2 });
     expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.hasState())).toBe(true);
+    expect(await bob.evaluate(
+      (bytes) => window.syntheticMlsDevice.receive(bytes), accepted.get(pending[0].id).bytes,
+    ))
+      .toBe('survives process restart');
 
     const afterAck = await alice.evaluate(() => window.syntheticMlsDevice.send('after ack'));
+    const secondPending = await alice.evaluate(() => window.syntheticMlsDevice.pending());
+    expect(secondPending).toHaveLength(1);
+    await expect(alice.evaluate(
+      (endpoint) => window.syntheticMlsDevice.deliverPending(endpoint, true), `${url}synthetic/outbox`,
+    )).rejects.toThrow('Synthetic crash after ACK');
+    expect(accepted.size).toBe(2);
+    expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toHaveLength(1);
+    await alice.close();
+    alice = await loadPage(aliceContext);
+    expect(await alice.evaluate(
+      (endpoint) => window.syntheticMlsDevice.deliverPending(endpoint), `${url}synthetic/outbox`,
+    )).toBe(1);
+    expect(accepted.size).toBe(2);
+    expect(accepted.get(secondPending[0].id)).toEqual({ bytes: afterAck, attempts: 2 });
+    expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
     expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), afterAck))
       .toBe('after ack');
   } finally {

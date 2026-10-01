@@ -236,7 +236,22 @@ window.syntheticMlsDevice = {
     return readOutbox();
   },
 
-  async acknowledgeOutgoing(id) {
-    return deleteOutgoing(id);
+  async deliverPending(endpoint, abortAfterAck = false) {
+    return withStateLock(async () => {
+      const pending = await readOutbox();
+      for (const item of pending) {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item),
+        });
+        if (!response.ok) throw new Error(`Synthetic delivery failed: ${response.status}`);
+        const ack = await response.json();
+        if (ack.id !== item.id) throw new Error('Synthetic ACK mismatch');
+        if (abortAfterAck) throw new Error('Synthetic crash after ACK');
+        await deleteOutgoing(item.id);
+      }
+      return pending.length;
+    });
   },
 };

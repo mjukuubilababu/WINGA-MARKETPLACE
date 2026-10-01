@@ -35,6 +35,12 @@ A third Edge test closes both browser processes, reopens their separate
 persistent profiles, delivers a message recovered from Alice's outbox, and
 confirms Bob can decrypt a subsequent message. It also aborts a synthetic
 IndexedDB transaction and confirms no partial outbox entry remains.
+The localhost test server stores ciphertext by outbox ID before returning a
+synthetic 503. After a full Edge restart, Alice retries the same ciphertext;
+the server retains one logical entry and Bob decrypts it. A conflicting
+ciphertext under the same ID is rejected. A second synthetic crash after a
+successful server ACK but before local outbox deletion is recovered after a
+tab restart, again without a second logical server entry.
 
 ## Security boundary
 
@@ -46,6 +52,9 @@ this local harness. One IndexedDB transaction commits the new MLS state and
 outgoing ciphertext together, but network delivery and remote acknowledgement
 are outside that transaction. The local outbox does not provide a production
 retry policy, server idempotency or crash-safe remote ACK reconciliation. The
+synthetic server's idempotency map is only in memory, and the deliberate 503
+does not prove how every browser handles a dropped HTTP response. No durable
+server state or Winga message endpoint is exercised. The
 IndexedDB sample stores raw serialized MLS state, which includes secret
 material; it is deliberately unsuitable for production. No code in this
 directory is imported by the live app.
@@ -53,6 +62,8 @@ directory is imported by the live app.
 Pinned browser bundle measured 139,868 bytes raw and 39,129 bytes gzip on
 2026-10-01; after adding the local outbox, the separate-device bundle measured
 140,559 bytes raw and 39,300 bytes gzip on 2026-10-02.
+After the synthetic delivery/ACK test, the separate-device bundle measured
+140,925 bytes raw and 39,433 bytes gzip on 2026-10-02.
 `npm audit --omit=dev --audit-level=high` reported zero known
 advisories for these runtime dependencies at that time; this is not a crypto
 audit. The package imports `@noble/hashes` at runtime without declaring it as

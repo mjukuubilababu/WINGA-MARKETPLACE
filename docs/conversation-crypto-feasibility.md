@@ -78,6 +78,19 @@ In this harness, new MLS state and outgoing ciphertext are written in one
 IndexedDB transaction. The updated device bundle measured 140,559 bytes raw
 and 39,300 bytes gzip.
 
+The next isolated test added a localhost-only, in-memory idempotent delivery
+endpoint. It stored ciphertext by outbox ID, then deliberately returned 503.
+Alice retained the pending entry through a full Edge process restart and
+retried the same bytes; the server kept one logical entry and Bob decrypted
+it. A conflicting payload with the same ID returned 409. A separate forced
+crash after a successful ACK but before local deletion left the pending entry
+for retry after a tab restart, again with one logical server entry. These
+tests passed in headless Edge. The server map is not durable, the 503 is an
+ambiguous outcome rather than a literal dropped response, and no production
+transport was changed.
+The separate-device test bundle measured 140,925 bytes raw and 39,433 bytes
+gzip after this addition.
+
 This does not replace the OpenMLS evaluation or pass the production gate.
 `ts-mls` explicitly says it has no formal security audit, and its default
 authentication service accepts any credential. The sample puts raw serialized
