@@ -51,7 +51,10 @@ function createConversationEventStore({ withTransaction }) {
         SELECT $1,e.id,$2 FROM conversation_events e
         JOIN conversation_event_members p ON p.conversation_id=e.conversation_id AND p.owner_id=$2
         JOIN conversation_event_streams c ON c.id=e.conversation_id
-        WHERE ${allowed} AND e.position>=p.joined_position AND NOT EXISTS(
+        LEFT JOIN conversation_device_progress progress
+          ON progress.device_id=$1 AND progress.conversation_id=e.conversation_id
+        WHERE ${allowed} AND e.position>=p.joined_position
+          AND e.position>COALESCE(progress.acknowledged_position,0) AND NOT EXISTS(
           SELECT 1 FROM conversation_device_deliveries d WHERE d.device_id=$1 AND d.event_id=e.id)
         ORDER BY e.conversation_id,e.position LIMIT 100 ON CONFLICT DO NOTHING`, [context.deviceId, context.owner]);
       const result = await client.query(`SELECT ${eventFields},s.deleted AS tombstone,
@@ -85,18 +88,62 @@ function createConversationEventStore({ withTransaction }) {
       const device = await client.query(`SELECT 1 FROM conversation_delivery_devices
         WHERE device_id=$1 AND owner_id=$2 AND revoked_at IS NULL`, [context.deviceId, context.owner]);
       if (!device.rows.length) throw reject(401);
-      const result = await client.query(`SELECT d.event_id FROM conversation_device_deliveries d
-        JOIN conversation_events e ON e.id=d.event_id
+      const result = await client.query(`SELECT e.id,e.conversation_id,c.position::text AS stream_head
+        FROM conversation_events e
         JOIN conversation_event_members p ON p.conversation_id=e.conversation_id AND p.owner_id=$2
         JOIN conversation_event_streams c ON c.id=e.conversation_id
-        WHERE d.device_id=$1 AND d.owner_id=$2 AND d.event_id=ANY($3::text[])
-          AND d.offered_at IS NOT NULL AND d.cancelled_at IS NULL AND e.position>=p.joined_position AND ${allowed}
-        ORDER BY d.event_id FOR SHARE OF c`, [context.deviceId, context.owner, ids]);
+        LEFT JOIN conversation_device_deliveries d ON d.device_id=$1 AND d.event_id=e.id AND d.owner_id=$2
+        LEFT JOIN conversation_device_progress progress ON progress.device_id=$1 AND progress.conversation_id=e.conversation_id
+        WHERE e.id=ANY($3::text[]) AND e.position>=p.joined_position AND ${allowed}
+          AND ((d.offered_at IS NOT NULL AND d.cancelled_at IS NULL)
+            OR progress.acknowledged_position>=e.position)
+        ORDER BY e.conversation_id,e.position FOR SHARE OF c`, [context.deviceId, context.owner, ids]);
       if (result.rows.length !== ids.length) throw reject(409);
       await client.query(`UPDATE conversation_device_deliveries SET acknowledged_at=COALESCE(acknowledged_at,NOW())
         WHERE device_id=$1 AND event_id=ANY($2::text[])`, [context.deviceId, ids]);
+      const heads = new Map();
+      for (const event of result.rows) {
+        heads.set(event.conversation_id,event.stream_head);
+      }
+      for (const [conversationId,head] of [...heads].sort(([a],[b])=>a.localeCompare(b))) {
+        await client.query(`INSERT INTO conversation_device_progress(device_id,conversation_id)
+          VALUES($1,$2) ON CONFLICT DO NOTHING`, [context.deviceId,conversationId]);
+        const cursor = (await client.query(`SELECT acknowledged_position::text AS position
+          FROM conversation_device_progress WHERE device_id=$1 AND conversation_id=$2 FOR UPDATE`,
+        [context.deviceId,conversationId])).rows[0].position;
+        if (BigInt(head) <= BigInt(cursor)) continue;
+        const gap = await client.query(`SELECT e.position::text AS position FROM conversation_events e
+          LEFT JOIN conversation_device_deliveries d ON d.device_id=$1 AND d.event_id=e.id
+          WHERE e.conversation_id=$2 AND e.position>$3::bigint AND e.position<=$4::bigint
+            AND (d.acknowledged_at IS NULL OR d.cancelled_at IS NOT NULL)
+          ORDER BY e.position LIMIT 1`, [context.deviceId,conversationId,cursor,head]);
+        const position = gap.rows.length ? (BigInt(gap.rows[0].position)-1n).toString() : head;
+        if (BigInt(position)>BigInt(cursor)) await client.query(`UPDATE conversation_device_progress
+          SET acknowledged_position=$3::bigint WHERE device_id=$1 AND conversation_id=$2`,
+        [context.deviceId,conversationId,position]);
+      }
       // A queue ACK is not a Stored/Read receipt. Those still require exact messages.
       return { ok: true, acknowledged: ids.length };
+    });
+  }
+
+  async function pruneAcknowledgedConversationDeliveries(options = {}) {
+    const retentionDays = Number(options.retentionDays ?? 30);
+    const batchSize = Number(options.batchSize ?? 200);
+    if (!Number.isInteger(retentionDays) || retentionDays < 7 || retentionDays > 365
+      || !Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw reject();
+    return withTransaction(async client => {
+      const result = await client.query(`WITH candidates AS (
+        SELECT d.device_id,d.event_id FROM conversation_device_deliveries d
+        JOIN conversation_events e ON e.id=d.event_id
+        JOIN conversation_device_progress p ON p.device_id=d.device_id AND p.conversation_id=e.conversation_id
+        WHERE d.acknowledged_at IS NOT NULL AND d.cancelled_at IS NULL
+          AND d.acknowledged_at<NOW()-$1::int*INTERVAL '1 day'
+          AND e.position<=p.acknowledged_position
+        ORDER BY d.acknowledged_at LIMIT $2::int FOR UPDATE OF d SKIP LOCKED
+      ) DELETE FROM conversation_device_deliveries d USING candidates c
+        WHERE d.device_id=c.device_id AND d.event_id=c.event_id`, [retentionDays,batchSize]);
+      return { pruned: result.rowCount, retentionDays };
     });
   }
 
@@ -134,6 +181,7 @@ function createConversationEventStore({ withTransaction }) {
         events,cursor,hasMore:page.rows.length>limit,accessChanged:oldVersion!==stream.version };
     });
   }
-  return { registerConversationDevice,pollConversationDeviceEvents,acknowledgeConversationDeviceEvents,readConversationEvents };
+  return { registerConversationDevice,pollConversationDeviceEvents,acknowledgeConversationDeviceEvents,
+    pruneAcknowledgedConversationDeliveries,readConversationEvents };
 }
 module.exports = { createConversationEventStore,validateEventIds };

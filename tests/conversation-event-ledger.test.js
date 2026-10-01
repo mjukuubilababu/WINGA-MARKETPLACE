@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PGlite } = require('@electric-sql/pglite');
 const migration = require('../backend/migrations/conversation-event-ledger');
+const progressMigration = require('../backend/migrations/conversation-delivery-progress');
 const { createConversationEventStore, validateEventIds } = require('../backend/conversation-event-ledger');
 const { verifyConversationEvents } = require('../backend/verify-conversation-events');
 const { MIGRATIONS } = require('../backend/migrations');
@@ -11,6 +12,7 @@ test('ledger migration runs after its receipt, sequence and block dependencies o
   for(const dependency of ['2026092802_message_conversation_sequence','2026092803_message_device_receipts','2026091201_person_social_graph']) {
     assert.ok(ids.indexOf(dependency)>=0 && ids.indexOf(dependency)<ledger,dependency);
   }
+  assert.equal(ids.indexOf(progressMigration.id),ledger+1);
 });
 
 async function fixture() {
@@ -18,6 +20,7 @@ async function fixture() {
   await db.exec(require('./helpers/conversation-event-fixture'));
   const apply = () => db.transaction(async tx => { for (const sql of migration.statements) await tx.exec(sql); });
   await apply();
+  await db.transaction(async tx => { for (const sql of progressMigration.statements) await tx.exec(sql); });
   await db.exec(`CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY);
     INSERT INTO schema_migrations VALUES ('${migration.id}');`);
   const store = createConversationEventStore({ withTransaction: work => db.transaction(work) });
@@ -32,6 +35,25 @@ test('event ACK payloads are bounded and device-bound', () => {
   assert.deepEqual(validateEventIds({deviceId:'d',eventIds:[id,id]},'d'),[id]);
   for (const p of [null,{deviceId:'other',eventIds:[id]},{deviceId:'d',eventIds:[]},
     {deviceId:'d',eventIds:Array(51).fill(id)},{deviceId:'d',eventIds:['bad']}]) assert.throws(()=>validateEventIds(p,'d'));
+});
+
+test('progress migration preserves existing offered, ACKed and pending obligations', async () => {
+  const db=new PGlite();
+  try {
+    await db.exec(require('./helpers/conversation-event-fixture'));
+    await db.transaction(async tx=>{for(const sql of migration.statements)await tx.exec(sql);});
+    await db.exec(`INSERT INTO conversation_delivery_devices(device_id,owner_id) VALUES('b1','bob');
+      INSERT INTO conversation_device_deliveries(device_id,event_id,owner_id,offered_at,acknowledged_at)
+      SELECT 'b1',id,'bob',NOW(),NOW() FROM conversation_events ORDER BY position LIMIT 1;
+      INSERT INTO conversation_device_deliveries(device_id,event_id,owner_id,offered_at)
+      SELECT 'b1',id,'bob',NOW() FROM conversation_events ORDER BY position DESC LIMIT 1;`);
+    await db.transaction(async tx=>{for(const sql of progressMigration.statements)await tx.exec(sql);});
+    const rows=(await db.query(`SELECT acknowledged_at IS NOT NULL AS acked,enqueued_at IS NOT NULL AS timed
+      FROM conversation_device_deliveries ORDER BY acknowledged_at NULLS LAST`)).rows;
+    assert.deepEqual(rows,[{acked:true,timed:true},{acked:false,timed:true}]);
+    const store=createConversationEventStore({withTransaction:work=>db.transaction(work)});
+    assert.equal((await store.pollConversationDeviceEvents({owner:'bob',deviceId:'b1',token:'b1'})).events.length,1);
+  } finally {await db.close();}
 });
 
 test('ledger backfill, revisions, tombstones and snapshot rewrite are transactional', async () => {
@@ -132,6 +154,31 @@ test('large backlogs drain in bounded ordered batches without consuming another 
       assert.deepEqual(seen,Array.from({length:125},(_,i)=>String(i+1)));
       assert.equal((await poll(device)).events.length,0);
     }
+  } finally {await db.close();}
+});
+
+test('old ACK rows prune only behind a contiguous device cursor and never replay', async () => {
+  const f=await fixture(); const {db,store,context,poll}=f;
+  try {
+    const first=await poll();
+    const secondDevice=await poll('b2');
+    const ackIds=async ids=>store.acknowledgeConversationDeviceEvents(context(),{deviceId:'b1',eventIds:ids});
+    await ackIds([first.events[1].id]);
+    await db.exec("UPDATE conversation_device_deliveries SET acknowledged_at=NOW()-INTERVAL '8 days' WHERE acknowledged_at IS NOT NULL");
+    assert.equal((await store.pruneAcknowledgedConversationDeliveries({retentionDays:7})).pruned,0);
+    assert.equal((await db.query('SELECT acknowledged_position::text AS p FROM conversation_device_progress')).rows[0].p,'0');
+    await ackIds([first.events[0].id]);
+    await db.exec("UPDATE conversation_device_deliveries SET acknowledged_at=NOW()-INTERVAL '8 days' WHERE device_id='b1'");
+    assert.equal((await store.pruneAcknowledgedConversationDeliveries({retentionDays:7,batchSize:1})).pruned,1);
+    assert.equal((await store.pruneAcknowledgedConversationDeliveries({retentionDays:7,batchSize:1})).pruned,1);
+    assert.equal((await poll()).events.length,0);
+    assert.equal((await ackIds(first.events.map(e=>e.id))).acknowledged,2);
+    assert.equal((await poll('b2')).events.length,secondDevice.events.length);
+    await db.exec("INSERT INTO messages(id,sender_id,receiver_id) VALUES('later','alice','bob')");
+    const later=await poll();
+    assert.deepEqual(later.events.map(e=>e.kind),['message_created']);
+    await ackIds(later.events.map(e=>e.id));
+    assert.equal((await poll()).events.length,0);
   } finally {await db.close();}
 });
 

@@ -241,6 +241,12 @@ const COMMERCE_RESERVATION_SWEEP_INTERVAL_MS = Math.max(30 * 1000, Math.min(Numb
 const COMMERCE_RESERVATION_SWEEP_BATCH_SIZE = Math.max(1, Math.min(500, Number(process.env.COMMERCE_RESERVATION_SWEEP_BATCH_SIZE || 100) || 100));
 let commerceReservationSweepTimer = null;
 let commerceReservationSweepRunning = false;
+const configuredConversationAckRetentionDays = Number(process.env.CONVERSATION_ACK_RETENTION_DAYS || 30);
+const CONVERSATION_ACK_RETENTION_DAYS = Number.isInteger(configuredConversationAckRetentionDays)
+  ? Math.max(7, Math.min(365, configuredConversationAckRetentionDays)) : 30;
+const CONVERSATION_ACK_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+let conversationAckSweepTimer = null;
+let conversationAckSweepRunning = false;
 const PAYMENT_REFUND_SWEEP_INTERVAL_MS = Math.max(15 * 1000, Math.min(Number(process.env.PAYMENT_REFUND_SWEEP_INTERVAL_MS || 60 * 1000) || 60 * 1000, 30 * 60 * 1000));
 const PAYMENT_REFUND_SWEEP_BATCH_SIZE = Math.max(1, Math.min(100, Number(process.env.PAYMENT_REFUND_SWEEP_BATCH_SIZE || 20) || 20));
 const PAYMENT_REFUND_WORKER_ID = `${process.env.RENDER_INSTANCE_ID || process.pid}:refunds`;
@@ -1644,6 +1650,36 @@ function stopCommerceReservationSweeper() {
     clearInterval(commerceReservationSweepTimer);
     commerceReservationSweepTimer = null;
   }
+}
+
+async function sweepAcknowledgedConversationEvents() {
+  if (!postgresStore?.pruneAcknowledgedConversationDeliveries || conversationAckSweepRunning) return;
+  conversationAckSweepRunning = true;
+  try {
+    let pruned = 0;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await postgresStore.pruneAcknowledgedConversationDeliveries({
+        retentionDays: CONVERSATION_ACK_RETENTION_DAYS, batchSize: 200
+      });
+      pruned += result.pruned;
+      if (result.pruned < 200) break;
+    }
+    if (pruned) logStructuredEvent("info", "conversation_ack_retention", { pruned });
+  } catch (error) {
+    safeConsole("warn", "Conversation ACK retention failed", error?.message || error);
+  } finally {
+    conversationAckSweepRunning = false;
+  }
+}
+function startConversationAckSweeper() {
+  if (!postgresStore?.pruneAcknowledgedConversationDeliveries || conversationAckSweepTimer) return;
+  sweepAcknowledgedConversationEvents();
+  conversationAckSweepTimer = setInterval(sweepAcknowledgedConversationEvents, CONVERSATION_ACK_SWEEP_INTERVAL_MS);
+  conversationAckSweepTimer.unref?.();
+}
+function stopConversationAckSweeper() {
+  if (conversationAckSweepTimer) clearInterval(conversationAckSweepTimer);
+  conversationAckSweepTimer = null;
 }
 
 function startIntelligenceQueueWorker() {
@@ -14902,7 +14938,7 @@ function waitForServerClose() {
 
 async function waitForBackgroundWork(deadline) {
   while (Date.now() < deadline
-    && (commerceReservationSweepRunning || paymentRefundSweepRunning || adLifecycleRunning || intelligenceQueueWorkerRunning || productImageMetadataBackfillRunning)) {
+    && (commerceReservationSweepRunning || conversationAckSweepRunning || paymentRefundSweepRunning || adLifecycleRunning || intelligenceQueueWorkerRunning || productImageMetadataBackfillRunning)) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
@@ -14913,6 +14949,7 @@ function shutdownServer(signal = "SIGTERM") {
   serverLifecycle.drainingAt = new Date().toISOString();
   stopIntelligenceQueueWorker();
   stopCommerceReservationSweeper();
+  stopConversationAckSweeper();
   stopPaymentRefundSweeper();
   stopAdLifecycleSweeper();
   const dispatchStopped = messageDispatchWorker?.stop();
@@ -14970,6 +15007,7 @@ server.listen(PORT, async () => {
     }
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
+    startConversationAckSweeper();
     startPaymentRefundSweeper();
     startAdLifecycleSweeper();
     if (postgresStore?.dispatchMessageBatch && process.env.WINGA_MESSAGE_DISPATCH_ENABLED !== "false") {

@@ -119,6 +119,7 @@ const MIGRATIONS = Object.freeze([
     ])
   }),
   require("./conversation-event-ledger"),
+  require("./conversation-delivery-progress"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([

@@ -4,6 +4,7 @@ const { randomBytes } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { Pool, Client } = require('pg');
 const migration = require('../backend/migrations/conversation-event-ledger');
+const progressMigration = require('../backend/migrations/conversation-delivery-progress');
 const { createConversationEventStore } = require('../backend/conversation-event-ledger');
 const fixtureSql = require('./helpers/conversation-event-fixture');
 const {createPostgresStore}=require('../backend/db');
@@ -40,7 +41,9 @@ async function fixture(t, canonical=false) {
   try {
     if(!canonical) {
       await bootstrap.query(fixtureSql);
-      await transaction(bootstrap,async client=>{for(const sql of migration.statements)await client.query(sql);});
+      await transaction(bootstrap,async client=>{
+        for(const sql of [...migration.statements,...progressMigration.statements]) await client.query(sql);
+      });
     }
   } finally {bootstrap.release();}
   const live=canonical?createPostgresStore({queryClient:pool}):null;
@@ -81,6 +84,21 @@ test('concurrent duplicate ACK and polls preserve another device obligations',as
   assert.equal((await f.poll()).events.length,0);
   assert.equal((await f.poll('b2')).events.length,2);
   assert.equal((await f.pool.query("SELECT is_delivered FROM messages WHERE id='legacy'")).rows[0].is_delivered,false);
+});
+
+test('ACK pruning and concurrent replay preserve pending work on another device',async t=>{
+  const f=await fixture(t),first=await f.poll();await f.poll('b2');
+  await f.ack(first);
+  await f.pool.query("UPDATE conversation_device_deliveries SET acknowledged_at=NOW()-INTERVAL '8 days' WHERE device_id='b1'");
+  const [pruned,replayed]=await Promise.all([
+    f.store.pruneAcknowledgedConversationDeliveries({retentionDays:7,batchSize:1}),f.poll()
+  ]);
+  assert.ok(pruned.pruned<=1);
+  assert.deepEqual(replayed.events,[]);
+  await f.store.pruneAcknowledgedConversationDeliveries({retentionDays:7});
+  assert.deepEqual((await f.poll()).events,[]);
+  await f.ack(first);
+  assert.equal((await f.poll('b2')).events.length,first.events.length);
 });
 
 for(const operation of ['poll','ack']) test(`${operation} waiting behind a block cannot return or acknowledge hidden events`,async t=>{
