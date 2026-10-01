@@ -102,13 +102,27 @@ event produced one `new` and one `duplicate`. The device bundle measured
 already use durable PostgreSQL `message_idempotency`; this experiment does
 not exercise that production path or the conversation event queue ACK.
 
+The latest separate-device harness wraps serialized MLS group state and
+decrypted inbox content with AES-GCM before IndexedDB writes. A persisted
+non-extractable Web Crypto key survived a full Edge process restart; export
+was denied. Direct IndexedDB inspection found encrypted envelopes instead
+of the original inbox text, tampering caused decryption to fail, and deleting
+the local key caused state loading to fail closed. Its bundle measured
+143,955 bytes raw and 40,252 bytes gzip. The previous raw-state experiment
+records are not migrated: this reader rejects them. This is a desktop
+storage-adapter feasibility result, not a claim of hardware-backed keys,
+Android persistence, recovery, or protection from same-origin script
+injection. [Web Crypto](https://www.w3.org/TR/WebCryptoAPI/) documents the
+key storage model and the script-injection threat.
+
 This does not replace the OpenMLS evaluation or pass the production gate.
 `ts-mls` explicitly says it has no formal security audit, and its default
-authentication service accepts any credential. The sample puts raw serialized
-secret state and decrypted inbox content into IndexedDB, so its storage
-pattern must not be copied into the app. The first test uses two logical
-members in one runtime; the second
-uses independent browser contexts and guarded multi-tab writes, but not
+authentication service accepts any credential. Earlier versions of this
+sample stored raw secret state and inbox content; the current wrapper still
+keeps a usable decryption key in the same origin and cannot establish safe
+production key custody. The first test uses two logical members in one
+runtime; the second uses independent browser contexts and guarded multi-tab
+writes, but not
 separate physical devices. Desktop Edge process restart passed; browser
 restart on an actual Android PWA, identity binding, device verification and
 recovery have not been tested. The synthetic local outbox is not a production

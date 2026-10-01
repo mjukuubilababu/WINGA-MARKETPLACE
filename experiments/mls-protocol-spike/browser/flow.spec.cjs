@@ -243,6 +243,41 @@ test('atomic inbox and outbox recover ambiguous ACKs across Edge restarts', asyn
       ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes), firstDelivery,
     )).toEqual({ kind: 'duplicate', content: 'survives process restart' });
     expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toHaveLength(1);
+    const protectedStorage = await bob.evaluate(async (eventId) => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('winga-mls-two-context-spike-v1', 4);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        const read = (store, id) => new Promise((resolve, reject) => {
+          const request = db.transaction(store, 'readonly').objectStore(store).get(id);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const key = await read('keys', 'local');
+        const group = await read('group', 'state');
+        const inbox = await read('inbox', eventId);
+        let exportDenied = false;
+        try { await crypto.subtle.exportKey('raw', key); } catch { exportDenied = true; }
+        return {
+          keyPersisted: key instanceof CryptoKey,
+          keyExtractable: key.extractable,
+          exportDenied,
+          groupWrapped: group.v === 1 && group.iv instanceof Uint8Array
+            && group.ciphertext instanceof Uint8Array,
+          inboxWrapped: inbox.payload.v === 1 && inbox.payload.iv instanceof Uint8Array
+            && inbox.payload.ciphertext instanceof Uint8Array,
+          plaintextAbsent: !JSON.stringify(inbox).includes('survives process restart'),
+        };
+      } finally {
+        db.close();
+      }
+    }, firstEventId);
+    expect(protectedStorage).toEqual({
+      keyPersisted: true, keyExtractable: false, exportDenied: true,
+      groupWrapped: true, inboxWrapped: true, plaintextAbsent: true,
+    });
 
     const afterAck = await alice.evaluate(() => window.syntheticMlsDevice.send('after ack'));
     const secondPending = await alice.evaluate(() => window.syntheticMlsDevice.pending());
@@ -269,6 +304,49 @@ test('atomic inbox and outbox recover ambiguous ACKs across Edge restarts', asyn
       { id: `event:${secondPending[0].id}`, bytes: afterAck },
     )).toEqual({ kind: 'new', content: 'after ack' });
     expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toHaveLength(2);
+    await bob.evaluate(async (eventId) => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('winga-mls-two-context-spike-v1', 4);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('inbox', 'readwrite');
+          const store = tx.objectStore('inbox');
+          const request = store.get(eventId);
+          request.onsuccess = () => {
+            const record = request.result;
+            record.payload.ciphertext[0] ^= 1;
+            store.put(record, eventId);
+          };
+          tx.oncomplete = resolve;
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {
+        db.close();
+      }
+    }, firstEventId);
+    await expect(bob.evaluate(() => window.syntheticMlsDevice.inbox())).rejects.toThrow();
+    await bob.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('winga-mls-two-context-spike-v1', 4);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('keys', 'readwrite');
+          tx.objectStore('keys').delete('local');
+          tx.oncomplete = resolve;
+          tx.onabort = () => reject(tx.error);
+        });
+      } finally {
+        db.close();
+      }
+    });
+    await expect(bob.evaluate(() => window.syntheticMlsDevice.hasState()))
+      .rejects.toThrow('Synthetic storage key missing');
   } finally {
     if (aliceContext) await aliceContext.close();
     if (bobContext) await bobContext.close();

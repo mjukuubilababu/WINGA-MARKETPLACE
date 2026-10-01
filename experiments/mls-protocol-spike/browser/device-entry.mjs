@@ -34,24 +34,73 @@ function decodeExact(decode, values) {
 
 async function openStore() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 3);
+    const request = indexedDB.open(databaseName, 4);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains('group')) request.result.createObjectStore('group');
       if (!request.result.objectStoreNames.contains('outbox')) request.result.createObjectStore('outbox');
       if (!request.result.objectStoreNames.contains('inbox')) request.result.createObjectStore('inbox');
+      if (!request.result.objectStoreNames.contains('keys')) request.result.createObjectStore('keys');
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
+async function getStored(db, storeName, id) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).get(id);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storageKey(create) {
+  const db = await openStore();
+  try {
+    const existing = await getStored(db, 'keys', 'local');
+    if (existing) return existing;
+    if (!create || await getStored(db, 'group', 'state')) throw new Error('Synthetic storage key missing');
+    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('keys', 'readwrite');
+      tx.objectStore('keys').put(key, 'local');
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error);
+    });
+    return key;
+  } finally {
+    db.close();
+  }
+}
+
+function storageAlgorithm(iv, purpose) {
+  return { name: 'AES-GCM', iv, additionalData: textEncoder.encode(`${databaseName}:${purpose}:v1`) };
+}
+
+async function protectStored(bytes, purpose) {
+  const key = await storageKey(true);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt(storageAlgorithm(iv, purpose), key, bytes));
+  return { v: 1, iv, ciphertext };
+}
+
+async function revealStored(record, purpose) {
+  if (record?.v !== 1 || !(record.iv instanceof Uint8Array)
+    || !(record.ciphertext instanceof Uint8Array)) throw new Error('Unprotected or invalid synthetic storage');
+  const key = await storageKey(false);
+  return new Uint8Array(await crypto.subtle.decrypt(
+    storageAlgorithm(record.iv, purpose), key, record.ciphertext,
+  ));
+}
+
 async function saveOutgoing(state, bytes, abortBeforeCommit) {
+  const protectedState = await protectStored(encodeGroupState(state), 'group:state');
   const db = await openStore();
   const id = crypto.randomUUID();
   try {
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['group', 'outbox'], 'readwrite');
-      tx.objectStore('group').put(encodeGroupState(state), 'state');
+      tx.objectStore('group').put(protectedState, 'state');
       tx.objectStore('outbox').put({ id, bytes, createdAt: Date.now() }, id);
       tx.oncomplete = resolve;
       tx.onabort = () => reject(tx.error || new Error('Synthetic transaction aborted'));
@@ -80,24 +129,31 @@ async function readOutbox() {
 async function readInbox(id) {
   const db = await openStore();
   try {
-    return await new Promise((resolve, reject) => {
+    const result = await new Promise((resolve, reject) => {
       const store = db.transaction('inbox', 'readonly').objectStore('inbox');
       const request = id === undefined ? store.getAll() : store.get(id);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+    const reveal = async row => {
+      const { payload, ...metadata } = row;
+      return { ...metadata, content: textDecoder.decode(await revealStored(payload, `inbox:${row.id}`)) };
+    };
+    return await (id === undefined ? Promise.all(result.map(reveal)) : result ? reveal(result) : undefined);
   } finally {
     db.close();
   }
 }
 
 async function saveIncoming(state, record, abortBeforeCommit) {
+  const protectedState = await protectStored(encodeGroupState(state), 'group:state');
+  const payload = await protectStored(textEncoder.encode(record.content), `inbox:${record.id}`);
   const db = await openStore();
   try {
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['group', 'inbox'], 'readwrite');
-      tx.objectStore('group').put(encodeGroupState(state), 'state');
-      tx.objectStore('inbox').put(record, record.id);
+      tx.objectStore('group').put(protectedState, 'state');
+      tx.objectStore('inbox').put({ id: record.id, hash: record.hash, createdAt: record.createdAt, payload }, record.id);
       tx.oncomplete = resolve;
       tx.onabort = () => reject(tx.error || new Error('Synthetic transaction aborted'));
       if (abortBeforeCommit) tx.abort();
@@ -122,11 +178,12 @@ async function deleteOutgoing(id) {
 }
 
 async function saveState(state) {
+  const protectedState = await protectStored(encodeGroupState(state), 'group:state');
   const db = await openStore();
   try {
     await new Promise((resolve, reject) => {
       const tx = db.transaction('group', 'readwrite');
-      tx.objectStore('group').put(encodeGroupState(state), 'state');
+      tx.objectStore('group').put(protectedState, 'state');
       tx.oncomplete = resolve;
       tx.onabort = () => reject(tx.error);
     });
@@ -138,11 +195,12 @@ async function saveState(state) {
 async function loadState() {
   const db = await openStore();
   try {
-    const bytes = await new Promise((resolve, reject) => {
+    const record = await new Promise((resolve, reject) => {
       const request = db.transaction('group', 'readonly').objectStore('group').get('state');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+    const bytes = record ? await revealStored(record, 'group:state') : null;
     return bytes ? { ...decodeExact(decodeGroupState, bytes), clientConfig: defaultClientConfig } : null;
   } finally {
     db.close();

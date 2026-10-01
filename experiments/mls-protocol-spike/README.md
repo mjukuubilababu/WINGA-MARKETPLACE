@@ -48,6 +48,12 @@ restart, reoffering the same event ID and ciphertext returns `duplicate`
 without invoking MLS replay processing; changing the ciphertext under that
 ID is rejected. Two Bob tabs racing on one event produce one `new` and one
 `duplicate` result.
+The latest separate-device harness wraps serialized group state and decrypted
+inbox content with AES-GCM before writing them to IndexedDB. Its local
+non-extractable Web Crypto key also survives a full Edge process restart.
+The test checks that export is denied, raw IndexedDB records contain no
+inbox plaintext, altered ciphertext fails authentication, and missing key
+material causes a hard failure. This is storage feasibility only.
 
 ## Security boundary
 
@@ -62,12 +68,15 @@ retry policy, server idempotency or crash-safe remote ACK reconciliation. The
 synthetic server's idempotency map is only in memory, and the deliberate 503
 does not prove how every browser handles a dropped HTTP response. No durable
 server state or Winga message endpoint is exercised. The
-recipient queue ACK is not exercised either. The IndexedDB sample stores raw
-serialized MLS state and decrypted inbox content; it is deliberately
-unsuitable for production. Existing Winga plaintext message sends already
-have durable PostgreSQL idempotency, but this experiment does not integrate
-with that path. No code in this
-directory is imported by the live app.
+recipient queue ACK is not exercised either. The current sample wraps MLS
+state and inbox content, but keeps its usable key in the same browser origin.
+Same-origin script injection can still request decryption, clearing browser
+data destroys the key, and no hardware-backed storage or recovery is proven.
+Existing raw-state records from older experiment versions are not migrated;
+the new reader rejects them. This pattern is not a production security design.
+Existing Winga plaintext message sends already have durable PostgreSQL
+idempotency, but this experiment does not integrate with that path. No code
+in this directory is imported by the live app.
 
 Pinned browser bundle measured 139,868 bytes raw and 39,129 bytes gzip on
 2026-10-01; after adding the local outbox, the separate-device bundle measured
@@ -76,6 +85,8 @@ After the synthetic delivery/ACK test, the separate-device bundle measured
 140,925 bytes raw and 39,433 bytes gzip on 2026-10-02.
 With the synthetic recipient inbox, it measured 142,375 bytes raw and
 39,780 bytes gzip on 2026-10-02.
+With the experimental storage wrapper, it measured 143,955 bytes raw and
+40,252 bytes gzip on 2026-10-02.
 `npm audit --omit=dev --audit-level=high` reported zero known
 advisories for these runtime dependencies at that time; this is not a crypto
 audit. The package imports `@noble/hashes` at runtime without declaring it as
@@ -84,3 +95,4 @@ decision still requires a reviewed identity service, key lifecycle and
 recovery design, dependency/security review, and tests on actual devices.
 
 Source: https://github.com/LukaJCB/ts-mls#readme
+Web Crypto storage and threat model: https://www.w3.org/TR/WebCryptoAPI/
