@@ -91,11 +91,23 @@ transport was changed.
 The separate-device test bundle measured 140,925 bytes raw and 39,433 bytes
 gzip after this addition.
 
+The recipient-side retry gate then committed decoded MLS state and a
+synthetic inbox record in one IndexedDB transaction. A forced abort left no
+record and allowed processing the same ciphertext again. After Bob's full
+Edge process restart, a repeated event ID with the same ciphertext returned
+`duplicate` from the inbox instead of attempting MLS decryption again; a
+different ciphertext under that ID was rejected. Two Bob tabs racing on one
+event produced one `new` and one `duplicate`. The device bundle measured
+142,375 bytes raw and 39,780 bytes gzip. Existing plaintext message sends
+already use durable PostgreSQL `message_idempotency`; this experiment does
+not exercise that production path or the conversation event queue ACK.
+
 This does not replace the OpenMLS evaluation or pass the production gate.
 `ts-mls` explicitly says it has no formal security audit, and its default
 authentication service accepts any credential. The sample puts raw serialized
-secret state into IndexedDB, so its storage pattern must not be copied into
-the app. The first test uses two logical members in one runtime; the second
+secret state and decrypted inbox content into IndexedDB, so its storage
+pattern must not be copied into the app. The first test uses two logical
+members in one runtime; the second
 uses independent browser contexts and guarded multi-tab writes, but not
 separate physical devices. Desktop Edge process restart passed; browser
 restart on an actual Android PWA, identity binding, device verification and

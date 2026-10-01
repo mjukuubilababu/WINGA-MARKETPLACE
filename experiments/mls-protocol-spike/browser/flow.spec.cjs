@@ -128,6 +128,18 @@ test('separate browser contexts deliver after receiver tab restart', async ({ br
     expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), fromSecondTab))
       .toBe('second tab');
 
+    const bobSecondTab = await bobContext.newPage();
+    await bobSecondTab.goto(url);
+    await bobSecondTab.addScriptTag({ path: path.join(__dirname, 'dist', 'device.js') });
+    const concurrentDelivery = await alice.evaluate(() => window.syntheticMlsDevice.send('receiver two tabs'));
+    const received = await Promise.all([bob, bobSecondTab].map(page => page.evaluate(
+      (bytes) => window.syntheticMlsDevice.receiveEvent('synthetic-concurrent-event', bytes),
+      concurrentDelivery,
+    )));
+    expect(received.map(item => item.kind).sort()).toEqual(['duplicate', 'new']);
+    expect(received.map(item => item.content)).toEqual(['receiver two tabs', 'receiver two tabs']);
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toHaveLength(1);
+
     expect(await alice.evaluate(() => localStorage.length)).toBe(0);
     expect(await bob.evaluate(() => localStorage.length)).toBe(0);
   } finally {
@@ -136,7 +148,7 @@ test('separate browser contexts deliver after receiver tab restart', async ({ br
   }
 });
 
-test('atomic outbox retries idempotently after ambiguous ACK and Edge process restart', async () => {
+test('atomic inbox and outbox recover ambiguous ACKs across Edge restarts', async () => {
   test.setTimeout(120000);
   accepted.clear();
   failNextAck = false;
@@ -214,10 +226,23 @@ test('atomic outbox retries idempotently after ambiguous ACK and Edge process re
     expect(accepted.get(pending[0].id)).toEqual({ bytes: queuedBytes, attempts: 2 });
     expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
     expect(await bob.evaluate(() => window.syntheticMlsDevice.hasState())).toBe(true);
+    const firstEventId = `event:${pending[0].id}`;
+    const firstDelivery = { id: firstEventId, bytes: accepted.get(pending[0].id).bytes };
+    await expect(bob.evaluate(
+      ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes, true), firstDelivery,
+    )).rejects.toThrow('Synthetic transaction aborted');
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toEqual([]);
     expect(await bob.evaluate(
-      (bytes) => window.syntheticMlsDevice.receive(bytes), accepted.get(pending[0].id).bytes,
-    ))
-      .toBe('survives process restart');
+      ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes), firstDelivery,
+    )).toEqual({ kind: 'new', content: 'survives process restart' });
+    await bobContext.close();
+    bobContext = undefined;
+    bobContext = await launch('bob');
+    bob = await loadPage(bobContext);
+    expect(await bob.evaluate(
+      ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes), firstDelivery,
+    )).toEqual({ kind: 'duplicate', content: 'survives process restart' });
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toHaveLength(1);
 
     const afterAck = await alice.evaluate(() => window.syntheticMlsDevice.send('after ack'));
     const secondPending = await alice.evaluate(() => window.syntheticMlsDevice.pending());
@@ -235,8 +260,15 @@ test('atomic outbox retries idempotently after ambiguous ACK and Edge process re
     expect(accepted.size).toBe(2);
     expect(accepted.get(secondPending[0].id)).toEqual({ bytes: afterAck, attempts: 2 });
     expect(await alice.evaluate(() => window.syntheticMlsDevice.pending())).toEqual([]);
-    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), afterAck))
-      .toBe('after ack');
+    await expect(bob.evaluate(
+      ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes),
+      { id: firstEventId, bytes: afterAck },
+    )).rejects.toThrow('Synthetic event ciphertext conflict');
+    expect(await bob.evaluate(
+      ({ id, bytes }) => window.syntheticMlsDevice.receiveEvent(id, bytes),
+      { id: `event:${secondPending[0].id}`, bytes: afterAck },
+    )).toEqual({ kind: 'new', content: 'after ack' });
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.inbox())).toHaveLength(2);
   } finally {
     if (aliceContext) await aliceContext.close();
     if (bobContext) await bobContext.close();
