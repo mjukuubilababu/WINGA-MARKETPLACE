@@ -37,3 +37,17 @@ PostgreSQL 18 tests passed, including out-of-order ACKs, old ACK pruning,
 upgrade with pre-existing queue rows, concurrent poll/prune and isolation of a
 second device's pending work. The
 PostgreSQL suite used only a disposable localhost cluster and synthetic data.
+
+## Production verification
+
+The operator supplied a read-only Render verifier result after release
+`58f5f40a44cd42d6bd81788096a1fb212d5ae781`: `ok:true`, migration, queue,
+progress table and triggers present, with sequence, queue and progress consistency
+all true. It reported 8 conversations, 129 events, two registered devices,
+138 acknowledged obligations and 49 pending obligations on one device. The oldest
+pending obligation was 91 seconds old, maximum pending attempts was one, and none
+was older than 24 hours. That snapshot shows no aged backlog; it does not prove
+future queue drainage or identify the device. The verifier's two exercise fields
+remain false by design because it does not perform physical-device or concurrent
+connection tests. Separate physical-device delivery was reported by the operator
+for the preceding release, and local PostgreSQL concurrency tests are listed above.
