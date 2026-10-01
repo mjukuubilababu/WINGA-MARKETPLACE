@@ -37,6 +37,8 @@ const { getOrSetCache, deleteCachePrefix, closeCache } = require("./cache");
 const { createAdsApi } = require("./ads-api");
 const { createConversationOffersApi } = require("./conversation-offers-api");
 const { createConversationAvailabilityApi } = require("./conversation-availability-api");
+const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
+const conversationTransport = createConversationTransport();
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "";
@@ -6468,6 +6470,244 @@ function evaluateClientEventIngestion(payload = {}, req, session) {
   };
 }
 
+async function handleMessageSend(req, res, { store, clientIp, url, transportContext = null, transportPayload = null }) {
+  const token = transportContext?.token || readAuthToken(req);
+  const session = transportContext || findSession(store, token);
+  const sender = ensureMarketplaceUser(store, session, res);
+  if (!sender) {
+    return;
+  }
+
+  const payload = transportPayload || await collectBody(req);
+  let clientMessageId;
+  try {
+    clientMessageId = readMessageIdempotencyKey(req.headers, payload);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message, code: "invalid_message_idempotency_key" });
+    return;
+  }
+  if (clientMessageId && !postgresStore?.createMessageWithNotification) {
+    sendJson(res, 503, { error: "Durable message retries require PostgreSQL.", code: "message_idempotency_unavailable" });
+    return;
+  }
+  const normalizedPayload = normalizeMessageRecord({
+    ...payload,
+    senderId: sender.username,
+    conversationSequence: null
+  });
+  const requestHash = clientMessageId ? messageRequestHash(normalizedPayload) : "";
+  const validationError = validateMessagePayload(normalizedPayload);
+  if (validationError) {
+    sendJson(res, 400, { error: validationError });
+    return;
+  }
+
+  if (normalizedPayload.receiverId === sender.username) {
+    sendJson(res, 400, { error: "Huwezi kujitumia ujumbe mwenyewe." });
+    return;
+  }
+
+  const receiver = getUserByUsername(store, normalizedPayload.receiverId);
+  if (!receiver) {
+    sendJson(res, 404, { error: "User wa kuongea naye hajapatikana." });
+    return;
+  }
+  if (isRestrictedUserStatus(receiver.status)) {
+    sendJson(res, 403, { error: "Akaunti hiyo haiwezi kupokea chat kwa sasa." });
+    return;
+  }
+  if (postgresStore?.hasUserBlockBetween
+    && await postgresStore.hasUserBlockBetween(sender.username, receiver.username)) {
+    sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
+    return;
+  }
+
+  if (normalizedPayload.messageType === "contact_share") {
+    const isPersonToPersonShare = canCreateMarketplaceSupply(sender.role)
+      && canCreateMarketplaceSupply(receiver.role);
+    if (!isPersonToPersonShare) {
+      sendJson(res, 403, { error: "Phone sharing inaruhusiwa kati ya accounts za kawaida tu." });
+      return;
+    }
+    if (!hasPersonCommerceRelationship(store, sender.username, receiver.username)) {
+      sendJson(res, 403, { error: "Shiriki namba baada ya kuanza mazungumzo au order na mtu huyu." });
+      return;
+    }
+    normalizedPayload.message = normalizedPayload.message || "Nimekushirikisha namba yangu kwa mawasiliano ya moja kwa moja.";
+  }
+
+  if (normalizedPayload.productId) {
+    const relatedProduct = getProductById(store, normalizedPayload.productId);
+    if (!relatedProduct) {
+      sendJson(res, 404, { error: "Bidhaa ya chat haijapatikana." });
+      return;
+    }
+    normalizedPayload.productName = normalizedPayload.productName || relatedProduct.name;
+    if (normalizedPayload.receiverId !== relatedProduct.uploadedBy && sender.username !== relatedProduct.uploadedBy) {
+      sendJson(res, 403, { error: "Chat hii haihusiani na seller wa bidhaa hiyo." });
+      return;
+    }
+  }
+
+  const recentDuplicateMessage = ((store.messages || []).map(normalizeMessageRecord)).find((item) =>
+    item.senderId === sender.username
+    && item.receiverId === normalizedPayload.receiverId
+    && item.productId === normalizedPayload.productId
+    && item.message === normalizedPayload.message
+    && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 30 * 1000
+  );
+  if (recentDuplicateMessage && !clientMessageId) {
+    sendJson(res, 429, { error: "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia." });
+    return;
+  }
+  const recentBurstCount = ((store.messages || []).map(normalizeMessageRecord)).filter((item) =>
+    item.senderId === sender.username
+    && item.receiverId === normalizedPayload.receiverId
+    && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 60 * 1000
+  ).length;
+  if (recentBurstCount >= 5 && !clientMessageId) {
+    sendJson(res, 429, { error: "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const nextMessage = normalizeMessageRecord({
+    ...normalizedPayload,
+    createdAt: now,
+    updatedAt: now,
+    timestamp: now,
+    deliveredAt: "",
+    isDelivered: false,
+    isRead: false,
+    readAt: ""
+  });
+  const notificationType = nextMessage.messageType === "product_inquiry" ? "request" : "message";
+  const requestSummary = nextMessage.productItems.length > 1
+    ? `${nextMessage.productItems.length} bidhaa`
+    : sanitizePlainText(nextMessage.productName || "bidhaa", 80);
+  const messageSnippet = sanitizePlainText(nextMessage.message, 140);
+  const senderDisplayName = sanitizePlainText(sender.fullName || sender.username, 80) || sender.username;
+  const notification = normalizeNotificationRecord({
+    userId: normalizedPayload.receiverId,
+    actorUsername: sender.username,
+    type: notificationType,
+    messageId: nextMessage.id,
+    conversationId: nextMessage.conversationId,
+    title: nextMessage.messageType === "contact_share"
+      ? `${senderDisplayName} ameshare namba yake`
+      : notificationType === "request"
+        ? `${senderDisplayName} ameomba maelezo kuhusu ${requestSummary}`
+        : `${senderDisplayName} ame reply kuhusu ${sanitizePlainText(nextMessage.productName || "bidhaa yako", 80)}`,
+    body: nextMessage.messageType === "contact_share"
+      ? "Sasa unaweza kumuona na kuwasiliana naye moja kwa moja ukiihitaji."
+      : notificationType === "request"
+        ? (messageSnippet || "Fungua mazungumzo uone bidhaa alizochagua na maelezo yake.")
+        : (messageSnippet || "Fungua mazungumzo uone ujumbe mpya."),
+    variant: notificationType === "request" ? "success" : "info",
+    isRead: false,
+    createdAt: now
+  });
+
+  const messages = [...((store.messages || []).map(normalizeMessageRecord)), nextMessage];
+  const notifications = [notification, ...((store.notifications || []).map(normalizeNotificationRecord))];
+  let users = (store.users || []).map(normalizeUserRecord);
+  if (nextMessage.messageType === "contact_share") {
+    users = users.map((user) => {
+      if (user.username !== sender.username) {
+        return user;
+      }
+      return normalizeUserRecord({
+        ...user,
+        sharedPhoneViewerIds: [...getSharedPhoneViewerIds(user), receiver.username],
+        updatedAt: now
+      });
+    });
+  }
+  store = { ...store, users, messages, notifications };
+  if (postgresStore?.createMessageWithNotification) {
+    const messageResult = await postgresStore.createMessageWithNotification(
+      nextMessage,
+      notification,
+      {
+        clientMessageId,
+        requestHash,
+        authorization: { token, owner: sender.username, deviceId: session.sessionId,
+          requireRegisteredDevice: Boolean(transportContext) },
+        sharePhoneWith: nextMessage.messageType === "contact_share" ? receiver.username : ""
+      }
+    );
+    if (messageResult.replayed) {
+      sendJson(res, 200, normalizeMessageRecord(messageResult.message));
+      return;
+    }
+    if (!messageResult.created) {
+      if (messageResult.code === "message_unauthorized") {
+        sendJson(res, 401, { code: "message_unauthorized" });
+        return;
+      }
+      if (["message_idempotency_conflict", "message_retry_deleted"].includes(messageResult.code)) {
+        sendJson(res, messageResult.code === "message_retry_deleted" ? 410 : 409, {
+          error: "The message retry cannot be applied.", code: messageResult.code
+        });
+        return;
+      }
+      if (messageResult.code === "message_blocked") {
+        sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
+        return;
+      }
+      const isDuplicate = messageResult.code === "duplicate_message";
+      sendJson(res, 429, {
+        error: isDuplicate
+          ? "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia."
+          : "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena.",
+        code: messageResult.code
+      });
+      return;
+    }
+    nextMessage.conversationSequence = messageResult.conversationSequence;
+  } else {
+    await writeStore(store);
+  }
+  await appendAuditLog({
+    time: now,
+    ip: clientIp,
+    method: req.method,
+    path: url.pathname,
+    event: "message_sent",
+    username: sender.username,
+    receiverId: normalizedPayload.receiverId,
+    productId: normalizedPayload.productId || ""
+  });
+  dispatchBusinessIntelligenceEvent({
+    event: "conversation_signal",
+    req,
+    session,
+    productId: normalizedPayload.productId,
+    sellerId: normalizedPayload.receiverId,
+    context: { messageId: nextMessage.id, messageType: nextMessage.messageType }
+  });
+  if (normalizedPayload.productId) {
+    scheduleCommerceOutcomeAttribution({
+      session,
+      productId: normalizedPayload.productId,
+      outcomeType: "messaged",
+      messageId: nextMessage.id,
+      metadata: { source: "product_message" }
+    });
+  }
+  if (!postgresStore) {
+    emitLiveEvent(sender.username, "message", { message: nextMessage });
+    emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
+    await emitAuthorizedNotification(notification);
+    if (nextMessage.messageType === "contact_share") {
+      emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
+      emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
+    }
+  }
+  sendJson(res, 200, nextMessage);
+  return;
+}
+
 function collectBody(req, options = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -6501,7 +6741,7 @@ function collectBody(req, options = {}) {
         return;
       }
       totalBytes += chunk.length;
-      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+      if (totalBytes > Math.min(options.maxBytes || MAX_REQUEST_BODY_BYTES, MAX_REQUEST_BODY_BYTES)) {
         const error = new Error("PAYLOAD_TOO_LARGE");
         error.code = "PAYLOAD_TOO_LARGE";
         error.status = 413;
@@ -7570,6 +7810,36 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/internal/conversations/command") {
+    res.setHeader("Cache-Control", "private, no-store");
+    if (!conversationTransport.enabled) { sendJson(res, 404, { code: "not_found" }); return; }
+    if (req.method !== "POST" || !conversationTransport.serviceAllowed(req)) {
+      sendJson(res, 401, { code: "transport_unauthorized" }, { "Cache-Control": "no-store" }); return;
+    }
+    if (!postgresStore?.resolveConversationTransportSession) {
+      sendJson(res, 503, { code: "transport_unavailable" }); return;
+    }
+    try {
+      if (!isJsonContentType(req.headers["content-type"])) {
+        sendJson(res, 415, { code: "unsupported_media_type" }); return;
+      }
+      const command = conversationTransport.validateCommand(await collectBody(req, { maxBytes: MAX_COMMAND_BYTES }));
+      const context = await conversationTransport.authorize(command.ticket, postgresStore);
+      if (command.command === "send") {
+        const messageStore = migrateLegacyStore(cleanupSessions(await readStore())).store;
+        await handleMessageSend(req, res, { store: messageStore, clientIp: getClientIp(req), url,
+          transportContext: context, transportPayload: command.payload });
+      } else {
+        sendJson(res, 200, await conversationTransport.execute(context, command, postgresStore),
+          { "Cache-Control": "private, no-store" });
+      }
+    } catch (error) {
+      const status = [400,401,403,404,409,410,413,429].includes(error.status) ? error.status : 503;
+      sendJson(res, status, { code: "transport_request_rejected" }, { "Cache-Control": "no-store" });
+    }
+    return;
+  }
+
   const originStatus = validateUnsafeApiOrigin(req, url.pathname);
   if (!originStatus.ok) {
     requestMeta.statusCode = 403;
@@ -7622,6 +7892,7 @@ const server = http.createServer(async (req, res) => {
       || (req.method === "POST" && url.pathname === "/api/messages/receipts")
       || url.pathname.startsWith("/api/messages/device-events/") || url.pathname === "/api/messages/events"
       || url.pathname.startsWith("/api/messages/push/")
+      || url.pathname === "/api/messages/transport-ticket"
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -10892,6 +11163,19 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (url.pathname === "/api/messages/transport-ticket" && req.method === "POST") {
+        if (!conversationTransport.enabled || !postgresStore?.registerConversationDevice) {
+          sendJson(res, 404, { code: "transport_unavailable" }); return;
+        }
+        const token = readAuthToken(req);
+        const session = findSession(store, token);
+        const user = ensureMarketplaceUser(store, session, res);
+        if (!user) return;
+        await postgresStore.registerConversationDevice({ owner: user.username, token, deviceId: session.sessionId });
+        sendJson(res, 200, conversationTransport.issue(session), { "Cache-Control": "no-store" });
+        return;
+      }
+
       if (url.pathname === "/api/messages/device" && req.method === "GET") {
         const session = findSession(store, readAuthToken(req));
         const user = ensureMarketplaceUser(store, session, res);
@@ -11517,234 +11801,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === "POST" && url.pathname === "/api/messages") {
-        const token = readAuthToken(req);
-        const session = findSession(store, token);
-        const sender = ensureMarketplaceUser(store, session, res);
-        if (!sender) {
-          return;
-        }
-
-        const payload = await collectBody(req);
-        let clientMessageId;
-        try {
-          clientMessageId = readMessageIdempotencyKey(req.headers, payload);
-        } catch (error) {
-          sendJson(res, 400, { error: error.message, code: "invalid_message_idempotency_key" });
-          return;
-        }
-        if (clientMessageId && !postgresStore?.createMessageWithNotification) {
-          sendJson(res, 503, { error: "Durable message retries require PostgreSQL.", code: "message_idempotency_unavailable" });
-          return;
-        }
-        const normalizedPayload = normalizeMessageRecord({
-          ...payload,
-          senderId: sender.username,
-          conversationSequence: null
-        });
-        const requestHash = clientMessageId ? messageRequestHash(normalizedPayload) : "";
-        const validationError = validateMessagePayload(normalizedPayload);
-        if (validationError) {
-          sendJson(res, 400, { error: validationError });
-          return;
-        }
-
-        if (normalizedPayload.receiverId === sender.username) {
-          sendJson(res, 400, { error: "Huwezi kujitumia ujumbe mwenyewe." });
-          return;
-        }
-
-        const receiver = getUserByUsername(store, normalizedPayload.receiverId);
-        if (!receiver) {
-          sendJson(res, 404, { error: "User wa kuongea naye hajapatikana." });
-          return;
-        }
-        if (isRestrictedUserStatus(receiver.status)) {
-          sendJson(res, 403, { error: "Akaunti hiyo haiwezi kupokea chat kwa sasa." });
-          return;
-        }
-        if (postgresStore?.hasUserBlockBetween
-          && await postgresStore.hasUserBlockBetween(sender.username, receiver.username)) {
-          sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
-          return;
-        }
-
-        if (normalizedPayload.messageType === "contact_share") {
-          const isPersonToPersonShare = canCreateMarketplaceSupply(sender.role)
-            && canCreateMarketplaceSupply(receiver.role);
-          if (!isPersonToPersonShare) {
-            sendJson(res, 403, { error: "Phone sharing inaruhusiwa kati ya accounts za kawaida tu." });
-            return;
-          }
-          if (!hasPersonCommerceRelationship(store, sender.username, receiver.username)) {
-            sendJson(res, 403, { error: "Shiriki namba baada ya kuanza mazungumzo au order na mtu huyu." });
-            return;
-          }
-          normalizedPayload.message = normalizedPayload.message || "Nimekushirikisha namba yangu kwa mawasiliano ya moja kwa moja.";
-        }
-
-        if (normalizedPayload.productId) {
-          const relatedProduct = getProductById(store, normalizedPayload.productId);
-          if (!relatedProduct) {
-            sendJson(res, 404, { error: "Bidhaa ya chat haijapatikana." });
-            return;
-          }
-          normalizedPayload.productName = normalizedPayload.productName || relatedProduct.name;
-          if (normalizedPayload.receiverId !== relatedProduct.uploadedBy && sender.username !== relatedProduct.uploadedBy) {
-            sendJson(res, 403, { error: "Chat hii haihusiani na seller wa bidhaa hiyo." });
-            return;
-          }
-        }
-
-        const recentDuplicateMessage = ((store.messages || []).map(normalizeMessageRecord)).find((item) =>
-          item.senderId === sender.username
-          && item.receiverId === normalizedPayload.receiverId
-          && item.productId === normalizedPayload.productId
-          && item.message === normalizedPayload.message
-          && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 30 * 1000
-        );
-        if (recentDuplicateMessage && !clientMessageId) {
-          sendJson(res, 429, { error: "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia." });
-          return;
-        }
-        const recentBurstCount = ((store.messages || []).map(normalizeMessageRecord)).filter((item) =>
-          item.senderId === sender.username
-          && item.receiverId === normalizedPayload.receiverId
-          && (Date.now() - new Date(item.createdAt || item.timestamp || 0).getTime()) < 60 * 1000
-        ).length;
-        if (recentBurstCount >= 5 && !clientMessageId) {
-          sendJson(res, 429, { error: "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena." });
-          return;
-        }
-
-        const now = new Date().toISOString();
-        const nextMessage = normalizeMessageRecord({
-          ...normalizedPayload,
-          createdAt: now,
-          updatedAt: now,
-          timestamp: now,
-          deliveredAt: "",
-          isDelivered: false,
-          isRead: false,
-          readAt: ""
-        });
-        const notificationType = nextMessage.messageType === "product_inquiry" ? "request" : "message";
-        const requestSummary = nextMessage.productItems.length > 1
-          ? `${nextMessage.productItems.length} bidhaa`
-          : sanitizePlainText(nextMessage.productName || "bidhaa", 80);
-        const messageSnippet = sanitizePlainText(nextMessage.message, 140);
-        const senderDisplayName = sanitizePlainText(sender.fullName || sender.username, 80) || sender.username;
-        const notification = normalizeNotificationRecord({
-          userId: normalizedPayload.receiverId,
-          actorUsername: sender.username,
-          type: notificationType,
-          messageId: nextMessage.id,
-          conversationId: nextMessage.conversationId,
-          title: nextMessage.messageType === "contact_share"
-            ? `${senderDisplayName} ameshare namba yake`
-            : notificationType === "request"
-              ? `${senderDisplayName} ameomba maelezo kuhusu ${requestSummary}`
-              : `${senderDisplayName} ame reply kuhusu ${sanitizePlainText(nextMessage.productName || "bidhaa yako", 80)}`,
-          body: nextMessage.messageType === "contact_share"
-            ? "Sasa unaweza kumuona na kuwasiliana naye moja kwa moja ukiihitaji."
-            : notificationType === "request"
-              ? (messageSnippet || "Fungua mazungumzo uone bidhaa alizochagua na maelezo yake.")
-              : (messageSnippet || "Fungua mazungumzo uone ujumbe mpya."),
-          variant: notificationType === "request" ? "success" : "info",
-          isRead: false,
-          createdAt: now
-        });
-
-        const messages = [...((store.messages || []).map(normalizeMessageRecord)), nextMessage];
-        const notifications = [notification, ...((store.notifications || []).map(normalizeNotificationRecord))];
-        let users = (store.users || []).map(normalizeUserRecord);
-        if (nextMessage.messageType === "contact_share") {
-          users = users.map((user) => {
-            if (user.username !== sender.username) {
-              return user;
-            }
-            return normalizeUserRecord({
-              ...user,
-              sharedPhoneViewerIds: [...getSharedPhoneViewerIds(user), receiver.username],
-              updatedAt: now
-            });
-          });
-        }
-        store = { ...store, users, messages, notifications };
-        if (postgresStore?.createMessageWithNotification) {
-          const messageResult = await postgresStore.createMessageWithNotification(
-            nextMessage,
-            notification,
-            {
-              clientMessageId,
-              requestHash,
-              sharePhoneWith: nextMessage.messageType === "contact_share" ? receiver.username : ""
-            }
-          );
-          if (messageResult.replayed) {
-            sendJson(res, 200, normalizeMessageRecord(messageResult.message));
-            return;
-          }
-          if (!messageResult.created) {
-            if (["message_idempotency_conflict", "message_retry_deleted"].includes(messageResult.code)) {
-              sendJson(res, messageResult.code === "message_retry_deleted" ? 410 : 409, {
-                error: "The message retry cannot be applied.", code: messageResult.code
-              });
-              return;
-            }
-            if (messageResult.code === "message_blocked") {
-              sendJson(res, 403, { error: "Mazungumzo haya yamezuiwa.", code: "conversation_blocked" });
-              return;
-            }
-            const isDuplicate = messageResult.code === "duplicate_message";
-            sendJson(res, 429, {
-              error: isDuplicate
-                ? "Ujumbe huo huo umetumwa hivi karibuni. Subiri kidogo kabla ya kurudia."
-                : "Ujumbe mwingi sana umetumwa kwa muda mfupi. Subiri kidogo ujaribu tena.",
-              code: messageResult.code
-            });
-            return;
-          }
-          nextMessage.conversationSequence = messageResult.conversationSequence;
-        } else {
-          await writeStore(store);
-        }
-        await appendAuditLog({
-          time: now,
-          ip: clientIp,
-          method: req.method,
-          path: url.pathname,
-          event: "message_sent",
-          username: sender.username,
-          receiverId: normalizedPayload.receiverId,
-          productId: normalizedPayload.productId || ""
-        });
-        dispatchBusinessIntelligenceEvent({
-          event: "conversation_signal",
-          req,
-          session,
-          productId: normalizedPayload.productId,
-          sellerId: normalizedPayload.receiverId,
-          context: { messageId: nextMessage.id, messageType: nextMessage.messageType }
-        });
-        if (normalizedPayload.productId) {
-          scheduleCommerceOutcomeAttribution({
-            session,
-            productId: normalizedPayload.productId,
-            outcomeType: "messaged",
-            messageId: nextMessage.id,
-            metadata: { source: "product_message" }
-          });
-        }
-        if (!postgresStore) {
-          emitLiveEvent(sender.username, "message", { message: nextMessage });
-          emitLiveEvent(normalizedPayload.receiverId, "message", { message: nextMessage });
-          await emitAuthorizedNotification(notification);
-          if (nextMessage.messageType === "contact_share") {
-            emitLiveEvent(sender.username, "users", { reason: "contact_share", username: sender.username });
-            emitLiveEvent(normalizedPayload.receiverId, "users", { reason: "contact_share", username: sender.username });
-          }
-        }
-        sendJson(res, 200, nextMessage);
+        await handleMessageSend(req, res, { store, clientIp, url });
         return;
       }
 

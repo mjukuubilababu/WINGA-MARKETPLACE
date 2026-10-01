@@ -4210,6 +4210,24 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const retryKey = readMessageIdempotencyKey({}, options.clientMessageId ? { clientMessageId: options.clientMessageId } : {});
     const requestHash = retryKey ? options.requestHash || messageRequestHash(message) : "";
     return withTransaction(async (client) => {
+      if (options.authorization) {
+        const auth = options.authorization;
+        const authorized = auth.owner === message.senderId && await client.query(
+          `SELECT s.session_id FROM sessions s JOIN users u ON u.username=s.username
+           WHERE s.token=$1 AND s.username=$2 AND s.session_id=$3
+             AND s.expires_at>$4 AND u.status='active' FOR SHARE OF s`,
+          [auth.token, auth.owner, auth.deviceId, Date.now()]
+        );
+        if (!authorized || !authorized.rowCount) return { created: false, code: "message_unauthorized" };
+        if (auth.requireRegisteredDevice) {
+          const device = await client.query(
+            `SELECT device_id FROM conversation_delivery_devices
+             WHERE device_id=$1 AND owner_id=$2 AND revoked_at IS NULL FOR SHARE`,
+            [auth.deviceId, auth.owner]
+          );
+          if (!device.rowCount) return { created: false, code: "message_unauthorized" };
+        }
+      }
       const participantKey = [message.senderId, message.receiverId].sort().join(":");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`winga-message:${participantKey}`]);
       const blockResult = await client.query(
@@ -5335,6 +5353,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        WHERE s.token = $1 AND s.username = $2 AND s.expires_at > $3`,
       [token, username, Date.now()]
     );
+    return result.rows[0] || null;
+  }
+
+  async function resolveConversationTransportSession(sessionId, username) {
+    const result = await query(`SELECT s.token,s.username,s.session_id AS "sessionId",s.expires_at AS "expiresAt"
+      FROM sessions s JOIN users u ON u.username=s.username
+      JOIN conversation_delivery_devices d ON d.device_id=s.session_id AND d.owner_id=s.username
+      WHERE s.session_id=$1 AND s.username=$2 AND s.expires_at>$3
+        AND u.status='active' AND d.revoked_at IS NULL`, [sessionId,username,Date.now()]);
     return result.rows[0] || null;
   }
 
@@ -9874,6 +9901,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     replaceSession,
     deleteSessionByToken,
     readRealtimeSession,
+    resolveConversationTransportSession,
     deleteSessionById,
     createUserWithSession,
     createLoginSession,

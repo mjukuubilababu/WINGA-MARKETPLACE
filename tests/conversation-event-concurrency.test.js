@@ -168,6 +168,30 @@ test('registration racing with event commit is repaired by lazy per-device backf
   await f.ack(batch);assert.equal((await f.poll()).events.length,0);
 });
 
+for (const revoked of ['session', 'device']) test(`canonical transport send waits for and respects committed ${revoked} revocation`, async t => {
+  const f = await fixture(t, true);
+  await f.pool.query(`INSERT INTO users(username,password,phone_number,primary_category,role,created_at)
+    VALUES('alice','no-login','synthetic-a','general','seller',NOW()),
+          ('bob','no-login','synthetic-b','general','buyer',NOW());
+    INSERT INTO sessions(token,session_id,username,expires_at) VALUES('a1','a1','alice',9999999999999);
+    INSERT INTO conversation_delivery_devices(device_id,owner_id) VALUES('a1','alice');`);
+  const blocker = await f.client(), waiter = await f.client();
+  await blocker.query('BEGIN');
+  await blocker.query(revoked === 'session'
+    ? "DELETE FROM sessions WHERE session_id='a1'"
+    : "UPDATE conversation_delivery_devices SET revoked_at=NOW() WHERE device_id='a1'");
+  const writer = createPostgresStore({queryClient: {query: waiter.query.bind(waiter)}});
+  const pending = writer.createMessageWithNotification({
+    id: 'must-not-commit', senderId: 'alice', receiverId: 'bob',
+    message: 'synthetic revoked send', createdAt: new Date().toISOString()
+  }, null, {authorization: {token: 'a1', owner: 'alice', deviceId: 'a1', requireRegisteredDevice: true}});
+  pending.catch(() => {});
+  await f.blocked(waiter, blocker);
+  await blocker.query('COMMIT');
+  assert.deepEqual(await pending, {created: false, code: 'message_unauthorized'});
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n, 0);
+});
+
 test('full canonical bootstrap, Stored/Read, snapshot restore and deletion work on real PostgreSQL',async t=>{
   const f=await fixture(t,true),store=f.live;
   await f.pool.query(`INSERT INTO users(username,password,phone_number,primary_category,role,created_at)

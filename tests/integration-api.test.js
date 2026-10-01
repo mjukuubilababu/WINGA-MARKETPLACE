@@ -59,6 +59,15 @@ test("conversation ledger and device queue reject unauthenticated access and mis
   }
 });
 
+test("Phoenix endpoints remain disabled without changing the browser CSRF boundary", async () => {
+  const options = {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'};
+  const internal = await request('/internal/conversations/command', {...options, skipCsrf: true});
+  assert.equal(internal.response.status, 404);
+  assert.match(internal.response.headers.get('cache-control'), /no-store/);
+  assert.equal((await request('/messages/transport-ticket', {...options, skipCsrf: true})).response.status, 403);
+  assert.equal((await request('/messages/transport-ticket', options)).response.status, 404);
+});
+
 test("push subscription writes reject missing authentication and CSRF", async () => {
   for (const method of ["POST", "DELETE"]) {
     const options = { method, headers: { "Content-Type": "application/json" }, body: "{}" };
