@@ -63,11 +63,19 @@ test also confirmed that synthetic serialized state bytes remain in IndexedDB
 after a tab is closed and reopened. Its minified bundle was 139,868 bytes raw
 and 39,129 bytes gzip in this configuration.
 
+A second Edge test passed with Alice and Bob in independent browser contexts
+and IndexedDB stores. Bob decrypted a new message after his tab reopened. Two
+Alice tabs sent concurrently under a Web Locks guard, and Bob decrypted both;
+this test also passed three repeated runs. The separate-device bundle measured
+139,475 bytes raw and 38,997 bytes gzip.
+
 This does not replace the OpenMLS evaluation or pass the production gate.
 `ts-mls` explicitly says it has no formal security audit, and its default
 authentication service accepts any credential. The sample puts raw serialized
 secret state into IndexedDB, so its storage pattern must not be copied into
-the app. The tests use two logical members in one runtime, not two independent
-browser/device stores; decryption after full process restart, Android PWA,
-identity binding, device verification, recovery and multi-tab writes remain
-unproven. No Winga message endpoint or UI was changed.
+the app. The first test uses two logical members in one runtime; the second
+uses independent browser contexts and guarded multi-tab writes, but not
+separate physical devices. Full browser-process restart, Android PWA, identity
+binding, device verification and recovery remain unproven. Web Locks do not
+make local state and remote message delivery atomic, and this spike has no
+durable outbox. No Winga message endpoint or UI was changed.

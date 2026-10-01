@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "build:browser": "esbuild browser/entry.mjs --bundle --minify --platform=browser --format=iife --outfile=browser/dist/spike.js"
+    "build:browser": "esbuild browser/entry.mjs --bundle --minify --platform=browser --format=iife --outfile=browser/dist/spike.js",
+    "build:devices": "esbuild browser/device-entry.mjs --bundle --minify --platform=browser --format=iife --outfile=browser/dist/device.js"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",

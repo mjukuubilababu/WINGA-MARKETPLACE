@@ -54,3 +54,54 @@ test('synthetic MLS flow runs in Edge with IndexedDB state roundtrip and tab per
   });
   expect(storedBytes).toBeGreaterThan(0);
 });
+
+test('separate browser contexts deliver after receiver tab restart', async ({ browser }) => {
+  const aliceContext = await browser.newContext();
+  const bobContext = await browser.newContext();
+  try {
+    const alice = await aliceContext.newPage();
+    let bob = await bobContext.newPage();
+    for (const page of [alice, bob]) {
+      await page.goto(url);
+      await page.addScriptTag({ path: path.join(__dirname, 'dist', 'device.js') });
+    }
+    await alice.evaluate(() => window.syntheticMlsDevice.initialize('alice'));
+    const bobPackage = await bob.evaluate(() => window.syntheticMlsDevice.initialize('bob'));
+    await alice.evaluate(() => window.syntheticMlsDevice.create());
+    const welcome = await alice.evaluate(
+      (bytes) => window.syntheticMlsDevice.addPeer(bytes), bobPackage,
+    );
+    await bob.evaluate((data) => window.syntheticMlsDevice.join(data), welcome);
+
+    const first = await alice.evaluate(() => window.syntheticMlsDevice.send('before restart'));
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), first))
+      .toBe('before restart');
+
+    await bob.close();
+    bob = await bobContext.newPage();
+    await bob.goto(url);
+    await bob.addScriptTag({ path: path.join(__dirname, 'dist', 'device.js') });
+    expect(await bob.evaluate(() => window.syntheticMlsDevice.hasState())).toBe(true);
+    const second = await alice.evaluate(() => window.syntheticMlsDevice.send('after restart'));
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), second))
+      .toBe('after restart');
+
+    const aliceSecondTab = await aliceContext.newPage();
+    await aliceSecondTab.goto(url);
+    await aliceSecondTab.addScriptTag({ path: path.join(__dirname, 'dist', 'device.js') });
+    const [fromFirstTab, fromSecondTab] = await Promise.all([
+      alice.evaluate(() => window.syntheticMlsDevice.send('first tab')),
+      aliceSecondTab.evaluate(() => window.syntheticMlsDevice.send('second tab')),
+    ]);
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), fromFirstTab))
+      .toBe('first tab');
+    expect(await bob.evaluate((bytes) => window.syntheticMlsDevice.receive(bytes), fromSecondTab))
+      .toBe('second tab');
+
+    expect(await alice.evaluate(() => localStorage.length)).toBe(0);
+    expect(await bob.evaluate(() => localStorage.length)).toBe(0);
+  } finally {
+    await aliceContext.close();
+    await bobContext.close();
+  }
+});
