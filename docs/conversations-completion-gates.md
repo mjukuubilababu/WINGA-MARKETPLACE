@@ -6,12 +6,28 @@ that spec 0-109 is complete. The architecture contract is
 behavior, local tests and evidence still needed before changing user-facing
 security claims.
 
+## Current production evidence (2026-10-02)
+
+Rollout commit `1df70b9` enables the production browser for all authenticated
+accounts, using `wss://winga-phoenix.onrender.com/socket` and exact-host CSP.
+Node still requires both `WINGA_PHOENIX_TRANSPORT_ENABLED=true` and
+`WINGA_PHOENIX_ALL_USERS=true`. The operator reported the backend live and all
+requested checks passing: active Phoenix device stream plus Sent/Delivered/Read.
+This is operator-reported authenticated evidence, not an agent-captured trace.
+
+Agent checks confirmed Phoenix health and Node readiness HTTP 200, the matching
+frontend build `20261002002028`, allowed WebSocket origins for both public domain
+names, rejection of an untrusted origin and rejection of an invalid ticket.
+No live Phoenix instance was stopped and no production load was generated.
+Deployed Phoenix node-loss recovery and production capacity remain unproven.
+Historical pre-activation results below must not override this rollout status.
+
 | Workstream | Current evidence | Gate still open |
 | --- | --- | --- |
 | Existing REST/SSE chat | Logical send idempotency, replay, ordering, receipts, Web Push and cross-node exercise have tests or operator-reported production evidence. | Keep legacy compatibility through any transport migration; rerun physical-device and failure tests after each cutover. |
 | Conversation ledger and device queue | Additive PostgreSQL ledger, per-session device queue, contiguous ACK progress and bounded ACK pruning are implemented. Read-only production verifier was operator-reported healthy with two devices on 2026-10-01. | Authenticated physical-device poll/ACK after restart on the deployed build, ongoing queue-age monitoring, and production-size query plans. `verify:conversation-events` cannot prove the physical-device flow by itself. |
 | Cross-node | Operator-reported two-instance scale-down test proved the existing stream survived and replayed once. Local tests now exercise two real Phoenix nodes, PostgreSQL, failure before write, lost reply after commit, node loss and concurrent retry without duplicate writes. Independent-connection PostgreSQL queue and send-revocation tests pass. | Repeat against deployed Phoenix and physical devices; test sustained slow-client load, network partitions and canonical-writer crash/recovery. |
-| BEAM/Phoenix transport | Opt-in service and browser adapter use short-lived device tickets, server/client account gates, the existing canonical transaction/outbox and explicit queue ACKs. Local real-browser tests cover native IndexedDB, plain-text send, lost ACK, reload/replay and explicit Read; ticket renewal/resume has lifecycle tests. Phoenix channel and real two-node tests pass locally. REST/SSE remains the default; no public switch or E2EE claim. | Production service provisioning and exact-host CSP, physical-device persistence, fleet-wide backpressure, presence, metrics, staged canary and rollback exercise. A socket ACK alone must never mean durable persistence. |
+| BEAM/Phoenix transport | Production service and exact-host CSP are deployed. All-user rollout and active device stream/receipt checks are operator-reported successful. Short-lived tickets, canonical transaction/outbox, explicit ACKs and local real-browser persistence/replay tests remain in place. Rich messages and unavailable channels retain REST/SSE compatibility. This is not E2EE. | Agent-captured authenticated trace, deployed node-loss and rollback exercises, fleet-wide backpressure, presence, metrics and sustained load. A socket ACK alone must never mean durable persistence. |
 | E2EE protocol and identity | Desktop synthetic `ts-mls` experiments prove API and storage feasibility only. No cryptographic device identity or production E2EE is present. Stock pinned OpenMLS WASM binding lacks exposed persistence/restore; no protocol candidate has passed selection. | License and security review, interoperable browser implementation, authenticated device enrollment, verification and transparency, independent-device revocation and recovery, crash-safe state, and actual Android PWA tests. Keep current chat honestly labelled and never silently downgrade encrypted conversations. |
 | Encrypted media and privacy | Existing media migration and private backup evidence concern legacy media availability, not encrypted chat attachments. | Client-side attachment and thumbnail encryption, capability-bound access, key rotation/revocation, orphan cleanup and no plaintext-derived push/intelligence leakage. |
 | Retention and erasure | ACK obligations older than the configured window can be pruned only behind a contiguous per-device cursor. Pending obligations, ledger, tombstones and revoked devices remain durable. | Explicit account-erasure/replay policy for those remaining records, legal and product approval, then implementation and load evidence. No silent queue timeout may manufacture delivery. |
@@ -27,17 +43,38 @@ compatibility and scale. Passing one row does not imply the others passed.
 1. Preserve current REST/SSE service and collect a final authenticated
    physical-device queue poll/ACK trace with aggregate-only evidence. Do not
    infer this from `ok:true` in the read-only verifier.
-2. Deploy the locally verified Phoenix service as a separate, flagged canary
-   with synthetic accounts. The browser adapter and ticket renewal are locally
-   tested, with stable message IDs and unchanged receipt semantics. Follow
-   `services/conversations/README.md`; do not switch public traffic before
-   physical-device and deployed failure-injection tests.
+2. Complete bounded local load and writer-restart evidence, then an explicitly
+   approved deployed Phoenix two-instance failure exercise with test accounts.
+   The service is now live; do not stop it or increase paid instance counts
+   implicitly. Preserve stable client IDs, receipt semantics and rollback.
 3. In parallel, select a browser-capable MLS implementation only after its
    license, audit, persistence and Android recovery gates. The `ts-mls` spike
    stops at feasibility; it is not a production dependency.
 4. Design encrypted-media, device recovery and account-erasure contracts with
    policy owners, then implement and canary them. Run load and failover gates
    on the final architecture, not only the current legacy path.
+
+## Bounded local load and restart evidence (2026-10-02)
+
+The extended `test:phoenix-transport` passed against disposable localhost
+PostgreSQL, two real Phoenix nodes and real browser storage. All-user enrollment
+was enabled with an empty canary list. The additional phase used 16 synthetic
+senders and at most eight simultaneous send commands: 65 messages persisted,
+65 retries returned their original canonical IDs after node loss and writer
+restart, and all 65 recipient obligations were replayed and acknowledged.
+No implicit Delivered/Read receipts or canonical duplicates were observed.
+Withholding ACKs kept only one event batch outstanding. The canonical
+five-per-minute burst guard rejected the next new message without storing it.
+
+One local run measured p50 616 ms and p95 1,228 ms across the initial 64-message
+concurrent phase, with 5,673 ms elapsed including the additional burst checks.
+These figures are diagnostic observations on this Windows host, not a target,
+Render benchmark or proof of fleet capacity. Sustained load, real TCP slow
+readers, network partitions and deployed failover remain separate open gates.
+
+A second run together with the independent-connection PostgreSQL suite passed
+14/14 tests, repeating the same 65-message/65-retry recovery and zero-duplicate
+assertions. The disposable database and all fixture services were cleaned up.
 
 ## This audit's checks
 
@@ -67,13 +104,14 @@ GitHub reported Cloudflare Pages success and three Vercel preview successes.
 Render's public health endpoint returned ready, but its exact deployed commit
 was not verified: the dashboard browser tool failed to initialize and no Render
 API credential was available. Do not label that as a verified Render cutover.
-The Phoenix transport remains disabled by default and has not been provisioned
-or enabled in production.
+At that historical release the Phoenix transport was disabled and not yet
+provisioned. See current production evidence above for the subsequent rollout.
 
 ## Browser adapter verification (2026-10-02)
 
-The official Phoenix JS SDK is pinned and self-hosted. Both Node and the browser
-require an explicit canary account; ordinary REST/SSE traffic is unchanged.
+The official Phoenix JS SDK is pinned and self-hosted. The original browser
+verification used explicit canary accounts; the later all-user flag preserves
+the server enable switch, session checks and ticket validation.
 The adapter shares the existing IndexedDB consumer, renews scoped tickets,
 retains uncertain logical sends for the offline queue, and never treats socket
 delivery as Read. Native storage tests cover aborted writes, wrong-device
@@ -87,5 +125,6 @@ The final independent-connection PostgreSQL and real two-node/browser run
 passed 14/14, including retryable HTTP 429, lost replies, node loss, durable
 reload/replay and fresh-ticket enrollment after SDK page resume.
 The Render build script passed Bash syntax validation. None of these results
-is a production canary or physical Android-device proof. The separate Render
-service, exact-host CSP and runtime configuration still require deployment.
+is a production capacity or deployed failure-injection proof. The separate
+Render service, exact-host CSP and rollout were subsequently completed as
+described above.

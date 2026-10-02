@@ -52,10 +52,10 @@ async function connect(port,ticket) {
   }
   const joined=await command('phx_join',{ticket});
   assert.equal(joined.status,'ok');
-  return {ws,command,wait};
+  return {ws,command,wait,pendingBatches:()=>frames.filter(frame=>frame[3]==='events').length};
 }
 
-test('real Phoenix nodes preserve canonical sends and device replay through lost replies and node loss', {timeout:180000}, async t=>{
+test('real Phoenix nodes preserve canonical sends and device replay through lost replies and node loss', {timeout:240000}, async t=>{
   const database='winga_transport_test_'+randomBytes(8).toString('hex');
   const admin=new Client({connectionString:target.toString()});await admin.connect();
   await admin.query(`CREATE DATABASE "${database}"`);
@@ -74,6 +74,12 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   const tokens={alice:randomBytes(24).toString('hex'),bob:randomBytes(24).toString('hex'),bob2:randomBytes(24).toString('hex')};
   await pool.query(`INSERT INTO users(username,password,phone_number,primary_category,role,created_at)
     VALUES('alice','no-login','synthetic-a','general','seller',NOW()),('bob','no-login','synthetic-b','general','buyer',NOW());`);
+  for(let i=0;i<16;i++) {
+    const owner=`load${i}`;
+    tokens[owner]=randomBytes(24).toString('hex');
+    await pool.query(`INSERT INTO users(username,password,phone_number,primary_category,role,created_at)
+      VALUES($1,'no-login',$2,'general','seller',NOW())`,[owner,`synthetic-load-${i}`]);
+  }
   for(const [owner,token] of Object.entries(tokens))await pool.query(
     'INSERT INTO sessions(token,session_id,username,expires_at) VALUES($1,$2,$3,$4)',
     [token,owner,owner==='bob2'?'bob':owner,Date.now()+3600000]);
@@ -83,7 +89,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   const tempRoot=fs.mkdtempSync(path.join(root,'.tmp-phoenix-e2e-'));
   const childEnv={...process.env,NODE_ENV:'test',DATABASE_URL:local.toString(),DATABASE_SSL:'false',READ_REPLICA_DATABASE_URL:'',
     WINGA_DATA_DIR:path.join(tempRoot,'data'),WINGA_UPLOADS_DIR:path.join(tempRoot,'uploads'),R2_ACCOUNT_ID:'',
-    WINGA_PHOENIX_TRANSPORT_ENABLED:'true',WINGA_PHOENIX_CANARY_USERS:'alice,bob',CONVERSATION_SERVICE_TOKEN:serviceToken,
+    WINGA_PHOENIX_TRANSPORT_ENABLED:'true',WINGA_PHOENIX_ALL_USERS:'true',WINGA_PHOENIX_CANARY_USERS:'',CONVERSATION_SERVICE_TOKEN:serviceToken,
     CONVERSATION_TICKET_SECRET:randomBytes(32).toString('hex'),WINGA_WEB_PUSH_ENABLED:'false',
     INTELLIGENCE_QUEUE_PROCESSOR_MODE:'off',WINGA_DISABLE_RATE_LIMIT:'1',ALLOWED_ORIGINS:'http://localhost:4173'};
   function launch(command,args,env,cwd,name){
@@ -99,6 +105,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     assert.equal(r.status,200);return (await r.json()).ticket;
   }
   const tickets={alice:await ticket('alice'),bob:await ticket('bob'),bob2:await ticket('bob2')};
+  for(let i=0;i<16;i++)tickets[`load${i}`]=await ticket(`load${i}`);
   assert.equal((await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
   const adapterHeaders = {'Content-Type': 'application/json', Authorization: `Bearer ${serviceToken}`};
   for (const extra of [{Origin: 'http://localhost:4173'}, {Cookie: 'winga_auth=synthetic'}]) {
@@ -176,4 +183,17 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   const reply=await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceToken}`},
     body:JSON.stringify({version:1,ticket:tickets.bob,command:'poll',payload:{}})});
   assert.equal(reply.status,401);
+  for (const socket of sockets) socket.ws.close();
+  const restarted=phoenix(firstPort,'phoenix-a-restarted');
+  await ready(`http://127.0.0.1:${firstPort}/health`,restarted);
+  const loadEvidence=await require('./helpers/phoenix-load-exercise')({
+    pool,device,firstPort,secondPort,tickets,
+    stopFirst:()=>stop(restarted),
+    restartWriter:async()=>{
+      await stop(node);
+      const replacement=launch(process.execPath,['server.js'],{...childEnv,PORT:String(backendPort)},path.join(root,'backend'),'node-restarted');
+      await ready(backend+'/api/health',replacement);
+    }
+  });
+  t.diagnostic(JSON.stringify(loadEvidence));
 });

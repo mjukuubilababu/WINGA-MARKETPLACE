@@ -108,6 +108,21 @@ IndexedDB, sends without a REST fallback, loses an ACK and reloads the receiver
 to prove deduplicated replay and explicit Read. It writes synthetic
 fixture logs only into ignored `.tmp-phoenix-e2e-*` directories.
 
+The same fixture now enrolls accounts through the explicit all-user server
+flag and runs a bounded load/recovery phase: 16 synthetic senders, up to eight
+simultaneous sends, 65 accepted messages across both Phoenix nodes and 65
+idempotent retries after terminating one node and restarting the Node writer.
+The recipient withholds ACKs; only one batch may remain outstanding. Recovery
+must replay and acknowledge every obligation without duplicate canonical rows
+or implicit Delivered/Read receipts. A sixth send in a hot conversation must
+respect the existing five-per-minute burst limit, without a durable write.
+
+The JSON test diagnostic contains aggregate counts and local p50/p95 send
+latency only. This is a bounded correctness smoke test, not a sustained load,
+TCP slow-reader, network-partition, production capacity or latency-SLO proof.
+It never sends traffic or messages to Render. The test rejects non-localhost
+database targets and creates/drops only its own randomized database.
+
 For a host with the toolchain installed, build a release:
 
 ```sh
