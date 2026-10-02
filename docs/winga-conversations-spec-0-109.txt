@@ -1,0 +1,2144 @@
+WINGA CONVERSATIONS
+ARCHITECTURE & SECURITY CONTRACT v1.0
+STATUS: FOUNDATION SPECIFICATION
+PURPOSE: FREEZE BEFORE FEATURE IMPLEMENTATION
+
+============================================================
+0. MISSION
+============================================================
+
+Build the technical foundation for Winga Conversations before implementing
+the complete messaging product.
+
+Winga Conversations is intended to become:
+
+- a world-class realtime communication platform
+- a core Winga product
+- commerce-native
+- end-to-end encrypted
+- reliable on unstable mobile networks
+- horizontally scalable
+- multi-device
+- globally usable
+- capable of supporting millions of concurrent users
+- ready for future Shopping Rooms and intelligent communication features
+
+This contract defines the architecture and invariants that future
+conversation features must build upon.
+
+DO NOT build the entire Winga Conversations product in this phase.
+
+DO NOT redesign unrelated Winga systems.
+
+============================================================
+1. HARD SYSTEM BOUNDARY
+============================================================
+
+Existing Winga systems remain authoritative for:
+
+- Users
+- Authentication
+- Profiles
+- Products
+- Feed
+- Search
+- Orders
+- Payments
+- Inventory
+- Delivery
+- Ads
+- Recommendations
+- Marketplace Intelligence
+
+Winga Conversations becomes a bounded communication subsystem.
+
+Concept:
+
+WINGA PLATFORM
+        │
+        ├── Feed
+        ├── Products
+        ├── Orders
+        ├── Payments
+        ├── Search
+        └── Identity/Auth
+                │
+                │ stable authenticated contracts
+                ▼
+        WINGA CONVERSATIONS
+                │
+        ┌───────┴────────┐
+        │                │
+        ▼                ▼
+ REALTIME PLANE     DURABLE DATA PLANE
+ BEAM               PostgreSQL/Object Storage
+ Elixir/Phoenix
+
+Do not move unrelated Winga business logic into BEAM.
+
+============================================================
+2. BEAM RESPONSIBILITY
+============================================================
+
+Use BEAM/Elixir/Phoenix as the realtime communication plane.
+
+Its responsibilities may include:
+
+- WebSocket connections
+- connection lifecycle
+- connection routing
+- realtime message fan-out
+- online/offline presence
+- typing indicators
+- delivery events
+- read events
+- reconnect/resume
+- multi-device routing
+- Shopping Room realtime fan-out
+- backpressure
+- node failure isolation
+- realtime rate limiting
+- transient communication state
+
+BEAM is NOT automatically the canonical database.
+
+============================================================
+3. DURABLE DATA PLANE
+============================================================
+
+Durable communication state must survive:
+
+- BEAM process crash
+- BEAM node crash
+- deployment
+- restart
+- temporary realtime outage
+
+Canonical durable state includes:
+
+- conversations
+- conversation membership
+- ciphertext messages
+- message sequence/order metadata
+- delivery state where required
+- encrypted attachment metadata
+- Shopping Room state later
+- audit/security metadata where permitted
+
+Prefer PostgreSQL initially unless repository evidence shows a better
+existing canonical store.
+
+============================================================
+4. CRITICAL RELIABILITY RULE
+============================================================
+
+A message must NOT become SENT merely because a BEAM process received it.
+
+Define SENT as:
+
+"The Winga Conversations service has durably accepted this logical message
+according to the persistence contract."
+
+Concept:
+
+Client
+↓
+BEAM
+↓
+Validate/Auth
+↓
+Durable Persistence
+↓
+ACK
+↓
+SENT
+↓
+Realtime Fan-out
+
+This invariant must be testable.
+
+============================================================
+5. MESSAGE STATE MACHINE
+============================================================
+
+Canonical client-visible states:
+
+LOCAL_PENDING
+↓
+SENDING
+↓
+SENT
+↓
+DELIVERED
+↓
+READ
+
+Failure:
+
+SENDING
+↓
+FAILED
+↓
+RETRY
+
+Offline:
+
+LOCAL_PENDING / QUEUED
+↓
+connection restored
+↓
+SENDING
+
+Do not claim DELIVERED/READ without defined evidence.
+
+============================================================
+6. MESSAGE IDENTITY
+============================================================
+
+Every logical message must have:
+
+clientMessageId
+server messageId
+conversationId
+senderDeviceId
+senderUserId
+serverReceivedAt
+sequence/order information
+protocolVersion
+
+clientMessageId must support idempotent retry.
+
+============================================================
+7. IDEMPOTENCY
+============================================================
+
+The same logical message retried multiple times must produce:
+
+ONE canonical server message.
+
+Example:
+
+clientMessageId = ABC
+
+request
+timeout
+retry
+retry
+
+must NOT create:
+
+ABC-1
+ABC-2
+ABC-3
+
+Server must return/reconcile the existing canonical message.
+
+============================================================
+8. ORDERING
+============================================================
+
+Do not rely on client timestamps for canonical message ordering.
+
+Use server-controlled deterministic ordering.
+
+Requirements:
+
+- stable within conversation
+- reconnect-safe
+- multi-device-safe
+- pagination-safe
+- duplicate-safe
+
+Define explicit sequence/cursor semantics.
+
+============================================================
+9. RECONNECT / RESUME
+============================================================
+
+Mobile connections will fail.
+
+Reconnect is normal behavior, not an exception.
+
+Client should maintain:
+
+last acknowledged conversation/event position.
+
+On reconnect:
+
+Authenticate
+↓
+Resume from cursor/sequence
+↓
+Receive missed events
+↓
+Reconcile local state
+↓
+Continue realtime
+
+Avoid refetching entire conversation unnecessarily.
+
+============================================================
+10. OFFLINE-FIRST SENDING
+============================================================
+
+Support unstable networks.
+
+User sends message offline:
+
+message persists in secure local queue
+↓
+QUEUED
+↓
+network returns
+↓
+retry using SAME clientMessageId
+↓
+server persists once
+↓
+SENT
+
+Never silently discard user-created messages.
+
+============================================================
+11. BACKPRESSURE
+============================================================
+
+Realtime service must not accept unlimited work faster than downstream
+systems can process it.
+
+Design explicit backpressure for:
+
+- message persistence
+- attachment processing
+- room fan-out
+- notification pipeline
+- event pipeline
+
+Possible states:
+
+NORMAL
+PRESSURED
+THROTTLED
+PAUSED
+
+Do not solve overload by crashing nodes or dropping messages silently.
+
+============================================================
+12. HORIZONTAL SCALABILITY
+============================================================
+
+Start simple but design horizontally.
+
+Initial:
+
+Client
+↓
+Load Balancer
+↓
+BEAM Node
+↓
+Durable Store
+
+Future:
+
+               Load Balancer
+                    │
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+     BEAM 1       BEAM 2       BEAM N
+       │            │            │
+       └────────────┼────────────┘
+                    ▼
+              Durable Layer
+
+Do not require sticky local-only state that prevents horizontal scaling.
+
+============================================================
+13. CONNECTION ROUTING
+============================================================
+
+Define how the system knows:
+
+which node owns device connection?
+
+Do not depend on one global in-memory map that disappears with a node.
+
+Architecture must support:
+
+node join
+node leave
+node failure
+connection migration/reconnect
+
+============================================================
+14. PRESENCE
+============================================================
+
+Presence is ephemeral realtime state.
+
+Example:
+
+User A
+
+Android: online
+Desktop: online
+Tablet: offline
+
+Do NOT perform unnecessary PostgreSQL writes for every transient presence
+change.
+
+Presence should tolerate temporary inconsistency.
+
+============================================================
+15. TYPING INDICATORS
+============================================================
+
+Typing indicators are ephemeral.
+
+Do not persist them as messages.
+
+They may be dropped during failure without affecting conversation integrity.
+
+Rate-limit typing events.
+
+============================================================
+16. E2EE PRINCIPLE
+============================================================
+
+Private conversation content must be designed for End-to-End Encryption.
+
+Plaintext should be available only at authorized endpoints/devices unless
+the user explicitly invokes a feature with clearly defined processing.
+
+Server-side messaging infrastructure should primarily handle ciphertext.
+
+============================================================
+17. DO NOT INVENT CRYPTOGRAPHY
+============================================================
+
+DO NOT design custom:
+
+- encryption algorithm
+- ratchet
+- key exchange
+- signature algorithm
+- random generator
+- group key protocol
+
+Use established, audited protocols/libraries.
+
+C/C++ may be used as a native cryptographic implementation/core layer.
+
+C/C++ is NOT itself the security design.
+
+============================================================
+18. CRYPTO CORE BOUNDARY
+============================================================
+
+Target conceptual architecture:
+
+DEVICE
+
+Application UI
+      │
+      ▼
+Winga Conversations Client
+      │
+      ▼
+Audited Native Crypto Core
+(C/C++ or appropriate audited implementation)
+      │
+      ▼
+Ciphertext
+      │
+      ▼
+BEAM Realtime Service
+
+Crypto API should expose safe high-level operations.
+
+Application code should not manipulate cryptographic primitives directly.
+
+============================================================
+19. PROTOCOL EVALUATION
+============================================================
+
+Before implementation evaluate established protocols appropriate for:
+
+A. asynchronous 1:1 messaging
+
+B. multi-device messaging
+
+C. group messaging / Shopping Rooms
+
+For group communication, evaluate standards such as Messaging Layer
+Security (MLS) rather than inventing Winga group encryption.
+
+Document:
+
+- security properties
+- implementation maturity
+- language/library support
+- mobile support
+- browser/PWA implications
+- C/C++ integration options
+- audit history
+- licensing
+- operational complexity
+
+Do not choose protocol based only on performance.
+
+============================================================
+20. DEVICE IDENTITY
+============================================================
+
+Cryptographic identity should be device-aware.
+
+Example:
+
+User
+├── Android Device A
+├── Desktop Device B
+└── Tablet Device C
+
+Each authorized device is an endpoint.
+
+Adding/removing a device must have explicit security semantics.
+
+============================================================
+21. DEVICE REGISTRATION
+============================================================
+
+Define:
+
+- deviceId
+- device public identity material
+- registration
+- authentication binding
+- key publication
+- device revocation
+- device replacement
+
+Server must not be able to silently create an indistinguishable trusted
+device without detection mechanisms appropriate to the chosen protocol.
+
+============================================================
+22. NEW DEVICE EXPERIENCE
+============================================================
+
+When a new device is added:
+
+existing devices may receive:
+
+"New device added"
+
+where appropriate.
+
+Users should be able to inspect/revoke devices.
+
+============================================================
+23. KEY VERIFICATION
+============================================================
+
+Prepare for:
+
+Safety Code
+QR verification
+Device verification
+
+Users should be able to verify important contacts where desired.
+
+Do not require every ordinary user to understand cryptography.
+
+UX must remain simple.
+
+============================================================
+24. KEY ROTATION
+============================================================
+
+Define rotation semantics for:
+
+- compromised device
+- revoked device
+- protocol requirement
+- group membership changes
+
+Rotation must not require deleting conversation history unnecessarily.
+
+============================================================
+25. FORWARD SECRECY
+============================================================
+
+Chosen protocol should support strong modern messaging security properties,
+including forward secrecy where appropriate.
+
+Document exact guarantees.
+
+Do not use marketing terms without technical evidence.
+
+============================================================
+26. POST-COMPROMISE RECOVERY
+============================================================
+
+Evaluate post-compromise security properties.
+
+If an endpoint is temporarily compromised and later secured, architecture
+should define how future message security recovers where protocol supports
+it.
+
+============================================================
+27. GROUP / SHOPPING ROOM SECURITY
+============================================================
+
+Shopping Rooms will require group encryption.
+
+Membership change:
+
+A + B + C
+↓
+D joins
+↓
+group cryptographic state advances
+
+C leaves/is removed
+↓
+group state advances
+↓
+C must not receive future protected content.
+
+Do not use one permanent shared symmetric key for the lifetime of a room.
+
+============================================================
+28. ENCRYPTED ATTACHMENTS
+============================================================
+
+E2EE applies to more than text.
+
+Prepare for:
+
+- images
+- videos
+- voice
+- documents
+
+Concept:
+
+Device
+↓
+Generate random media key
+↓
+Encrypt media locally
+↓
+Upload ciphertext to Object Storage
+↓
+Send encrypted media key/reference through E2EE conversation
+
+Object Storage/CDN should not require plaintext.
+
+============================================================
+29. MEDIA PIPELINE CONSEQUENCE
+============================================================
+
+Existing Winga public-product media and private-message media have different
+security requirements.
+
+Do NOT accidentally send private encrypted media through a processing
+pipeline that requires plaintext server-side without explicit design.
+
+Create clear boundary:
+
+PUBLIC COMMERCE MEDIA
+vs
+PRIVATE CONVERSATION MEDIA.
+
+============================================================
+30. MEDIA THUMBNAILS
+============================================================
+
+For private encrypted media, determine where thumbnails/previews are created.
+
+Prefer endpoint-side generation where compatible with E2EE.
+
+Do not silently upload plaintext thumbnails if original content is supposed
+to be private.
+
+============================================================
+31. SECURE LOCAL STORAGE
+============================================================
+
+Device should protect:
+
+identity keys
+session keys/state
+queued messages
+decrypted cached media
+
+Use OS/browser secure capabilities where available.
+
+Do not store private keys as ordinary plaintext localStorage values.
+
+============================================================
+32. BACKUP / RECOVERY
+============================================================
+
+E2EE changes account recovery.
+
+Password reset must NOT automatically imply server can decrypt all message
+history.
+
+Design a recovery strategy before launch.
+
+Evaluate:
+
+- user-controlled recovery key
+- encrypted key backup
+- recovery PIN/passphrase
+- device-to-device transfer
+- combination approach
+
+Document security/usability trade-offs.
+
+============================================================
+33. RECOVERY MUST NOT CREATE A MASTER KEY
+============================================================
+
+Do not introduce a universal Winga decryption key merely to make account
+recovery easy.
+
+If Winga can decrypt every user's private conversation invisibly, the E2EE
+claim is invalid.
+
+============================================================
+34. SERVER METADATA
+============================================================
+
+E2EE does not automatically hide metadata.
+
+Document exactly what server may know.
+
+Potential metadata:
+
+- sender routing identity
+- recipient routing identity
+- device IDs
+- conversation ID
+- timestamps
+- ciphertext size
+- delivery state
+
+Apply metadata minimization.
+
+Store only what is operationally necessary.
+
+============================================================
+35. PUSH NOTIFICATIONS
+============================================================
+
+Push providers should receive minimal private information.
+
+Default-safe notification may be:
+
+"New message from Asha"
+
+instead of full plaintext content.
+
+User may optionally enable message previews where architecture permits.
+
+============================================================
+36. REPORTING UNDER E2EE
+============================================================
+
+E2EE must still support user safety.
+
+When user explicitly chooses:
+
+REPORT MESSAGE
+
+client may submit selected content/context required for review.
+
+This is explicit disclosure initiated by user.
+
+Do NOT create hidden universal server decryption.
+
+============================================================
+37. BLOCKING
+============================================================
+
+Block must integrate with:
+
+routing
+notifications
+Shopping Rooms
+presence visibility
+future contact attempts
+
+Server may enforce communication policy without reading plaintext.
+
+============================================================
+38. ABUSE / SPAM
+============================================================
+
+Design metadata-level and user-report-based anti-abuse controls.
+
+Possible signals:
+
+- send rate
+- unsolicited request rate
+- block rate
+- report rate
+- account reputation
+- device abuse
+
+Do not require plaintext surveillance as the default abuse mechanism.
+
+============================================================
+39. COMMERCE CARDS UNDER E2EE
+============================================================
+
+Future messages may contain:
+
+Product Card
+Order Card
+Payment Request
+Delivery Card
+Reel
+Collection
+
+Do NOT encrypt canonical commerce truth into inaccessible chat payload only.
+
+Message should securely reference canonical commerce object IDs.
+
+Example:
+
+encrypted message payload:
+productId = XYZ
+
+Authorized client then retrieves permitted current product state from
+canonical Product service.
+
+============================================================
+40. ORDERS / PAYMENTS REMAIN CANONICAL OUTSIDE CHAT
+============================================================
+
+A Payment Request inside conversation is NOT financial truth.
+
+Canonical:
+
+Order Service
+Payment Service
+Delivery Service
+
+remain authoritative.
+
+Conversation contains secure references/actions.
+
+============================================================
+41. SHOPPING ROOM PREPARATION
+============================================================
+
+The foundation must be ready for future:
+
+- group conversation
+- persistent Product Board
+- Polls
+- Shortlist
+- Decision Funnel
+- Product Comparison
+- Ask Seller
+- Seller Response Cards
+- Group Orders
+- Room Intelligence
+- invitations
+
+Do not implement all of these in foundation phase.
+
+But do not make protocol decisions that prevent them.
+
+============================================================
+42. ASK SELLER PRIVACY PREPARATION
+============================================================
+
+Future Shopping Room seller request must be possible without granting seller
+access to private room content.
+
+Architecture must support:
+
+Room
+↓
+Structured Seller Request
+↓
+Seller
+↓
+Structured Response
+↓
+Room
+
+without seller becoming room member.
+
+============================================================
+43. VOICE PREPARATION
+============================================================
+
+Protocol/message envelope must support encrypted voice attachments.
+
+Future:
+
+voice recording
+retry
+playback
+transcription
+
+Transcription must not be required for voice delivery.
+
+============================================================
+44. VIDEO PREPARATION
+============================================================
+
+Support encrypted private video references without assuming server can
+transcode plaintext.
+
+Document future options for endpoint-side preparation or explicitly
+authorized processing.
+
+============================================================
+45. TRANSLATION PREPARATION
+============================================================
+
+E2EE means server cannot silently read messages for translation.
+
+Future translation should support privacy-compatible models such as:
+
+- on-device translation
+- user-triggered explicit processing
+- other clearly disclosed architecture
+
+Original message remains canonical.
+
+============================================================
+46. SMART CONVERSATION MEMORY PREPARATION
+============================================================
+
+Future Winga Conversations may remember structured context:
+
+size
+color
+budget
+location preference
+selected product
+decision state
+
+This intelligence must respect E2EE.
+
+Prepare interfaces for endpoint-side or explicitly authorized intelligence.
+
+Do not require server plaintext access as a foundational assumption.
+
+============================================================
+47. AI SUMMARY PREPARATION
+============================================================
+
+Future:
+
+"Catch me up"
+
+Shopping Room summary
+Conversation summary
+Suggested replies
+Decision assistant
+
+These must be optional derived capabilities.
+
+Messaging works without AI.
+
+AI failure must never block communication.
+
+============================================================
+48. SEARCH PREPARATION
+============================================================
+
+Server-side plaintext full-text search may conflict with E2EE.
+
+Plan for privacy-compatible search.
+
+Possible:
+
+local/on-device message index
+
+Do not design E2EE and later assume PostgreSQL can search plaintext message
+bodies.
+
+============================================================
+49. EDIT MESSAGE PREPARATION
+============================================================
+
+Future edit should be represented as a versioned event/update.
+
+Define semantics:
+
+who can edit
+time restrictions if any
+how other devices reconcile
+how encryption handles updated payload
+
+Do not mutate history ambiguously.
+
+============================================================
+50. DELETE MESSAGE PREPARATION
+============================================================
+
+Prepare semantics for:
+
+Delete for me
+Delete for everyone where supported
+
+Understand that distributed devices may already possess decrypted content.
+
+Do not promise impossible deletion guarantees.
+
+============================================================
+51. REACTIONS PREPARATION
+============================================================
+
+Protocol should support lightweight encrypted reaction events.
+
+Do not model every reaction as unrelated text message.
+
+============================================================
+52. REPLIES PREPARATION
+============================================================
+
+Support:
+
+replyToMessageId
+
+without duplicating full quoted plaintext into canonical server metadata.
+
+============================================================
+53. POLLS PREPARATION
+============================================================
+
+Shopping Room polls will need:
+
+structured state
+server consistency
+encrypted/private context
+
+Determine which poll metadata must be server-visible for counting versus
+what remains encrypted.
+
+Do not improvise later.
+
+============================================================
+54. PRESENCE PRIVACY
+============================================================
+
+Presence itself is privacy-sensitive.
+
+Support future user preferences such as:
+
+Everyone
+Contacts/People I interact with
+Nobody
+
+where product requirements choose.
+
+Do not expose global online status by default without policy.
+
+============================================================
+55. READ RECEIPT PRIVACY
+============================================================
+
+Prepare preference:
+
+Read receipts ON/OFF
+
+If disabled, define symmetrical behavior where appropriate.
+
+Do not build irreversible assumptions into protocol.
+
+============================================================
+56. TYPING PRIVACY
+============================================================
+
+Typing indicators should be configurable/future-ready.
+
+They remain ephemeral.
+
+============================================================
+57. MULTI-REGION PREPARATION
+============================================================
+
+Do not deploy global multi-region complexity prematurely.
+
+However, architecture must not make future multi-region messaging impossible.
+
+Prepare for future:
+
+- regional BEAM clusters
+- regional connection termination
+- user/device home region
+- cross-region message routing
+- cross-region Shopping Room fan-out
+- regional durable storage strategy
+- data residency requirements
+- regional failover
+
+Initial production may operate from one primary region.
+
+The protocol must not assume:
+
+"all users and all connections will always live on one BEAM node or
+one physical region."
+
+============================================================
+58. REGION ROUTING
+============================================================
+
+Future architecture may resemble:
+
+User A — Africa
+        ↓
+Africa Realtime Cluster
+        │
+        │ secure message routing
+        ▼
+Europe Realtime Cluster
+        ↓
+User B — Europe
+
+Do not implement this complexity now unless current scale requires it.
+
+Define stable identifiers and routing contracts that can support it later.
+
+============================================================
+59. DATA RESIDENCY PREPARATION
+============================================================
+
+Winga is intended for global use.
+
+Future jurisdictions may impose requirements concerning:
+
+- data location
+- retention
+- deletion
+- encryption
+- access
+- legal processing
+
+Do not hard-code messaging persistence to assumptions that make regional
+data placement impossible later.
+
+Keep:
+
+conversation identity
+message identity
+storage interface
+region metadata
+
+sufficiently separable.
+
+============================================================
+60. MESSAGE STORAGE ABSTRACTION
+============================================================
+
+Conversation domain should depend on a stable message persistence interface,
+not scattered direct database queries.
+
+Conceptually:
+
+MessageStore
+
+- persistMessage()
+- getMessage()
+- getConversationMessages()
+- getMessagesAfterCursor()
+- updateDeliveryState()
+- reconcileMessage()
+
+Initial implementation may use PostgreSQL.
+
+Future storage evolution must not require rewriting realtime protocol.
+
+============================================================
+61. ATTACHMENT STORAGE ABSTRACTION
+============================================================
+
+Private encrypted media should use a stable storage contract.
+
+Conceptually:
+
+EncryptedMediaStore
+
+- createUpload()
+- completeUpload()
+- fetchMetadata()
+- generateAuthorizedDownload()
+- deleteAccordingToPolicy()
+
+Storage implementation may use existing Winga object storage.
+
+Do not couple conversation protocol directly to one vendor-specific SDK.
+
+============================================================
+62. EVENT ARCHITECTURE
+============================================================
+
+Important conversation lifecycle events should be representable as
+versioned events.
+
+Examples:
+
+MessageAccepted
+MessageDelivered
+MessageRead
+ConversationCreated
+ParticipantAdded
+ParticipantRemoved
+DeviceAdded
+DeviceRevoked
+RoomCreated
+RoomMembershipChanged
+
+Do not require every event to become a permanent Kafka-style event stream
+on day one.
+
+But define clean event contracts so future services can consume them.
+
+============================================================
+63. EVENT VERSIONING
+============================================================
+
+Every externally consumed conversation event must support schema evolution.
+
+Example:
+
+eventType
+eventVersion
+eventId
+occurredAt
+payload
+
+Do not silently change payload meaning while retaining the same version.
+
+============================================================
+64. NOTIFICATION BOUNDARY
+============================================================
+
+Push notifications are downstream consumers of conversation events.
+
+Message delivery must NOT depend on notification success.
+
+Correct direction:
+
+Message persisted
+↓
+Realtime delivery attempt
+↓
+Notification event
+↓
+Push system
+
+If Push fails:
+
+message remains valid.
+
+============================================================
+65. COMMERCE INTEGRATION BOUNDARY
+============================================================
+
+Future Winga Conversations will integrate with:
+
+Products
+Orders
+Payments
+Inventory
+Delivery
+Demand Intelligence
+
+Use stable service/API contracts.
+
+Messaging should reference canonical objects.
+
+Example:
+
+ProductCard message
+→ productId
+
+OrderCard
+→ orderId
+
+PaymentRequest
+→ paymentRequestId
+
+Do not duplicate canonical commerce records inside Conversations.
+
+============================================================
+66. AUTHENTICATION
+============================================================
+
+Reuse Winga's canonical authentication.
+
+BEAM service must validate trusted authentication credentials/tokens through
+a defined contract.
+
+Do NOT create a separate user/password system for Conversations.
+
+Authentication and E2EE identity are related but NOT identical:
+
+Authentication:
+"Is this Winga account/device authorized?"
+
+Cryptographic identity:
+"Which secure messaging endpoint/device is this?"
+
+Keep this distinction explicit.
+
+============================================================
+67. AUTHORIZATION
+============================================================
+
+Every server-side conversation operation must authorize:
+
+- conversation membership
+- room membership
+- sender identity
+- access to referenced commerce objects
+- attachment access
+- administrative actions
+
+Do not trust:
+
+conversationId
+roomId
+userId
+productId
+
+merely because client supplied them.
+
+============================================================
+68. RATE LIMITING
+============================================================
+
+Apply rate limits appropriate to:
+
+- connection attempts
+- authentication attempts
+- message sends
+- typing events
+- read receipts
+- media uploads
+- room invitations
+- device registration
+
+Rate limits should protect service without destroying legitimate active
+conversation behavior.
+
+============================================================
+69. REPLAY PROTECTION
+============================================================
+
+Security design must consider replayed encrypted payloads/events.
+
+The chosen E2EE protocol and application envelope must provide sufficient
+message identity/order semantics to detect or safely handle replay.
+
+Do not rely solely on HTTP/WebSocket connection state.
+
+============================================================
+70. PROTOCOL DOWNGRADE PROTECTION
+============================================================
+
+Future protocol versions must not allow an attacker or stale client to
+silently force weaker security.
+
+Define:
+
+minimum supported protocol version
+current protocol version
+upgrade policy
+
+Reject insecure/unsupported downgrade where required.
+
+============================================================
+71. CRYPTOGRAPHIC AGILITY
+============================================================
+
+Do not scatter algorithm names/parameters throughout application code.
+
+Use a versioned crypto/protocol abstraction so audited algorithms/protocol
+versions can evolve later.
+
+This does NOT mean inventing a generic home-grown cryptographic framework.
+
+It means isolating protocol implementation behind reviewed interfaces.
+
+============================================================
+72. SECRETS MANAGEMENT
+============================================================
+
+Server-side operational secrets must use canonical Winga secret management.
+
+Never commit:
+
+private service credentials
+database credentials
+signing secrets
+storage credentials
+
+to repository.
+
+Client E2EE private keys must never become ordinary server secrets.
+
+They belong to endpoint security/recovery design.
+
+============================================================
+73. LOGGING POLICY
+============================================================
+
+Production logs must NEVER routinely contain:
+
+- plaintext private messages
+- decrypted attachments
+- private encryption keys
+- recovery secrets
+- authentication tokens
+
+Logs may contain privacy-minimized operational identifiers where necessary.
+
+Define redaction centrally.
+
+============================================================
+74. TRACING
+============================================================
+
+Distributed tracing should follow message processing without exposing
+private content.
+
+Example trace:
+
+client request
+→ BEAM ingress
+→ authorization
+→ durable persistence
+→ ACK
+→ fan-out
+→ notification dispatch
+
+Trace IDs must not contain message plaintext.
+
+============================================================
+75. CORE OBSERVABILITY
+============================================================
+
+Measure at minimum:
+
+active_connections
+connections_per_node
+connection_open_rate
+connection_failure_rate
+message_accept_rate
+message_accept_latency
+message_persist_latency
+message_delivery_latency
+message_failure_rate
+duplicate_suppression_rate
+reconnect_rate
+resume_success_rate
+offline_queue_success_rate
+read_receipt_latency
+presence_event_rate
+fanout_latency
+queue_depth
+backpressure_state
+BEAM_memory
+BEAM_scheduler_utilization
+BEAM_process_count
+database_pool_usage
+database_latency
+
+============================================================
+76. USER-EXPERIENCE SLOS
+============================================================
+
+Define measurable SLOs before claiming production readiness.
+
+Examples to establish through testing:
+
+Send Tap
+→ local message visible
+
+Send
+→ durable SENT acknowledgement
+
+Online recipient:
+SENT
+→ DELIVERED
+
+Reconnect
+→ conversation synchronized
+
+Do NOT invent arbitrary production numbers without load-test evidence.
+
+Establish targets from measured infrastructure and product expectations.
+
+============================================================
+77. RELIABILITY SLOS
+============================================================
+
+Define and test:
+
+- accepted-message durability
+- duplicate rate
+- message loss rate
+- reconnect success
+- service availability
+- attachment upload reliability
+
+"Zero message loss after durable acknowledgement" should be treated as a
+core design objective.
+
+============================================================
+78. FAILURE DOMAINS
+============================================================
+
+Explicitly test failure of:
+
+- one BEAM process
+- one BEAM node
+- realtime connection
+- database connection
+- database primary
+- cache
+- notification provider
+- object storage
+- media upload
+- network between services
+
+A failure in one optional subsystem must not unnecessarily collapse the
+whole Conversations platform.
+
+============================================================
+79. SUPERVISION
+============================================================
+
+Use BEAM supervision intentionally.
+
+Processes should have clear ownership and restart semantics.
+
+Do not create one giant process responsible for all users or all rooms.
+
+Failure of:
+
+User A connection
+
+must not crash:
+
+User B
+Shopping Room C
+entire messaging node.
+
+============================================================
+80. PROCESS MODEL
+============================================================
+
+Design the BEAM process topology before implementation.
+
+Possible responsibilities:
+
+- connection process
+- device/session process
+- conversation routing
+- presence
+- room process where justified
+- worker/supervisor boundaries
+
+Do not create one permanent BEAM process per historical conversation if it
+provides no runtime value.
+
+Processes should exist because they solve realtime coordination.
+
+============================================================
+81. SHOPPING ROOM FAN-OUT PREPARATION
+============================================================
+
+Direct message:
+
+1 sender
+→ small recipient device set
+
+Shopping Room:
+
+1 sender
+→ N members/devices
+
+Future large rooms may create substantial fan-out.
+
+Design fan-out as a distinct concern.
+
+Do not perform unbounded synchronous fan-out inside the sender's critical
+request path.
+
+============================================================
+82. FAN-OUT STRATEGY
+============================================================
+
+Prepare architecture to evaluate:
+
+- direct realtime fan-out for small rooms
+- batching
+- partitioned fan-out
+- queue-assisted fan-out
+- hybrid fan-out for large rooms
+
+Do not prematurely optimize for rooms containing millions of people.
+
+But enforce limits so one room cannot exhaust the system.
+
+============================================================
+83. ROOM SIZE POLICY
+============================================================
+
+Room size must eventually be configuration-driven.
+
+Do not embed assumptions such as:
+
+maxMembers = 5
+
+inside protocol design.
+
+Shopping Rooms may begin small while architecture remains extensible.
+
+============================================================
+84. LOAD TESTING
+============================================================
+
+Before production rollout, create realistic load tests.
+
+Test dimensions:
+
+- concurrent WebSocket connections
+- connection churn
+- messages/second
+- direct message fan-out
+- offline recipients
+- reconnect storms
+- read receipts
+- typing events
+- Shopping Room fan-out
+- encrypted attachment metadata
+- node failure during traffic
+
+Do not test only HTTP endpoint throughput.
+
+============================================================
+85. SOAK TESTING
+============================================================
+
+Run long-duration tests.
+
+Look for:
+
+- memory growth
+- orphan processes
+- connection leaks
+- mailbox growth
+- database connection exhaustion
+- queue accumulation
+- latency degradation
+
+A service surviving a 5-minute benchmark is not enough.
+
+============================================================
+86. CHAOS / FAILURE TESTING
+============================================================
+
+Introduce controlled failures:
+
+kill BEAM node
+restart service
+drop DB connection
+delay persistence
+disconnect clients
+restart load balancer path
+
+Verify:
+
+- no accepted message silently disappears
+- clients reconnect
+- duplicates remain suppressed
+- ordering recovers correctly
+
+============================================================
+87. CAPACITY MODEL
+============================================================
+
+Measure rather than guess:
+
+RAM per connection
+CPU per message
+messages/sec per node
+connections per node
+fan-out cost
+database writes/sec
+storage growth
+bandwidth
+attachment volume
+
+Use results to establish autoscaling thresholds.
+
+============================================================
+88. AUTOSCALING PREPARATION
+============================================================
+
+Future scaling signals may include:
+
+- active connections
+- scheduler utilization
+- memory
+- message throughput
+- mailbox pressure
+- fan-out queue depth
+- persistence latency
+
+CPU alone may be insufficient.
+
+============================================================
+89. DEPLOYMENT
+============================================================
+
+BEAM Conversations service should be independently deployable from the
+existing Winga application.
+
+A Conversations deployment must not require redeploying Home Feed unless
+shared contract changes require it.
+
+Use versioned interfaces.
+
+============================================================
+90. ZERO/LOW-DOWNTIME DEPLOYMENT
+============================================================
+
+Prepare for rolling deployments.
+
+During node replacement:
+
+- stop accepting new connections where appropriate
+- drain/reconnect clients
+- preserve durable state
+- clients resume from cursor
+
+Do not require users to lose messages during deploy.
+
+============================================================
+91. DATABASE MIGRATIONS
+============================================================
+
+Conversation schema migrations must be:
+
+- backward compatible where possible
+- staged
+- reversible where practical
+- tested against production-like volume
+
+Do not deploy schema changes that require every BEAM node/client to update
+at exactly the same instant.
+
+============================================================
+92. CLIENT PROTOCOL COMPATIBILITY
+============================================================
+
+Global users will run different app versions.
+
+Server must tolerate a supported range of protocol versions.
+
+Define:
+
+supported client versions
+deprecation policy
+forced-upgrade criteria for security-critical changes
+
+============================================================
+93. WEB / PWA CONSIDERATIONS
+============================================================
+
+Winga also operates on web/PWA.
+
+Evaluate:
+
+- WebSocket lifecycle
+- browser background restrictions
+- secure key storage limitations
+- IndexedDB/local persistence
+- service worker interaction
+- notification permissions
+- tab synchronization
+
+Do not assume native-mobile capabilities exist identically in browser.
+
+============================================================
+94. MOBILE CONSIDERATIONS
+============================================================
+
+Prepare for:
+
+Android process death
+iOS background suspension
+mobile network switching
+Wi-Fi → cellular
+low-memory termination
+battery constraints
+
+Realtime design must assume mobile clients disconnect frequently.
+
+============================================================
+95. BATTERY / NETWORK EFFICIENCY
+============================================================
+
+Do not send unnecessary heartbeat/event traffic.
+
+Presence/typing/read systems must be efficient.
+
+Messaging should remain usable on:
+
+slow
+high-latency
+intermittent
+
+networks.
+
+============================================================
+96. FUTURE CALLING PREPARATION
+============================================================
+
+Do NOT implement voice/video calling in this foundation unless explicitly
+requested.
+
+However, avoid naming/schema assumptions that make future:
+
+voice calls
+video calls
+
+impossible to add as a separate realtime subsystem.
+
+Calling media should not be routed through ordinary chat-message fan-out.
+
+============================================================
+97. FUTURE STORIES / SOCIAL SHARING
+============================================================
+
+Future Winga social content may be shared directly into Conversations:
+
+Product
+Reel
+Short
+Collection
+Profile
+Story/Status
+
+Message envelope must support typed references without redesign.
+
+============================================================
+98. FUTURE BUSINESS ACCOUNTS
+============================================================
+
+Future sellers/businesses may need:
+
+- multiple staff members
+- shared business Inbox
+- assignment
+- support queues
+- response analytics
+
+Do not hard-code every conversation to exactly one human account on the
+business side if an extensible participant model can safely support future
+business endpoints.
+
+Do NOT implement full customer-support software now.
+
+============================================================
+99. FUTURE VERIFIED BUSINESS MESSAGING
+============================================================
+
+Prepare for trusted business identity indicators.
+
+Security architecture should make impersonation difficult.
+
+Do not allow display name alone to establish business authenticity.
+
+============================================================
+100. FUTURE MESSAGE REQUESTS
+============================================================
+
+Person→Person social messaging may require:
+
+Known/accepted conversation
+vs
+Message Request
+
+Prepare for:
+
+REQUESTED
+ACCEPTED
+DECLINED
+BLOCKED
+
+to reduce unsolicited spam.
+
+Do not necessarily implement in foundation phase unless current product
+requires it.
+
+============================================================
+101. FUTURE DISAPPEARING MESSAGES
+============================================================
+
+Do not implement now unless explicitly requested.
+
+But document implications of E2EE and multi-device deletion if future
+ephemeral/disappearing messages are added.
+
+Do not promise server-enforced disappearance from already compromised
+endpoints.
+
+============================================================
+102. FUTURE PIN / STAR / BOOKMARK
+============================================================
+
+Future users may:
+
+pin message
+star product
+bookmark important room decision
+
+Keep these as derived user/room state rather than mutating message identity.
+
+============================================================
+103. FUTURE CONVERSATION EXPORT
+============================================================
+
+Privacy/compliance may require user-controlled export.
+
+Design data ownership so authorized user can export permitted conversation
+data without giving server universal plaintext access.
+
+Exact E2EE export design depends on chosen protocol/recovery model.
+
+============================================================
+104. DATA RETENTION
+============================================================
+
+Define retention separately for:
+
+- ciphertext messages
+- delivery metadata
+- presence
+- typing
+- logs
+- abuse reports
+- attachments
+- deleted accounts
+
+Do not retain ephemeral telemetry forever.
+
+============================================================
+105. ACCOUNT DELETION
+============================================================
+
+Define future semantics carefully.
+
+Deleting account does not necessarily mean rewriting every other
+participant's already-received encrypted history.
+
+Separate:
+
+account identity deletion
+server-held data deletion
+other participants' legitimate conversation copies
+transaction/legal retention
+
+Document clearly.
+
+============================================================
+106. SECURITY THREAT MODEL
+============================================================
+
+Before implementation completion, document threats including:
+
+- malicious network observer
+- malicious/compromised server
+- stolen device
+- compromised device key
+- replay attack
+- MITM
+- protocol downgrade
+- malicious room member
+- removed room member
+- attachment tampering
+- spammer
+- bot
+- credential theft
+- database leak
+- object-storage leak
+- insider access
+
+For each:
+
+asset
+attacker capability
+mitigation
+residual risk
+
+============================================================
+107. SECURITY REVIEW
+============================================================
+
+E2EE implementation must receive dedicated security review.
+
+Before making strong public claims:
+
+- protocol selection reviewed
+- implementation reviewed
+- key lifecycle reviewed
+- recovery reviewed
+- multi-device reviewed
+- group encryption reviewed
+- attachment encryption reviewed
+
+For high-assurance production, plan independent external security audit.
+
+============================================================
+108. NO FALSE SECURITY CLAIMS
+============================================================
+
+Do not label Winga Conversations:
+
+"End-to-End Encrypted"
+
+until the implemented production path actually satisfies the documented
+E2EE contract.
+
+Telemetry, notification previews, backups and attachments must be included
+in that assessment.
+
+============================================================
+109. FOUNDATION IMPLEMENTATION PHASES
+============================================================
+
+PHASE 0 — CURRENT SYSTEM AUDIT
+
+Inspect existing Winga:
+
+- auth
+- PostgreSQL
+- deployment
+- object storage
+- notification system
+- current/legacy messaging
+- existing APIs
+- frontend/PWA
+- observability
+- secrets
+- queues/workers
+
+No broad rewrite.
+
+------------------------------------------------------------
+
+PHASE 1 — CONTRACT FREEZE
+
+Freeze:
+
+- service boundaries
+- message envelope
+- state machine
+- ACK semantics
+- idempotency
+- ordering
+- reconnect/resume
+- protocol versioning
+- device model
+- storage interfaces
+- E2EE protocol decision
+- metadata policy
+
+Do not code around unresolved security semantics.
+
+------------------------------------------------------------
+
+PHASE 2 — BEAM REALTIME FOUNDATION
+
+Implement minimum production foundation:
+
+- authenticated WebSocket
+- connection lifecycle
+- supervisors
+- device/session routing
+- durable send path
+- ACK
+- idempotency
+- deterministic ordering
+- reconnect/resume
+- basic delivery event
+- observability
+
+No Shopping Rooms yet.
+
+------------------------------------------------------------
+
+PHASE 3 — E2EE FOUNDATION
+
+Implement chosen audited protocol/library integration.
+
+Include:
+
+- device identity
+- key lifecycle
+- encryption/decryption
+- verification foundation
+- secure local state
+- encrypted message envelope
+
+Do not build custom cryptography.
+
+------------------------------------------------------------
+
+PHASE 4 — ENCRYPTED MEDIA FOUNDATION
+
+Implement:
+
+- encrypted attachment upload
+- media key handling
+- secure metadata
+- authorized download
+- retry/resume where supported
+
+Prepare:
+
+image
+voice
+video
+document
+
+------------------------------------------------------------
+
+PHASE 5 — MULTI-DEVICE + RECOVERY
+
+Implement/test:
+
+- device add
+- device revoke
+- synchronization
+- recovery model
+- key backup/transfer if selected
+- security notifications
+
+------------------------------------------------------------
+
+PHASE 6 — FOUNDATION ACCEPTANCE
+
+Only after foundation passes acceptance should full:
+
+Winga Conversations Product Spec
+
+be implemented.
+
+============================================================
+110. AFTER FOUNDATION — FEATURE ROAD

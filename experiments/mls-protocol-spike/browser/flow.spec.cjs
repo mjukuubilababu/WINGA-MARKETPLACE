@@ -48,6 +48,14 @@ test.afterAll(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
 });
 
+test('Edge enforces pinned identities at MLS create, add, join and restore boundaries', async ({ page }) => {
+  await page.goto(url);
+  await page.addScriptTag({ path: path.join(__dirname, 'dist', 'spike.js') });
+  const result = await page.evaluate(() => window.runWingaMlsIdentitySpike());
+  expect(Object.keys(result)).toHaveLength(10);
+  for (const passed of Object.values(result)) expect(passed).toBe(true);
+});
+
 test('synthetic MLS flow runs in Edge with IndexedDB state roundtrip and tab persistence', async ({ page }) => {
   await page.goto(url);
   await page.addScriptTag({ path: path.join(__dirname, 'dist', 'spike.js') });

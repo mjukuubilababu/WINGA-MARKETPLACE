@@ -148,3 +148,33 @@ recovery have not been tested. The synthetic local outbox is not a production
 delivery/retry design: Web Locks and
 IndexedDB cannot make remote send and acknowledgement atomic with local state.
 No Winga message endpoint or UI was changed.
+
+## Pinned device authentication experiment (2026-10-02)
+
+The isolated sample now also tests a restrictive authentication adapter using
+independently supplied synthetic account/device/public-signing-key pins.
+The selected suite uses 32-byte Ed25519 signing keys. Malformed/versioned or
+non-canonical credentials, owner/device mismatches, duplicate registrations,
+substituted keys and revoked pins fail closed. Input pin bytes are copied so
+later fixture mutation cannot silently replace the trusted key.
+
+Actual library calls reject impostor initial group creation, unknown or
+substituted add proposals, revoked membership, a welcome with an untrusted
+signer, and revoked members during restore. Trusted members exchange an
+encrypted message. Restored state reinstates the explicit authentication
+adapter rather than reverting to the library's accept-all default.
+The initial-create wrapper is necessary: `ts-mls@1.6.4` does not invoke the
+credential validator for its first group leaf.
+
+`npm test` in the spike passed 15/15. The complete Edge spike suite passed
+4/4, including the new identity boundaries and the previous independent
+contexts, atomic inbox/outbox and process-restart cases. No production keys,
+accounts, servers or messages were used. The older separate-device harness
+still uses default authentication; the new identity flow is a distinct test.
+
+These pins do not solve trust establishment: no Winga enrollment, existing
+device approval, QR/safety-code ceremony, key transparency, compromised
+server defense or encrypted recovery is implemented. Pin revocation alone
+cannot revoke future content within an already established epoch; MLS
+membership removal must advance the group. The dependency's audit and
+production-selection gates remain open. No live transport change is needed.

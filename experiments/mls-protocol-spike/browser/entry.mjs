@@ -1,4 +1,7 @@
 import { runProtocolSpike } from '../spike.mjs';
+import { runIdentitySpike } from '../identity-spike.mjs';
+
+window.runWingaMlsIdentitySpike = runIdentitySpike;
 
 window.runWingaMlsProtocolSpike = () => runProtocolSpike(async (bytes, device) => {
   const db = await new Promise((resolve, reject) => {

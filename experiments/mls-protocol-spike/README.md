@@ -57,6 +57,24 @@ material causes a hard failure. This is storage feasibility only.
 
 ## Security boundary
 
+The pinned-identity subtest supplies account/device signing-key pins as
+independently trusted synthetic fixtures. Unlike the default authentication
+service, it rejects unknown devices, substituted keys, revoked records,
+non-canonical credentials and duplicate pins. The real MLS flow checks
+initial create, add, welcome and state restore, including retaining the
+explicit authentication service after decoding state. Initial create needs
+a wrapper because the pinned library does not authenticate its own first leaf.
+Node tests pass 15/15 and Edge tests pass 4/4 on 2026-10-02. The original
+separate-device harness still uses the default service; the identity test is
+separate and does not establish trust across real Winga devices.
+
+The pin format deliberately supports only bounded synthetic ASCII identifiers
+and the selected 32-byte Ed25519 suite. It is not a production account format,
+key directory, enrollment or transparency protocol. Revoked pins reject
+new membership and restored state; they do not cryptographically remove a
+device from an existing group. MLS membership removal/epoch advancement is
+still required, as covered separately by the earlier protocol spike.
+
 The library's own README says it has not received a formal security audit.
 Its default authentication service accepts any credential. This spike does
 not bind device keys to Winga accounts or provide key verification, recovery,

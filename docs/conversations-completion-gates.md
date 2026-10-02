@@ -43,9 +43,10 @@ compatibility and scale. Passing one row does not imply the others passed.
 1. Preserve current REST/SSE service and collect a final authenticated
    physical-device queue poll/ACK trace with aggregate-only evidence. Do not
    infer this from `ok:true` in the read-only verifier.
-2. Complete bounded local load and writer-restart evidence, then an explicitly
-   approved deployed Phoenix two-instance failure exercise with test accounts.
-   The service is now live; do not stop it or increase paid instance counts
+2. Bounded local load and writer-restart evidence are complete as recorded
+   below. The operator declined an additional paid two-instance Phoenix
+   exercise on 2026-10-02. Keep one deployed instance. Deployed node-loss
+   acceptance is deferred, not proven; do not repeat the request or scale up
    implicitly. Preserve stable client IDs, receipt semantics and rollback.
 3. In parallel, select a browser-capable MLS implementation only after its
    license, audit, persistence and Android recovery gates. The `ts-mls` spike
@@ -77,6 +78,14 @@ A second run together with the independent-connection PostgreSQL suite passed
 assertions. The disposable database and all fixture services were cleaned up.
 
 ## This audit's checks
+
+The original supplied contract has now been restored as
+`docs/winga-conversations-spec-0-109.txt`, with a source/evidence handoff in
+`docs/conversations-spec-handoff.md`. The MLS experiment adds independently
+pinned synthetic identity validation at create/add/welcome/restore boundaries;
+15/15 Node and 4/4 Edge tests passed. Production cryptographic identity, E2EE,
+encrypted media and recovery remain open. See the handoff phase table before
+declaring section 109 accepted or extending the product specification at 110.
 
 `npm run test:message-pages` passed 58/58 after the verifier change, realtime
 tests passed 46/46, and the focused ledger suite passed 11/11. Browser push
