@@ -1,5 +1,6 @@
 import { createGroup, decodeGroupState } from 'ts-mls';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
+import { maximumKeyPackageLifetime, validateKeyPackageLifetime } from './key-package-policy.mjs';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -52,6 +53,7 @@ export function pinnedDeviceConfig(records) {
   }
   return {
     ...defaultClientConfig,
+    lifetimeConfig: { ...defaultClientConfig.lifetimeConfig, maximumTotalLifetime: maximumKeyPackageLifetime, validateLifetimeOnReceive: true },
     authService: {
       async validateCredential(credential, signaturePublicKey) {
         try {
@@ -67,6 +69,7 @@ export function pinnedDeviceConfig(records) {
 }
 
 export async function createAuthenticatedGroup(groupId, device, cipherSuite, clientConfig) {
+  validateKeyPackageLifetime(device.publicPackage);
   const leaf = device.publicPackage.leafNode;
   // The pinned library does not authenticate its initial leaf in createGroup.
   if (!await clientConfig.authService.validateCredential(leaf.credential, leaf.signaturePublicKey)) {

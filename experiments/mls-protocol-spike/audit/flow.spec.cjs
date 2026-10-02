@@ -25,7 +25,7 @@ test('complete encrypted text, attachment, approval, revocation and recovery flo
     expect((await alice.page.evaluate(room => c.history(room), room))[0].status).toBe('sent');
     await bob.page.evaluate(() => c.sync()); await alice.page.evaluate(() => c.sync());
     expect((await alice.page.evaluate(room => c.history(room), room))[0].status).toBe('delivered');
-    await bob.page.evaluate(room => c.markRead(room), room); await alice.page.evaluate(() => c.sync());
+    await bob.page.evaluate(async room => c.markRead(room, (await c.history(room)).map(row => row.id)), room); await alice.page.evaluate(() => c.sync());
     expect((await alice.page.evaluate(room => c.history(room), room))[0].status).toBe('read');
     const media = await alice.page.evaluate(room => c.sendMedia(room, new Blob(['private file bytes'], { type: 'text/plain' }), { name: 'secret-name.txt', mime: 'text/plain' }, 'private attachment'), room);
     await bob.page.evaluate(() => c.sync());

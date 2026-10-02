@@ -1,5 +1,5 @@
 import {
-  createApplicationMessage, createCommit, defaultCapabilities, defaultLifetime,
+  createApplicationMessage, createCommit, defaultCapabilities,
   emptyPskIndex, encodeGroupState, generateKeyPackage, getCiphersuiteFromName,
   getCiphersuiteImpl, joinGroup, processPrivateMessage, zeroOutUint8Array,
 } from 'ts-mls';
@@ -7,6 +7,7 @@ import {
   createAuthenticatedGroup, pinnedDeviceConfig, restoreAuthenticatedState,
   syntheticDeviceCredential,
 } from './device-identity.mjs';
+import { keyPackageLifetime } from './key-package-policy.mjs';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -21,7 +22,7 @@ export async function runIdentitySpike() {
     getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'),
   );
   const makeDevice = (owner, device) => generateKeyPackage(
-    syntheticDeviceCredential(owner, device), defaultCapabilities(), defaultLifetime, [], cipherSuite,
+    syntheticDeviceCredential(owner, device), defaultCapabilities(), keyPackageLifetime(), [], cipherSuite,
   );
   const alice = await makeDevice('alice', 'desktop');
   const bob = await makeDevice('bob', 'phone');

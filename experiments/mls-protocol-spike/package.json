@@ -8,7 +8,9 @@
     "build:devices": "esbuild browser/device-entry.mjs --bundle --minify --platform=browser --format=iife --outfile=browser/dist/device.js",
     "build:audit": "node audit/build.cjs",
     "start:audit": "npm run build:audit && node audit/server.cjs --audit-only",
-    "test:audit": "npm run build:audit && playwright test --config audit/playwright.config.cjs"
+    "test:audit": "npm run build:audit && playwright test --config audit/playwright.config.cjs",
+    "test:audit-security": "npm run build:audit && playwright test --config audit/security.playwright.config.cjs",
+    "test:audit-repairs": "npm run build:audit && playwright test --config audit/repairs.playwright.config.cjs"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",

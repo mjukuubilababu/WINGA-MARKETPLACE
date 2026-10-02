@@ -1,11 +1,12 @@
 import {
-  createApplicationMessage, createCommit, defaultCapabilities, defaultLifetime, emptyPskIndex,
+  createApplicationMessage, createCommit, defaultCapabilities, emptyPskIndex,
   encodeGroupState, encodeMlsMessage, decodeMlsMessage, generateKeyPackage, generateKeyPackageWithKey,
   getCiphersuiteFromName, getCiphersuiteImpl, joinGroup, processPrivateMessage, zeroOutUint8Array,
 } from 'ts-mls';
 import { encodeRatchetTree, decodeRatchetTree } from 'ts-mls/ratchetTree.js';
 import { createAuthenticatedGroup, restoreAuthenticatedState, pinnedDeviceConfig, syntheticDeviceCredential } from '../device-identity.mjs';
 import secureContent from '../../../src/chat/secure-content.js';
+import { keyPackageLifetime, validateKeyPackageLifetime } from '../key-package-policy.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const need = (condition, code = 'encrypted_flow_rejected') => { if (!condition) throw new Error(code); };
@@ -19,6 +20,11 @@ const unpack = value => JSON.parse(decoder.decode(value), (_, item) => item && O
 const decodeExact = (method, value) => { const bytes = typeof value === 'string' ? decode(value) : value; const decoded = method(bytes, 0); need(decoded && decoded[1] === bytes.length); return decoded[0]; };
 const consumed = value => value.consumed.forEach(zeroOutUint8Array);
 const equalSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+const advanceStatus = (current, next) => {
+  const order = { failed: 0, pending: 0, sent: 1, delivered: 2, read: 3 };
+  need(Object.hasOwn(order, current) && Object.hasOwn(order, next), 'invalid_outgoing_status');
+  return order[next] > order[current] ? next : current;
+};
 const credential = value => {
   need(value?.credentialType === 'basic');
   const tuple = JSON.parse(decoder.decode(value.identity));
@@ -116,12 +122,20 @@ class AuditClient {
       await this.vault.initialize(); let device = await this.vault.get('device');
       if (!device) {
         const id = crypto.randomUUID(), suite = await suitePromise;
-        const kp = await generateKeyPackage(syntheticDeviceCredential(this.session.owner, id), defaultCapabilities(), defaultLifetime, [], suite);
+        const kp = await generateKeyPackage(syntheticDeviceCredential(this.session.owner, id), defaultCapabilities(), keyPackageLifetime(), [], suite);
         const wire = encodeMlsMessage({ version: 'mls10', wireformat: 'mls_key_package', keyPackage: kp.publicPackage });
         device = { id, owner: this.session.owner, publicKey: encode(kp.publicPackage.leafNode.signaturePublicKey), signaturePrivateKey: kp.privatePackage.signaturePrivateKey, package: encode(wire) };
         await this.vault.write({ device, [`package:${await digest(wire)}`]: kp });
       }
       need(device.owner === this.session.owner); this.device = device;
+      try { validateKeyPackageLifetime(decodeExact(decodeMlsMessage, device.package).keyPackage); }
+      catch {
+        const kp = await generateKeyPackageWithKey(syntheticDeviceCredential(device.owner, device.id), defaultCapabilities(), keyPackageLifetime(), [],
+          { signKey: device.signaturePrivateKey.slice(), publicKey: decode(device.publicKey) }, await suitePromise);
+        const wire = encodeMlsMessage({ version: 'mls10', wireformat: 'mls_key_package', keyPackage: kp.publicPackage });
+        device = { ...device, package: encode(wire) }; this.device = device;
+        await this.vault.write({ device, [`package:${await digest(wire)}`]: kp });
+      }
       const registered = await this.request('/api/devices/register', 'POST', { id: device.id, package: device.package, resetIdentity });
       need(registered.public_key === device.publicKey && registered.owner === device.owner, 'server_identity_substitution');
       const pins = await this.vault.get('pins') || {};
@@ -171,7 +185,7 @@ class AuditClient {
   }
   async freshPackage() {
     const suite = await suitePromise, kp = await generateKeyPackageWithKey(syntheticDeviceCredential(this.session.owner, this.device.id),
-      defaultCapabilities(), defaultLifetime, [], { signKey: this.device.signaturePrivateKey.slice(), publicKey: decode(this.device.publicKey) }, suite);
+      defaultCapabilities(), keyPackageLifetime(), [], { signKey: this.device.signaturePrivateKey.slice(), publicKey: decode(this.device.publicKey) }, suite);
     const wire = encodeMlsMessage({ version: 'mls10', wireformat: 'mls_key_package', keyPackage: kp.publicPackage }), hash = await digest(wire);
     await this.vault.write({ [`package:${hash}`]: kp }); await this.request('/api/devices/package', 'POST', { package: encode(wire) }); return { hash, kp };
   }
@@ -183,24 +197,65 @@ class AuditClient {
     values.clock = order; await this.vault.write(values, deleted, abort);
   }
   async flush() { return this.lock(() => this.flushLocked()); }
-  async flushLocked() {
+  async flushLocked({ roomId: selectedRoom, ignoreRekey = false } = {}) {
     const pending = (await this.vault.list('pending:')).sort((a, b) => a[1].order - b[1].order);
+    for (const entry of [...pending]) {
+      const job = entry[1], roomId = job.payload?.roomId;
+      if (job.kind === 'commit' && pending.some(([, item]) => item.kind === 'message'
+        && item.payload.roomId === roomId && item.blockedCode === 'room_rekey_required')) {
+        pending.splice(pending.indexOf(entry), 1); pending.unshift(entry);
+      }
+    }
+    const blocked = new Set(); let selectedFailure;
     for (const [key, job] of pending) {
+      const roomId = job.payload?.roomId || new URL(job.path, location.origin).searchParams.get('roomId');
+      if (selectedRoom && roomId !== selectedRoom) continue;
+      if (!await this.vault.get(key)) continue;
+      if (blocked.has(roomId) && !(ignoreRekey && job.kind === 'commit'
+        && (await this.vault.get(`outbox-block:${roomId}`))?.code === 'room_rekey_required')) continue;
+      if (roomId && (await this.vault.get(`group:${roomId}`))?.quarantined) continue;
       try {
         const result = await this.request(job.path, job.method, job.payload, job.binary);
         if (job.payload?.id) need(result.id === job.payload.id, 'ack_mismatch');
-        const values = {};
-        if (job.kind === 'message') { const item = await this.vault.get(`history:${job.payload.id}`); if (item) values[`history:${item.id}`] = { ...item, status: 'sent' }; }
-        await this.vault.write(values, [key]);
+        const values = {}, deleted = [key];
+        if (job.kind === 'message') { const item = await this.vault.get(`history:${job.payload.id}`); if (item) values[`history:${item.id}`] = { ...item, status: advanceStatus(item.status, 'sent') }; }
+        if (job.kind === 'commit') {
+          // Only an explicit pre-commit rejection proves that an old-epoch send
+          // was never accepted. Unknown outcomes retain their exact retry bytes.
+          const rejected = (await this.vault.list('pending:')).filter(([, item]) =>
+            item.kind === 'message' && item.payload.roomId === roomId && item.blockedCode === 'room_rekey_required');
+          for (const [, item] of rejected) {
+            const history = await this.vault.get(`history:${item.payload.id}`);
+            if (history?.status === 'pending') values[`history:${history.id}`] = { ...history, status: 'failed' };
+          }
+          deleted.push(`outbox-block:${roomId}`, ...rejected.map(([id]) => id));
+          blocked.delete(roomId);
+        }
+        await this.vault.write(values, deleted);
       } catch (failure) {
         if (failure.code === 'message_not_stored' || failure.code === 'message_not_delivered') continue;
+        // This explicit 409 is a definite non-acceptance: the server checks an
+        // earlier idempotent acceptance before checking recipient membership.
+        // Keep failed history and the advanced ratchet; only retire this queue job.
+        if (job.kind === 'message' && failure.status === 409 && failure.code === 'recipient_not_joined') {
+          const item = await this.vault.get(`history:${job.payload.id}`);
+          if (item?.status === 'pending') {
+            await this.vault.write({ [`history:${item.id}`]: { ...item, status: 'failed' } }, [key]);
+            continue;
+          }
+        }
         if (failure.code === 'epoch_conflict') {
           const state = await this.vault.get(`group:${job.payload.roomId}`);
           await this.vault.write({ [`group:${job.payload.roomId}`]: { ...state, quarantined: true } });
         }
-        throw failure;
+        if (failure.status === 401) throw failure;
+        blocked.add(roomId);
+        await this.vault.write({ [key]: { ...job, blockedCode: failure.code || 'outcome_unknown' },
+          [`outbox-block:${roomId}`]: { code: failure.code || 'outcome_unknown' } });
+        if (selectedRoom && !(ignoreRekey && failure.code === 'room_rekey_required')) selectedFailure ||= failure;
       }
     }
+    if (selectedFailure) throw selectedFailure;
     return pending.length;
   }
   async createRoom(peer) {
@@ -209,7 +264,7 @@ class AuditClient {
       const state = await createAuthenticatedGroup(encoder.encode(roomId), kp, await suitePromise, await this.config());
       const id = crypto.randomUUID();
       await this.stage({ [`group:${roomId}`]: { bytes: encodeGroupState(state) } }, [{ id, kind: 'create', path: '/api/rooms', method: 'POST', payload: { id, roomId, peer, packageHash: hash } }]);
-      await this.flushLocked(); return roomId;
+      await this.flushLocked({ roomId }); return roomId;
     });
   }
   async addDevice(roomId, id) { return this.changeMembers(roomId, id, true); }
@@ -221,22 +276,24 @@ class AuditClient {
       const pending = (await this.vault.list('pending:')).filter(([, job]) => job.payload?.roomId === roomId || job.path.includes(`roomId=${roomId}`));
       const values = {};
       for (const [, job] of pending.filter(([, job]) => job.kind === 'message')) {
-        const item = await this.vault.get(`history:${job.payload.id}`); if (item) values[`history:${item.id}`] = { ...item, status: 'failed' };
+        const item = await this.vault.get(`history:${job.payload.id}`);
+        if (item && ['pending','sent'].includes(item.status)) values[`history:${item.id}`] = { ...item, status: 'failed' };
       }
       await this.freshPackage();
-      await this.vault.write(values, [`group:${roomId}`, ...pending.map(([id]) => id)]);
+      await this.vault.write(values, [`group:${roomId}`, `quarantine:${roomId}`, ...pending.map(([id]) => id)]);
       return { freshWelcomeRequired: true };
     });
   }
   async changeMembers(roomId, deviceId, add) {
     return this.lock(async () => {
-      await this.flushLocked(); const state = await this.state(roomId), expectedEpoch = Number(state.groupContext.epoch);
+      await this.flushLocked({ roomId, ignoreRekey: !add }); const state = await this.state(roomId), expectedEpoch = Number(state.groupContext.epoch);
       const directory = await this.directory(), pins = await this.vault.get('pins');
       let proposal, adds = [], removes = [];
       if (add) {
         const target = directory.find(row => row.id === deviceId);
         need(target?.status === 'active' && target.trusted && target.package, 'verified_device_required');
         const kp = decodeExact(decodeMlsMessage, target.package); need(kp.wireformat === 'mls_key_package');
+        validateKeyPackageLifetime(kp.keyPackage);
         need(encode(kp.keyPackage.leafNode.signaturePublicKey) === pins[deviceId].key, 'identity_changed');
         proposal = { proposalType: 'add', add: { keyPackage: kp.keyPackage } };
         adds = [{ deviceId, packageHash: await digest(decode(target.package)) }];
@@ -251,7 +308,7 @@ class AuditClient {
           welcome: add ? encode(encodeMlsMessage({ version: 'mls10', wireformat: 'mls_welcome', welcome: changed.welcome })) : null,
           tree: add ? encode(encodeRatchetTree(changed.newState.ratchetTree)) : null };
         await this.stage({ [`group:${roomId}`]: { bytes: encodeGroupState(changed.newState) } }, [{ id, kind: 'commit', path: '/api/commits', method: 'POST', payload }]);
-        await this.flushLocked(); return { epoch: expectedEpoch + 1 };
+        await this.flushLocked({ roomId, ignoreRekey: !add }); return { epoch: expectedEpoch + 1 };
       } finally { consumed(changed); }
     });
   }
@@ -272,6 +329,7 @@ class AuditClient {
         const remote = (await this.rooms()).find(row => row.id === roomId);
         need(remote && remote.devices.some(row => row.id === this.device.id), 'room_device_not_joined');
         need(!remote.blocked, 'room_rekey_required');
+        need(remote.devices.some(row => row.id !== this.device.id && row.status === 'active'), 'recipient_not_joined');
         need(remote.epoch === Number(state.groupContext.epoch), 'pending_sync_required');
       } catch (failure) { if (failure.status || failure.code || !(failure instanceof TypeError)) throw failure; }
       const id = crypto.randomUUID(), epoch = Number(state.groupContext.epoch), jobs = [];
@@ -293,26 +351,38 @@ class AuditClient {
         jobs.push({ id, kind: 'message', path: '/api/messages', method: 'POST', payload: { id, roomId, epoch, ciphertext: encode(wire), attachmentIds: attachment ? [attachment.attachmentId] : [] } });
         const history = { ...envelope, status: 'pending', at: Date.now(), cipherHash: await digest(wire) };
         await this.stage({ [`group:${roomId}`]: { bytes: encodeGroupState(encrypted.newState) }, [`history:${id}`]: history }, jobs, [], abort);
-        try { await this.flushLocked(); } catch (failure) { if (failure.status || failure.code) throw failure; }
+        try { await this.flushLocked({ roomId }); } catch (failure) { if (failure.status || failure.code) throw failure; }
         return this.vault.get(`history:${id}`);
       } finally { consumed(encrypted); }
     });
   }
   async sync() {
     return this.lock(async () => {
+      // Persist one quarantine per room locally before excluding its queue remotely.
+      // A lost reject response is retried without rolling back a consumed ratchet.
+      for (const [, rejected] of await this.vault.list('quarantine:')) await this.request('/api/events/reject', 'POST', rejected);
       const events = await this.request('/api/events'), suite = await suitePromise; const acknowledgements = [];
+      const blocked = new Set();
       for (const event of events) {
+        if (blocked.has(event.room_id)) continue;
         const fingerprint = await digest(pack(event)), seen = await this.vault.get(`seen:${event.id}`);
         if (seen) { need(seen === fingerprint, 'event_substitution'); acknowledgements.push(event.id); continue; }
         const p = event.payload, roomId = event.room_id, values = {}, deleted = [], jobs = [];
-        need(uuid(roomId)); let result;
+        need(uuid(roomId)); let result, validated = false;
         try {
           if (event.kind === 'welcome') {
             need(!(await this.vault.get(`group:${roomId}`)), 'existing_group_cannot_be_replaced');
             const kp = await this.vault.get(`package:${p.packageHash}`); need(kp, 'key_package_missing');
+            validateKeyPackageLifetime(kp.publicPackage);
             const welcome = decodeExact(decodeMlsMessage, p.welcome); need(welcome.wireformat === 'mls_welcome');
+            const config = await this.config();
+            // Welcome validates a historical tree, not fresh admission of every
+            // existing member. Own admission is checked above; future Adds use
+            // strict expiry again, including the explicit maximum-lifetime check.
             const joined = await joinGroup(welcome.welcome, kp.publicPackage, kp.privatePackage, emptyPskIndex, suite,
-              decodeExact(decodeRatchetTree, p.tree), undefined, await this.config());
+              decodeExact(decodeRatchetTree, p.tree), undefined,
+              { ...config, lifetimeConfig: { ...config.lifetimeConfig, validateLifetimeOnReceive: false } });
+            joined.clientConfig = config;
             need(decoder.decode(joined.groupContext.groupId) === roomId && joined.groupContext.epoch === BigInt(p.epoch), 'welcome_binding_mismatch');
             values[`group:${roomId}`] = { bytes: encodeGroupState(joined) }; deleted.push(`package:${p.packageHash}`);
           } else if (event.kind === 'commit' || event.kind === 'message') {
@@ -328,6 +398,7 @@ class AuditClient {
               for (const entry of notice.proposals) {
                 const proposal = entry.proposal;
                 if (proposal.proposalType === 'add') {
+                  validateKeyPackageLifetime(proposal.add.keyPackage);
                   const added = credential(proposal.add.keyPackage.leafNode.credential), target = directory.find(row => row.id === added.device);
                   need(target?.status === 'active' && target.trusted && target.owner === added.owner, 'verified_device_required'); additions.push(added.device);
                 } else if (proposal.proposalType === 'remove') removals.push(credential(state.ratchetTree[proposal.remove.removed * 2].leaf.credential).device);
@@ -353,25 +424,40 @@ class AuditClient {
             }
             values[`group:${roomId}`] = { bytes: encodeGroupState(result.newState) };
           } else if (event.kind === 'receipt') {
-            need(['stored','read'].includes(p.kind)); const item = await this.vault.get(`history:${p.id}`);
-            need(item && item.owner === this.session.owner && item.roomId === roomId, 'receipt_binding_mismatch');
-            values[`history:${p.id}`] = { ...item, status: item.status === 'read' || p.kind === 'read' ? 'read' : 'delivered' };
+            need(uuid(p.id) && ['stored','read'].includes(p.kind)); const item = await this.vault.get(`history:${p.id}`);
+            if (item) {
+              need(item.owner === this.session.owner && item.roomId === roomId, 'receipt_binding_mismatch');
+              values[`history:${p.id}`] = { ...item, status: advanceStatus(item.status, p.kind === 'read' ? 'read' : 'delivered') };
+            }
+            // Unknown history is not invented; authenticated recovery explicitly
+            // subscribes again to the server's canonical receipt state.
           } else throw new Error('unknown_event');
+          validated = true;
           values[`seen:${event.id}`] = fingerprint; await this.stage(values, jobs, deleted); acknowledgements.push(event.id);
+        } catch (failure) {
+          if (validated || failure.status || (failure instanceof DOMException && !['OperationError','DataError'].includes(failure.name))
+            || (failure instanceof TypeError && /fetch/i.test(failure.message))) throw failure;
+          const rejected = { id: event.id, roomId, fingerprint };
+          const saved = await this.vault.get(`group:${roomId}`);
+          await this.vault.write({ [`group:${roomId}`]: { ...saved, quarantined: true }, [`quarantine:${roomId}`]: rejected });
+          blocked.add(roomId);
         } finally { if (result) { if (result.message) result.message.fill(0); consumed(result); } }
       }
       if (acknowledgements.length) await this.request('/api/events/ack', 'POST', { ids: acknowledgements });
       if (events.some(event => event.kind === 'welcome' && acknowledgements.includes(event.id))) await this.freshPackage();
+      for (const [, rejected] of await this.vault.list('quarantine:')) await this.request('/api/events/reject', 'POST', rejected);
       await this.flushLocked(); return events.length;
     });
   }
-  async markRead(roomId) {
+  async markRead(roomId, visibleIds = []) {
     return this.lock(async () => {
+      need(Array.isArray(visibleIds) && visibleIds.length <= 1000 && visibleIds.every(uuid), 'visible_message_ids_required');
+      const visible = new Set(visibleIds);
       const rows = await this.history(roomId), jobs = [];
-      for (const item of rows.filter(row => row.owner !== this.session.owner && !row.readLocally && !row.recovered)) {
+      for (const item of rows.filter(row => visible.has(row.id) && row.owner !== this.session.owner && !row.readLocally && !row.recovered)) {
         jobs.push({ id: crypto.randomUUID(), kind: 'receipt', path: '/api/receipts', method: 'POST', payload: { id: item.id, kind: 'read' } });
       }
-      const values = Object.fromEntries(rows.filter(row => row.owner !== this.session.owner && !row.recovered).map(row => [`history:${row.id}`, { ...row, readLocally: true }]));
+      const values = Object.fromEntries(rows.filter(row => visible.has(row.id) && row.owner !== this.session.owner && !row.recovered).map(row => [`history:${row.id}`, { ...row, readLocally: true }]));
       await this.stage(values, jobs); await this.flushLocked(); return jobs.length;
     });
   }
@@ -415,8 +501,33 @@ class AuditClient {
           ids.add(row.id); const prior = await this.vault.get(`history:${row.id}`); need(!prior || prior.cipherHash === cipherHash, 'recovery_conflict');
           if (!prior) values[`history:${row.id}`] = { ...row, recovered: true };
         }
-        await this.vault.write(values); return { restored: Object.keys(values).length, identityRestored: false, groupStateRestored: false };
+        const jobs = [];
+        const rooms = new Map();
+        for (const row of archive.rows.filter(row => row.owner === this.session.owner && ['sent','delivered','read'].includes(row.status))) {
+          if (!rooms.has(row.roomId)) rooms.set(row.roomId, []); rooms.get(row.roomId).push(row.id);
+        }
+        for (const [roomId, ids] of rooms) for (let offset = 0; offset < ids.length; offset += 64) {
+          const id = crypto.randomUUID();
+          jobs.push({ id, kind: 'history-receipts', path: '/api/receipts/history', method: 'POST', payload: { id, roomId, messageIds: ids.slice(offset, offset + 64) } });
+        }
+        const restored = Object.keys(values).length;
+        await this.stage(values, jobs); await this.flushLocked();
+        return { restored, identityRestored: false, groupStateRestored: false };
       } finally { plaintext.fill(0); }
+    });
+  }
+  async discardPendingBackup({ confirmed = false } = {}) {
+    need(confirmed === true, 'backup_discard_confirmation_required');
+    return this.lock(async () => {
+      const pending = await this.vault.get('backup:pending');
+      need(pending, 'pending_backup_missing');
+      const remote = await this.request('/api/recovery');
+      const accepted = remote.revision === String(Number(pending.expectedRevision) + 1)
+        && remote.capsule && equalSet(Object.keys(remote.capsule), Object.keys(pending.capsule))
+        && Object.keys(pending.capsule).every(field => remote.capsule[field] === pending.capsule[field]);
+      need(accepted || remote.revision !== pending.expectedRevision, 'backup_conflict_not_observed');
+      await this.vault.write({}, ['backup:pending']);
+      return { discarded: !accepted, alreadyAccepted: Boolean(accepted), revision: remote.revision, remoteChanged: false };
     });
   }
   async deleteBackup() { return this.lock(async () => { const remote = await this.request('/api/recovery'); return this.request('/api/recovery', 'DELETE', { expectedRevision: remote.revision }); }); }

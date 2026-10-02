@@ -157,3 +157,42 @@ Sources: [ts-mls project](https://github.com/LukaJCB/ts-mls),
 [Web Crypto](https://www.w3.org/TR/webcrypto/),
 [OpenMLS audit](https://blog.phnx.im/openmls-independent-security-audit/).
 No audit has been commissioned or scheduled automatically by this task.
+
+## Internal Security Review
+
+The follow-up internal review found four reproducible integration defects, now
+fixed and locally retested. Production approval still requires independent review
+and the separate integration gates. Read `docs/e2ee-internal-security-review.md`
+at the repository root for original findings and remediation evidence. Run
+`npm run test:audit-security --prefix experiments/mls-protocol-spike` from the
+repository root. All 14 probes are ordinary passing regressions, with no expected
+failures or skips. Quarantine isolates invalid rooms without Stored receipts or
+ratchet rollback; historical receipts are device-eligible and history recovery
+explicitly subscribes to canonical receipt state. Retries preserve Read/Delivered.
+Backup conflicts offer a confirmed local-only discard that preserves the remote
+capsule and exact ambiguous retries. This review does not replace an independent
+audit or enable production E2EE.
+
+Post-remediation verification: 14/14 security, 5/5 integrated, 15/15 pinned MLS,
+16/16 native crypto/backup and 4/4 strict-CSP browser cases passed (54 local tests).
+Run browser suites sequentially on constrained Windows machines; a concurrent
+integrated run exceeded its existing timeout, while the standalone rerun passed.
+
+## Full-Spec Audit Repair Follow-Up
+
+The four additional full-spec findings F02-F05 are repaired: per-room outbox
+isolation/rekey retry, unsent recovery history without phantom subscriptions,
+bounded admission KeyPackage lifetimes, and focused viewport-visible Read IDs.
+The rekey guard distinguishes explicit non-acceptance from accepted-but-lost
+responses; it never rewinds a ratchet or marks an accepted canonical send Failed.
+Old trusted members may remain in a historical tree after admission expiry;
+fresh admission and actual Add proposals still enforce expiry and maximum age.
+
+Run `npm test` and `npm run test:audit-repairs` in this experiment. The combined
+browser suite includes positive repair/flow regressions and two explicitly named
+trust-limit demonstrations: server-authored receipts and fresh-device snapshot
+rollback. Those two observations do not count as security acceptance. See the
+Repair Follow-Up in `docs/conversations-spec-0-109-audit-2026-10-02.md` for scope.
+This workbench remains localhost-only, experimental and excluded from production
+E2EE rollout. No CSP permission, production crypto flag or private-media pipeline
+was enabled by these repairs.

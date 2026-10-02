@@ -185,3 +185,39 @@ Final local verification passed 5/5 integrated audit scenarios, 15/15 MLS baseli
 tests, 16/16 native crypto/backup tests and 4/4 strict-CSP browser tests. Desktop
 and mobile screenshots showed the authenticated encrypted image without overflow.
 This is 40 passing local test cases, not 40 accepted specification sections.
+
+## Internal Security Review Findings (2026-10-02)
+
+The adversarial follow-up initially reproduced four integration defects: a peer's
+invalid application envelope globally blocks device sync; a new sender device
+stalls on pre-enrollment receipts; a lost-response retry downgrades Read to Sent;
+and a stale pending backup capsule cannot recover through the public workflow.
+The operator-authorized follow-up fixed all four locally: durable per-room
+quarantine, per-message device receipt eligibility with explicit history recovery,
+monotonic send/receipt status and confirmed local pending-backup conflict recovery.
+All 14 security regressions now pass without expected failures or skips, including
+desktop/mobile confirmation UI. This is not independent security acceptance. A separate
+root dependency scan flags sharp 0.35.3, while the backend lock is already 0.35.4.
+See `docs/e2ee-internal-security-review.md` for evidence, scope and retest gates.
+Production E2EE remains blocked and disabled pending independent review and
+production integration/dependency gates; the four audited local defects are closed.
+
+Post-fix verification passed 14/14 security regressions, 5/5 integrated scenarios,
+15/15 MLS/device-identity baseline cases, 16/16 native crypto/backup contracts and
+4/4 strict-CSP browser cases. These 54 local passes are not production E2EE
+acceptance or accepted specification-section counts.
+
+## Full-Spec Audit Repair Follow-Up (2026-10-02)
+
+The separate F02-F05 workbench defects from the full 0-109 audit are repaired:
+revocation/outbox rekey deadlock, recovered unsent receipt subscriptions,
+KeyPackage admission lifetime checks and offscreen Read. Tests preserve prior
+AUD-001 through AUD-004 fixes and add exact lost-response/restart rekey and
+accepted-send safeguards. See the follow-up record in
+`docs/conversations-spec-0-109-audit-2026-10-02.md` and run the experiment's
+`npm run test:audit-repairs`.
+
+Receipt server trust, fresh-device recovery freshness, production crypto/media
+integration, external review, operational SLO/capacity evidence and the root
+dependency advisory are still independent open gates. Deployment of a repository
+revision does not enable experimental E2EE or complete section 109 Phase 6.

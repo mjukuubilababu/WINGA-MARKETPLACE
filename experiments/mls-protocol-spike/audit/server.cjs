@@ -38,6 +38,8 @@ const schema = `
  CREATE TABLE IF NOT EXISTS audit_events(id BIGSERIAL PRIMARY KEY,device_id TEXT REFERENCES audit_devices(id),room_id TEXT REFERENCES audit_rooms(id),kind TEXT NOT NULL,payload JSONB NOT NULL,acknowledged BOOLEAN NOT NULL DEFAULT FALSE);
  CREATE TABLE IF NOT EXISTS audit_media(id TEXT PRIMARY KEY,room_id TEXT REFERENCES audit_rooms(id),owner TEXT REFERENCES users(username),ciphertext BYTEA NOT NULL,digest TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS audit_receipts(message_id TEXT REFERENCES audit_messages(id),device_id TEXT REFERENCES audit_devices(id),kind TEXT NOT NULL CHECK(kind IN ('stored','read')),PRIMARY KEY(message_id,device_id,kind));
+ CREATE TABLE IF NOT EXISTS audit_receipt_devices(message_id TEXT REFERENCES audit_messages(id),device_id TEXT REFERENCES audit_devices(id),history BOOLEAN NOT NULL DEFAULT FALSE,PRIMARY KEY(message_id,device_id));
+ CREATE TABLE IF NOT EXISTS audit_quarantines(device_id TEXT REFERENCES audit_devices(id),room_id TEXT REFERENCES audit_rooms(id),event_id BIGINT REFERENCES audit_events(id),fingerprint TEXT NOT NULL,PRIMARY KEY(device_id,room_id));
  CREATE TABLE IF NOT EXISTS schema_migrations(migration_id TEXT PRIMARY KEY);
 `;
 
@@ -48,6 +50,15 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
   const db = new PGlite(dataDir);
   await db.exec(schema);
   await db.exec('ALTER TABLE audit_members ADD COLUMN IF NOT EXISTS start_event BIGINT NOT NULL DEFAULT 0');
+  if (!(await db.query('SELECT 1 FROM schema_migrations WHERE migration_id=$1', ['audit_receipt_eligibility_v1'])).rows.length) {
+    await db.exec(`INSERT INTO audit_receipt_devices(message_id,device_id)
+    SELECT msg.id,d.id FROM audit_messages msg JOIN audit_devices actor ON actor.id=msg.device_id
+    JOIN audit_devices d ON d.owner=actor.owner JOIN audit_members m ON m.device_id=d.id AND m.room_id=msg.room_id
+    WHERE m.active AND (d.id=msg.device_id OR EXISTS(SELECT 1 FROM audit_events e
+      WHERE e.device_id=d.id AND e.room_id=msg.room_id AND e.kind='message' AND e.payload->>'id'=msg.id AND e.id>=m.start_event))
+    ON CONFLICT DO NOTHING`);
+    await db.query('INSERT INTO schema_migrations VALUES($1)', ['audit_receipt_eligibility_v1']);
+  }
   for (const sql of backupMigration.statements) await db.exec(sql);
   await db.query('INSERT INTO schema_migrations VALUES($1) ON CONFLICT DO NOTHING', [backupMigration.id]);
   for (const owner of ['alice', 'bob', 'eve']) {
@@ -57,6 +68,7 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
   }
   const mls = await import('ts-mls');
   const { verifyKeyPackage } = await import('ts-mls/keyPackage.js');
+  const { validateKeyPackageLifetime } = await import('../key-package-policy.mjs');
   const suite = await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   let origin, chain = Promise.resolve();
   const serial = work => { const next = chain.then(work); chain = next.catch(() => {}); return next; };
@@ -66,6 +78,8 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
     const decoded = mls.decodeMlsMessage(raw, 0);
     demand(decoded && decoded[1] === raw.length && decoded[0].wireformat === 'mls_key_package');
     const kp = decoded[0].keyPackage;
+    try { validateKeyPackageLifetime(kp); }
+    catch (failure) { throw error(400, failure.message); }
     demand(kp.cipherSuite === suite.name && kp.leafNode.credential.credentialType === 'basic'
       && Buffer.from(kp.leafNode.credential.identity).toString() === JSON.stringify(['winga-mls-device-spike', 1, owner, device])
       && await verifyKeyPackage(kp, suite.signature));
@@ -166,9 +180,19 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
         json(200, { ok: true }, { 'Set-Cookie': 'winga_audit=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); return;
       }
       if (url.pathname === '/api/devices' && req.method === 'GET') {
-        const result = await transaction(async client => { await authenticated(client, req); return (await client.query(`SELECT d.id,d.owner,d.public_key,d.status,
-          (SELECT package FROM audit_packages p WHERE p.device_id=d.id AND p.used_room IS NULL ORDER BY hash LIMIT 1) AS package
-          FROM audit_devices d ORDER BY d.owner,d.id`)).rows; });
+        const result = await transaction(async client => {
+          await authenticated(client, req);
+          const rows = (await client.query('SELECT id,owner,public_key,status FROM audit_devices ORDER BY owner,id')).rows;
+          for (const device of rows) {
+            device.package = null;
+            const packages = (await client.query('SELECT package FROM audit_packages WHERE device_id=$1 AND used_room IS NULL ORDER BY hash LIMIT 32', [device.id])).rows;
+            for (const candidate of packages) {
+              try { await packageInfo(candidate.package, device.owner, device.id); device.package = candidate.package; break; }
+              catch (failure) { if (failure.status !== 400) throw failure; }
+            }
+          }
+          return rows;
+        });
         json(200, result); return;
       }
       if (url.pathname === '/api/devices/register' && req.method === 'POST') {
@@ -177,7 +201,11 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
           const session = await authenticated(client, req), info = await packageInfo(payload.package, session.username, payload.id);
           const context = await authorize(client, req, url, raw, info.publicKey); demand(context.device === payload.id);
           const existing = (await client.query('SELECT * FROM audit_devices WHERE id=$1', [payload.id])).rows[0];
-          if (existing) { demand(existing.owner === context.owner && existing.public_key === info.publicKey && existing.status !== 'revoked', 'identity_conflict', 409); return existing; }
+          if (existing) {
+            demand(existing.owner === context.owner && existing.public_key === info.publicKey && existing.status !== 'revoked', 'identity_conflict', 409);
+            await client.query('INSERT INTO audit_packages VALUES($1,$2,$3,NULL) ON CONFLICT DO NOTHING', [info.hash, payload.id, payload.package]);
+            return existing;
+          }
           const old = (await client.query('SELECT status FROM audit_devices WHERE owner=$1', [context.owner])).rows;
           demand(!old.length || old.some(row => row.status === 'active') || payload.resetIdentity, 'explicit_identity_reset_required', 409);
           const status = old.some(row => row.status === 'active') ? 'pending' : 'active';
@@ -240,6 +268,7 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
         demand((await client.query("SELECT 1 FROM users WHERE username=$1 AND status='active'", [payload.peer])).rows.length, 'unknown_peer');
         const kp = (await client.query('SELECT * FROM audit_packages WHERE hash=$1 AND device_id=$2 AND used_room IS NULL', [payload.packageHash, context.device])).rows[0];
         demand(kp, 'key_package_already_used', 409);
+        await packageInfo(kp.package, context.owner, context.device);
         await client.query('INSERT INTO audit_rooms(id,participants) VALUES($1,$2)', [payload.roomId, JSON.stringify([context.owner, payload.peer].sort())]);
         await client.query('INSERT INTO audit_members(room_id,device_id,active) VALUES($1,$2,TRUE)', [payload.roomId, context.device]);
         await client.query('UPDATE audit_packages SET used_room=$1 WHERE hash=$2', [payload.roomId, payload.packageHash]);
@@ -263,15 +292,20 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
           exact(add, ['deviceId', 'packageHash']); demand(uuid(add.deviceId) && !before.includes(add.deviceId) && !added.includes(add.deviceId));
           const device = (await client.query("SELECT * FROM audit_devices WHERE id=$1 AND status='active'", [add.deviceId])).rows[0];
           demand(device && current.participants.includes(device.owner), 'unapproved_room_device', 403);
-          const kp = (await client.query('SELECT 1 FROM audit_packages WHERE hash=$1 AND device_id=$2 AND used_room IS NULL', [add.packageHash, add.deviceId])).rows;
-          demand(kp.length, 'key_package_already_used', 409); added.push(add.deviceId);
+          const kp = (await client.query('SELECT package FROM audit_packages WHERE hash=$1 AND device_id=$2 AND used_room IS NULL', [add.packageHash, add.deviceId])).rows;
+          demand(kp.length, 'key_package_already_used', 409);
+          await packageInfo(kp[0].package, device.owner, add.deviceId); added.push(add.deviceId);
           await client.query('UPDATE audit_packages SET used_room=$1 WHERE hash=$2', [payload.roomId, add.packageHash]);
         }
         demand(before.length - payload.removes.length + added.length <= 8, 'room_device_limit');
         if (added.length) { bytes(payload.welcome, 64 * 1024); bytes(payload.tree, 64 * 1024); }
         else demand(payload.welcome === null && payload.tree === null);
         for (const id of payload.removes) await client.query('UPDATE audit_members SET active=FALSE WHERE room_id=$1 AND device_id=$2', [payload.roomId, id]);
-        for (const id of added) await client.query('INSERT INTO audit_members(room_id,device_id,active,start_event) VALUES($1,$2,TRUE,(SELECT COALESCE(MAX(id),0)+1 FROM audit_events)) ON CONFLICT(room_id,device_id) DO UPDATE SET active=TRUE,start_event=EXCLUDED.start_event', [payload.roomId, id]);
+        for (const id of added) {
+          await client.query('DELETE FROM audit_quarantines WHERE device_id=$1 AND room_id=$2', [id, payload.roomId]);
+          await client.query('DELETE FROM audit_receipt_devices r USING audit_messages msg WHERE r.message_id=msg.id AND r.device_id=$1 AND msg.room_id=$2 AND NOT r.history', [id, payload.roomId]);
+          await client.query('INSERT INTO audit_members(room_id,device_id,active,start_event) VALUES($1,$2,TRUE,(SELECT COALESCE(MAX(id),0)+1 FROM audit_events)) ON CONFLICT(room_id,device_id) DO UPDATE SET active=TRUE,start_event=EXCLUDED.start_event', [payload.roomId, id]);
+        }
         await client.query(`UPDATE audit_rooms SET epoch=epoch+1,blocked=EXISTS(SELECT 1 FROM audit_members m JOIN audit_devices d ON d.id=m.device_id WHERE m.room_id=$1 AND m.active AND d.status='revoked') WHERE id=$1`, [payload.roomId]);
         const notice = { ...payload, actor: context.device, owner: context.owner, epoch: current.epoch + 1 };
         for (const id of before.filter(id => id !== context.device && !payload.removes.includes(id))) await event(client, id, payload.roomId, 'commit', notice);
@@ -291,6 +325,9 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
         demand(members.length > 1, 'recipient_not_joined', 409);
         for (const id of payload.attachmentIds) demand((await client.query('SELECT 1 FROM audit_media WHERE id=$1 AND room_id=$2 AND owner=$3', [id, payload.roomId, context.owner])).rows.length, 'attachment_not_uploaded');
         await client.query('INSERT INTO audit_messages VALUES($1,$2,$3,$4,$5,$6)', [payload.id, payload.roomId, context.device, payload.epoch, payload.ciphertext, hash(bytes(payload.ciphertext, 256 * 1024))]);
+        await client.query(`INSERT INTO audit_receipt_devices(message_id,device_id)
+          SELECT $1,d.id FROM audit_members m JOIN audit_devices d ON d.id=m.device_id
+          WHERE m.room_id=$2 AND m.active AND d.status='active' AND d.owner=$3`, [payload.id, payload.roomId, context.owner]);
         const notice = { ...payload, actor: context.device, owner: context.owner };
         for (const member of members.filter(row => row.device_id !== context.device)) await event(client, member.device_id, payload.roomId, 'message', notice);
         return { id: payload.id, status: 'sent' };
@@ -298,8 +335,21 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
     }
     if (url.pathname === '/api/events' && req.method === 'GET') {
       const rows = (await client.query(`SELECT e.id::text,e.room_id,e.kind,e.payload FROM audit_events e JOIN audit_members m ON m.room_id=e.room_id AND m.device_id=e.device_id
-        WHERE e.device_id=$1 AND NOT e.acknowledged AND m.active AND e.id>=m.start_event ORDER BY e.id LIMIT 64`, [context.device])).rows;
+        WHERE e.device_id=$1 AND NOT e.acknowledged AND m.active AND (e.id>=m.start_event OR
+          (e.kind='receipt' AND EXISTS(SELECT 1 FROM audit_receipt_devices r WHERE r.device_id=e.device_id AND r.message_id=e.payload->>'id' AND r.history)))
+        AND NOT EXISTS(SELECT 1 FROM audit_quarantines q WHERE q.device_id=e.device_id AND q.room_id=e.room_id)
+        ORDER BY e.id LIMIT 64`, [context.device])).rows;
       return rows;
+    }
+    if (url.pathname === '/api/events/reject' && req.method === 'POST') {
+      exact(payload, ['id', 'roomId', 'fingerprint']);
+      demand(typeof payload.id === 'string' && /^[1-9][0-9]{0,15}$/.test(payload.id) && uuid(payload.roomId) && /^[a-f0-9]{64}$/.test(payload.fingerprint));
+      await room(client, payload.roomId, context, false);
+      const rejected = (await client.query('SELECT id::text,room_id,kind,payload FROM audit_events WHERE id=$1 AND device_id=$2 AND room_id=$3', [payload.id, context.device, payload.roomId])).rows[0];
+      demand(rejected && hash(Buffer.from(JSON.stringify(rejected))) === payload.fingerprint, 'rejected_event_mismatch', 409);
+      await client.query('INSERT INTO audit_quarantines VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [context.device, payload.roomId, payload.id, payload.fingerprint]);
+      // Rejection never acknowledges a message as stored or issues a receipt.
+      return { quarantined: true };
     }
     if (url.pathname === '/api/events/ack' && req.method === 'POST') {
       exact(payload, ['ids']); demand(Array.isArray(payload.ids) && payload.ids.length <= 64 && payload.ids.every(value => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)));
@@ -316,10 +366,25 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
       if (payload.kind === 'read') demand((await client.query("SELECT 1 FROM audit_receipts WHERE message_id=$1 AND device_id=$2 AND kind='stored'", [payload.id, context.device])).rows.length, 'message_not_delivered', 409);
       const added = await client.query('INSERT INTO audit_receipts VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING message_id', [payload.id, context.device, payload.kind]);
       if (added.rows.length) {
-        const senders = (await client.query("SELECT d.id FROM audit_members m JOIN audit_devices d ON d.id=m.device_id WHERE m.room_id=$1 AND m.active AND d.owner=$2 AND d.status='active'", [message.room_id, message.owner])).rows;
+        const senders = (await client.query("SELECT d.id FROM audit_receipt_devices r JOIN audit_devices d ON d.id=r.device_id JOIN audit_members m ON m.device_id=d.id AND m.room_id=$1 WHERE r.message_id=$3 AND m.active AND d.owner=$2 AND d.status='active'", [message.room_id, message.owner, payload.id])).rows;
         for (const sender of senders) await event(client, sender.id, message.room_id, 'receipt', { id: payload.id, kind: payload.kind });
       }
       return { id: payload.id, kind: payload.kind };
+    }
+    if (url.pathname === '/api/receipts/history' && req.method === 'POST') {
+      exact(payload, ['id', 'roomId', 'messageIds']);
+      demand(Array.isArray(payload.messageIds) && payload.messageIds.length > 0 && payload.messageIds.length <= 64 && payload.messageIds.every(uuid));
+      return idempotent(client, context, payload, async () => {
+        await room(client, payload.roomId, context, false);
+        for (const id of new Set(payload.messageIds)) {
+          const message = (await client.query('SELECT msg.id FROM audit_messages msg JOIN audit_devices d ON d.id=msg.device_id WHERE msg.id=$1 AND msg.room_id=$2 AND d.owner=$3', [id, payload.roomId, context.owner])).rows[0];
+          demand(message, 'history_receipt_forbidden', 403);
+          await client.query('INSERT INTO audit_receipt_devices VALUES($1,$2,TRUE) ON CONFLICT(message_id,device_id) DO UPDATE SET history=TRUE', [id, context.device]);
+          const receipts = (await client.query('SELECT DISTINCT kind FROM audit_receipts WHERE message_id=$1 ORDER BY kind', [id])).rows;
+          for (const receipt of receipts) await event(client, context.device, payload.roomId, 'receipt', { id, kind: receipt.kind });
+        }
+        return { id: payload.id, subscribed: new Set(payload.messageIds).size };
+      });
     }
     if (url.pathname.startsWith('/api/media/')) {
       const id = url.pathname.slice('/api/media/'.length); demand(uuid(id));
