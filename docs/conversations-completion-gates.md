@@ -161,3 +161,27 @@ not an audited messaging protocol, production media ACL path or recovery UI.
 The follow-up message-page/receipt/ledger suite passed 58/58 and the realtime,
 cross-node harness and Phoenix adapter suite passed 61/61. These are local
 regressions, not deployed encrypted messaging or recovery acceptance.
+
+## Integrated Local Audit Workbench (2026-10-02)
+
+The operator authorized building a complete experimental flow while waiting for
+an independent audit, with production CSP unchanged. The isolated workbench in
+`experiments/mls-protocol-spike/audit` connects pinned MLS device identities,
+encrypted text/media, explicit Stored/Read receipts, device approval/revocation,
+encrypted browser state/outbox and user-held-key history recovery through one
+interactive browser/HTTP/database flow. It binds localhost only and refuses
+production, Render and Vercel startup. No production E2EE or rollout flag is enabled.
+
+Five integrated Edge scenarios cover offline and ambiguous send recovery,
+ACK replay, two-tab serialization, browser/server process restart, ciphertext
+tampering, account/device isolation, fresh-profile recovery, image rendering
+and epoch-conflict quarantine/fresh-Welcome rejoin. Local ciphertext BYTEA is
+an audit storage adapter, not production private-R2 media. The README contains
+the threat model, limits, reproducible commands and independent-audit handoff.
+Production cryptographic identity, private media integration and audited E2EE
+acceptance remain open; no formal audit or deployed capacity result is implied.
+
+Final local verification passed 5/5 integrated audit scenarios, 15/15 MLS baseline
+tests, 16/16 native crypto/backup tests and 4/4 strict-CSP browser tests. Desktop
+and mobile screenshots showed the authenticated encrypted image without overflow.
+This is 40 passing local test cases, not 40 accepted specification sections.

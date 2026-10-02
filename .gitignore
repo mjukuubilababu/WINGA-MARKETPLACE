@@ -41,3 +41,5 @@ Microsoft/
 .vercel
 .env*.local
 .ops-state/
+experiments/mls-protocol-spike/.audit-data/
+experiments/mls-protocol-spike/audit/dist/
