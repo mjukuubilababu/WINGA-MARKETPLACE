@@ -47,7 +47,8 @@ test('complete encrypted text, attachment, approval, revocation and recovery flo
       const key = await bob.page.evaluate(() => c.generateRecoveryKey());
       expect((await bob.page.evaluate(key => c.backup(key), key)).revision).toBe('1');
       await expect(bob2.page.evaluate(() => c.restore('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'))).rejects.toThrow();
-      const restored = await bob2.page.evaluate(key => c.restore(key), key); expect(restored.restored).toBe(2); expect(restored.identityRestored).toBe(false);
+      const checkpoint = await bob.page.evaluate(() => c.recoveryCheckpoint());
+      const restored = await bob2.page.evaluate(({key,checkpoint}) => c.restore(key,{checkpoint}), {key,checkpoint}); expect(restored.restored).toBe(2); expect(restored.identityRestored).toBe(false);
       expect(await bob2.page.evaluate(async id => (await c.openAttachment(id)).blob.text(), media.id)).toBe('private file bytes');
       await bob.page.evaluate(i => c.revokeDevice(i.deviceId, i.fingerprint), bob2.identity);
       await expect(bob2.page.evaluate(() => c.rooms())).rejects.toThrow('device_not_authorized');
@@ -105,7 +106,8 @@ test('offline outbox, lost acknowledgements, replay, tabs, browser and server re
     const fresh = await device(browser, 'alice');
     try {
       await alice.page.evaluate(i => c.approveDevice(i.deviceId, i.fingerprint), fresh.identity);
-      const restored = await fresh.page.evaluate(key => c.restore(key), key); expect(restored.restored).toBe(4);
+      const checkpoint = await alice.page.evaluate(() => c.recoveryCheckpoint());
+      const restored = await fresh.page.evaluate(({key,checkpoint}) => c.restore(key,{checkpoint}), {key,checkpoint}); expect(restored.restored).toBe(4);
       expect(await fresh.page.evaluate(async () => (await c.vault.list('group:')).length)).toBe(0);
       expect(await fresh.page.evaluate(async () => (await c.vault.get('device')).id)).not.toBe(alice.identity.deviceId);
       await expect(fresh.page.evaluate(room => c.sendText(room, 'not joined yet'), room)).rejects.toThrow('fresh_welcome_required');

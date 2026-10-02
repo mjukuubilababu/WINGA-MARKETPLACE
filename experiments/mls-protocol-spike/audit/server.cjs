@@ -49,6 +49,7 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
   demand(typeof password === 'string' && password.length >= 12);
   const db = new PGlite(dataDir);
   await db.exec(schema);
+  await db.exec('ALTER TABLE audit_receipts ADD COLUMN IF NOT EXISTS proof JSONB');
   await db.exec('ALTER TABLE audit_members ADD COLUMN IF NOT EXISTS start_event BIGINT NOT NULL DEFAULT 0');
   if (!(await db.query('SELECT 1 FROM schema_migrations WHERE migration_id=$1', ['audit_receipt_eligibility_v1'])).rows.length) {
     await db.exec(`INSERT INTO audit_receipt_devices(message_id,device_id)
@@ -69,6 +70,7 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
   const mls = await import('ts-mls');
   const { verifyKeyPackage } = await import('ts-mls/keyPackage.js');
   const { validateKeyPackageLifetime } = await import('../key-package-policy.mjs');
+  const { receiptBytes } = await import('../receipt-proof.mjs');
   const suite = await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   let origin, chain = Promise.resolve();
   const serial = work => { const next = chain.then(work); chain = next.catch(() => {}); return next; };
@@ -358,16 +360,24 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
       return { acknowledged };
     }
     if (url.pathname === '/api/receipts' && req.method === 'POST') {
-      exact(payload, ['id', 'kind']); demand(uuid(payload.id) && ['stored', 'read'].includes(payload.kind));
+      let signed;
+      try { signed = receiptBytes(payload); } catch { throw error(400, 'receipt_proof_rejected'); }
+      demand(payload.owner === context.owner && payload.device === context.device, 'receipt_proof_rejected', 403);
       const message = (await client.query('SELECT m.*,d.owner FROM audit_messages m JOIN audit_devices d ON d.id=m.device_id WHERE m.id=$1', [payload.id])).rows[0];
       demand(message && message.owner !== context.owner, 'receipt_forbidden', 403);
+      demand(payload.roomId === message.room_id && payload.epoch === message.epoch && payload.cipherHash === message.digest, 'receipt_proof_rejected', 403);
+      const receiver = (await client.query('SELECT public_key FROM audit_devices WHERE id=$1', [context.device])).rows[0];
+      const receiptKey = crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), bytes(receiver.public_key, 32, 32)]), type: 'spki', format: 'der' });
+      demand(crypto.verify(null, signed, receiptKey, bytes(payload.signature, 64, 64)), 'receipt_proof_rejected', 403);
       await room(client, message.room_id, context);
       demand((await client.query("SELECT 1 FROM audit_events WHERE device_id=$1 AND kind='message' AND payload->>'id'=$2 AND acknowledged", [context.device, payload.id])).rows.length, 'message_not_stored', 409);
       if (payload.kind === 'read') demand((await client.query("SELECT 1 FROM audit_receipts WHERE message_id=$1 AND device_id=$2 AND kind='stored'", [payload.id, context.device])).rows.length, 'message_not_delivered', 409);
-      const added = await client.query('INSERT INTO audit_receipts VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING message_id', [payload.id, context.device, payload.kind]);
+      const added = await client.query(`INSERT INTO audit_receipts(message_id,device_id,kind,proof) VALUES($1,$2,$3,$4)
+        ON CONFLICT(message_id,device_id,kind) DO UPDATE SET proof=EXCLUDED.proof
+        WHERE audit_receipts.proof IS NULL RETURNING message_id`, [payload.id, context.device, payload.kind, JSON.stringify(payload)]);
       if (added.rows.length) {
         const senders = (await client.query("SELECT d.id FROM audit_receipt_devices r JOIN audit_devices d ON d.id=r.device_id JOIN audit_members m ON m.device_id=d.id AND m.room_id=$1 WHERE r.message_id=$3 AND m.active AND d.owner=$2 AND d.status='active'", [message.room_id, message.owner, payload.id])).rows;
-        for (const sender of senders) await event(client, sender.id, message.room_id, 'receipt', { id: payload.id, kind: payload.kind });
+        for (const sender of senders) await event(client, sender.id, message.room_id, 'receipt', payload);
       }
       return { id: payload.id, kind: payload.kind };
     }
@@ -380,8 +390,8 @@ async function startAuditServer({ auditOnly = false, dataDir, port = 0, password
           const message = (await client.query('SELECT msg.id FROM audit_messages msg JOIN audit_devices d ON d.id=msg.device_id WHERE msg.id=$1 AND msg.room_id=$2 AND d.owner=$3', [id, payload.roomId, context.owner])).rows[0];
           demand(message, 'history_receipt_forbidden', 403);
           await client.query('INSERT INTO audit_receipt_devices VALUES($1,$2,TRUE) ON CONFLICT(message_id,device_id) DO UPDATE SET history=TRUE', [id, context.device]);
-          const receipts = (await client.query('SELECT DISTINCT kind FROM audit_receipts WHERE message_id=$1 ORDER BY kind', [id])).rows;
-          for (const receipt of receipts) await event(client, context.device, payload.roomId, 'receipt', { id, kind: receipt.kind });
+          const receipts = (await client.query('SELECT proof FROM audit_receipts WHERE message_id=$1 AND proof IS NOT NULL ORDER BY kind,device_id', [id])).rows;
+          for (const receipt of receipts) await event(client, context.device, payload.roomId, 'receipt', receipt.proof);
         }
         return { id: payload.id, subscribed: new Set(payload.messageIds).size };
       });

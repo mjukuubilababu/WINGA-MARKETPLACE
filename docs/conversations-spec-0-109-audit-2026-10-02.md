@@ -3,6 +3,80 @@
 Audit date: 2026-10-02. Repository baseline: `abfcd49` on `master`.
 Verdict: **FOUNDATION NOT ACCEPTED; section 109 Phase 6 remains blocked.**
 
+## Trust Follow-Up (2026-10-03)
+
+F06 is repaired in the isolated workbench: Stored/Read proofs are signed by
+the recipient device and bind message ID, room, epoch, ciphertext hash, owner,
+device and status. Senders verify against message-era authenticated MLS leaf
+keys retained in encrypted history, not the current server directory. The
+server retains and replays the original proof; legacy unsigned receipts cannot
+advance a known message. Unknown historical IDs remain ignored without creating
+history or blocking later legitimate messages. Server omission/availability,
+malicious application updates and a compromised recipient remain outside this
+signature guarantee; a proof does not establish human comprehension.
+
+F07 now has a fail-closed freshness policy in the workbench. Each accepted backup
+exports a user-held checkpoint containing owner, revision and a canonical
+ciphertext-capsule hash. A fresh device must import the latest checkpoint from
+the user or an independently trusted device, in addition to the recovery key.
+The backup server cannot supply its own freshness witness. Lost-response exact
+retries and confirmed accepted-pending reconciliation also retain the checkpoint.
+An old checkpoint intentionally supplied by the user cannot establish global
+latest freshness; no transparent witness service has been implemented.
+
+F09 dependency remediation updates both root and backend sharp to 0.35.5 and
+libvips binaries to 1.3.4. Both production dependency audits report zero known
+vulnerabilities. Deployment of these new locks has not been performed here.
+
+F01 production integration and F08 operational acceptance remain open. The
+installed ts-mls 1.6.4 MIT license was inspected, and both its packaged README
+and upstream maintainer explicitly state that no formal security audit has
+been performed. This is a browser-compatible experimental candidate, not an
+approved production crypto implementation. No CSP, production E2EE flag,
+production database migration, private-R2 endpoint or Phoenix scaling change
+is made by this follow-up. Earlier findings below remain historical evidence.
+
+References: [ts-mls security disclaimer](https://github.com/LukaJCB/ts-mls#readme),
+[sharp security advisories](https://github.com/lovell/sharp/security/advisories).
+
+Verification: 23/23 MLS and trust-contract unit tests; the final combined browser
+run passed 29/29. The subsequent narrow changes to unsigned-receipt proof
+upgrade and checkpoint re-export passed 3/3 targeted browser regressions,
+including the complete encrypted text/media/device/recovery flow. The browser
+suite now defines 30 distinct cases. Image/media/R2/native-backup regressions
+passed 30/30. Root, backend and experimental production dependency scans report
+zero known vulnerabilities; this is not an independent cryptographic audit.
+Module synchronization at that workbench-only follow-up reported 71 production modules. No commit, push or
+deployment has been performed for this follow-up, and section 109 remains open.
+
+## Candidate Integration Follow-Up (2026-10-03)
+
+The application now has a disabled own-account crypto registry and native
+identity-attested MLS package publication, an irreversible reserved-mode/legacy
+writer guard, an encrypted transactional browser vault, a headless user-key
+history recovery client and a private ciphertext R2 adapter. See [GATES] and
+[REC] for exact APIs, pins, configuration, limits and reproducible evidence.
+Both MLS package signatures and native account/session/device proofs are
+validated. Private packages/group secrets never belong in the server directory.
+
+Local verification adds 48 native/store/API/storage cases, 19 full strict-CSP
+browser cases plus one targeted logical-write immutability case, 18 real
+independent PostgreSQL cases and 15 Node 20.20.0 candidate/storage cases.
+The MLS/trust unit suite remains 23/23. These suites overlap; do not add them
+together as accepted specification sections. Root/backend production dependency
+audits again report zero known advisories. The generated source bundle now has
+74 synchronized modules rather than the earlier workbench-only count.
+
+F01 remains open: no encrypted canonical writer, authenticated mode activation,
+peer package/admission/rekey integration, final encrypted transport acceptance,
+attachment grants/cleanup/routes, onboarding/recovery UI or Android acceptance
+is complete. The private storage tests use fake S3 responses, not a live private
+bucket. The registry/vault/recovery browser tests use synthetic account bridges,
+not production authenticated HTTP. F08 operational acceptance and section 107's
+independent audit are still open. No production flag, CSP, Phoenix scaling,
+database, commit, push or deployment was changed. The original matrix below is
+the dated audit snapshot, not certification of these candidate components.
+
 ## Repair Follow-Up (2026-10-02)
 
 The user authorized fixing the four reproducible workbench defects and pushing

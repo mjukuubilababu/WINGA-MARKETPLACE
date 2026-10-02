@@ -43,7 +43,7 @@
     "verify:modules-sync": "node scripts/verify-modules-sync.js",
     "test:private-backup": "node --test tests/backup-legacy-private-media.test.js",
     "test:legacy-media": "node --test tests/legacy-public-media.test.js tests/legacy-public-inventory.test.js tests/legacy-public-cutover.test.js tests/legacy-post-cutover-audit.test.js tests/legacy-upload-compatibility.test.js tests/legacy-disk-coverage.test.js tests/worker-legacy-media.test.js tests/media-storage-policy.test.js",
-    "test:secure-content": "node --test tests/secure-content.test.js tests/encrypted-conversation-backups.test.js",
+    "test:secure-content": "node --test tests/secure-content.test.js tests/encrypted-conversation-backups.test.js tests/conversation-crypto-devices.test.js tests/conversation-security-mode.test.js tests/conversation-crypto-key-packages.test.js tests/conversation-private-media.test.js",
     "test:secure-content-browser": "playwright test --config tests/secure-content.playwright.config.cjs",
     "test:ci": "npm run verify:modules-sync && npm run test:secure-content && npm run test:private-backup && npm run test:legacy-media && npm test",
     "monitor:video": "node scripts/check-video-health.js",
@@ -57,11 +57,14 @@
     "lucide-static": "1.43.0"
   },
   "dependencies": {
+    "@noble/ciphers": "2.1.1",
+    "@noble/hashes": "2.3.0",
     "@aws-sdk/client-s3": "^3.1117.0",
     "hls.js": "1.7.1",
     "pg": "^8.22.0",
     "phoenix": "1.8.15",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.5",
+    "ts-mls": "1.6.4",
     "web-push": "3.6.7"
   }
 }

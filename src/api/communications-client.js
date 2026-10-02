@@ -321,6 +321,39 @@
 
     return {
       prepareMessage,
+      cryptoDeviceRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'POST'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/crypto/devices`, {
+          method, headers: method === 'POST' ? jsonHeaders() : authHeaders(),
+          ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
+        });
+      },
+      cryptoPackageRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'POST'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/crypto/key-packages`, {
+          method, headers: method === 'POST' ? jsonHeaders() : authHeaders(),
+          ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
+        });
+      },
+      cryptoRecoveryRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'PUT', 'DELETE'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/recovery`, {
+          method, headers: method === 'GET' ? authHeaders() : jsonHeaders(),
+          ...(method === 'GET' ? {} : { body: JSON.stringify(payload) })
+        });
+      },
       hasDeviceEventStream: () => phoenix?.isReady() === true,
       loadMessages,
       loadInboxPage: (options) => loadMessagePage("inbox", options),

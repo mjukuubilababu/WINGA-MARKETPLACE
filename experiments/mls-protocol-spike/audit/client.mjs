@@ -7,6 +7,8 @@ import { encodeRatchetTree, decodeRatchetTree } from 'ts-mls/ratchetTree.js';
 import { createAuthenticatedGroup, restoreAuthenticatedState, pinnedDeviceConfig, syntheticDeviceCredential } from '../device-identity.mjs';
 import secureContent from '../../../src/chat/secure-content.js';
 import { keyPackageLifetime, validateKeyPackageLifetime } from '../key-package-policy.mjs';
+import { receiptBytes } from '../receipt-proof.mjs';
+import { recoveryCheckpoint, verifyRecoveryCheckpoint } from '../recovery-checkpoint.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const need = (condition, code = 'encrypted_flow_rejected') => { if (!condition) throw new Error(code); };
@@ -313,6 +315,12 @@ class AuditClient {
     });
   }
   contentBytes(value) { return encoder.encode(JSON.stringify(['winga-audit-content', 1, value.id, value.roomId, value.epoch, value.owner, value.device, value.kind, value.text, value.attachment])); }
+  async receipt(item, kind) {
+    const value = { v: 1, id: item.id, roomId: item.roomId, epoch: item.epoch, cipherHash: item.cipherHash,
+      owner: this.session.owner, device: this.device.id, kind, signature: '' };
+    value.signature = encode(await (await suitePromise).signature.sign(this.device.signaturePrivateKey, receiptBytes(value)));
+    return value;
+  }
   validateContent(value) {
     need(value && equalSet(Object.keys(value), ['v','id','roomId','epoch','owner','device','kind','text','attachment','signature']) && value.v === 1
       && uuid(value.id) && uuid(value.roomId) && uuid(value.device) && Number.isSafeInteger(value.epoch) && value.epoch >= 0
@@ -349,7 +357,10 @@ class AuditClient {
       try {
         const wire = encodeMlsMessage({ version: 'mls10', wireformat: 'mls_private_message', privateMessage: encrypted.privateMessage });
         jobs.push({ id, kind: 'message', path: '/api/messages', method: 'POST', payload: { id, roomId, epoch, ciphertext: encode(wire), attachmentIds: attachment ? [attachment.attachmentId] : [] } });
-        const history = { ...envelope, status: 'pending', at: Date.now(), cipherHash: await digest(wire) };
+        const receiptRecipients = state.ratchetTree.filter(node => node?.nodeType === 'leaf').map(node => ({
+          ...credential(node.leaf.credential), key: encode(node.leaf.signaturePublicKey),
+        })).filter(pin => pin.owner !== this.session.owner);
+        const history = { ...envelope, status: 'pending', at: Date.now(), cipherHash: await digest(wire), receiptRecipients };
         await this.stage({ [`group:${roomId}`]: { bytes: encodeGroupState(encrypted.newState) }, [`history:${id}`]: history }, jobs, [], abort);
         try { await this.flushLocked({ roomId }); } catch (failure) { if (failure.status || failure.code) throw failure; }
         return this.vault.get(`history:${id}`);
@@ -419,14 +430,24 @@ class AuditClient {
               need(equalSet(p.attachmentIds, envelope.attachment ? [envelope.attachment.attachmentId] : []), 'attachment_binding_mismatch');
               const prior = await this.vault.get(`history:${envelope.id}`), cipherHash = await digest(decode(p.ciphertext));
               need(!prior || prior.cipherHash === cipherHash, 'message_id_collision');
-              values[`history:${envelope.id}`] = prior || { ...envelope, at: Date.now(), cipherHash, status: envelope.owner === this.session.owner ? 'sent' : 'received' };
-              if (envelope.owner !== this.session.owner) jobs.push({ id: crypto.randomUUID(), kind: 'receipt', path: '/api/receipts', method: 'POST', payload: { id: envelope.id, kind: 'stored' } });
+              const receiptRecipients = state.ratchetTree.filter(node => node?.nodeType === 'leaf').map(node => ({
+                ...credential(node.leaf.credential), key: encode(node.leaf.signaturePublicKey),
+              })).filter(pin => pin.owner !== envelope.owner);
+              values[`history:${envelope.id}`] = prior || { ...envelope, at: Date.now(), cipherHash, receiptRecipients,
+                status: envelope.owner === this.session.owner ? 'sent' : 'received' };
+              if (envelope.owner !== this.session.owner) jobs.push({ id: crypto.randomUUID(), kind: 'receipt', path: '/api/receipts', method: 'POST',
+                payload: await this.receipt({ ...envelope, cipherHash }, 'stored') });
             }
             values[`group:${roomId}`] = { bytes: encodeGroupState(result.newState) };
           } else if (event.kind === 'receipt') {
-            need(uuid(p.id) && ['stored','read'].includes(p.kind)); const item = await this.vault.get(`history:${p.id}`);
+            need(uuid(p.id) && ['stored','read'].includes(p.kind));
+            const item = await this.vault.get(`history:${p.id}`);
             if (item) {
-              need(item.owner === this.session.owner && item.roomId === roomId, 'receipt_binding_mismatch');
+              const proofBytes = receiptBytes(p);
+              const pin = item.receiptRecipients?.find(pin => pin.device === p.device && pin.owner === p.owner);
+              need(item.owner === this.session.owner && item.roomId === roomId && p.roomId === roomId
+                && p.epoch === item.epoch && p.cipherHash === item.cipherHash && pin
+                && await suite.signature.verify(decode(pin.key), proofBytes, decode(p.signature)), 'receipt_proof_rejected');
               values[`history:${p.id}`] = { ...item, status: advanceStatus(item.status, p.kind === 'read' ? 'read' : 'delivered') };
             }
             // Unknown history is not invented; authenticated recovery explicitly
@@ -455,7 +476,7 @@ class AuditClient {
       const visible = new Set(visibleIds);
       const rows = await this.history(roomId), jobs = [];
       for (const item of rows.filter(row => visible.has(row.id) && row.owner !== this.session.owner && !row.readLocally && !row.recovered)) {
-        jobs.push({ id: crypto.randomUUID(), kind: 'receipt', path: '/api/receipts', method: 'POST', payload: { id: item.id, kind: 'read' } });
+        jobs.push({ id: crypto.randomUUID(), kind: 'receipt', path: '/api/receipts', method: 'POST', payload: await this.receipt(item, 'read') });
       }
       const values = Object.fromEntries(rows.filter(row => visible.has(row.id) && row.owner !== this.session.owner && !row.recovered).map(row => [`history:${row.id}`, { ...row, readLocally: true }]));
       await this.stage(values, jobs); await this.flushLocked(); return jobs.length;
@@ -482,12 +503,23 @@ class AuditClient {
         // A retry retains exactly the accepted ciphertext; it never regenerates the capsule.
         const checked = await (await codecPromise).openRecovery(pending.capsule, key, { owner: this.session.owner, id: pending.capsule.id, generation: pending.capsule.generation }); checked.fill(0);
       }
-      const result = await this.request('/api/recovery', 'PUT', pending); await this.vault.write({}, ['backup:pending']); return result;
+      const result = await this.request('/api/recovery', 'PUT', pending);
+      const checkpoint = await recoveryCheckpoint(pending.capsule, String(Number(pending.expectedRevision) + 1));
+      await verifyRecoveryCheckpoint(result, checkpoint, this.session.owner);
+      await this.vault.write({ 'recovery:checkpoint': checkpoint }, ['backup:pending']); return { ...result, checkpoint };
     });
   }
-  async restore(key) {
+  async recoveryCheckpoint() { await this.assertSession(); return this.vault.get('recovery:checkpoint'); }
+  async restore(key, { checkpoint } = {}) {
     return this.lock(async () => {
+      // A server response cannot be its own freshness witness. A fresh device
+      // requires the latest checkpoint saved by the user or transferred by a trusted device.
+      const local = await this.vault.get('recovery:checkpoint');
+      checkpoint ||= local;
+      need(checkpoint, 'recovery_checkpoint_required');
+      need(!local || Number(checkpoint.revision) >= Number(local.revision), 'recovery_freshness_rejected');
       const remote = await this.request('/api/recovery'); need(remote.capsule, 'recovery_missing'); const capsule = remote.capsule;
+      await verifyRecoveryCheckpoint(remote, checkpoint, this.session.owner);
       const plaintext = await (await codecPromise).openRecovery(capsule, key, { owner: this.session.owner, id: capsule.id, generation: capsule.generation });
       try {
         const archive = unpack(plaintext);
@@ -495,8 +527,11 @@ class AuditClient {
           && equalSet(Object.keys(archive), ['v','owner','purpose','rows']) && Array.isArray(archive.rows) && archive.rows.length <= 1000, 'invalid_recovery_archive');
         const values = {}, ids = new Set();
         for (const row of archive.rows) {
-          const { status, at, cipherHash, readLocally, recovered, ...envelope } = row; this.validateContent(envelope);
-          need(equalSet(Object.keys(row).filter(k => !['readLocally','recovered'].includes(k)), ['v','id','roomId','epoch','owner','device','kind','text','attachment','signature','status','at','cipherHash'])
+          const { status, at, cipherHash, readLocally, recovered, receiptRecipients, ...envelope } = row; this.validateContent(envelope);
+          need(receiptRecipients === undefined || Array.isArray(receiptRecipients) && receiptRecipients.length <= 8
+            && receiptRecipients.every(pin => pin && equalSet(Object.keys(pin), ['owner', 'device', 'key'])
+              && uuid(pin.device) && typeof pin.owner === 'string' && decode(pin.key).length === 32), 'invalid_recovery_receipt_pins');
+          need(equalSet(Object.keys(row).filter(k => !['readLocally','recovered','receiptRecipients'].includes(k)), ['v','id','roomId','epoch','owner','device','kind','text','attachment','signature','status','at','cipherHash'])
             && ['pending','sent','delivered','read','received','failed'].includes(status) && Number.isSafeInteger(at) && /^[a-f0-9]{64}$/.test(cipherHash) && !ids.has(row.id), 'invalid_recovery_row');
           ids.add(row.id); const prior = await this.vault.get(`history:${row.id}`); need(!prior || prior.cipherHash === cipherHash, 'recovery_conflict');
           if (!prior) values[`history:${row.id}`] = { ...row, recovered: true };
@@ -511,6 +546,7 @@ class AuditClient {
           jobs.push({ id, kind: 'history-receipts', path: '/api/receipts/history', method: 'POST', payload: { id, roomId, messageIds: ids.slice(offset, offset + 64) } });
         }
         const restored = Object.keys(values).length;
+        values['recovery:checkpoint'] = checkpoint;
         await this.stage(values, jobs); await this.flushLocked();
         return { restored, identityRestored: false, groupStateRestored: false };
       } finally { plaintext.fill(0); }
@@ -526,7 +562,8 @@ class AuditClient {
         && remote.capsule && equalSet(Object.keys(remote.capsule), Object.keys(pending.capsule))
         && Object.keys(pending.capsule).every(field => remote.capsule[field] === pending.capsule[field]);
       need(accepted || remote.revision !== pending.expectedRevision, 'backup_conflict_not_observed');
-      await this.vault.write({}, ['backup:pending']);
+      const values = accepted ? { 'recovery:checkpoint': await recoveryCheckpoint(pending.capsule, remote.revision) } : {};
+      await this.vault.write(values, ['backup:pending']);
       return { discarded: !accepted, alreadyAccepted: Boolean(accepted), revision: remote.revision, remoteChanged: false };
     });
   }

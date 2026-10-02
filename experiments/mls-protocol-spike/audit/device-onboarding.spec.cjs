@@ -1,0 +1,16 @@
+const {test,expect}=require('@playwright/test');const{startAuditServer}=require('./server.cjs');let app,contexts;
+test.beforeEach(async()=>{contexts=[];app=await startAuditServer({auditOnly:true});});test.afterEach(async()=>{for(const context of contexts)await context.close();await app.close();});
+async function device(browser,owner){const context=await browser.newContext();contexts.push(context);await context.route('**/ui.js',route=>route.fulfill({contentType:'text/javascript',body:''}));const page=await context.newPage();await page.goto(app.origin);const identity=await page.evaluate(async owner=>{window.c=WingaAudit.createClient();return c.login(owner,'local-audit-only');},owner);return{page,context,identity};}
+test('pending browser cannot authorize itself; correct device fingerprint and same-owner approval activate it',async({browser})=>{
+const original=await device(browser,'alice'),second=await device(browser,'alice');expect(second.identity.status).toBe('pending');
+await second.context.unroute('**/ui.js');await second.page.reload();await expect(second.page.locator('#account')).toHaveText(`alice / pending / ${second.identity.deviceId.slice(0,8)}`);
+await second.page.locator('#sync').click();await expect(second.page.locator('#notice')).toContainText('kifaa active cha akaunti hiyo hiyo');
+await second.page.locator('#device-list').selectOption(original.identity.deviceId);await second.page.locator('#expected').fill(second.identity.fingerprint);await second.page.locator('#trust').click();await expect(second.page.locator('#notice')).toContainText('Fingerprint haifanani');
+const before=(await app.db.query('SELECT status FROM audit_devices WHERE id=$1',[second.identity.deviceId])).rows[0].status;expect(before).toBe('pending');
+await second.page.locator('#expected').fill(original.identity.fingerprint);await second.page.locator('#trust').click();await expect(second.page.locator('#notice')).toHaveText('');await expect(second.page.locator('#device-list option:checked')).toContainText('active / verified');
+await second.page.locator('#approve').click();await expect(second.page.locator('#notice')).toContainText('Kifaa cha browser hii hakijaidhinishwa');expect((await app.db.query('SELECT status FROM audit_devices WHERE id=$1',[second.identity.deviceId])).rows[0].status).toBe('pending');
+await original.context.unroute('**/ui.js');await original.page.reload();await expect(original.page.locator('#account')).toHaveText(`alice / active / ${original.identity.deviceId.slice(0,8)}`);await expect(original.page.locator('#approve')).toBeEnabled();
+await original.page.locator('#device-list').selectOption(second.identity.deviceId);await original.page.locator('#expected').fill(second.identity.fingerprint);await original.page.locator('#approve').click();await expect(original.page.locator('#device-list option:checked')).toContainText('active / verified');
+await expect(second.page.locator('#account')).toHaveText(`alice / active / ${second.identity.deviceId.slice(0,8)}`,{timeout:10000});await expect(second.page.locator('#sync')).toBeEnabled();await second.page.locator('#sync').click();await expect(second.page.locator('#notice')).toHaveText('');
+expect((await app.db.query('SELECT COUNT(*)::int AS n FROM audit_messages')).rows[0].n).toBe(0);
+});

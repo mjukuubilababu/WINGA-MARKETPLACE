@@ -107,13 +107,21 @@
   $('remove').onclick = () => run(async () => { if (!current) throw new Error('conversation_required'); await client.removeDevice(current, target()[0]); await refresh(); });
   $('rejoin').onclick = () => run(async () => { if (!current) throw new Error('conversation_required'); if (confirm('Clear the local group and pending sends?')) await client.prepareRejoin(current); });
   $('generate').onclick = () => run(async () => { const key = await client.generateRecoveryKey(); $('recovery-key').value = key; $('key-saved').checked = false; download(new Blob([key + '\n'], { type: 'text/plain' }), 'winga-recovery-key.txt'); });
-  $('backup').onclick = () => run(async () => { if (!$('key-saved').checked) throw new Error('recovery_key_confirmation_required'); const result = await client.backup($('recovery-key').value.trim()); $('discard-pending').hidden = true; $('recovery-key').value = ''; notice(`Backup revision ${result.revision}`); });
+  $('backup').onclick = () => run(async () => { if (!$('key-saved').checked) throw new Error('recovery_key_confirmation_required'); const result = await client.backup($('recovery-key').value.trim()); $('discard-pending').hidden = true; $('recovery-key').value = ''; $('recovery-checkpoint').value = JSON.stringify(result.checkpoint); download(new Blob([JSON.stringify(result.checkpoint)], { type: 'application/json' }), 'winga-recovery-checkpoint.json'); notice(`Backup revision ${result.revision}`); });
   $('discard-pending').onclick = () => run(async () => {
     if (!confirm('Discard this device\'s pending backup? The remote backup will be kept.')) return;
     const result = await client.discardPendingBackup({ confirmed: true }); $('discard-pending').hidden = true;
     notice(result.alreadyAccepted ? `Backup revision ${result.revision} accepted` : 'Local pending backup discarded');
   });
-  $('restore').onclick = () => run(async () => { const result = await client.restore($('recovery-key').value.trim()); $('recovery-key').value = ''; notice(`Restored ${result.restored}`); await renderMessages(); });
+  const checkpointLabel = document.createElement('label'); checkpointLabel.textContent = 'Recovery Checkpoint';
+  const checkpointInput = document.createElement('textarea'); checkpointInput.id = 'recovery-checkpoint'; checkpointInput.rows = 3; checkpointInput.autocomplete = 'off'; checkpointLabel.append(checkpointInput); $('restore').before(checkpointLabel);
+  const exportCheckpoint = document.createElement('button'); exportCheckpoint.id = 'export-checkpoint'; exportCheckpoint.textContent = 'Export Checkpoint'; $('restore').before(exportCheckpoint);
+  exportCheckpoint.onclick = () => run(async () => {
+    const checkpoint = await client.recoveryCheckpoint(); if (!checkpoint) throw new Error('recovery_checkpoint_required');
+    checkpointInput.value = JSON.stringify(checkpoint);
+    download(new Blob([JSON.stringify(checkpoint)], { type: 'application/json' }), 'winga-recovery-checkpoint.json');
+  });
+  $('restore').onclick = () => run(async () => { const checkpoint = checkpointInput.value.trim() ? JSON.parse(checkpointInput.value) : undefined; const result = await client.restore($('recovery-key').value.trim(), { checkpoint }); $('recovery-key').value = ''; notice(`Restored ${result.restored}`); await renderMessages(); });
   $('delete-backup').onclick = () => run(async () => { if (confirm('Delete the remote backup?')) await client.deleteBackup(); });
   document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => run(async () => { $('workspace').dataset.view = button.dataset.tab; if (button.dataset.tab === 'chat') await renderMessages(); }));
   window.addEventListener('focus', () => { if (client && current && identity.status === 'active') run(refresh, false); });

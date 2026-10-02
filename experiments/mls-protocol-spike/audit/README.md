@@ -108,7 +108,8 @@ queued attachment ciphertext. Sync batches at most 64 events; the UI polls every
 three seconds. Event/proof/key-package retention, account provisioning, push
 notifications, abuse controls and deployment capacity are not production-ready
 in this localhost fixture. Receipts and routing metadata remain server-visible;
-the delivery server is trusted for availability, ACLs and receipt assertions.
+the delivery server is trusted for availability and ACLs, but cannot forge a
+known message's Stored/Read without the recipient's message-era signing key.
 JavaScript garbage collection cannot guarantee erasure of every secret copy.
 
 ## Reproducible Verification
@@ -189,10 +190,43 @@ Old trusted members may remain in a historical tree after admission expiry;
 fresh admission and actual Add proposals still enforce expiry and maximum age.
 
 Run `npm test` and `npm run test:audit-repairs` in this experiment. The combined
-browser suite includes positive repair/flow regressions and two explicitly named
-trust-limit demonstrations: server-authored receipts and fresh-device snapshot
-rollback. Those two observations do not count as security acceptance. See the
+browser suite now includes rejection regressions for server-authored receipts,
+altered signed receipt status and fresh-device snapshot rollback. See the
 Repair Follow-Up in `docs/conversations-spec-0-109-audit-2026-10-02.md` for scope.
 This workbench remains localhost-only, experimental and excluded from production
 E2EE rollout. No CSP permission, production crypto flag or private-media pipeline
 was enabled by these repairs.
+
+## Checkpoints And Signed Receipts (2026-10-03)
+
+After every successful Back Up, save the downloaded
+`winga-recovery-checkpoint.json` alongside your separately stored recovery key,
+replacing the previous checkpoint. A fresh device's Restore History requires
+that checkpoint in the Recovery Checkpoint input. Missing or mismatched
+checkpoints fail before any history write. The checkpoint is a freshness
+commitment, not a decryption key. Keep its integrity independent of the backup
+server. A deliberately old checkpoint cannot prove that a newer backup exists;
+the user must retain the latest successful export. This is not a globally
+available transparency/witness service or signing-key recovery.
+
+Export Checkpoint re-downloads the locally retained commitment without creating
+another backup, including after an exact retry or accepted-pending reconciliation.
+
+Receipt signatures bind room, epoch, ciphertext digest, message, owner, device
+and Stored/Read status. Message-era recipient keys travel in encrypted local
+history and recovery archives. Canonical receipt history replays original signed
+proofs; it never reconstructs unsigned receipt claims from server aggregates.
+Existing unsigned local fixture receipts cannot be upgraded to trusted status.
+The server can still withhold traffic or deny access. An invalid known receipt
+quarantines its room; it does not advance status or contaminate another room.
+
+Production remains plaintext. The pinned MIT-licensed ts-mls candidate explicitly
+has no formal audit. Production library approval, real account enrollment,
+encrypted transport mode and private-R2 integration must not be marked complete
+from the local end-to-end workbench. No audit was commissioned by these changes.
+
+Verification on 2026-10-03: 23 unit cases, 29 combined browser cases, followed
+by 3 targeted browser cases for proof migration, checkpoint re-export and the
+integrated flow, all passed. The first runs exposed unknown-history quarantine,
+missing test checkpoint transfer and unfinished download teardown; these were
+fixed before the passing runs. The current suite defines 30 browser cases.

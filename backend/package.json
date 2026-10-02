@@ -6,10 +6,13 @@
     "node": "20.x"
   },
   "dependencies": {
+    "@noble/ciphers": "2.1.1",
+    "@noble/hashes": "2.3.0",
     "@aws-sdk/client-s3": "^3.1116.0",
     "ioredis": "^5.11.1",
     "pg": "^8.13.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
+    "ts-mls": "1.6.4",
     "web-push": "3.6.7"
   },
   "scripts": {

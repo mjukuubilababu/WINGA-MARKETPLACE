@@ -1,0 +1,1 @@
+const path=require('node:path');module.exports={testDir:__dirname,testMatch:'pending-reload.spec.cjs',workers:1,timeout:90000,reporter:[['list'],['json',{outputFile:path.join(__dirname,'../test-results/pending-reload/results.json')}]],outputDir:path.join(__dirname,'../test-results/pending-reload'),use:{browserName:'chromium',channel:'msedge',headless:true}};

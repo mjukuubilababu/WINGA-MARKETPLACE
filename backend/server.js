@@ -39,6 +39,7 @@ const { createConversationOffersApi } = require("./conversation-offers-api");
 const { createConversationAvailabilityApi } = require("./conversation-availability-api");
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
 const { createEncryptedConversationBackupsApi } = require("./encrypted-conversation-backups-api");
+const { createConversationCryptoDevicesApi } = require("./conversation-crypto-devices-api");
 const { requireLegacyPayload } = require("./encrypted-content-contract");
 const conversationTransport = createConversationTransport();
 
@@ -6648,6 +6649,10 @@ async function handleMessageSend(req, res, { store, clientIp, url, transportCont
       return;
     }
     if (!messageResult.created) {
+      if (messageResult.code === "conversation_encryption_required") {
+        sendJson(res, 409, { code: "conversation_encryption_required" });
+        return;
+      }
       if (messageResult.code === "message_unauthorized") {
         sendJson(res, 401, { code: "message_unauthorized" });
         return;
@@ -7951,6 +7956,13 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (url.pathname.startsWith("/api/conversations/") || url.pathname.startsWith("/api/conversation-offers/")) {
+      const cryptoDevices = createConversationCryptoDevicesApi({
+        collectBody, sendJson, findSession: token => findSession(store, token), readAuthToken,
+        ensureMarketplaceUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
+        getPostgresStore: () => postgresStore, enabled: process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true",
+        packagesEnabled: process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
+      });
+      if (await cryptoDevices.handle(req, res, url)) return;
       const encryptedBackups = createEncryptedConversationBackupsApi({
         collectBody, sendJson,
         findSession: token => findSession(store, token), readAuthToken,

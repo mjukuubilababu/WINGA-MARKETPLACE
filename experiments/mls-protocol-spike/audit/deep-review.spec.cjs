@@ -18,8 +18,7 @@ async function room(a,b) {
   await b.page.evaluate(()=>c.sync()); return id;
 }
 const result=async (info,value)=>{ console.log(JSON.stringify(value)); await info.attach('observed-evidence',{body:JSON.stringify(value,null,2),contentType:'application/json'}); };
-// DEEP-001/002/003/006/008 are regressions for repaired defects. DEEP-004/007
-// still document explicit trust limitations; they are not acceptance tests.
+// Trust regressions include a malicious delivery server and replayed recovery history.
 test('DEEP-001 regression: queued revocation isolates rooms and permits rekey after a lost commit response',async({browser},info)=>{
   const alice=await device(browser,'alice'),bob=await device(browser,'bob'),eve=await device(browser,'eve');
   const bad=await room(alice,bob),good=await room(alice,eve),second=await device(browser,'bob');
@@ -79,7 +78,8 @@ test('DEEP-002 regression: never-accepted recovered history stays local without 
   const key=await alice.page.evaluate(()=>c.generateRecoveryKey()); await alice.page.evaluate(key=>c.backup(key),key);
   expect((await app.db.query('SELECT COUNT(*)::int AS count FROM audit_messages')).rows[0].count).toBe(0);
   const fresh=await device(browser,'alice'); await alice.page.evaluate(i=>c.approveDevice(i.deviceId,i.fingerprint),fresh.identity);
-  expect((await fresh.page.evaluate(key=>c.restore(key),key)).restored).toBe(1);
+  const checkpoint=await alice.page.evaluate(()=>c.recoveryCheckpoint());
+  expect((await fresh.page.evaluate(({key,checkpoint})=>c.restore(key,{checkpoint}),{key,checkpoint})).restored).toBe(1);
   await fresh.page.evaluate(()=>c.flush());
   expect(await fresh.page.evaluate(()=>c.createRoom('eve'))).toMatch(/^[a-f0-9-]{36}$/);
   const data=await fresh.page.evaluate(async()=>({history:(await c.history()).map(r=>({status:r.status,recovered:r.recovered})),pending:(await c.vault.list('pending:')).map(([,j])=>j.kind)}));
@@ -123,15 +123,15 @@ test('DEEP-003 regression: signed expired packages fail publication and maliciou
   expect(await bob.page.evaluate(id=>c.history(id),id)).toHaveLength(0);
   await result(info,{regression:'DEEP-003',expiredPublicationRejected:true,maliciousClockAdmissionRejected:true,joined:false});
 });
-test('DEEP-004 reproduction: delivery server can forge Read without recipient signing',async({browser},info)=>{
+test('DEEP-004 regression: delivery server cannot forge Read without recipient signing',async({browser},info)=>{
   const alice=await device(browser,'alice'),bob=await device(browser,'bob'),id=await room(alice,bob);
   const message=await alice.page.evaluate(id=>c.sendText(id,'bob has not synced'),id);
   await app.db.query("INSERT INTO audit_events(device_id,room_id,kind,payload) VALUES($1,$2,'receipt',$3)",[alice.identity.deviceId,id,JSON.stringify({id:message.id,kind:'read'})]);
   await alice.page.evaluate(()=>c.sync());
   const status=(await alice.page.evaluate(id=>c.history(id),id))[0].status;
   const genuine=(await app.db.query('SELECT COUNT(*)::int AS count FROM audit_receipts')).rows[0].count;
-  expect(status).toBe('read'); expect(genuine).toBe(0); expect(await bob.page.evaluate(id=>c.history(id),id)).toHaveLength(0);
-  await result(info,{finding:'DEEP-004',localStatus:status,genuineReceipts:genuine,recipientHistory:0});
+  expect(status).toBe('sent'); expect(genuine).toBe(0); expect(await bob.page.evaluate(id=>c.history(id),id)).toHaveLength(0);
+  await result(info,{regression:'DEEP-004',localStatus:status,genuineReceipts:genuine,recipientHistory:0,forgeryRejected:true});
 });
 test('DEEP-005 safeguard: media transplant and copied identity cannot bypass AEAD or proof',async({browser},info)=>{
   const alice=await device(browser,'alice'),bob=await device(browser,'bob'),eve=await device(browser,'eve');
@@ -144,6 +144,31 @@ test('DEEP-005 safeguard: media transplant and copied identity cannot bypass AEA
   await expect(bob.page.evaluate(id=>c.openAttachment(id),a.id)).rejects.toThrow();
   await expect(eve.page.evaluate(async d=>{const prior=c.device.id;c.device.id=d;try{return await c.rooms();}finally{c.device.id=prior;}},alice.identity.deviceId)).rejects.toThrow('device_not_authorized');
   await result(info,{safeguard:'DEEP-005',mediaTransplantRejected:true,copiedDeviceIdRejected:true});
+});
+
+test('DEEP-010 regression: server cannot upgrade a valid Stored proof to Read',async({browser})=>{
+  const alice=await device(browser,'alice'),bob=await device(browser,'bob'),id=await room(alice,bob);
+  const message=await alice.page.evaluate(id=>c.sendText(id,'bind receipt to its signed status'),id);
+  await bob.page.evaluate(()=>c.sync());await alice.page.evaluate(()=>c.sync());
+  expect((await alice.page.evaluate(id=>c.history(id),id))[0].status).toBe('delivered');
+  const proof=(await app.db.query("SELECT proof FROM audit_receipts WHERE message_id=$1 AND kind='stored'",[message.id])).rows[0].proof;
+  await app.db.query("INSERT INTO audit_events(device_id,room_id,kind,payload) VALUES($1,$2,'receipt',$3)",
+    [alice.identity.deviceId,id,JSON.stringify({...proof,kind:'read'})]);
+  await alice.page.evaluate(()=>c.sync());
+  expect((await alice.page.evaluate(id=>c.history(id),id))[0].status).toBe('delivered');
+  expect((await app.db.query("SELECT COUNT(*)::int AS n FROM audit_receipts WHERE message_id=$1 AND kind='read'",[message.id])).rows[0].n).toBe(0);
+});
+
+test('DEEP-011 regression: unsigned legacy receipt upgrades only through a valid device proof and retries once',async({browser})=>{
+  const alice=await device(browser,'alice'),bob=await device(browser,'bob'),id=await room(alice,bob);
+  const message=await alice.page.evaluate(id=>c.sendText(id,'upgrade signed receipt only'),id);
+  await app.db.query("INSERT INTO audit_receipts(message_id,device_id,kind) VALUES($1,$2,'stored')",[message.id,bob.identity.deviceId]);
+  await bob.page.evaluate(()=>c.sync());
+  const proof=(await app.db.query("SELECT proof FROM audit_receipts WHERE message_id=$1 AND kind='stored'",[message.id])).rows[0].proof;
+  expect(proof.signature).toMatch(/^[A-Za-z0-9_-]+$/);
+  await bob.page.evaluate(proof=>c.request('/api/receipts','POST',proof),proof);
+  expect((await app.db.query("SELECT COUNT(*)::int AS n FROM audit_events WHERE device_id=$1 AND kind='receipt'",[alice.identity.deviceId])).rows[0].n).toBe(1);
+  await alice.page.evaluate(()=>c.sync());expect((await alice.page.evaluate(id=>c.history(id),id))[0].status).toBe('delivered');
 });
 test('DEEP-006 regression: only viewport-visible focused messages emit Read',async({browser},info)=>{
   const alice=await device(browser,'alice'),bob=await device(browser,'bob'),id=await room(alice,bob);
@@ -161,7 +186,7 @@ test('DEEP-006 regression: only viewport-visible focused messages emit Read',asy
   await expect.poll(async()=> (await app.db.query("SELECT COUNT(*)::int AS n FROM audit_receipts WHERE message_id=$1 AND kind='read'",[first.id])).rows[0].n).toBe(1);
   await result(info,{regression:'DEEP-006',offscreenFirstRead:false,readAfterVisible:true,...geometry});
 });
-test('DEEP-007 limitation: fresh device accepts an authentic but rolled-back history capsule',async({browser},info)=>{
+test('DEEP-007 regression: independent checkpoint rejects rolled-back history on a fresh device',async({browser},info)=>{
   const alice=await device(browser,'alice'),bob=await device(browser,'bob'),id=await room(alice,bob);
   await alice.page.evaluate(id=>c.sendText(id,'archive revision one'),id);
   const key=await alice.page.evaluate(()=>c.generateRecoveryKey()); await alice.page.evaluate(key=>c.backup(key),key);
@@ -170,9 +195,13 @@ test('DEEP-007 limitation: fresh device accepts an authentic but rolled-back his
   const current=await alice.page.evaluate(()=>c.request('/api/recovery')); expect(current.revision).toBe('2');
   const fresh=await device(browser,'alice'); await alice.page.evaluate(i=>c.approveDevice(i.deviceId,i.fingerprint),fresh.identity);
   await fresh.context.route('**/api/recovery',r=>r.request().method()==='GET'?r.fulfill({contentType:'application/json',body:JSON.stringify(earlier)}):r.continue());
-  const restored=await fresh.page.evaluate(key=>c.restore(key),key);
-  const rows=await fresh.page.evaluate(()=>c.history()); expect(restored.restored).toBe(1); expect(rows.map(r=>r.text)).toEqual(['archive revision one']);
-  await result(info,{limitation:'DEEP-007',actualRemoteRevision:current.revision,replayedRevision:earlier.revision,restoredRows:rows.length,rollbackDetected:false});
+  const checkpoint=await alice.page.evaluate(()=>c.recoveryCheckpoint());
+  await expect(fresh.page.evaluate(key=>c.restore(key),key)).rejects.toThrow('recovery_checkpoint_required');
+  await expect(fresh.page.evaluate(({key,checkpoint})=>c.restore(key,{checkpoint}),{key,checkpoint})).rejects.toThrow('recovery_freshness_rejected');
+  const rows=await fresh.page.evaluate(()=>c.history()); expect(rows).toHaveLength(0);
+  await fresh.context.unroute('**/api/recovery');
+  expect((await fresh.page.evaluate(({key,checkpoint})=>c.restore(key,{checkpoint}),{key,checkpoint})).restored).toBe(2);
+  await result(info,{regression:'DEEP-007',actualRemoteRevision:current.revision,replayedRevision:earlier.revision,rollbackDetected:true});
 });
 test('DEEP-008 regression: authenticated admission rejects an overlong signed KeyPackage',async({},info)=>{
   const mls=await import('ts-mls'),identity=await import('../device-identity.mjs');

@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { startAuditServer } = require('./server.cjs');
 let app, contexts;
 test.beforeEach(async () => { contexts = []; app = await startAuditServer({ auditOnly: true }); });
-test.afterEach(async () => { for (const context of contexts) await context.close(); await app.close(); });
+test.afterEach(async () => { try { for (const context of contexts) await context.close(); } finally { await app.close(); } });
 async function device(browser, owner) {
   const context = await browser.newContext(); contexts.push(context);
   await context.route('**/ui.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
@@ -57,7 +57,8 @@ test('AUD-002 new sender device must not stall on a receipt for pre-enrollment h
   expect(events.some(e => e.kind === 'receipt' && e.payload.id === message.id)).toBe(false);
   await second.page.evaluate(() => c.sync());
   const key = await alice.page.evaluate(() => c.generateRecoveryKey()); await alice.page.evaluate(key => c.backup(key), key);
-  await second.page.evaluate(key => c.restore(key), key); await second.page.evaluate(() => c.sync());
+  const checkpoint = await alice.page.evaluate(() => c.recoveryCheckpoint());
+  await second.page.evaluate(({key,checkpoint}) => c.restore(key,{checkpoint}), {key,checkpoint}); await second.page.evaluate(() => c.sync());
   expect((await second.page.evaluate(room => c.history(room), room)).find(row => row.id === message.id).status).toBe('delivered');
   await bob.page.evaluate(async room => c.markRead(room, (await c.history(room)).map(row => row.id)), room); await second.page.evaluate(() => c.sync());
   expect((await second.page.evaluate(room => c.history(room), room)).find(row => row.id === message.id).status).toBe('read');
@@ -166,7 +167,8 @@ test('AUD-003 Delivered survives lost-response retry and later Stored cannot dow
   await bob.page.evaluate(() => c.sync()); await alice.page.evaluate(() => c.sync());
   expect((await alice.page.evaluate(room => c.history(room), room)).find(row => row.id===sent.id).status).toBe('delivered');
   await bob.page.evaluate(async room => c.markRead(room, (await c.history(room)).map(row => row.id)), room); await alice.page.evaluate(() => c.sync());
-  await app.db.query("INSERT INTO audit_events(device_id,room_id,kind,payload) VALUES($1,$2,'receipt',$3)", [alice.identity.deviceId,room,JSON.stringify({id:sent.id,kind:'stored'})]);
+  const storedProof=(await app.db.query("SELECT proof FROM audit_receipts WHERE message_id=$1 AND kind='stored'",[sent.id])).rows[0].proof;
+  await app.db.query("INSERT INTO audit_events(device_id,room_id,kind,payload) VALUES($1,$2,'receipt',$3)", [alice.identity.deviceId,room,JSON.stringify(storedProof)]);
   await alice.page.evaluate(() => c.sync());
   expect((await alice.page.evaluate(room => c.history(room), room)).find(row => row.id===sent.id).status).toBe('read');
 });
@@ -187,7 +189,8 @@ test('AUD-004 tombstone conflict recovers and ambiguous accepted retry retains e
   await bob.context.route('**/api/recovery', async route => { if(route.request().method()==='PUT') {await route.fetch(); await route.abort('connectionfailed');} else await route.continue(); });
   await expect(bob.page.evaluate(key => c.backup(key), key)).rejects.toThrow(); await bob.context.unroute('**/api/recovery');
   expect(await bob.page.evaluate(() => c.discardPendingBackup({confirmed:true}))).toMatchObject({alreadyAccepted:true,discarded:false,remoteChanged:false,revision:'4'});
-  expect((await second.page.evaluate(key => c.restore(key), key)).identityRestored).toBe(false);
+  const checkpoint = await bob.page.evaluate(() => c.recoveryCheckpoint());
+  expect((await second.page.evaluate(({key,checkpoint}) => c.restore(key,{checkpoint}), {key,checkpoint})).identityRestored).toBe(false);
 });
 
 test('AUD-004 conflict UI requires confirmation, preserves remote backup and permits a new backup', async ({ browser }, testInfo) => {
@@ -212,7 +215,16 @@ test('AUD-004 conflict UI requires confirmation, preserves remote backup and per
   bob.page.once('dialog', dialog => dialog.accept()); await bob.page.locator('#discard-pending').click();
   await expect(bob.page.locator('#notice')).toHaveText('Local pending backup discarded');
   expect(await second.page.evaluate(() => c.request('/api/recovery'))).toEqual(remote);
+  const downloaded = bob.page.waitForEvent('download');
   await bob.page.locator('#backup').click(); await expect(bob.page.locator('#notice')).toHaveText('Backup revision 2');
+  const checkpointFile = await downloaded; expect(checkpointFile.suggestedFilename()).toBe('winga-recovery-checkpoint.json');
+  expect(await checkpointFile.failure()).toBe(null);
+  const fs = require('node:fs');
+  const exported = JSON.parse(fs.readFileSync(await checkpointFile.path(), 'utf8'));
+  expect(exported).toEqual(await bob.page.evaluate(() => c.recoveryCheckpoint()));
+  const reexported = bob.page.waitForEvent('download'); await bob.page.locator('#export-checkpoint').click();
+  const secondFile = await reexported; expect(await secondFile.failure()).toBe(null);
+  expect(JSON.parse(fs.readFileSync(await secondFile.path(), 'utf8'))).toEqual(exported);
 });
 
 test('AUD-005 pinned MLS candidate must reject duplicate signature keys in a group', async () => {

@@ -6,6 +6,133 @@ that spec 0-109 is complete. The architecture contract is
 behavior, local tests and evidence still needed before changing user-facing
 security claims.
 
+Follow-up 2026-10-03: experimental receipts now require recipient-device
+signatures verified against message-era pinned keys. Fresh-device history
+restore requires an independently retained latest ciphertext checkpoint as well
+as the user-held key; server-reported revision alone is never sufficient. Root
+and backend dependency audits are clean after sharp 0.35.5 remediation. These
+changes close local F06/F07/F09 remediation boundaries, not production E2EE or
+section 109 acceptance. The integrated workbench still cannot run in production.
+Protocol audit/approval, real account crypto enrollment, encrypted message mode,
+private ciphertext media and authenticated production recovery remain open.
+
+Device foundation follow-up 2026-10-03: an additive PostgreSQL crypto-device
+registry and own-account API are wired behind `WINGA_CRYPTO_DEVICES_ENABLED`,
+which defaults off. Ed25519 proofs bind account, session, operation and target
+key. First enrollment activates; later devices stay pending until an active
+device signs approval. Revocation keeps tombstones; losing all active devices
+cannot silently bootstrap a replacement identity. Exact retries are recorded
+transactionally and still require a live session. Focused PGlite and API tests
+cover these boundaries, not independent PostgreSQL connection concurrency.
+The opt-in browser client now persists a nonextractable Ed25519 identity in IDB,
+atomically chooses one identity across tabs, retains signed pending registration
+through lost replies/reload, and rejects server key substitution and session
+changes. Its request helper uses existing authenticated/CSRF-aware networking.
+Real Edge browser tests call the backend store through a synthetic test bridge;
+this proves interoperability/persistence, not production authenticated HTTP or
+physical Android acceptance. No enrollment UI or automatic activation is wired.
+Own-device MLS package publication is now implemented as described below, but
+there is no peer key transparency, encrypted-message writer integration or group rekey yet. Do not enable this flag as an
+E2EE rollout: existing production messages remain legacy plaintext.
+
+Persistent mode follow-up: `2026100302_conversation_security_mode` adds a
+`legacy-plaintext` default to the participant-pair ledger stream. The reserved
+`encrypted` mode is irreversible through ordinary row updates/deletes/renames.
+The canonical writer returns `conversation_encryption_required` (HTTP 409)
+before retry acceptance, insert, notification or push. A BEFORE message trigger
+also protects direct/old PostgreSQL writers and snapshot-restore INSERTs/edits;
+exact body comparisons do not rely on an MD5 collision-resistant assumption.
+Existing historical receipt-only updates remain valid. Stream creation and row
+locking close the absent-stream race before a message write is accepted.
+Independent PostgreSQL connections prove both upgrade-before-write rejection
+and write-before-upgrade serialization. This does not establish crypto-device
+enrollment concurrency or cryptographic membership/epoch validation.
+
+No activation API, ciphertext writer, peer key-package exchange, authenticated mode
+transition or MLS group rekey exists yet. Do not manually switch production
+streams to `encrypted`: legacy sending and snapshot restore for those streams
+will intentionally fail closed. The migration needs a bounded writer-maintenance
+window for its table locks. It does not re-encrypt historical messages and must
+not be advertised as E2EE. No production database was touched.
+
+Candidate integration follow-up 2026-10-03:
+
+- Migration `2026100303_conversation_crypto_key_packages` and the own-account
+  `/api/conversations/crypto/key-packages` route require both
+  `WINGA_CRYPTO_DEVICES_ENABLED` and `WINGA_MLS_CANDIDATE_ENABLED`; both remain off.
+  The pinned candidate is `ts-mls@1.6.4` with exact noble provider pins. It is
+  unaudited, not approved for release. Native nonextractable Ed25519 identity
+  attests the package hash/account/session/device; the separate MLS signing key
+  and basic credential bind that device fingerprint. Both MLS leaf and outer
+  package signatures, suite, lifetime and complete wire decoding are checked.
+  No private MLS key is uploaded. Peer admission must independently verify the
+  identity attestation against a trusted pin; that client/admission path is open.
+- `src/chat/encrypted-vault.js` encrypts typed state and outbox records with a
+  nonextractable native AES-256-GCM key. A revision CAS, Web Lock and strict IDB
+  transaction make all related puts/deletes atomic. Record-count and aggregate
+  byte limits are checked before commit. Corruption, key loss and account/session
+  changes fail closed. No actual production MLS state machine uses this vault yet.
+- `src/chat/recovery-client.js` connects this vault to the existing backup store
+  through the authenticated communications helper. The user key and independently
+  retained latest ciphertext checkpoint are required for fresh-device restore.
+  Pending exact ciphertext survives a lost accepted response and reload; prior
+  archive records survive local eviction. Only history records are archived,
+  never identity/group/ratchet/outbox secrets. Conflicting history or server
+  rollback is rejected. The recovery confirmation/export/restore UI is still open.
+- `backend/conversation-private-media.js` adds an opt-in storage adapter, not an
+  HTTP endpoint or durable attachment-grant ledger. It requires a separate bucket
+  and credentials, checks both managed public access and custom-domain absence,
+  rechecks authorization/privacy around I/O, bounds ciphertext/stream lifetime,
+  and verifies hashes and immutable retries. It returns no public/presigned URL
+  and never uploads filename, MIME, attachment key or plaintext. Real R2 access,
+  membership/epoch grants, durable cleanup and browser route integration are open.
+
+Local evidence: 48/48 native/store/API/storage cases; 20/20 Edge browser cases
+(19 dedicated full-suite cases plus the final immutability case, all included in CI);
+18/18 independent PostgreSQL connection cases including first-device enrollment,
+logout and publication/revocation races. The candidate package/private-media subset
+also passes 15/15 on Node 20.20.0, in addition to local Node 24.12.0. The bundle
+contains 74 synchronized modules. Synthetic bridges are not production HTTP,
+Android, actual R2 or independent protocol acceptance. No production flag,
+database, CSP, Phoenix instance count, commit, push or deploy changed in this work.
+
+Final release regression: `npm run test:ci` passed end to end, including 192/192
+browser cases, 226/226 integration cases, 61/61 realtime cases, 58/58 message-page
+cases, 71/71 commerce cases, 144/144 frontend core checks and 68/68 frontend
+behavior cases. Localization has four matching 1,321-key catalogs and zero new
+hard-coded UI debt. Root and backend production dependency audits again report
+zero known advisories. The disposable PostgreSQL cluster was stopped; CI services
+completed teardown. This is local regression evidence, not production activation
+or independent cryptographic/security approval.
+
+Push inventory for this work must include native crypto device source, database
+store, API, migration registration, server wiring and both new test suites;
+the security-mode helper/migration/tests and canonical writer, route, pagination
+fixture and independent-connection concurrency regression updates;
+the MLS auth/validator/package store/migration/API and package regressions;
+encrypted vault/recovery client, private media adapter and their browser/storage
+tests, and `docs/encrypted-content-and-recovery.md`;
+`src/api/communications-client.js`, the build source list and generated
+`winga-modules.js`; secure-content test commands/config; dependency manifests
+and both lockfiles; the signed-receipt and recovery-checkpoint modules plus their
+workbench/client/server/UI/regression changes; and this ledger/audit report.
+The six previously untracked onboarding/pending-reload/recipient-join probe and
+config files are relevant audit regressions and must be included after passing
+their tests. Generated `public/`, browser reports, `.audit-data`, credentials and
+local backup snapshots remain excluded. Recheck `git status` and staged diff
+immediately before any commit/push; do not use a blanket stage operation.
+
+Latest local verification: secure-content/device/backup/mode Node suite 33/33,
+security-mode plus PostgreSQL writer regression run 126/126, independent local
+PostgreSQL ledger/writer/mode concurrency run 15/15,
+strict-CSP real Edge browser suite 10/10, existing message replay/Phoenix/offline
+retry suite 47/47, and retained onboarding/recipient-join/pending-reload audit
+probes 6/6. Frontend source/bundle verification covers 72 modules. The generated
+Cloudflare build version is `20261002222353`; its `wrangler.toml` version change
+and generated bundle belong in the push inventory. Migrations were applied only
+in disposable test schemas/databases. No commit, push, production migration,
+feature activation or deploy was performed for this follow-up.
+
 ## Current production evidence (2026-10-02)
 
 Rollout commit `1df70b9` enables the production browser for all authenticated

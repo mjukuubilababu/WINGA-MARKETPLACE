@@ -1,0 +1,1 @@
+const path=require('node:path');module.exports={testDir:__dirname,testMatch:'recipient-join.spec.cjs',workers:1,timeout:90000,reporter:[['list'],['json',{outputFile:path.join(__dirname,'../test-results/recipient-join/results.json')}]],outputDir:path.join(__dirname,'../test-results/recipient-join'),use:{browserName:'chromium',channel:'msedge',headless:true}};

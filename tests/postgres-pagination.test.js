@@ -1379,6 +1379,12 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     await db.exec(`CREATE TABLE sessions(session_id TEXT,username TEXT,expires_at BIGINT);
       INSERT INTO sessions VALUES('device-b','b',9999999999999);
       INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription) VALUES('push-b','b','device-b','{}');`);
+    await db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'");
+    await db.transaction(async tx => {
+      for (const name of ['conversation-event-ledger', 'conversation-security-mode']) {
+        for (const sql of require(`../backend/migrations/${name}`).statements) await tx.exec(sql);
+      }
+    });
     const queryClient = { async query(sql, params) {
       calls.push(sql);
       // PGlite does not model cross-connection locks or LISTEN/NOTIFY delivery.
@@ -1517,9 +1523,11 @@ test("PostgreSQL message send serializes conversation pressure and commits notif
   assert.deepEqual(result, { created: true, code: "", conversationSequence: "1" });
   assert.equal(calls[0].text, "BEGIN");
   assert.match(calls[1].text, /pg_advisory_xact_lock/);
-  assert.match(calls[4].text, /INSERT INTO messages/);
-  assert.equal(calls[4].params[13], null);
-  assert.equal(calls[4].params[15], false);
+  const messageInsert = calls.find(call => call.text.includes('INSERT INTO messages'));
+  const securityCheck = calls.find(call => call.text.includes('SELECT security_mode'));
+  assert.ok(securityCheck && calls.indexOf(securityCheck) < calls.indexOf(messageInsert));
+  assert.equal(messageInsert.params[13], null);
+  assert.equal(messageInsert.params[15], false);
   const emitted = JSON.parse(calls.find(call => call.text.includes("pg_notify")).params[0]);
   assert.equal(emitted.message.isDelivered, false);
   assert.equal(emitted.message.deliveredAt, "");

@@ -9,7 +9,8 @@
   const encoder = new TextEncoder();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const magic = encoder.encode('WINGAEM2');
-  const fail = () => { throw new Error('Encrypted content validation failed.'); };
+  const failure = code => Object.assign(new Error(code), { code });
+  const fail = () => { throw failure('encrypted_content_invalid'); };
   const id = value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,128}$/.test(value);
   const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
@@ -20,7 +21,7 @@
     && Number.isSafeInteger(value.bytes) && value.bytes >= 0 && value.bytes <= MAX_MEDIA_BYTES;
   let loading;
   function loadSecureContent() {
-    if (!globalThis.isSecureContext) return Promise.reject(new Error('Secure browser context required.'));
+    if (!globalThis.isSecureContext) return Promise.reject(failure('crypto_secure_context_required'));
     if (!loading) loading = createSecureContent(globalThis.crypto);
     return loading;
   }

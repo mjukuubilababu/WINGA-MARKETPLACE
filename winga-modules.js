@@ -1475,6 +1475,39 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return {
       prepareMessage,
+      cryptoDeviceRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'POST'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/crypto/devices`, {
+          method, headers: method === 'POST' ? jsonHeaders() : authHeaders(),
+          ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
+        });
+      },
+      cryptoPackageRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'POST'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/crypto/key-packages`, {
+          method, headers: method === 'POST' ? jsonHeaders() : authHeaders(),
+          ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
+        });
+      },
+      cryptoRecoveryRequest: (method, payload, context) => {
+        requireFetcher();
+        const active = deps.getSession?.();
+        if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
+          || active.token !== context.token) throw new Error("crypto_device_session_changed");
+        if (!['GET', 'PUT', 'DELETE'].includes(method)) throw new Error("crypto_device_method_invalid");
+        return fetchJson(`${baseUrl}/conversations/recovery`, {
+          method, headers: method === 'GET' ? authHeaders() : jsonHeaders(),
+          ...(method === 'GET' ? {} : { body: JSON.stringify(payload) })
+        });
+      },
       hasDeviceEventStream: () => phoenix?.isReady() === true,
       loadMessages,
       loadInboxPage: (options) => loadMessagePage("inbox", options),
@@ -17931,7 +17964,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const encoder = new TextEncoder();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const magic = encoder.encode('WINGAEM2');
-  const fail = () => { throw new Error('Encrypted content validation failed.'); };
+  const failure = code => Object.assign(new Error(code), { code });
+  const fail = () => { throw failure('encrypted_content_invalid'); };
   const id = value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,128}$/.test(value);
   const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
@@ -17942,7 +17976,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     && Number.isSafeInteger(value.bytes) && value.bytes >= 0 && value.bytes <= MAX_MEDIA_BYTES;
   let loading;
   function loadSecureContent() {
-    if (!globalThis.isSecureContext) return Promise.reject(new Error('Secure browser context required.'));
+    if (!globalThis.isSecureContext) return Promise.reject(failure('crypto_secure_context_required'));
     if (!loading) loading = createSecureContent(globalThis.crypto);
     return loading;
   }
@@ -18049,6 +18083,444 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return { encryptMedia, decryptMedia, generateRecoveryKey, sealRecovery, openRecovery };
   }
   return { createSecureContent, loadSecureContent, ALGORITHM, MAX_MEDIA_BYTES, MAX_BACKUP_BYTES };
+});
+
+
+// src/chat/crypto-devices.js
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.WingaCryptoDevices = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const fields = ['action', 'deviceId', 'actorId', 'publicKey', 'fingerprint', 'requestId', 'issuedAt'];
+  const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+  const failure = code => Object.assign(new Error(code), { code });
+  const fail = code => { throw failure(code); };
+  function encode(bytes) {
+    return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function operationBytes(context, payload) {
+    return new TextEncoder().encode(JSON.stringify(['winga-crypto-device-operation', 1,
+      context.owner, context.deviceId, ...fields.map(key => payload[key])]));
+  }
+  async function createCryptoDeviceClient({ getSession, request, indexedDB = globalThis.indexedDB,
+    crypto = globalThis.crypto, secureContext = globalThis.isSecureContext } = {}) {
+    if (!secureContext || !indexedDB || !crypto?.subtle || !crypto.randomUUID
+      || typeof getSession !== 'function' || typeof request !== 'function') fail('crypto_device_unavailable');
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('winga-crypto-identity-v1', 1);
+      let blocked = false;
+      open.onupgradeneeded = () => open.result.createObjectStore('identities', { keyPath: 'owner' });
+      open.onerror = () => reject(open.error);
+      open.onblocked = () => { blocked = true; reject(failure('crypto_device_storage_blocked')); };
+      open.onsuccess = () => {
+        if (blocked) return open.result.close();
+        open.result.onversionchange = () => open.result.close();
+        resolve(open.result);
+      };
+    });
+    const session = () => {
+      const value = getSession();
+      if (!value?.username || !value.sessionId || !value.token) fail('crypto_device_session_required');
+      return { owner: value.username, deviceId: value.sessionId, token: value.token };
+    };
+    function current(context) {
+      const value = session();
+      if (value.owner !== context.owner || value.deviceId !== context.deviceId || value.token !== context.token) fail('crypto_device_session_changed');
+    }
+    function transact(owner, update) {
+      return new Promise((resolve, reject) => {
+        let tx;
+        try { tx = db.transaction('identities', 'readwrite', { durability: 'strict' }); }
+        catch { tx = db.transaction('identities', 'readwrite'); }
+        let result, error;
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(error || tx.error || failure('crypto_device_storage_failed'));
+        tx.onerror = () => {};
+        const rows = tx.objectStore('identities'), read = rows.get(owner);
+        read.onsuccess = () => {
+          try {
+            result = update(read.result);
+            if (result) rows.put(result);
+          } catch (failure) { error = failure; tx.abort(); }
+        };
+      });
+    }
+    async function identity(context) {
+      let row = await transact(context.owner, value => value);
+      if (!row) {
+        let keys;
+        try { keys = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']); }
+        catch { fail('crypto_device_algorithm_unavailable'); }
+        const raw = await crypto.subtle.exportKey('raw', keys.publicKey);
+        const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', raw));
+        const candidate = { owner: context.owner, id: crypto.randomUUID(), privateKey: keys.privateKey,
+          publicKey: encode(raw), fingerprint: Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join(''), pending: null };
+        current(context);
+        // Compare-and-create in one IDB transaction prevents two tabs choosing different identities.
+        row = await transact(context.owner, value => value || candidate);
+      }
+      if (!uuid(row.id) || row.owner !== context.owner || row.privateKey?.extractable !== false
+        || row.privateKey?.algorithm?.name !== 'Ed25519' || row.privateKey?.type !== 'private') fail('crypto_device_identity_invalid');
+      current(context);
+      return row;
+    }
+    function verifyView(value, row, owner) {
+      if (!value || value.id !== row.id || value.owner !== owner || value.publicKey !== row.publicKey
+        || value.fingerprint !== row.fingerprint || !['active', 'pending', 'revoked'].includes(value.status)) fail('crypto_device_server_identity_mismatch');
+      return value;
+    }
+    async function enroll() {
+      const context = session(), row = await identity(context);
+      let operation = row.pending;
+      if (!operation || operation.sessionId !== context.deviceId) {
+        const payload = { action: 'register', deviceId: row.id, actorId: row.id, publicKey: row.publicKey,
+          fingerprint: row.fingerprint, requestId: crypto.randomUUID(), issuedAt: Date.now() };
+        payload.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, operationBytes(context, payload)));
+        current(context);
+        const saved = await transact(context.owner, value => {
+          if (!value || value.id !== row.id) fail('crypto_device_identity_invalid');
+          return { ...value, pending: value.pending?.sessionId === context.deviceId
+            ? value.pending : { sessionId: context.deviceId, payload } };
+        });
+        operation = saved.pending;
+      }
+      current(context);
+      let result;
+      try { result = await request('POST', operation.payload, context); }
+      catch (error) {
+        if (error.code === 'crypto_device_proof_expired') {
+          current(context);
+          await transact(context.owner, value => {
+            if (!value || value.id !== row.id) fail('crypto_device_identity_invalid');
+            return value.pending?.payload.requestId === operation.payload.requestId ? { ...value, pending: null } : value;
+          });
+        }
+        throw error;
+      }
+      current(context);
+      if (result?.version !== 1) fail('crypto_device_server_identity_mismatch');
+      verifyView(result?.device, row, context.owner);
+      const fresh = await request('GET', undefined, context);
+      current(context);
+      if (fresh?.version !== 1 || !Array.isArray(fresh.devices)) fail('crypto_device_server_identity_mismatch');
+      const actual = verifyView(fresh.devices.find(item => item.id === row.id), row, context.owner);
+      await transact(context.owner, value => {
+        if (!value || value.id !== row.id) fail('crypto_device_identity_invalid');
+        return value.pending?.payload.requestId === operation.payload.requestId ? { ...value, pending: null } : value;
+      });
+      current(context);
+      return actual;
+    }
+    async function attestKeyPackage(raw) {
+      if (!(raw instanceof Uint8Array) || !raw.length || raw.length > 8192) fail('crypto_package_invalid');
+      const context = session(), row = await identity(context);
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', raw)), byte => byte.toString(16).padStart(2, '0')).join('');
+      const payload = { deviceId: row.id, requestId: crypto.randomUUID(), issuedAt: Date.now(), keyPackage: encode(raw), hash };
+      const bytes = new TextEncoder().encode(JSON.stringify(['winga-crypto-key-package', 1, context.owner, context.deviceId,
+        row.id, payload.requestId, payload.issuedAt, payload.hash]));
+      payload.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
+      current(context); return payload;
+    }
+    return { enroll, attestKeyPackage, close: () => db.close() };
+  }
+  return { createCryptoDeviceClient, operationBytes };
+});
+
+
+// src/chat/encrypted-vault.js
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.WingaEncryptedVault = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
+  const failure = code => Object.assign(new Error(code), { code });
+  const fail = code => { throw failure(code); };
+  const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
+  const b64 = bytes => {
+    let value = '';
+    for (let offset = 0; offset < bytes.length; offset += 8192) value += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+    return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  function pack(value) {
+    const text = JSON.stringify(value, (_, item) => {
+      if (item instanceof Uint8Array) return { $bytes: b64(item) };
+      if (typeof item === 'bigint') return { $integer: String(item) };
+      if (item && typeof item === 'object' && (Object.hasOwn(item, '$bytes') || Object.hasOwn(item, '$integer'))) fail('crypto_vault_value_invalid');
+      return item;
+    });
+    if (typeof text !== 'string') fail('crypto_vault_value_invalid');
+    const bytes = encoder.encode(text);
+    if (bytes.length > 4 * 1024 * 1024) fail('crypto_vault_value_too_large');
+    return bytes;
+  }
+  function unpack(bytes) {
+    return JSON.parse(decoder.decode(bytes), (_, item) => {
+      if (!item || typeof item !== 'object' || Object.keys(item).length !== 1) return item;
+      if (typeof item.$integer === 'string' && /^(0|-?[1-9][0-9]*)$/.test(item.$integer)) return BigInt(item.$integer);
+      if (typeof item.$bytes === 'string' && /^[A-Za-z0-9_-]*$/.test(item.$bytes)) {
+        const raw = Uint8Array.from(atob(item.$bytes.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+        if (b64(raw) !== item.$bytes) fail('crypto_vault_value_invalid');
+        return raw;
+      }
+      return item;
+    });
+  }
+  async function createEncryptedVault({ owner, getSession, indexedDB = globalThis.indexedDB,
+    crypto = globalThis.crypto, locks = globalThis.navigator?.locks, secureContext = globalThis.isSecureContext } = {}) {
+    if (!id(owner) || !secureContext || !indexedDB || !crypto?.subtle || !locks?.request
+      || typeof getSession !== 'function') fail('crypto_vault_unavailable');
+    const current = () => {
+      const session = getSession();
+      if (session?.username !== owner || !session.token || !session.sessionId) fail('crypto_vault_session_required');
+      return { ...session };
+    };
+    const assertCurrent = before => {
+      const after = current();
+      if (after.token !== before.token || after.sessionId !== before.sessionId) fail('crypto_vault_session_changed');
+    };
+    current();
+    const name = `winga-encrypted-vault-v1:${owner}`;
+    const db = await new Promise((resolve, reject) => {
+      let blocked = false; const request = indexedDB.open(name, 1);
+      request.onupgradeneeded = () => { for (const store of ['keys', 'records', 'metadata']) request.result.createObjectStore(store); };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => { blocked = true; reject(failure('crypto_vault_storage_blocked')); };
+      request.onsuccess = () => {
+        if (blocked) return request.result.close();
+        request.result.onversionchange = () => request.result.close(); resolve(request.result);
+      };
+    });
+    async function transaction(names, mode, work) {
+      return new Promise((resolve, reject) => {
+        let tx, result, error;
+        try { tx = db.transaction(names, mode, { durability: 'strict' }); }
+        catch { tx = db.transaction(names, mode); }
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(error || tx.error || failure('crypto_vault_write_aborted'));
+        tx.onerror = () => {};
+        try { work(tx, value => { result = value; }, failure => { error = failure; tx.abort(); }); }
+        catch (failure) { error = failure; tx.abort(); }
+      });
+    }
+    let key;
+    try {
+      await locks.request(name, async () => {
+        const candidate = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        key = await transaction(['keys', 'records', 'metadata'], 'readwrite', (tx, done, abort) => {
+          const read = tx.objectStore('keys').get('local');
+          read.onsuccess = () => {
+            const count = tx.objectStore('records').count();
+            count.onsuccess = () => {
+              if (!read.result && count.result) return abort(failure('crypto_vault_key_missing'));
+              const chosen = read.result || candidate;
+              if (chosen.type !== 'secret' || chosen.extractable || chosen.algorithm?.name !== 'AES-GCM' || chosen.algorithm.length !== 256
+                || chosen.usages.length !== 2 || !chosen.usages.includes('encrypt') || !chosen.usages.includes('decrypt')) return abort(failure('crypto_vault_key_invalid'));
+              if (!read.result) { tx.objectStore('keys').add(chosen, 'local'); tx.objectStore('metadata').put('0', 'revision'); }
+              done(chosen);
+            };
+          };
+        });
+      });
+    } catch (error) { db.close(); throw error; }
+    const parameters = (recordId, nonce) => ({ name: 'AES-GCM', iv: nonce,
+      additionalData: encoder.encode(JSON.stringify(['winga-encrypted-vault', 1, owner, recordId])), tagLength: 128 });
+    async function reveal(recordId, sealed) {
+      if (sealed?.v !== 1 || !(sealed.nonce instanceof Uint8Array) || sealed.nonce.length !== 12
+        || !(sealed.ciphertext instanceof Uint8Array) || sealed.ciphertext.length > 4 * 1024 * 1024 + 16) fail('crypto_vault_record_invalid');
+      const bytes = new Uint8Array(await crypto.subtle.decrypt(parameters(recordId, sealed.nonce), key, sealed.ciphertext));
+      try { return unpack(bytes); } finally { bytes.fill(0); }
+    }
+    async function snapshot() {
+      const context = current();
+      const saved = await transaction(['records', 'metadata'], 'readonly', (tx, done, abort) => {
+        const revision = tx.objectStore('metadata').get('revision'), values = [], read = tx.objectStore('records').openCursor();
+        let bytes = 0;
+        read.onsuccess = () => {
+          const cursor = read.result;
+          if (cursor) {
+            bytes += cursor.value?.ciphertext?.byteLength || 0;
+            if (values.length >= 2000 || bytes > 32 * 1024 * 1024) return abort(failure('crypto_vault_snapshot_too_large'));
+            values.push([cursor.key, cursor.value]); cursor.continue();
+          }
+          else if (!/^(0|[1-9][0-9]{0,15})$/.test(revision.result || '') || !Number.isSafeInteger(Number(revision.result))) abort(failure('crypto_vault_revision_invalid'));
+          else done({ revision: revision.result, values });
+        };
+      });
+      const values = Object.fromEntries(await Promise.all(saved.values.map(async ([recordId, sealed]) => [recordId, await reveal(recordId, sealed)])));
+      assertCurrent(context); return { revision: saved.revision, values };
+    }
+    async function write({ expectedRevision, values = {}, deleted = [] } = {}) {
+      if (!/^(0|[1-9][0-9]{0,15})$/.test(expectedRevision || '') || !Number.isSafeInteger(Number(expectedRevision))
+        || Number(expectedRevision) >= Number.MAX_SAFE_INTEGER || !Array.isArray(deleted)
+        || !values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length + deleted.length > 2000
+        || [...Object.keys(values), ...deleted].some(recordId => !id(recordId))) fail('crypto_vault_write_invalid');
+      // Capture the complete logical write before waiting for another tab's lock.
+      try { values = structuredClone(values); deleted = [...deleted]; }
+      catch { fail('crypto_vault_value_invalid'); }
+      const context = current();
+      return locks.request(name, async () => {
+        assertCurrent(context);
+        const records = []; let changedBytes = 0;
+        for (const [recordId, value] of Object.entries(values)) {
+          const bytes = pack(value), nonce = crypto.getRandomValues(new Uint8Array(12));
+          try {
+            changedBytes += bytes.length + 16;
+            if (changedBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
+            records.push([recordId, { v: 1, nonce, ciphertext: new Uint8Array(await crypto.subtle.encrypt(parameters(recordId, nonce), key, bytes)) }]);
+          }
+          finally { bytes.fill(0); }
+        }
+        assertCurrent(context);
+        const next = await transaction(['records', 'metadata'], 'readwrite', (tx, done, abort) => {
+          const read = tx.objectStore('metadata').get('revision');
+          read.onsuccess = () => {
+            if (read.result !== expectedRevision) return abort(failure('crypto_vault_revision_conflict'));
+            try { assertCurrent(context); } catch (error) { return abort(error); }
+            for (const recordId of deleted) tx.objectStore('records').delete(recordId);
+            for (const [recordId, sealed] of records) tx.objectStore('records').put(sealed, recordId);
+            // Count the resulting state before committing; rejection rolls back every put/delete.
+            let count = 0, size = 0; const cursor = tx.objectStore('records').openCursor();
+            cursor.onsuccess = () => {
+              if (cursor.result) {
+                count++; size += cursor.result.value?.ciphertext?.byteLength || 0;
+                if (count > 2000 || size > 32 * 1024 * 1024) return abort(failure('crypto_vault_snapshot_too_large'));
+                cursor.result.continue();
+              } else {
+                try { assertCurrent(context); } catch (error) { return abort(error); }
+                const revision = String(Number(expectedRevision) + 1); tx.objectStore('metadata').put(revision, 'revision'); done(revision);
+              }
+            };
+          };
+        });
+        assertCurrent(context); return next;
+      });
+    }
+    return { snapshot, write, close: () => db.close() };
+  }
+  return { createEncryptedVault };
+});
+
+
+// src/chat/recovery-client.js
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.WingaRecoveryClient = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const fields = ['version', 'algorithm', 'purpose', 'owner', 'id', 'generation', 'nonce', 'ciphertext'];
+  const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
+  const fail = code => { throw Object.assign(new Error(code), { code }); };
+  async function checkpointFor(capsule, revision, crypto = globalThis.crypto) {
+    if (!capsule || Object.keys(capsule).length !== fields.length || fields.some(key => !Object.hasOwn(capsule, key))
+      || typeof revision !== 'string' || !/^[1-9][0-9]{0,15}$/.test(revision) || !Number.isSafeInteger(Number(revision))
+      || capsule.generation !== Number(revision)) fail('recovery_checkpoint_rejected');
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify(fields.map(key => capsule[key])))));
+    return { v: 1, owner: capsule.owner, revision, hash: Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('') };
+  }
+  async function verifyCheckpoint(remote, checkpoint, owner, crypto = globalThis.crypto) {
+    if (!checkpoint) fail('recovery_checkpoint_required');
+    if (Object.keys(checkpoint).length !== 4 || !['v', 'owner', 'revision', 'hash'].every(key => Object.hasOwn(checkpoint, key))
+      || checkpoint.v !== 1 || checkpoint.owner !== owner || typeof checkpoint.revision !== 'string'
+      || !/^[1-9][0-9]{0,15}$/.test(checkpoint.revision)
+      || typeof checkpoint.hash !== 'string' || !/^[a-f0-9]{64}$/.test(checkpoint.hash)) fail('recovery_checkpoint_rejected');
+    const actual = await checkpointFor(remote?.capsule, remote?.revision, crypto);
+    if (actual.owner !== owner || actual.revision !== checkpoint.revision || actual.hash !== checkpoint.hash) fail('recovery_freshness_rejected');
+    return actual;
+  }
+  function createRecoveryClient({ owner, getSession, vault, codec, request,
+    locks = globalThis.navigator?.locks, crypto = globalThis.crypto } = {}) {
+    if (!owner || typeof getSession !== 'function' || !vault?.snapshot || !vault?.write
+      || !codec?.sealRecovery || !codec?.openRecovery || !locks?.request || typeof request !== 'function') fail('recovery_unavailable');
+    const context = () => {
+      const value = getSession();
+      if (value?.username !== owner || !value.sessionId || !value.token) fail('recovery_session_required');
+      return { owner, deviceId: value.sessionId, token: value.token };
+    };
+    const current = before => {
+      const after = context();
+      if (before.token !== after.token || before.deviceId !== after.deviceId) fail('recovery_session_changed');
+    };
+    const historyOnly = values => Object.fromEntries(Object.entries(values).filter(([key]) => /^history:[A-Za-z0-9._:-]{1,128}$/.test(key)));
+    const readArchive = bytes => {
+      const archive = JSON.parse(decoder.decode(bytes));
+      if (!archive || Object.keys(archive).length !== 3 || archive.v !== 1 || archive.owner !== owner
+        || !archive.items || Array.isArray(archive.items) || typeof archive.items !== 'object'
+        || Object.keys(archive.items).length > 1999 || Object.keys(archive.items).some(key => !/^history:[A-Za-z0-9._:-]{1,128}$/.test(key))) fail('recovery_archive_invalid');
+      return archive;
+    };
+    async function backup(key, { checkpoint } = {}) {
+      const session = context();
+      return locks.request(`winga-recovery-operation:${owner}`, async () => {
+        current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
+        if (!pending) {
+          let items = historyOnly(local.values);
+          const remote = await request('GET', undefined, session); current(session);
+          if (typeof remote?.revision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(remote.revision) || !Number.isSafeInteger(Number(remote.revision))
+            || Number(remote.revision) >= Number.MAX_SAFE_INTEGER) fail('recovery_revision_invalid');
+          const retained = local.values['recovery:checkpoint'];
+          if (retained && Number(remote.revision) < Number(retained.revision)) fail('recovery_freshness_rejected');
+          if (retained && !remote.capsule) fail('recovery_freshness_rejected');
+          if (remote.capsule) {
+            await verifyCheckpoint(remote, checkpoint || retained, owner, crypto);
+            const bytes = await codec.openRecovery(remote.capsule, key, {
+              owner, id: remote.capsule.id, generation: remote.capsule.generation });
+            try {
+              const prior = readArchive(bytes).items;
+              if (!Object.keys(items).length) fail('recovery_restore_required');
+              if (Object.keys(prior).some(key => items[key] !== undefined && JSON.stringify(items[key]) !== JSON.stringify(prior[key]))) fail('recovery_local_history_conflict');
+              items = { ...prior, ...items };
+            } finally { bytes.fill(0); }
+          }
+          if (Object.keys(items).length > 1999) fail('recovery_archive_invalid');
+          const archive = encoder.encode(JSON.stringify({ v: 1, owner, items }));
+          try {
+            const capsule = await codec.sealRecovery(archive, key, { owner, id: crypto.randomUUID(), generation: Number(remote.revision) + 1 });
+            pending = { expectedRevision: remote.revision, capsule };
+            await vault.write({ expectedRevision: local.revision, values: { 'backup:pending': pending } });
+          } finally { archive.fill(0); }
+        } else {
+          // A retry must prove the supplied recovery key opens the retained exact capsule.
+          const bytes = await codec.openRecovery(pending.capsule, key, {
+            owner, id: pending.capsule.id, generation: pending.capsule.generation }); bytes.fill(0);
+        }
+        current(session);
+        const result = await request('PUT', pending, session); current(session);
+        const acceptedCheckpoint = await checkpointFor(pending.capsule, String(Number(pending.expectedRevision) + 1), crypto);
+        await verifyCheckpoint(result, acceptedCheckpoint, owner, crypto);
+        local = await vault.snapshot();
+        const retained = local.values['backup:pending'];
+        if (!retained || JSON.stringify(retained) !== JSON.stringify(pending)) fail('recovery_pending_conflict');
+        await vault.write({ expectedRevision: local.revision, values: { 'recovery:checkpoint': acceptedCheckpoint }, deleted: ['backup:pending'] });
+        current(session); return { revision: result.revision, checkpoint: acceptedCheckpoint };
+      });
+    }
+    async function restore(key, { checkpoint } = {}) {
+      const session = context();
+      return locks.request(`winga-recovery-operation:${owner}`, async () => {
+        current(session); const local = await vault.snapshot(), retained = local.values['recovery:checkpoint'];
+        checkpoint ||= retained;
+        if (!checkpoint) fail('recovery_checkpoint_required');
+        if (retained && Number(checkpoint.revision) < Number(retained.revision)) fail('recovery_freshness_rejected');
+        const remote = await request('GET', undefined, session); current(session);
+        await verifyCheckpoint(remote, checkpoint, owner, crypto);
+        const plaintext = await codec.openRecovery(remote.capsule, key, {
+          owner, id: remote.capsule.id, generation: remote.capsule.generation });
+        let archive;
+        try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
+        const conflicting = Object.keys(archive.items).some(key => local.values[key] !== undefined
+          && JSON.stringify(local.values[key]) !== JSON.stringify(archive.items[key]));
+        if (conflicting || local.values['backup:pending']) fail('recovery_local_history_conflict');
+        current(session);
+        await vault.write({ expectedRevision: local.revision, values: { ...archive.items, 'recovery:checkpoint': checkpoint } });
+        current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
+      });
+    }
+    async function exportCheckpoint() { context(); return (await vault.snapshot()).values['recovery:checkpoint'] || null; }
+    return { backup, restore, exportCheckpoint };
+  }
+  return { createRecoveryClient, checkpointFor, verifyCheckpoint };
 });
 
 

@@ -14,6 +14,11 @@ Web Crypto implementation; it downloads no crypto dependency and uses neither
 WebAssembly nor JavaScript eval. The isolated unaudited MLS experiment remains
 outside the production application.
 
+Follow-up 2026-10-03 adds a disabled own-account cryptographic device/package
+API, browser vault/recovery clients and an isolated private ciphertext storage
+adapter. These are candidate integration foundations, not an enabled encrypted
+messaging workflow. See the current evidence and limits below.
+
 ## Ciphertext Formats
 
 `src/chat/secure-content.js` exposes a lazy `loadSecureContent()` and an injectable
@@ -83,6 +88,64 @@ key it cannot prove ciphertext decryptability. A fresh device cannot detect a
 malicious server rolling back an entire valid historical capsule using a server
 revision alone; independent freshness/trust design remains required.
 
+## Browser Vault And Recovery Client
+
+`src/chat/encrypted-vault.js` binds storage to the current authenticated owner and
+session. The local nonextractable AES-256-GCM key is stored separately from the
+ciphertext records in IndexedDB. Atomic revision-CAS transactions serialize tabs
+and related state/outbox changes. At most 2,000 records, 4 MiB plaintext per
+record and 32 MiB aggregate ciphertext are accepted. Oversized transactions roll
+back instead of committing an unreadable vault. Corrupt data or a missing key
+never triggers silent reset. Binary and bigint values roundtrip; `$bytes` and
+`$integer` are reserved serialization tags, not ordinary user record fields.
+This storage foundation is not yet connected to a production MLS ratchet.
+
+`src/chat/recovery-client.js` archives only `history:*` records. It retains the
+exact sealed pending capsule before PUT and reconciles exact accepted retries
+after reload. It verifies the prior backup and retains its immutable history
+records even when they have been evicted locally. Conflicting versions fail
+closed. Identity keys, MLS group state and pending message outboxes are excluded.
+Recovered history does not authorize a new identity or restore live group access.
+
+Each accepted backup produces a checkpoint `{v, owner, revision, hash}`. Keep the
+latest checkpoint independently with the user-held key or a trusted device. A
+fresh device refuses recovery without it. Server-reported revisions alone cannot
+establish freshness; an old independently supplied checkpoint cannot prove that
+no later backup exists. Local retained checkpoints reject explicit downgrade.
+User-facing key confirmation/download, checkpoint retention, rotation, pending
+conflict reconciliation, archive schema and authorized fresh group Welcome remain
+release gates. Internal errors carry machine-readable `code`; UI boundaries must
+translate them and must not display raw exception messages.
+
+## Private Ciphertext Storage Candidate
+
+`backend/conversation-private-media.js` never uses the marketplace public bucket
+or legacy backup bucket. Required configuration is `R2_ACCOUNT_ID`,
+`R2_BUCKET_NAME` (public bucket exclusion), `R2_CONVERSATION_BUCKET_NAME`,
+`R2_CONVERSATION_ACCESS_KEY_ID`, `R2_CONVERSATION_SECRET_ACCESS_KEY`,
+`R2_CONVERSATION_API_TOKEN` and `R2_CONVERSATION_ISOLATION_CONFIRMED=true`.
+Use separate bucket-scoped credentials; the adapter cannot prove credential
+scope from their strings. No production environment variable was added here.
+
+Every operation requires an injected authorization function to return exactly
+true. Caller objects are captured immutably before awaits. Privacy checks require
+managed public access disabled and zero custom-domain attachments, before and
+after storage I/O. Both access paths must be checked independently according to
+[Cloudflare public-bucket documentation](https://developers.cloudflare.com/r2/buckets/public-buckets/).
+Only opaque attachment UUID, ciphertext size and SHA-256 go into the object
+reference. Content type is `application/octet-stream`, caching private/no-store.
+Uploads are conditional and read back for exact hash/length verification;
+downloads are bounded and reauthorized before returning bytes. No plaintext key,
+filename, original MIME, public URL, presigned URL or partial plaintext is emitted.
+
+This module has fake-S3/privacy failure tests, not actual R2 acceptance. It has no
+HTTP route, attachment reservation/grant schema or orphan cleanup ledger yet.
+It cannot replace current membership/device/epoch authorization with caller
+claims. A revoked in-flight upload may leave an opaque orphan; never publish it
+or delete an uncertain existing object in the retry path. Durable reservations,
+grants, cleanup, quota enforcement and final canonical message acceptance are
+required before activating media uploads.
+
 ## Verification And Deployment
 
 The focused Node suite covers roundtrip, tampering, wrong keys, account/archive
@@ -121,7 +184,8 @@ means structural checks passed, not that recovery or E2EE is complete.
 1. Select and independently review a pinned browser messaging protocol compatible
    with unchanged CSP; production cryptographic device enrollment and verified
    peer identity must precede its use. The current MLS spike is not approved.
-2. Implement persistent conversation encryption mode, authenticated envelopes,
+2. Complete persistent conversation encryption mode integration (the irreversible
+   reservation/legacy downgrade guard exists but has no activation API), authenticated envelopes,
    per-device key distribution/revocation, atomic encrypted state/outbox writes,
    replay rejection and no downgrade across REST/Phoenix/retry paths.
 3. Connect the codec to authenticated private ciphertext storage with durable
@@ -131,6 +195,7 @@ means structural checks passed, not that recovery or E2EE is complete.
    archive. Restore history and permitted attachment keys, not stale live ratchet
    state or revoked-device credentials. Verify recovery in a fresh authorized
    device, key rotation, trusted freshness, logout and account erasure.
-5. Run independent PostgreSQL races, actual Android PWA restart/recovery, fault
+5. Extend the passing independent PostgreSQL enrollment/logout/revocation races
+   to final encrypted acceptance/rekey/grants, and run actual Android PWA restart/recovery, fault
    injection, dependency/license review and an independent security assessment
    on the final integrated design before enabling production encrypted chat.

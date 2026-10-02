@@ -14,6 +14,9 @@ const { createMessageDeviceReceiptsStore } = require("./message-device-receipts"
 const { createMessageWebPushStore, enqueueMessagePush } = require("./message-web-push");
 const { createConversationEventStore } = require("./conversation-event-ledger");
 const { createEncryptedConversationBackupStore } = require("./encrypted-conversation-backups");
+const { createConversationCryptoDeviceStore } = require("./conversation-crypto-devices");
+const { isLegacyConversation } = require("./conversation-security-mode");
+const { createCryptoKeyPackageStore } = require("./conversation-crypto-key-packages");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -4239,6 +4242,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [message.senderId, message.receiverId]
       );
       if (blockResult.rowCount) return { created: false, code: "message_blocked" };
+      if (!await isLegacyConversation(client, message.senderId, message.receiverId)) {
+        return { created: false, code: "conversation_encryption_required" };
+      }
       if (retryKey) {
         const replay = await reconcileMessageRetry(client, message.senderId, retryKey, requestHash);
         if (replay) return replay;
@@ -10010,6 +10016,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageWebPushStore({ query, withTransaction }),
     ...createConversationEventStore({ withTransaction }),
     ...createEncryptedConversationBackupStore({ withTransaction }),
+    ...createConversationCryptoDeviceStore({ withTransaction }),
+    ...createCryptoKeyPackageStore({ withTransaction }),
     close
   };
 }
