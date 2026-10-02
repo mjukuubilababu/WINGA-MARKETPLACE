@@ -3257,6 +3257,14 @@ test("production CSP is enforced from repo without inline script escape hatches"
   const csp = globalHeaders.find((header) => header.key === "Content-Security-Policy")?.value || "";
 
   assert.ok(csp, "static frontend CSP must be declared in vercel.json");
+  const socketHost = "wss://winga-phoenix.onrender.com";
+  const policies = vercelConfig.headers.flatMap(entry => entry.headers || [])
+    .filter(header => header.key === "Content-Security-Policy").map(header => header.value);
+  policies.push(...staticHeadersSource.split(/\r?\n/).filter(line => line.includes("Content-Security-Policy:")));
+  for (const source of [...policies, workerSource, backendSource]) {
+    assert.ok(source.split(/\r?\n/).some(line => line.includes("connect-src") && line.includes(socketHost)));
+    assert.doesNotMatch(source, /wss:\/\/\*|connect-src[^;\n]*\swss:(?:\s|;)/);
+  }
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /form-action 'self'/);

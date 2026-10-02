@@ -422,7 +422,7 @@ function buildContentSecurityPolicy(options = {}) {
     `img-src 'self' data: blob: ${origin} https://media.wingamarket.com https://wingamarket.com https://*.cloudflarestream.com https://*.videodelivery.net`,
     "font-src 'self' data:",
     `media-src 'self' data: blob: ${origin} https://*.cloudflarestream.com https://*.videodelivery.net`,
-    `connect-src 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com https://*.cloudflarestream.com https://*.videodelivery.net`,
+    `connect-src wss://winga-phoenix.onrender.com 'self' ${origin} https://wingamarket.com https://cloudflareinsights.com https://static.cloudflareinsights.com https://*.cloudflarestream.com https://*.videodelivery.net`,
     `script-src ${scriptSources.join(" ")}`,
     `script-src-elem ${scriptSources.join(" ")}`,
     "script-src-attr 'none'",

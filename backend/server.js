@@ -2422,7 +2422,7 @@ function getCspHeader(req) {
     "style-src 'self'",
     "style-src-elem 'self' 'unsafe-inline'",
     "style-src-attr 'unsafe-inline'",
-    `connect-src ${allowedOrigins.join(" ")} https://*.cloudflarestream.com https://*.videodelivery.net`,
+    `connect-src wss://winga-phoenix.onrender.com ${allowedOrigins.join(" ")} https://*.cloudflarestream.com https://*.videodelivery.net`,
     "worker-src 'self'",
     "manifest-src 'self'",
     "frame-src https://*.cloudflarestream.com https://*.videodelivery.net",

@@ -16,6 +16,26 @@ test('transport is opt-in and requires distinct credentials', () => {
   assert.throws(()=>createConversationTransport({env}).issue({...session,username:'outside-canary'}),{status:404});
 });
 
+test('all-user rollout is explicit and preserves authentication, revocation and the kill switch', async () => {
+  const rollout = {...env, WINGA_PHOENIX_CANARY_USERS:'', WINGA_PHOENIX_ALL_USERS:'true'};
+  const transport = createConversationTransport({env:rollout, now:()=>100000});
+  const outside = {...session, username:'outside-canary'};
+  assert.equal(transport.canIssue(outside.username), true);
+  for (const owner of [undefined, null, '', 123]) assert.equal(transport.canIssue(owner), false);
+  const {ticket} = transport.issue(outside);
+  assert.equal(transport.verify(ticket).sub, outside.username);
+  assert.throws(()=>transport.issue({...outside, token:''}), {status:401});
+  await assert.rejects(transport.authorize(ticket, {resolveConversationTransportSession:async()=>null}), {status:401});
+  for (const value of [undefined, 'false', 'TRUE', '1']) {
+    const closed = createConversationTransport({env:{...rollout, WINGA_PHOENIX_ALL_USERS:value}, now:()=>100000});
+    assert.equal(closed.canIssue(outside.username), false);
+    assert.throws(()=>closed.verify(ticket), {status:401});
+  }
+  const disabled = createConversationTransport({env:{...rollout, WINGA_PHOENIX_TRANSPORT_ENABLED:'false'}});
+  assert.equal(disabled.canIssue(outside.username), false);
+  assert.throws(()=>disabled.verify(ticket), {status:404});
+});
+
 test('tickets bind audience, expiry, registered device and current session token without disclosing it', async () => {
   let time=100000;
   const transport=createConversationTransport({env,now:()=>time});

@@ -14,7 +14,9 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   const ticketSecret = env.CONVERSATION_TICKET_SECRET || '';
   const serviceSecret = env.CONVERSATION_SERVICE_TOKEN || '';
   const canaryUsers = new Set(String(env.WINGA_PHOENIX_CANARY_USERS || '').split(',').map(value => value.trim()).filter(Boolean));
-  const canIssue = owner => enabled && canaryUsers.has(owner);
+  const allUsers = env.WINGA_PHOENIX_ALL_USERS === 'true';
+  const canIssue = owner => enabled && typeof owner === 'string' && owner.length > 0
+    && (allUsers || canaryUsers.has(owner));
   if (enabled && (ticketSecret.length < 32 || serviceSecret.length < 32 || ticketSecret === serviceSecret)) {
     throw new Error('Distinct conversation ticket and service secrets of at least 32 characters are required.');
   }

@@ -1,8 +1,10 @@
 # Phoenix durable transport
 
-Opt-in text transport for existing Winga conversations, with a browser adapter
-behind explicit account canary gates. This is **not E2EE**. REST/SSE remains
-the default; no production Phoenix service or browser canary is implied.
+Text transport for existing Winga conversations, with a browser adapter
+behind explicit server rollout gates. This is **not E2EE**. The production
+browser enables all accounts at `wss://winga-phoenix.onrender.com/socket`;
+Node remains disabled until its environment explicitly enables enrollment.
+REST/SSE remains available when the Phoenix channel is not ready.
 PostgreSQL and the Node message writer remain authoritative.
 Phoenix nodes keep no durable messages, credentials database or local files.
 
@@ -49,8 +51,12 @@ Node (disabled unless explicitly enabled):
 
 - `WINGA_PHOENIX_TRANSPORT_ENABLED=true`
 - `WINGA_PHOENIX_CANARY_USERS`: comma-separated exact usernames of designated
-  test accounts. Empty means nobody can enroll. Removed accounts lose access
-  to previously issued tickets after the new Node configuration is deployed.
+  test accounts. Empty means nobody can enroll unless all-user rollout is on.
+- `WINGA_PHOENIX_ALL_USERS=true`: explicitly allow every authenticated account.
+  The transport enable flag, ticket verification and session checks still apply.
+  Omitted or any value other than literal `true` retains the exact canary list.
+  Removing an account from that list, or turning off all-user rollout, revokes
+  its ticket eligibility after the new Node configuration is deployed.
 - `CONVERSATION_TICKET_SECRET`: random secret, at least 32 characters.
 - `CONVERSATION_SERVICE_TOKEN`: separate random secret, at least 32 characters.
 
@@ -144,17 +150,36 @@ Do not replace the existing Winga Node service or change its start command.
 
 ### Browser activation
 
-Deploy as a separate service with synthetic accounts first. Preserve database
-migrations/outbox workers. The browser adapter is shipped disabled and requires
-all three trusted frontend configuration values:
+Preserve database migrations/outbox workers. Production configuration uses the
+verified Phoenix host and explicit all-user browser rollout. Both Node flags
+below must be set on the **Winga Node backend**, not on Phoenix:
+
+```dotenv
+WINGA_PHOENIX_TRANSPORT_ENABLED=true
+WINGA_PHOENIX_ALL_USERS=true
+```
+
+The shared service token must match Phoenix; the distinct ticket secret stays
+on Node only. The browser configuration is:
+
+```js
+phoenixTransportEnabled: true,
+phoenixTransportUrl: "wss://winga-phoenix.onrender.com/socket",
+phoenixAllUsers: true,
+phoenixCanaryUsers: []
+```
+
+To restrict rollout again, set Node's `WINGA_PHOENIX_ALL_USERS=false` and its
+exact canary list, and deploy browser configuration with `phoenixAllUsers:false`:
 
 ```js
 phoenixTransportEnabled: true,
 phoenixTransportUrl: "wss://<verified-transport-host>/socket",
+phoenixAllUsers: false,
 phoenixCanaryUsers: ["<designated-test-username>"]
 ```
 
-The account must also be in Node's server-side allowlist. Hostnames and account
+For canary mode the account must also be in Node's server-side allowlist. Hostnames and account
 names are configuration, not secrets. Never put a ticket or service secret in
 frontend configuration. Self-hosted `/vendor/phoenix.min.js` is built from the
 exact locked npm version; SDK loading does not contact an external CDN.
@@ -178,9 +203,10 @@ retries over REST inside the adapter: the existing offline queue retains the
 same client message ID for a later attempt. A stale account, revoked receipt,
 failed storage transaction or unconfirmed ACK cannot advance the device queue.
 
-Prove the exact deployed commit, TLS/origin rules, physical-device persistence,
-writer restart, load/backpressure and node-loss replay before broadening the
-canary. No production switch is implied by local browser tests.
+Production verification still requires the exact deployed backend commit,
+authenticated device persistence, writer restart, load/backpressure and
+deployed Phoenix node-loss replay. Enabling all accounts does not mark these
+checks complete; health, origin probes and local tests cannot prove them.
 
 Rollback: route clients back to REST/SSE, disable
 `WINGA_PHOENIX_TRANSPORT_ENABLED` on Node and stop Phoenix. Keep PostgreSQL

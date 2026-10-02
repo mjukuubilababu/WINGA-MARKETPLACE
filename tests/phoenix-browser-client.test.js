@@ -80,6 +80,34 @@ test('canary needs an explicit account and safe socket URL; rich message fields 
   assert.deepEqual({...f.api.textPayload({...payload,productId:'',productItems:[],messageType:'text'})},payload);
 });
 
+test('production configuration enables all accounts while local builds and explicit rollback remain disabled', () => {
+  const source=fs.readFileSync(path.join(__dirname,'..','winga-config.js'),'utf8');
+  const load=(hostname,protocol='https:',override={})=>{
+    const context={window:{location:{hostname,protocol},__WINGA_CONFIG_OVERRIDE__:override}};
+    vm.runInNewContext(source,context);
+    return context.window.WINGA_CONFIG;
+  };
+  const production=load('wingamarket.com');
+  assert.equal(production.phoenixTransportEnabled,true);
+  assert.equal(production.phoenixAllUsers,true);
+  assert.equal(production.phoenixTransportUrl,'wss://winga-phoenix.onrender.com/socket');
+  for (const host of ['localhost','127.0.0.1']) assert.equal(load(host).phoenixTransportEnabled,false);
+  assert.equal(load('','file:').phoenixTransportEnabled,false);
+  assert.equal(load('wingamarket.com','https:',{phoenixTransportEnabled:false}).phoenixTransportEnabled,false);
+});
+
+test('all-user rollout requires explicit booleans, a session and the same safe URL checks', () => {
+  const f=fixture(), session={username:'outside-canary'};
+  const config={phoenixTransportEnabled:true,phoenixAllUsers:true,phoenixCanaryUsers:[],phoenixTransportUrl:'wss://chat.example/socket'};
+  assert.equal(f.api.canaryUrl(config,session),config.phoenixTransportUrl);
+  for (const change of [{phoenixAllUsers:'true'},{phoenixAllUsers:false},{phoenixAllUsers:undefined},
+    {phoenixTransportEnabled:false},{phoenixTransportEnabled:'true'},
+    {phoenixTransportUrl:'wss://chat.example/socket?ticket=leak'}, {phoenixTransportUrl:'ws://chat.example/socket'}]) {
+    assert.equal(f.api.canaryUrl({...config,...change},session),'');
+  }
+  for (const absent of [null,{}, {username:''}]) assert.equal(f.api.canaryUrl(config,absent),'');
+});
+
 test('send uses join-frame tickets and accepts only a canonical sender/receiver sequence', async () => {
   const f=fixture(),client=f.make();const socket=await f.join();
   assert.equal(f.issued(),1);assert.equal(socket.url.includes('ticket'),false);

@@ -21,7 +21,8 @@
 
   function canaryUrl(config, session, location = window.location) {
     if (config?.phoenixTransportEnabled !== true || !session?.username
-      || !Array.isArray(config.phoenixCanaryUsers) || !config.phoenixCanaryUsers.includes(session.username)) return "";
+      || (config.phoenixAllUsers !== true
+        && (!Array.isArray(config.phoenixCanaryUsers) || !config.phoenixCanaryUsers.includes(session.username)))) return "";
     try {
       const url = new URL(config.phoenixTransportUrl);
       const local = ["localhost", "127.0.0.1"].includes(location?.hostname)
