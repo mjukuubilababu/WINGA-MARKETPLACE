@@ -137,3 +137,27 @@ The Render build script passed Bash syntax validation. None of these results
 is a production capacity or deployed failure-injection proof. The separate
 Render service, exact-host CSP and rollout were subsequently completed as
 described above.
+
+## Native Encrypted Content Foundation (2026-10-02)
+
+The operator chose a user-held recovery key and required CSP to stay unchanged.
+The native Web Crypto codec now provides bounded authenticated media encryption
+and history-capsule recovery without WASM, eval or third-party browser loaders.
+An additive PostgreSQL migration and disabled-by-default recovery endpoint provide
+session-rechecked, owner-scoped storage, exact retry handling and revision
+tombstones. Claimed encrypted payloads are rejected by legacy HTTP acceptance,
+not silently accepted as plaintext. This is not persisted conversation-mode
+downgrade protection and does not enable production E2EE.
+
+Focused verification passed 16/16 Node/PGlite tests and 4/4 Edge browser tests,
+including complete process restart with the recovery key outside browser storage.
+The API regression suite passed 15/15, including CSRF and no-plaintext-fallback
+boundaries; frontend checks passed with 68/68 behavior tests and unchanged CSP.
+The source bundle synchronization check passed. See
+`docs/encrypted-content-and-recovery.md` for limits, threat model, deployment
+checks and remaining integration/security gates. The codec and backup API are
+not an audited messaging protocol, production media ACL path or recovery UI.
+
+The follow-up message-page/receipt/ledger suite passed 58/58 and the realtime,
+cross-node harness and Phoenix adapter suite passed 61/61. These are local
+regressions, not deployed encrypted messaging or recovery acceptance.

@@ -68,6 +68,19 @@ test("Phoenix endpoints remain disabled without changing the browser CSRF bounda
   assert.equal((await request('/messages/transport-ticket', options)).response.status, 404);
 });
 
+test("recovery stays disabled by default and retains the HTTP CSRF boundary", async () => {
+  const disabled = await request('/conversations/recovery');
+  assert.equal(disabled.response.status, 404);
+  assert.equal(disabled.body.code, 'encrypted_backup_disabled');
+  assert.match(disabled.response.headers.get('cache-control'), /no-store/);
+  for (const method of ['PUT', 'DELETE']) {
+    const denied = await request('/conversations/recovery', {
+      method, headers: { 'Content-Type': 'application/json' }, body: '{}', skipCsrf: true
+    });
+    assert.equal(denied.response.status, 403);
+  }
+});
+
 test("push subscription writes reject missing authentication and CSRF", async () => {
   for (const method of ["POST", "DELETE"]) {
     const options = { method, headers: { "Content-Type": "application/json" }, body: "{}" };
@@ -188,7 +201,8 @@ test.before(async () => {
       VIDEO_SAFETY_SCAN_WEBHOOK_SECRET: "integration-video-delivery-secret-0001",
       VIDEO_SAFETY_RESULT_WEBHOOK_SECRET: "integration-video-callback-secret-0001",
       VIDEO_SAFETY_RESULT_CALLBACK_URL: "https://wingamarket.com/api/media/videos/safety-results",
-      DATABASE_URL: ""
+      DATABASE_URL: "",
+      WINGA_ENCRYPTED_BACKUP_ENABLED: "false"
     },
     stdio: "ignore"
   });
@@ -667,6 +681,19 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(buyerSignup.body.phoneNumber, "255700222222");
   let buyerToken = getAuthCookieToken(buyerSignup.response);
   const buyerUsername = buyerSignup.body.username;
+
+  const messagesBeforeClaimedEncryption = await request('/messages', { headers: { Authorization: `Bearer ${buyerToken}` } });
+  for (const claim of [{ securityMode: 'e2ee' }, { ciphertext: 'secret' },
+    { cryptoEnvelope: {} }, { encryptedAttachment: {} }, { recoveryKey: 'must-not-be-stored' }]) {
+    const denied = await request('/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${buyerToken}` },
+      body: JSON.stringify({ receiverId: 'seller_one', message: 'must-not-fall-back-to-plaintext', ...claim })
+    });
+    assert.equal(denied.response.status, 400);
+    assert.equal(denied.body.code, 'encrypted_protocol_unavailable');
+  }
+  const messagesAfterClaimedEncryption = await request('/messages', { headers: { Authorization: `Bearer ${buyerToken}` } });
+  assert.deepEqual(messagesAfterClaimedEncryption.body, messagesBeforeClaimedEncryption.body);
 
   const unknownRecoveryRequest = await request("/auth/recovery/request", {
     method: "POST",

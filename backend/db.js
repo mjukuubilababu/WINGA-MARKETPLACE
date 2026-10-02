@@ -13,6 +13,7 @@ const { createMessageDispatchStore } = require("./message-dispatch");
 const { createMessageDeviceReceiptsStore } = require("./message-device-receipts");
 const { createMessageWebPushStore, enqueueMessagePush } = require("./message-web-push");
 const { createConversationEventStore } = require("./conversation-event-ledger");
+const { createEncryptedConversationBackupStore } = require("./encrypted-conversation-backups");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -10008,6 +10009,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageDeviceReceiptsStore({ withTransaction }),
     ...createMessageWebPushStore({ query, withTransaction }),
     ...createConversationEventStore({ withTransaction }),
+    ...createEncryptedConversationBackupStore({ withTransaction }),
     close
   };
 }

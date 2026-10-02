@@ -3,6 +3,13 @@
 Status: isolated evaluation on 2026-10-01. No production E2EE, key registration,
 protocol selection or new chat security claim is made by this work.
 
+Follow-up on 2026-10-02: the operator explicitly required production CSP to remain
+unchanged. WASM candidates that require `wasm-unsafe-eval` are therefore not
+deployable under the accepted configuration. A native Web Crypto media/recovery
+codec and disabled owner-scoped backup API have been implemented separately;
+see `encrypted-content-and-recovery.md`. This does not select a messaging protocol
+or turn the isolated `ts-mls` experiment into production E2EE.
+
 The live device queue uses an authenticated session ID. That is not a
 cryptographic device identity. Existing message bodies and local retry data are
 still plaintext. Adding a public key field to the current session table without

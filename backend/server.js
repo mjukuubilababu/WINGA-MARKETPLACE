@@ -38,6 +38,8 @@ const { createAdsApi } = require("./ads-api");
 const { createConversationOffersApi } = require("./conversation-offers-api");
 const { createConversationAvailabilityApi } = require("./conversation-availability-api");
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
+const { createEncryptedConversationBackupsApi } = require("./encrypted-conversation-backups-api");
+const { requireLegacyPayload } = require("./encrypted-content-contract");
 const conversationTransport = createConversationTransport();
 
 const PORT = process.env.PORT || 3000;
@@ -6479,6 +6481,11 @@ async function handleMessageSend(req, res, { store, clientIp, url, transportCont
   }
 
   const payload = transportPayload || await collectBody(req);
+  try { requireLegacyPayload(payload); }
+  catch (error) {
+    sendJson(res, error.status, { code: error.code });
+    return;
+  }
   let clientMessageId;
   try {
     clientMessageId = readMessageIdempotencyKey(req.headers, payload);
@@ -7893,6 +7900,7 @@ const server = http.createServer(async (req, res) => {
       || url.pathname.startsWith("/api/messages/device-events/") || url.pathname === "/api/messages/events"
       || url.pathname.startsWith("/api/messages/push/")
       || url.pathname === "/api/messages/transport-ticket"
+      || url.pathname === "/api/conversations/recovery"
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -7943,6 +7951,14 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (url.pathname.startsWith("/api/conversations/") || url.pathname.startsWith("/api/conversation-offers/")) {
+      const encryptedBackups = createEncryptedConversationBackupsApi({
+        collectBody, sendJson,
+        findSession: token => findSession(store, token), readAuthToken,
+        ensureMarketplaceUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
+        getPostgresStore: () => postgresStore,
+        enabled: process.env.WINGA_ENCRYPTED_BACKUP_ENABLED === "true"
+      });
+      if (await encryptedBackups.handle(req, res, url)) return;
       const offersApi = createConversationOffersApi({
         collectBody, sendJson,
         findSession: (token) => findSession(store, token), readAuthToken,

@@ -142,6 +142,7 @@ const bundledModuleSources = [
   "src/chat/ui.js",
   "src/chat/pagination.js",
   "src/chat/device-receipts.js",
+  "src/chat/secure-content.js",
   "src/chat/controller.js",
   "src/admin/ui.js",
   "src/admin/controller.js",
