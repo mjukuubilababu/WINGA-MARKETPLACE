@@ -384,3 +384,18 @@ test("the Render callback retains its smaller bounded response limit",async()=>{
   assert.equal(diagnostics[0].stage,"winga_callback");
   assert.equal(diagnostics[0].reason,"response_too_large");
 });
+
+test("invalid response diagnostics expose schema fields without media URLs or prediction labels",async()=>{
+  const diagnostics=[];
+  const worker=adapter(async()=>Response.json({output:[{response:{output:[{classes:[
+    {class_name:"private_prediction_label",value:0.9}
+  ],media_url:"https://private.example/secret-token"}]}}],private_metadata:"secret"}),false,diagnostics);
+  assert.equal((await worker.fetch(request(),env)).status,502);
+  const log=JSON.stringify(diagnostics);
+  assert.ok(log.includes("class_name"));
+  assert.ok(log.includes("classCount"));
+  assert.ok(!log.includes("private_prediction_label"));
+  assert.ok(!log.includes("private.example"));
+  assert.ok(!log.includes("secret-token"));
+  assert.ok(!log.includes("private_metadata"));
+});
