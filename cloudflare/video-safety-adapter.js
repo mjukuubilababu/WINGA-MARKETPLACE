@@ -1,6 +1,8 @@
 const MAX_SCAN_BYTES = 64 * 1024;
 const MAX_CALLBACK_BYTES = 1024 * 1024;
 const MAX_PROVIDER_RESPONSE_BYTES = 128 * 1024;
+const MAX_HIVE_V3_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_HIVE_V3_PREDICTIONS = 50000;
 const MAX_REQUEST_AGE_SECONDS = 300;
 const CALLBACK_TTL_SECONDS = 6 * 60 * 60;
 const FETCH_TIMEOUT_MS = 10000;
@@ -29,7 +31,7 @@ export default {
         return await acceptWingaScan(request, env);
       } catch (error) {
         const timeout = error?.name === "AbortError";
-        console.error(JSON.stringify({ event: "video_safety_scan_failed", timeout, stage: error?.scanStage || "scan_validation", reason: safeFailureReason(error) }));
+        console.error(JSON.stringify({ event: "video_safety_scan_failed", timeout, stage: error?.scanStage || "scan_validation", reason: safeFailureReason(error), providerStatus: error?.providerStatus }));
         return json({ ok: false, error: timeout ? "provider_timeout" : "scan_failed" }, timeout ? 504 : 502);
       }
     }
@@ -74,7 +76,7 @@ async function acceptWingaScan(request, env) {
       "User-Agent": "winga-video-safety-adapter/2"
     },
     body: JSON.stringify({ input: [{ media_url: scan.mediaUrl }] })
-  }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await withScanStage("hive_response", () => readProviderJson(response)) })));
+  }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await withScanStage("hive_response", () => readProviderJson(response, MAX_HIVE_V3_RESPONSE_BYTES)) })));
   if (!providerResponse.ok) {
 
     const diagnostic = summarizeProviderRejection(providerBody);
@@ -167,6 +169,21 @@ function summarizeProviderRejection(payload) {
   else if (/array|object|json|input/.test(message)) reason = "invalid_input";
   return { reason, terms };
 }
+function parseHiveClass(prediction) {
+  if (!prediction || typeof prediction !== "object" || Array.isArray(prediction)) return null;
+  const modern = "class_name" in prediction || "value" in prediction;
+  const classic = "class" in prediction || "score" in prediction;
+  if (modern && classic
+      && (prediction.class_name !== prediction.class || prediction.value !== prediction.score)) return null;
+  const rawLabel = modern ? prediction.class_name : prediction.class;
+  const score = modern ? prediction.value : prediction.score;
+  if (typeof rawLabel !== "string" || rawLabel.length > 80) return null;
+  const label = rawLabel.toLowerCase();
+  if (!/^[a-z][a-z0-9_]*$/.test(label) || typeof score !== "number"
+      || !Number.isFinite(score) || score < 0 || score > 1) return null;
+  return { label, score };
+}
+
 async function normalizeHiveV3Result(scan, payload) {
   // Reject errors, empty outputs and malformed scores. Missing predictions
   // must never be interpreted as zero risk.
@@ -174,20 +191,22 @@ async function normalizeHiveV3Result(scan, payload) {
       || Number(payload.status_code || 0) >= 400
       || !Array.isArray(payload.output) || !payload.output.length
       || payload.output.length > 5000) return null;
-  const scores = {};
+  const scores = Object.create(null);
   let count = 0;
   for (const output of payload.output) {
-    if (!Array.isArray(output?.classes) || !output.classes.length
-        || !output.classes.some(prediction => prediction?.class_name === "general_nsfw")) return null;
+    if (!Array.isArray(output?.classes) || !output.classes.length) return null;
+    let hasNsfw = false;
     for (const prediction of output.classes) {
       count += 1;
-      const label = clean(prediction?.class_name, 80).toLowerCase();
-      const score = prediction?.value;
-      if (count > 5000 || !/^[a-z][a-z0-9_]*$/.test(label)
-          || typeof score !== "number" || !Number.isFinite(score)
-          || score < 0 || score > 1) return null;
+      if (count > MAX_HIVE_V3_PREDICTIONS) return null;
+      const parsed = parseHiveClass(prediction);
+      if (!parsed) return null;
+      const { label, score } = parsed;
+      if (label === "general_nsfw") hasNsfw = true;
+      if (scores[label] === undefined && Object.keys(scores).length >= 1024) return null;
       scores[label] = Math.max(scores[label] ?? 0, score);
     }
+    if (!hasNsfw) return null;
   }
   const positive = Object.entries(scores).filter(([label]) => !isSafeLabel(label));
   const riskScore = positive.reduce((maximum, [, score]) => Math.max(maximum, score), 0);
@@ -390,8 +409,13 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS, co
   finally { clearTimeout(timer); }
 }
 
-async function readProviderJson(response) {
-  const text = await readBoundedResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+async function readProviderJson(response, maxBytes = MAX_PROVIDER_RESPONSE_BYTES) {
+  let text;
+  try { text = await readBoundedResponse(response, maxBytes); }
+  catch (error) {
+    if (error && typeof error === "object") error.providerStatus = response.status;
+    throw error;
+  }
   try { return text ? JSON.parse(text) : {}; } catch { return {}; }
 }
 
