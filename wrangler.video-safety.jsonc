@@ -7,7 +7,7 @@
   "workers_dev": true,
   "vars": {
     "ADAPTER_PUBLIC_URL": "https://winga-video-safety-adapter.willardmmbando.workers.dev",
-    "HIVE_API_URL": "https://api.hivemoderation.com/api/v2/task/async",
+    "HIVE_API_URL": "https://api.thehive.ai/api/v3/hive/visual-moderation",
     "WINGA_VIDEO_SAFETY_RESULT_URL": "https://wingamarket.com/api/media/videos/safety-results",
     "MEDIA_HOST_ALLOWLIST": ".videodelivery.net,.cloudflarestream.com"
   },

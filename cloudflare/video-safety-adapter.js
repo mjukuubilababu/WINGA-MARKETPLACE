@@ -3,7 +3,8 @@ const MAX_CALLBACK_BYTES = 1024 * 1024;
 const MAX_PROVIDER_RESPONSE_BYTES = 128 * 1024;
 const MAX_REQUEST_AGE_SECONDS = 300;
 const CALLBACK_TTL_SECONDS = 6 * 60 * 60;
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 10000;
+const HIVE_V3_TIMEOUT_MS = 45000;
 const REVIEW_THRESHOLD = 0.9;
 const LABEL_THRESHOLD = 0.5;
 const SAFE_LABEL_MARKERS = ["no_", "not_", "general_not", "none", "safe"];
@@ -19,11 +20,18 @@ export default {
         worker: "winga-video-safety-adapter",
         provider: "hive-visual-moderation",
         policy: "human-review-first-v1",
+        providerApiVersion: "v3",
         configuration: readiness.configuration
       }, readiness.ready ? 200 : 503);
     }
     if (request.method === "POST" && url.pathname === "/scan") {
-      return acceptWingaScan(request, env);
+      try {
+        return await acceptWingaScan(request, env);
+      } catch (error) {
+        const timeout = error?.name === "AbortError";
+        console.error(JSON.stringify({ event: "video_safety_scan_failed", timeout, stage: error?.scanStage || "scan_validation", reason: safeFailureReason(error) }));
+        return json({ ok: false, error: timeout ? "provider_timeout" : "scan_failed" }, timeout ? 504 : 502);
+      }
     }
     if (request.method === "POST" && url.pathname === "/callbacks/hive") {
       return acceptHiveCallback(request, env, url);
@@ -54,41 +62,40 @@ async function acceptWingaScan(request, env) {
   const validationError = validateScan(scan, env);
   if (validationError) return json({ ok: false, error: validationError }, 422);
 
-  const expiresAt = Math.floor(Date.now() / 1000) + CALLBACK_TTL_SECONDS;
-  const callbackToken = await hmacHex(env.HIVE_CALLBACK_TOKEN_SECRET, `${scan.providerId}.${expiresAt}`);
-  const callbackUrl = new URL("/callbacks/hive", env.ADAPTER_PUBLIC_URL);
-  callbackUrl.searchParams.set("providerId", scan.providerId);
-  callbackUrl.searchParams.set("expires", String(expiresAt));
-  callbackUrl.searchParams.set("token", callbackToken);
-
-  const providerResponse = await fetchWithTimeout(env.HIVE_API_URL, {
+  // V3 returns predictions in this response. Do not acknowledge the scan
+  // until the signed result has reached the durable Render backend.
+  const { response: providerResponse, body: providerBody } = await withScanStage("hive_request", () => fetchWithTimeout(clean(env.HIVE_API_URL, 2048), {
     method: "POST",
+    redirect: "manual",
     headers: {
-      Authorization: `token ${env.HIVE_API_KEY}`,
+      Authorization: `Bearer ${clean(env.HIVE_API_KEY, 1000)}`,
       "Content-Type": "application/json",
       Accept: "application/json",
-      "User-Agent": "winga-video-safety-adapter/1",
-      "X-Idempotency-Key": scan.idempotencyKey
+      "User-Agent": "winga-video-safety-adapter/2"
     },
-    body: JSON.stringify({
-      url: scan.mediaUrl,
-      user_id: "winga-marketplace",
-      post_id: scan.providerId,
-      models: ["visual"],
-      callback_url: callbackUrl.toString(),
-      content_metadata: { source: "winga", contract: "video-safety-scan-v1" }
-    })
-  });
-  const providerBody = await readProviderJson(providerResponse);
+    body: JSON.stringify({ input: [{ media_url: scan.mediaUrl }] })
+  }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await withScanStage("hive_response", () => readProviderJson(response)) })));
   if (!providerResponse.ok) {
+
     console.error(JSON.stringify({ event: "video_safety_provider_rejected", status: providerResponse.status }));
     return json({ ok: false, error: "provider_rejected", providerStatus: providerResponse.status }, 502);
   }
-
-  const providerTaskId = clean(firstString(providerBody, ["task_id", "taskId", "id"])
-    || (Array.isArray(providerBody.task_ids) ? providerBody.task_ids[0] : ""), 160);
-  console.log(JSON.stringify({ event: "video_safety_submitted", provider: "hive", accepted: true }));
-  return json({ submitted: true, status: "submitted", providerTaskId, idempotencyKey: scan.idempotencyKey }, 202);
+  const normalized = await withScanStage("hive_normalize", () => normalizeHiveV3Result(scan, providerBody));
+  if (!normalized) {
+    console.error(JSON.stringify({ event: "video_safety_provider_invalid_response" }));
+    return json({ ok: false, error: "provider_invalid_response" }, 502);
+  }
+  const delivery = await withScanStage("winga_callback", () => deliverWingaResult(normalized, env));
+  if (!delivery.ok) return json({ ok: false, error: "winga_callback_failed" }, 502);
+  console.log(JSON.stringify({ event: "video_safety_result_delivered", apiVersion: "v3", verdict: normalized.verdict }));
+  return json({
+    submitted: true,
+    status: "completed",
+    delivered: true,
+    verdict: normalized.verdict,
+    providerTaskId: normalized.resultId,
+    idempotencyKey: scan.idempotencyKey
+  }, 202);
 }
 
 async function acceptHiveCallback(request, env, url) {
@@ -115,26 +122,76 @@ async function acceptHiveCallback(request, env, url) {
   }
 
   const normalized = await normalizeHiveResult(providerId, provider, raw.text);
+  const delivery = await deliverWingaResult(normalized, env);
+  if (!delivery.ok) return json({ ok: false, error: "winga_callback_failed" }, 502);
+  console.log(JSON.stringify({ event: "video_safety_result_delivered", verdict: normalized.verdict }));
+  return json({ ok: true, delivered: true, verdict: normalized.verdict });
+}
+
+async function deliverWingaResult(normalized, env) {
   const callbackBody = JSON.stringify(normalized);
   const timestamp = String(Math.floor(Date.now() / 1000));
   const signature = await hmacHex(env.VIDEO_SAFETY_RESULT_WEBHOOK_SECRET, `${timestamp}.${callbackBody}`);
   const response = await fetchWithTimeout(env.WINGA_VIDEO_SAFETY_RESULT_URL, {
     method: "POST",
+    redirect: "manual",
     headers: {
       "Content-Type": "application/json",
       "X-Winga-Video-Safety-Timestamp": timestamp,
       "X-Winga-Video-Safety-Signature": `sha256=${signature}`,
-      "User-Agent": "winga-video-safety-adapter/1"
+      "User-Agent": "winga-video-safety-adapter/2"
     },
     body: callbackBody
+  }, FETCH_TIMEOUT_MS, async response => {
+    await drainBounded(response, MAX_PROVIDER_RESPONSE_BYTES);
+    return { ok: response.ok, status: response.status };
   });
-  await drainBounded(response, MAX_PROVIDER_RESPONSE_BYTES);
   if (!response.ok) {
     console.error(JSON.stringify({ event: "video_safety_result_delivery_failed", status: response.status }));
-    return json({ ok: false, error: "winga_callback_failed" }, 502);
   }
-  console.log(JSON.stringify({ event: "video_safety_result_delivered", verdict: normalized.verdict }));
-  return json({ ok: true, delivered: true, verdict: normalized.verdict });
+  return { ok: response.ok };
+}
+
+
+async function normalizeHiveV3Result(scan, payload) {
+  // Reject errors, empty outputs and malformed scores. Missing predictions
+  // must never be interpreted as zero risk.
+  if (!payload || payload.error || payload.error_code || payload.errorCode
+      || Number(payload.status_code || 0) >= 400
+      || !Array.isArray(payload.output) || !payload.output.length
+      || payload.output.length > 5000) return null;
+  const scores = {};
+  let count = 0;
+  for (const output of payload.output) {
+    if (!Array.isArray(output?.classes) || !output.classes.length
+        || !output.classes.some(prediction => prediction?.class_name === "general_nsfw")) return null;
+    for (const prediction of output.classes) {
+      count += 1;
+      const label = clean(prediction?.class_name, 80).toLowerCase();
+      const score = prediction?.value;
+      if (count > 5000 || !/^[a-z][a-z0-9_]*$/.test(label)
+          || typeof score !== "number" || !Number.isFinite(score)
+          || score < 0 || score > 1) return null;
+      scores[label] = Math.max(scores[label] ?? 0, score);
+    }
+  }
+  const positive = Object.entries(scores).filter(([label]) => !isSafeLabel(label));
+  const riskScore = positive.reduce((maximum, [, score]) => Math.max(maximum, score), 0);
+  // Bind the result identity to the durable scan identity so a delivery retry
+  // cannot create a second decision when the first response was lost.
+  const resultId = `hive-v3:${await sha256Hex(scan.idempotencyKey)}`;
+  return {
+    providerId: scan.providerId,
+    resultId,
+    verdict: riskScore >= REVIEW_THRESHOLD ? "review" : "safe",
+    riskScore,
+    labels: positive.filter(([, score]) => score >= LABEL_THRESHOLD)
+      .sort((left, right) => right[1] - left[1]).slice(0, 40).map(([label]) => label),
+    scores: Object.fromEntries(Object.entries(scores).sort((left, right) => right[1] - left[1]).slice(0, 40)),
+    provider: "hive-visual-moderation",
+    modelVersion: "visual-v3",
+    checkedAt: new Date().toISOString()
+  };
 }
 
 function normalizeScan(input = {}) {
@@ -169,6 +226,7 @@ async function normalizeHiveResult(providerId, payload, rawBody) {
   const riskScore = positive.reduce((maximum, [, score]) => Math.max(maximum, score), 0);
   const labels = positive.filter(([, score]) => score >= LABEL_THRESHOLD)
     .sort((left, right) => right[1] - left[1]).slice(0, 40).map(([label]) => label);
+
   const providerError = Boolean(firstString(payload, ["error", "error_code", "errorCode"]));
   const taskId = clean(firstString(payload, ["task_id", "taskId", "id"])
     || findNestedString(payload, new Set(["task_id", "taskid", "id"])), 160);
@@ -240,7 +298,7 @@ function findNestedString(input, keys) {
 
 function getReadiness(env) {
   const configuration = {
-    hive: clean(env.HIVE_API_KEY, 1000).length >= 16 && isHttpsUrl(env.HIVE_API_URL),
+    hive: clean(env.HIVE_API_KEY, 1000).length >= 16 && isHiveV3Url(env.HIVE_API_URL),
     wingaSignature: clean(env.VIDEO_SAFETY_SCAN_WEBHOOK_SECRET, 1000).length >= 32,
     callbackContext: clean(env.HIVE_CALLBACK_TOKEN_SECRET, 1000).length >= 32 && isHttpsUrl(env.ADAPTER_PUBLIC_URL),
     wingaCallback: clean(env.VIDEO_SAFETY_RESULT_WEBHOOK_SECRET, 1000).length >= 32 && isHttpsUrl(env.WINGA_VIDEO_SAFETY_RESULT_URL),
@@ -250,6 +308,7 @@ function getReadiness(env) {
 }
 
 function parseAllowlist(value) {
+
   return String(value || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean).slice(0, 20);
 }
 
@@ -258,6 +317,16 @@ function isAllowedMediaHost(hostname, allowlist) {
   return parseAllowlist(allowlist).some((allowed) => allowed.startsWith(".")
     ? host.endsWith(allowed) && host.length > allowed.length
     : host === allowed);
+}
+
+function isHiveV3Url(value) {
+  try {
+    const url = new URL(clean(value, 2048));
+    return url.protocol === "https:" && !url.username && !url.password && !url.port
+      && ["api.thehive.ai", "api-va1.thehive.ai"].includes(url.hostname)
+      && url.pathname === "/api/v3/hive/visual-moderation"
+      && !url.search && !url.hash;
+  } catch { return false; }
 }
 
 function isHttpsUrl(value) {
@@ -275,10 +344,35 @@ function isFutureTimestamp(value) {
   return Number.isInteger(seconds) && seconds >= now - MAX_REQUEST_AGE_SECONDS && seconds <= now + CALLBACK_TTL_SECONDS;
 }
 
-async function fetchWithTimeout(url, init = {}) {
+async function withScanStage(stage, operation) {
+  try { return await operation(); }
+  catch (error) {
+    const failure = error && typeof error === "object" ? error : new Error("scan_stage_failed");
+    if (!failure.scanStage) failure.scanStage = stage;
+    throw failure;
+  }
+}
+
+function safeFailureReason(error) {
+  if (error?.message === "body_limit_exceeded") return "response_too_large";
+  if (error?.name === "AbortError") return "timeout";
+  if (/redirect/i.test(String(error?.message || ""))) return "redirect_blocked";
+  if (/fetch failed|network|socket|dns|connection/i.test(String(error?.message || ""))) return "network_failure";
+  if (error?.name === "TypeError") return "type_error";
+  return "runtime_failure";
+}
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS, consume = null) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try { return await fetch(url, { ...init, signal: controller.signal }); }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (response.status >= 300 && response.status < 400) {
+      if (response.body) await response.body.cancel();
+      throw new Error("redirect_blocked");
+    }
+    return consume ? await consume(response) : response;
+  }
   finally { clearTimeout(timer); }
 }
 
@@ -310,6 +404,7 @@ async function readStream(stream, limit) {
   try {
     while (true) {
       const part = await reader.read();
+
       if (part.done) break;
       size += part.value.byteLength;
       if (size > limit) { await reader.cancel(); throw new Error("body_limit_exceeded"); }
@@ -333,9 +428,11 @@ async function hmacHex(secret, value) {
 
 async function verifyHmacHex(secret, value, received) {
   if (!secret || !/^[0-9a-f]{64}$/i.test(String(received || ""))) return false;
-  const expected = await hmacBytes(secret, value);
-  const candidate = hexToBytes(received);
-  return expected.byteLength === candidate.byteLength && crypto.subtle.timingSafeEqual(expected, candidate);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(String(secret)),
+    { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+  );
+  return crypto.subtle.verify("HMAC", key, hexToBytes(received), new TextEncoder().encode(value));
 }
 
 async function sha256Hex(value) {
