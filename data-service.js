@@ -2199,10 +2199,13 @@ async loadAdminPayments(filters) {
         },
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
+        replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
         sendEncryptedMedia(peer,file,text) { return getCommunicationsApiClient().sendEncryptedMedia(peer,file,text); },
         downloadEncryptedMedia(id) { return getCommunicationsApiClient().downloadEncryptedMedia(id); },
         encryptedRecoveryAvailable() { return getCommunicationsApiClient().encryptedRecoveryAvailable(); },
         createEncryptedRecovery() { return getCommunicationsApiClient().createEncryptedRecovery(); },
+        cryptoDeviceManagementAvailable() { return getCommunicationsApiClient().cryptoDeviceManagementAvailable(); },
+        createCryptoDeviceManagement() { return getCommunicationsApiClient().createCryptoDeviceManagement(); },
         isEncryptedConversation(peer) {
           return getCommunicationsApiClient().isEncryptedConversation(peer);
         },
@@ -4270,6 +4273,8 @@ async loadAdminPayments() {
       async downloadEncryptedMedia(id) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.downloadEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.downloadEncryptedMedia(id); },
       async encryptedRecoveryAvailable() { assertBuyerCapableAccess();ensureAdapter();return state.adapter.encryptedRecoveryAvailable?state.adapter.encryptedRecoveryAvailable():false; },
       async createEncryptedRecovery() { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.createEncryptedRecovery)throw new Error('recovery_unavailable');return state.adapter.createEncryptedRecovery(); },
+      async cryptoDeviceManagementAvailable() { assertBuyerCapableAccess();ensureAdapter();return state.adapter.cryptoDeviceManagementAvailable?state.adapter.cryptoDeviceManagementAvailable():false; },
+      async createCryptoDeviceManagement() { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.createCryptoDeviceManagement)throw new Error('crypto_device_unavailable');return state.adapter.createCryptoDeviceManagement(); },
       async isEncryptedConversation(peer) {
         assertBuyerCapableAccess();ensureAdapter();return state.adapter.isEncryptedConversation?state.adapter.isEncryptedConversation(peer):false;
       },
@@ -4277,6 +4282,11 @@ async loadAdminPayments() {
         assertBuyerCapableAccess();ensureAdapter();
         if(!state.adapter.enableEncryptedConversation)throw new Error('mls_runtime_unavailable');
         return state.adapter.enableEncryptedConversation(peer,deviceId,fingerprint);
+      },
+      async replaceEncryptedConversationDevice(peer,deviceId,fingerprint) {
+        assertBuyerCapableAccess();ensureAdapter();
+        if(!state.adapter.replaceEncryptedConversationDevice)throw new Error('mls_runtime_unavailable');
+        return state.adapter.replaceEncryptedConversationDevice(peer,deviceId,fingerprint);
       },
       async deleteMessage(messageId) {
         assertBuyerCapableAccess();

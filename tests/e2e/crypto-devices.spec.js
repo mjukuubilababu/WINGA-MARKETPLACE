@@ -14,13 +14,14 @@ test.beforeAll(async () => {
   server = http.createServer((req, res) => {
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none'");
     const assets = { '/crypto-devices.js': 'crypto-devices.js', '/encrypted-vault.js': 'encrypted-vault.js',
-      '/secure-content.js': 'secure-content.js', '/recovery-client.js': 'recovery-client.js' };
+      '/secure-content.js': 'secure-content.js', '/recovery-client.js': 'recovery-client.js', '/device-ui.js':'device-management-ui.js' };
+    if(req.url==='/style.css'){res.setHeader('Content-Type','text/css');res.end(fs.readFileSync(path.resolve(__dirname,'../../style.css')));return;}
     if (assets[req.url]) {
       res.setHeader('Content-Type', 'text/javascript');
       res.end(fs.readFileSync(path.resolve(__dirname, '../../src/chat', assets[req.url])));
     } else {
       res.setHeader('Content-Type', 'text/html');
-      res.end('<!doctype html><title>Device identity test</title><script src="/crypto-devices.js"></script><script src="/encrypted-vault.js"></script><script src="/secure-content.js"></script><script src="/recovery-client.js"></script>');
+      res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Device identity test</title><link rel="stylesheet" href="/style.css"><script src="/crypto-devices.js"></script><script src="/device-ui.js"></script><script src="/encrypted-vault.js"></script><script src="/secure-content.js"></script><script src="/recovery-client.js"></script>');
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -380,6 +381,88 @@ test('recovery retains prior archive history when a local record has been evicte
     } finally { vault.close(); }
   }, session);
   expect(result).toEqual({ revision: '2', texts: ['older', 'current', 'newer'] });
+});
+
+test('device approval UI confirms an independent pending device and revokes it without transferring keys',async({page,browser})=>{
+  await prepare(page);const own=await enroll(page),otherContext=await browser.newContext();
+  try {
+    const other=await otherContext.newPage();await prepare(other);const pending=await enroll(other);expect(pending.status).toBe('pending');
+    await other.evaluate(async session=>WingaDeviceManagementUi.open({dataLayer:{createCryptoDeviceManagement:()=>WingaDeviceManagementUi.createManagementSession({getSession:()=>session,request:window.deviceRequest})}}),session);
+    await other.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);
+    await expect(other.locator('[data-crypto-device-apply]')).toBeDisabled();await expect(other.locator('dialog [role=status]')).toHaveText('Pending approval');
+    await expect(other.getByRole('button',{name:'Stop retrying this action'})).toBeHidden();
+    await other.getByRole('button',{name:'Close',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});
+    await page.evaluate(async session=>WingaDeviceManagementUi.open({dataLayer:{createCryptoDeviceManagement:()=>WingaDeviceManagementUi.createManagementSession({getSession:()=>session,request:window.deviceRequest})}}),session);
+    await expect(page.getByRole('button',{name:'Stop retrying this action'})).toBeHidden();
+    await page.locator('[data-crypto-device-target]').selectOption(pending.id);
+    await page.locator('[data-crypto-device-confirm]').fill('0'.repeat(64));await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
+    await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);await expect(page.locator('[data-crypto-device-apply]')).toBeEnabled();
+    await page.locator('[data-crypto-device-apply]').click();await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
+    expect((await enroll(other)).status).toBe('active');
+    expect((await store.readConversationCryptoDevices({owner:'bob',deviceId:'b1',token:'b1'})).devices.find(d=>d.id===own.id).status).toBe('active');
+    await page.locator('[data-crypto-device-target]').selectOption(pending.id);await expect(page.locator('[data-crypto-device-action]')).toHaveValue('revoke');
+    await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);await page.locator('[data-crypto-device-apply]').click();
+    await expect(page.locator('[data-crypto-device-target] option[value="'+pending.id+'"]').first()).toHaveCount(0);
+    expect((await store.readConversationCryptoDevices({owner:'bob',deviceId:'b1',token:'b1'})).devices.find(d=>d.id===pending.id).status).toBe('revoked');
+    expect(await page.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await page.screenshot({path:'test-results/crypto-device-management-mobile.png'});
+    expect(await other.evaluate(async()=>{const d=await new Promise(resolve=>{const r=indexedDB.databases();r.then(resolve);});return d.some(v=>String(v.name).startsWith('winga-encrypted-vault'));})).toBe(false);
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+  }finally{await otherContext.close();}
+});
+
+test('lost accepted device approval survives reload with the exact native proof and request ID',async({page,browser})=>{
+  const proofs=[];let lose=true;
+  await prepare(page,async(method,payload,context)=>{const result=method==='GET'?await store.readConversationCryptoDevices(context):await store.mutateConversationCryptoDevice(context,payload);if(payload?.action==='approve'){proofs.push(payload);if(lose){lose=false;throw new Error('lost_reply');}}return result;});
+  await enroll(page);const second=await browser.newContext();
+  try {
+    const other=await second.newPage();await prepare(other);const pending=await enroll(other);
+    expect(await page.evaluate(async({session,pending})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{await c.manage('approve',pending.id,pending.fingerprint);}catch(e){return e.message;}finally{c.close();}},{session,pending})).toContain('lost_reply');
+    await page.reload();
+    const result=await page.evaluate(async({session,pending})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{return await c.manage('approve',pending.id,pending.fingerprint);}finally{c.close();}},{session,pending});
+    expect(result.pendingOperation).toBe(null);expect(result.devices.find(d=>d.id===pending.id).status).toBe('active');expect(proofs).toHaveLength(2);expect(proofs[1]).toEqual(proofs[0]);
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM conversation_crypto_operations WHERE result->'device'->>'id'=$1",[pending.id])).rows[0].n).toBe(2);
+  }finally{await second.close();}
+});
+
+test('lost self-revocation can reconcile its exact retained proof but cannot approve another device',async({page})=>{
+  let lose=true;const proofs=[];
+  await prepare(page,async(method,payload,context)=>{const result=method==='GET'?await store.readConversationCryptoDevices(context):await store.mutateConversationCryptoDevice(context,payload);if(payload?.action==='revoke'){proofs.push(payload);if(lose){lose=false;throw new Error('lost_reply');}}return result;});
+  const own=await enroll(page);
+  await page.evaluate(async({session,own})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{await c.manage('revoke',own.id,own.fingerprint);}catch(e){if(!e.message.includes('lost_reply'))throw e;}finally{c.close();}},{session,own});
+  await page.reload();
+  const result=await page.evaluate(async({session,own})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{const result=await c.manage('revoke',own.id,own.fingerprint);let denied='';try{await c.manage('approve',own.id,own.fingerprint);}catch(e){denied=e.code;}return {status:result.ownDevice.status,pending:result.pendingOperation,denied};}finally{c.close();}},{session,own});
+  expect(result).toEqual({status:'revoked',pending:null,denied:'crypto_device_confirmation_required'});expect(proofs[1]).toEqual(proofs[0]);
+});
+
+test('retiring an old-session device retry changes no server state and allows a fresh current-session action',async({page,browser})=>{
+  await prepare(page,async(method,payload,context)=>{if(payload?.action==='approve' && context.deviceId==='b1')throw new Error('offline');return method==='GET'?store.readConversationCryptoDevices(context):store.mutateConversationCryptoDevice(context,payload);});
+  await enroll(page);const otherContext=await browser.newContext();try{
+    const other=await otherContext.newPage();await prepare(other);const pending=await enroll(other);
+    await page.evaluate(async({session,pending})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{await c.manage('approve',pending.id,pending.fingerprint);}catch(e){if(!e.message.includes('offline'))throw e;}finally{c.close();}},{session,pending});
+    const result=await page.evaluate(async pending=>{const current={username:'bob',sessionId:'b2',token:'b2'};
+      const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>current,request:window.deviceRequest});
+      try{let blocked='';try{await c.manage('approve',pending.id,pending.fingerprint);}catch(e){blocked=e.code;}
+        const view=await c.clearPending(),accepted=await c.manage('approve',pending.id,pending.fingerprint);return {blocked,pending:view.pendingOperation,status:view.devices.find(d=>d.id===pending.id).status,accepted:accepted.devices.find(d=>d.id===pending.id).status};}finally{c.close();}
+    },pending);
+    expect(result).toEqual({blocked:'crypto_device_pending_operation',pending:null,status:'pending',accepted:'active'});
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM conversation_crypto_operations WHERE result->'device'->>'id'=$1",[pending.id])).rows[0].n).toBe(2);
+  }finally{await otherContext.close();}
+});
+
+test('device directory substitution and session switching fail before a management mutation',async({page})=>{
+  await prepare(page);const own=await enroll(page);
+  const result=await page.evaluate(async({session,own})=>{
+    let active={...session},posts=0;
+    const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>active,request:async(method,payload,context)=>{
+      if(method==='POST'){posts++;return deviceRequest(method,payload,context);}const r=await deviceRequest(method,payload,context);return {...r,devices:r.devices.map(d=>({...d,fingerprint:'0'.repeat(64)}))};}});
+    let substituted='';try{await c.manage('revoke',own.id,own.fingerprint);}catch(e){substituted=e.code;}finally{c.close();}
+    const changed=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>active,request:async(...args)=>{const r=await deviceRequest(...args);active={username:'alice',sessionId:'a',token:'a'};return r;}});
+    let switched='';try{await changed.manage('revoke',own.id,own.fingerprint);}catch(e){switched=e.code;}finally{changed.close();}
+    return {posts,substituted,switched};
+  },{session,own});
+  expect(result).toEqual({posts:0,substituted:'crypto_device_server_identity_mismatch',switched:'crypto_device_session_changed'});
 });
 
 test('recovery merges receipt progress monotonically but rejects changed message contents',async({page})=>{

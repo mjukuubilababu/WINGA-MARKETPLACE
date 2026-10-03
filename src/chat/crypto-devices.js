@@ -142,7 +142,67 @@
       operation.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
       current(context); return operation;
     }
-    return { enroll, attestKeyPackage, signCryptoOperation, close: () => db.close() };
+    async function list() {
+      const context=session(),row=await identity(context),result=await request('GET',undefined,context);current(context);
+      if(result?.version!==1 || !Array.isArray(result.devices) || result.devices.length>32)fail('crypto_device_server_identity_mismatch');
+      const ids=new Set();
+      for(const device of result.devices) {
+        if(!device || Object.keys(device).sort().join(',')!=='fingerprint,id,owner,publicKey,status' || !uuid(device.id) || ids.has(device.id)
+          || device.owner!==context.owner || !['active','pending','revoked'].includes(device.status) || typeof device.publicKey!=='string'
+          || !/^[A-Za-z0-9_-]{43}$/.test(device.publicKey))fail('crypto_device_server_identity_mismatch');
+        const bytes=Uint8Array.from(atob(device.publicKey.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+        if(bytes.length!==32 || encode(bytes)!==device.publicKey)fail('crypto_device_server_identity_mismatch');
+        const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+        if(hash!==device.fingerprint)fail('crypto_device_server_identity_mismatch');ids.add(device.id);
+      }
+      const own=result.devices.find(d=>d.id===row.id);if(own)verifyView(own,row,context.owner);
+      const pending=row.managementPending;
+      current(context);return {...result,ownDevice:own||null,pendingOperation:pending?{action:pending.payload.action,deviceId:pending.payload.deviceId,fingerprint:pending.payload.fingerprint}:null};
+    }
+    async function manage(action,deviceId,expectedFingerprint) {
+      if(!['approve','revoke'].includes(action) || !uuid(deviceId) || typeof expectedFingerprint!=='string'
+        || !/^[a-f0-9]{64}$/.test(expectedFingerprint))fail('crypto_device_confirmation_required');
+      const context=session(),row=await identity(context),view=await list();current(context);
+      const target=view.devices.find(d=>d.id===deviceId);
+      let pending=row.managementPending;
+      if(pending && (pending.sessionId!==context.deviceId || pending.payload.action!==action || pending.payload.deviceId!==deviceId
+        || pending.payload.fingerprint!==expectedFingerprint))fail('crypto_device_pending_operation');
+      if((view.ownDevice?.status!=='active' && !pending) || !target || target.fingerprint!==expectedFingerprint)fail('crypto_device_confirmation_required');
+      if(!pending) {
+        if((action==='approve' && target.status!=='pending') || (action==='revoke' && target.status==='revoked'))fail('crypto_device_transition_rejected');
+        const payload={action,deviceId,actorId:row.id,publicKey:target.publicKey,fingerprint:expectedFingerprint,requestId:crypto.randomUUID(),issuedAt:Date.now()};
+        payload.signature=encode(await crypto.subtle.sign('Ed25519',row.privateKey,operationBytes(context,payload)));current(context);
+        const saved=await transact(context.owner,value=>{
+          if(!value || value.id!==row.id)fail('crypto_device_identity_invalid');
+          const prior=value.managementPending;
+          if(prior && (prior.sessionId!==context.deviceId || prior.payload.action!==action || prior.payload.deviceId!==deviceId
+            || prior.payload.fingerprint!==expectedFingerprint))fail('crypto_device_pending_operation');
+          return {...value,managementPending:prior||{sessionId:context.deviceId,payload}};
+        });pending=saved.managementPending;
+      }
+      let result;
+      try{result=await request('POST',pending.payload,context);}catch(error){
+        if(error.code==='crypto_device_proof_expired') {
+          current(context);await transact(context.owner,value=>value?.managementPending?.payload.requestId===pending.payload.requestId?{...value,managementPending:null}:value);
+        }throw error;
+      }
+      current(context);verifyView(result?.device,{...target,id:deviceId},context.owner);
+      if(result.version!==1 || result.device.status!==(action==='approve'?'active':'revoked'))fail('crypto_device_server_identity_mismatch');
+      const fresh=await list();current(context);
+      const actual=fresh.devices.find(d=>d.id===deviceId);
+      if(!actual || actual.status!==result.device.status || actual.fingerprint!==expectedFingerprint)fail('crypto_device_transition_rejected');
+      await transact(context.owner,value=>value?.managementPending?.payload.requestId===pending.payload.requestId?{...value,managementPending:null}:value);
+      current(context);return list();
+    }
+    async function clearPending() {
+      const context=session(),row=await identity(context);await list();current(context);
+      await transact(context.owner,value=>{
+        if(!value || value.id!==row.id)fail('crypto_device_identity_invalid');
+        return value.managementPending?.payload.requestId===row.managementPending?.payload.requestId?{...value,managementPending:null}:value;
+      });
+      current(context);return list();
+    }
+    return { enroll, list, manage, clearPending, attestKeyPackage, signCryptoOperation, close: () => db.close() };
   }
   return { createCryptoDeviceClient, operationBytes };
 });

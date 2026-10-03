@@ -1,8 +1,10 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { buildSync } = require('esbuild');
+const { patchTsMls } = require('./patch-ts-mls');
 
 function buildMlsBrowser(outdir) {
+  patchTsMls(path.resolve(__dirname, '..'), { checkOnly: true });
   const result = buildSync({
     entryPoints: [path.resolve(__dirname, '../src/chat/mls-runtime.mjs')],
     outfile: path.join(outdir, 'winga-mls-candidate.js'), bundle: true,

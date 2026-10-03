@@ -6,7 +6,7 @@ const {createEncryptedConversationsApi}=require('../backend/encrypted-conversati
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function fixture(t) {
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
-  for(const name of ['message-web-push','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media'])
+  for(const name of ['message-web-push','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement'])
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
@@ -35,8 +35,85 @@ async function fixture(t) {
   const ciphertext=Buffer.from(mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:privateMessage.privateMessage}));
   const packet={id:crypto.randomUUID(),conversationId:id,epoch:'1',deviceId:members.alice.id,ciphertext:ciphertext.toString('base64url'),hash:hash(ciphertext)};
   const active=async()=>{await call('alice','reserve',reserve);await call('alice','transfer',transfer);await call('bob','accept',{conversationId:id,transferId});};
-  return {db,members,store,id,reserve,transfer,packet,call,active};
+  return {db,members,store,id,reserve,transfer,packet,call,active,mls,suite,group:privateMessage.newState,committed};
 }
+
+async function newMember(f,label,owner) {
+  const keys=crypto.generateKeyPairSync('ed25519'),publicKey=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32);
+  const member={id:crypto.randomUUID(),keys,context:{...f.members[owner].context},fingerprint:hash(publicKey)};
+  await f.db.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,$2,$3,$4,'active')`,[member.id,owner,publicKey.toString('base64url'),member.fingerprint]);
+  const seconds=BigInt(Math.floor(Date.now()/1000));
+  member.pkg=await f.mls.generateKeyPackage({credentialType:'basic',identity:new TextEncoder().encode(JSON.stringify(['winga-mls-device',1,owner,member.id,member.fingerprint]))},f.mls.defaultCapabilities(),{notBefore:seconds-10n,notAfter:seconds+86400n},[],f.suite);
+  const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:member.pkg.publicPackage}));member.hash=hash(bytes);
+  await f.db.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at) VALUES($1,$2,$3,$4,'{}',NOW()+interval '1 day')`,[member.hash,member.id,bytes.toString('base64url'),Buffer.from(member.pkg.publicPackage.leafNode.signaturePublicKey).toString('base64url')]);
+  member.sign=(action,payload)=>{const op={action,actorId:member.id,requestId:crypto.randomUUID(),issuedAt:Date.now(),payload};op.signature=crypto.sign(null,operationBytes(member.context,op),keys.privateKey).toString('base64url');return op;};
+  f.members[label]=member;return member;
+}
+async function replacementPacket(f,next,issuer='alice') {
+  let state=f.group;
+  if(issuer==='bob')state=await f.mls.joinGroup(f.committed.welcome,f.members.bob.pkg.publicPackage,f.members.bob.pkg.privatePackage,f.mls.emptyPskIndex,f.suite,f.committed.newState.ratchetTree);
+  const removedOwner=issuer==='alice'?'bob':'alice';
+  const changed=await f.mls.createCommit({state,cipherSuite:f.suite},{extraProposals:[
+    {proposalType:'remove',remove:{removed:issuer==='alice'?1:0}}, {proposalType:'add',add:{keyPackage:next.pkg.publicPackage}}
+  ]});
+  const intent={id:crypto.randomUUID(),conversationId:f.id,previousEpoch:'1',removedDeviceId:f.members[removedOwner].id,replacementDeviceId:next.id,packageHash:next.hash};
+  const {encodeRatchetTree}=await import('ts-mls/ratchetTree.js');
+  const transfer={...intent,epoch:'2',commit:Buffer.from(f.mls.encodeMlsMessage(changed.commit)).toString('base64url'),
+    welcome:Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:changed.welcome})).toString('base64url'),tree:Buffer.from(encodeRatchetTree(changed.newState.ratchetTree)).toString('base64url')};
+  const sealed=await f.mls.createApplicationMessage(changed.newState,new TextEncoder().encode('replacement epoch secret'),f.suite);
+  const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:sealed.privateMessage}));
+  return {intent,transfer,accept:{conversationId:f.id,transferId:intent.id,epoch:'2'},packet:{id:crypto.randomUUID(),conversationId:f.id,epoch:'2',deviceId:f.members[issuer].id,ciphertext:bytes.toString('base64url'),hash:hash(bytes)}};
+}
+
+test('replacement freezes traffic, admits only verified target, retains old epoch authorization and retries exactly',async t=>{
+  const f=await fixture(t);await f.active();const next=await newMember(f,'next','bob'),r=await replacementPacket(f,next);
+  const m=privateStorage(f);await m.reserve();await m.storage.put(m.context('alice','upload'),m.object,m.bytes);await f.store.completeEncryptedMediaUpload(m.context('alice','upload'),m.object);
+  await f.call('alice','send',{...f.packet,mediaId:m.object.id});
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[f.members.bob.id]);
+  await f.call('alice','replace-reserve',r.intent);await f.call('alice','replace-reserve',r.intent);
+  await assert.rejects(f.call('alice','replace-reserve',{...r.intent,id:crypto.randomUUID()}),{code:'encrypted_replacement_conflict'});
+  await assert.rejects(f.call('next','replace-accept',r.accept),{code:'encrypted_membership_required'});
+  await f.call('alice','replace-transfer',r.transfer);await f.call('alice','replace-transfer',r.transfer);
+  await assert.rejects(f.call('alice','replace-transfer',{...r.transfer,tree:'AQ'}),{code:'encrypted_transfer_conflict'});
+  const waiting=(await f.call('next','poll',{})).groups[0];assert.equal(waiting.status,'replacement-pending');assert.equal(waiting.messages.length,0);
+  await assert.rejects(f.call('alice','replace-accept',r.accept),{code:'encrypted_membership_required'});
+  await f.call('next','replace-accept',r.accept);await f.call('next','replace-accept',r.accept);
+  await f.call('alice','replace-transfer',r.transfer);await f.call('alice','replace-reserve',r.intent);
+  const g=(await f.call('alice','poll',{})).groups[0];assert.equal(g.epoch,'2');assert.equal(g.recipient_device,next.id);assert.equal(g.replacement.acceptance.actorId,next.id);
+  assert.equal((await f.call('next','poll',{})).groups[0].messages.length,0);
+  await assert.rejects(f.call('next','receipt',{id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'delivered'}),{code:'encrypted_receipt_rejected'});
+  const context={...next.context,proof:next.sign('media-download',m.object)};
+  await assert.rejects(m.storage.get(context,m.object),{code:'private_media_access_rejected'});
+  assert.deepEqual(await m.storage.get(m.context('alice','download'),m.object),m.bytes);
+  await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_operation_invalid'});
+  await f.call('alice','send',r.packet);assert.equal((await f.call('next','poll',{})).groups[0].messages[0].id,r.packet.id);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epochs')).rows[0].n,2);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n,1);
+});
+
+test('recipient can replace the creator without changing participant roles and retired active devices lose membership',async t=>{
+  const f=await fixture(t);await f.active();const next=await newMember(f,'next','alice'),r=await replacementPacket(f,next,'bob');
+  await f.call('bob','replace-reserve',r.intent);
+  await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_membership_pending'});
+  await f.call('bob','replace-transfer',r.transfer);await f.call('next','replace-accept',r.accept);
+  const g=(await f.call('bob','poll',{})).groups[0];assert.equal(g.creator,'alice');assert.equal(g.creator_device,next.id);assert.equal(g.recipient_device,f.members.bob.id);
+  assert.deepEqual((await f.call('alice','poll',{})).groups,[]);
+  await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_membership_required'});
+  await f.call('bob','send',r.packet);assert.equal((await f.call('next','poll',{})).groups[0].messages.length,1);
+});
+
+test('replacement rejects outsiders, changed epochs, wrong owners, pending targets and block policy without consuming packages',async t=>{
+  const f=await fixture(t);await f.active();const next=await newMember(f,'next','bob'),r=await replacementPacket(f,next);
+  await assert.rejects(f.call('eve','replace-reserve',r.intent),{code:'encrypted_membership_required'});
+  await assert.rejects(f.call('alice','replace-reserve',{...r.intent,previousEpoch:'2'}),{code:'encrypted_replacement_conflict'});
+  await assert.rejects(f.call('alice','replace-reserve',{...r.intent,replacementDeviceId:f.members.eve.id,packageHash:f.members.eve.hash}),{code:'encrypted_package_unavailable'});
+  await f.db.query("UPDATE conversation_crypto_devices SET status='pending' WHERE id=$1",[next.id]);
+  await assert.rejects(f.call('alice','replace-reserve',r.intent),{code:'encrypted_package_unavailable'});
+  await f.db.query("UPDATE conversation_crypto_devices SET status='active' WHERE id=$1",[next.id]);await f.db.query("INSERT INTO user_blocks VALUES('bob','alice')");
+  await assert.rejects(f.call('alice','replace-reserve',r.intent),{code:'encrypted_access_denied'});
+  assert.equal((await f.db.query('SELECT consumed_at FROM conversation_crypto_key_packages WHERE hash=$1',[next.hash])).rows[0].consumed_at,null);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n,0);
+});
 test('native proof rejects substitution, expired evidence and invalid sessions before package discovery',async t=>{
   const f=await fixture(t),a=f.members.alice,op=a.sign('directory',{peer:'bob'});
   op.payload.peer='eve';await assert.rejects(f.store.encryptedOperation(a.context,op),{code:'encrypted_proof_rejected'});

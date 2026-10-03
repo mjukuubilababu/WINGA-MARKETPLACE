@@ -9,7 +9,8 @@ function operationBytes(context, operation) {
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
 function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false }) {
-  const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access});
+  const replacement=require('./encrypted-membership-replacement').createMembershipReplacement({access});
+  const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access,membershipFrozen:replacement.frozen});
   async function authorize(client, context, operation) {
     await authenticateCryptoSession(client, context, now());
     assert(operation && uuid(operation.actorId) && uuid(operation.requestId) && Number.isSafeInteger(operation.issuedAt)
@@ -33,7 +34,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       keyPackage: p.package, mlsPublicKey: p.mls_public_key, identityProof: p.identity_proof }));
   }
   async function encryptedOperation(context, op) {
-    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve'].includes(op?.action));
+    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept'].includes(op?.action));
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
     const fields={directory:['peer'],reserve:['conversationId','peer','sourceHash','targetHash'],
@@ -42,6 +43,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       'receipt-ack':['id','conversationId','epoch','hash','kind'],poll:[]};
     fields.reject=['id','conversationId','epoch','hash','reason'];
     fields['media-reserve']=['id','conversationId','messageId','bytes','sha256'];
+    fields['replace-reserve']=['id','conversationId','previousEpoch','removedDeviceId','replacementDeviceId','packageHash'];
+    fields['replace-transfer']=[...fields.transfer,'previousEpoch','removedDeviceId','replacementDeviceId'];
+    fields['replace-accept']=['conversationId','transferId','epoch'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
@@ -56,7 +60,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(allowed, 403, 'encrypted_access_denied');
         const rows = await client.query(`SELECT p.hash FROM conversation_crypto_key_packages p JOIN conversation_crypto_devices d ON d.id=p.device_id
           WHERE d.owner_id=$1 AND d.status='active' AND p.consumed_at IS NULL AND p.expires_at>NOW() ORDER BY p.published_at DESC LIMIT 20`, [p.peer]);
-        return { version: 1, packages: await packages(client, rows.rows.map(r => r.hash)) };
+        const group=(await client.query(`SELECT id,creator,recipient,creator_device,recipient_device,epoch,status FROM encrypted_conversations
+          WHERE (creator=$1 AND recipient=$2) OR (creator=$2 AND recipient=$1)`,[context.owner,p.peer])).rows[0];
+        return { version: 1, packages: await packages(client, rows.rows.map(r => r.hash)),...(group?{group}: {}) };
       }
       if (op.action === 'reserve') {
         assert(uuid(p.conversationId) && typeof p.peer === 'string' && p.peer !== context.owner);
@@ -79,23 +85,32 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         return {version:1,group:{...group,status:'reserved'}};
       }
       if (op.action === 'poll') {
-        const groups=(await client.query(`SELECT * FROM encrypted_conversations WHERE creator_device=$1 OR recipient_device=$1 ORDER BY created_at LIMIT 100`,[op.actorId])).rows;
+        const groups=(await client.query(`SELECT g.* FROM encrypted_conversations g WHERE creator_device=$1 OR recipient_device=$1
+          OR EXISTS(SELECT 1 FROM encrypted_conversation_replacements r WHERE r.conversation_id=g.id AND r.replacement_device=$1 AND r.status<>'accepted') ORDER BY created_at LIMIT 100`,[op.actorId])).rows;
         const result=[];
         for(const g of groups) {
-          try { await access(client,g,op.actorId,context.owner); } catch(error) { if(error.status===403) { result.push({id:g.id,status:'blocked'});continue; } throw error; }
+          const r=await replacement.latest(client,g.id),pending=r && r.status!=='accepted';
+          try { await access(client,pending?replacement.projected(g,r):g,op.actorId,context.owner); } catch(error) { if(error.status===403) { result.push({id:g.id,status:'blocked'});continue; } throw error; }
+          if(pending) {
+            const fresh=(await client.query(`SELECT hash FROM conversation_crypto_key_packages WHERE device_id=$1 AND expires_at>NOW() ORDER BY published_at DESC LIMIT 1`,[r.initiator_device])).rows[0];
+            result.push({...g,status:`replacement-${r.status}`,replacement:r,packages:await packages(client,[fresh?.hash || (r.initiator_device===g.creator_device?g.source_hash:g.target_hash),r.package_hash]),messages:[],receipts:[]});continue;
+          }
           const messages=(await client.query(`SELECT m.* FROM encrypted_conversation_messages m WHERE m.conversation_id=$1 AND m.sender_device<>$2
+            AND m.epoch=$3
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.device_id=$2 AND r.kind='delivered')
-            AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_rejections r WHERE r.message_id=m.id AND r.device_id=$2) ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId])).rows;
+            AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_rejections r WHERE r.message_id=m.id AND r.device_id=$2) ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId,g.epoch])).rows;
           const receipts=(await client.query(`SELECT r.proof FROM encrypted_conversation_receipts r JOIN encrypted_conversation_messages m ON m.id=r.message_id
             WHERE m.conversation_id=$1 AND m.sender_device=$2 AND r.sender_ack_at IS NULL ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
-          result.push({...g,packages:await packages(client,[g.source_hash,g.target_hash]),messages,receipts});
+          result.push({...g,...(r?{replacement:r}:{}),packages:await packages(client,[g.source_hash,g.target_hash]),messages,receipts});
         }
         return {version:1,groups:result};
       }
       assert(uuid(p.conversationId));
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[p.conversationId])).rows[0];
+      if(op.action.startsWith('replace-'))return replacement.handle(client,context,op,g);
       await access(client,g,op.actorId,context.owner);
       if(op.action==='media-reserve') {
+        assert(!await replacement.frozen(client,g.id),409,'encrypted_membership_pending');
         assert(mediaEnabled,503,'private_media_disabled');assert(uuid(p.id)&&uuid(p.messageId));
         return media.reserve(client,context,op,g);
       }
@@ -111,10 +126,12 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(g.recipient_device===op.actorId && g.transfer?.id===p.transferId,403,'encrypted_membership_required');
         await client.query(`UPDATE conversation_event_streams SET security_mode='encrypted' WHERE id=$1`,[g.canonical_id]);
         await client.query(`UPDATE encrypted_conversations SET status='active',acceptance=COALESCE(acceptance,$2::jsonb) WHERE id=$1`,[g.id,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+        await replacement.currentEpoch(client,g);
         return {version:1,status:'active'};
       }
       assert(g.status==='active',409,'encrypted_membership_pending');
       if(op.action==='send') {
+        assert(!await replacement.frozen(client,g.id),409,'encrypted_membership_pending');
         if(Object.hasOwn(p,'mediaId'))assert(mediaEnabled && uuid(p.mediaId),503,'private_media_disabled');
         assert(uuid(p.id) && p.deviceId===op.actorId && p.epoch===g.epoch && typeof p.ciphertext==='string' && /^[A-Za-z0-9_-]+$/.test(p.ciphertext));
         const bytes=Buffer.from(p.ciphertext,'base64url');
@@ -138,6 +155,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       assert(['receipt','receipt-ack','reject'].includes(op.action) && uuid(p.id)
         && (op.action==='reject' ? p.reason==='invalid-ciphertext' : ['delivered','read'].includes(p.kind)));
       const m=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1 AND conversation_id=$2',[p.id,g.id])).rows[0];
+      const epochMember=m && (await client.query(`SELECT 1 FROM encrypted_conversation_epochs WHERE conversation_id=$1 AND epoch=$2
+        AND (creator_device=$3 OR recipient_device=$3)`,[g.id,m.epoch,op.actorId])).rows.length;
+      assert(epochMember,403,'encrypted_receipt_rejected');
       if(op.action==='receipt-ack') {
         assert(m && m.sender_device===op.actorId && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
         await client.query(`UPDATE encrypted_conversation_receipts SET sender_ack_at=COALESCE(sender_ack_at,NOW()) WHERE message_id=$1 AND kind=$2`,[p.id,p.kind]);

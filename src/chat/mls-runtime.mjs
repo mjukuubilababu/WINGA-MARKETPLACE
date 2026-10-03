@@ -103,13 +103,19 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       } } };
     return { configuration, records };
   }
-  async function state(saved, id) {
+  async function state(saved, id, retiringDeviceId = null) {
     const row = saved.values[`mls:group:${id}`]; need(row && uuid(id), 'mls_group_required');
     const parsed = decodeGroupState(row.bytes, 0); need(parsed && parsed[1] === row.bytes.length, 'mls_state_invalid');
     const { configuration, records } = await config(saved);
     for (const node of parsed[0].ratchetTree) if (node?.nodeType === 'leaf') {
-      need(await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
       const tuple = JSON.parse(decoder.decode(node.leaf.credential.identity));
+      const pin = records.get(`${tuple[2]}/${tuple[3]}`);
+      // Only replacement may load the exact previously pinned, revoked peer leaf.
+      // The MLS auth service still rejects revoked credentials in the new tree.
+      const retiring = retiringDeviceId && tuple[3] === retiringDeviceId && tuple[2] === row.peer
+        && pin?.status === 'revoked' && equal(node.leaf.credential.identity, credential(pin).identity)
+        && equal(node.leaf.signaturePublicKey, pin.signaturePublicKey);
+      need(retiring || await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
       need(tuple[2] === owner || tuple[2] === row.peer, 'mls_unexpected_member');
     }
     need(decoder.decode(parsed[0].groupContext.groupId) === id, 'mls_state_invalid');
@@ -193,6 +199,47 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       } finally { wipe(changed); }
     });
   }
+  async function replacePeer(conversationId, removedDeviceId, expectedEpoch, packageBytes, operationId = crypto.randomUUID()) {
+    need(uuid(conversationId) && uuid(removedDeviceId) && uuid(operationId) && typeof expectedEpoch === 'string'
+      && /^[1-9][0-9]*$/.test(expectedEpoch) && expectedEpoch.length <= 20
+      && packageBytes instanceof Uint8Array && packageBytes.length > 0 && packageBytes.length <= 8192, 'mls_replacement_invalid');
+    packageBytes = packageBytes.slice();
+    return locked(async () => {
+      const saved = await vault.snapshot(), group = await state(saved, conversationId, removedDeviceId);
+      need(group.row.confirmed && !saved.values[`mls:membership:${conversationId}`], 'mls_membership_pending');
+      need(String(group.value.groupContext.epoch) === expectedEpoch, 'mls_replacement_epoch_conflict');
+      need(!Object.entries(saved.values).some(([key, job]) => (key.startsWith('mls:outbox:') || key.startsWith('media:pending:'))
+        && job.conversationId === conversationId), 'mls_pending_send_requires_retry');
+      const leaves = group.value.ratchetTree.flatMap((node, index) => node?.nodeType === 'leaf'
+        ? [{ index, leaf: node.leaf, who: JSON.parse(decoder.decode(node.leaf.credential.identity)) }] : []);
+      const retired = leaves.find(node => node.who[2] === group.row.peer && node.who[3] === removedDeviceId);
+      const own = saved.values['mls:identity'];
+      need(leaves.length === 2 && retired && leaves.some(node => node.who[2] === owner && node.who[3] === own.id), 'mls_replacement_member_conflict');
+      const decoded = exact(decodeMlsMessage, packageBytes); need(decoded.wireformat === 'mls_key_package', 'mls_package_invalid');
+      const kp = decoded.keyPackage; validLifetime(kp);
+      need(kp.version === 'mls10' && kp.cipherSuite === suite.name
+        && await verifyKeyPackage(kp, suite.signature) && await verifyLeafNodeSignatureKeyPackage(kp.leafNode, suite.signature)
+        && await group.value.clientConfig.authService.validateCredential(kp.leafNode.credential, kp.leafNode.signaturePublicKey), 'mls_untrusted_package');
+      const who = JSON.parse(decoder.decode(kp.leafNode.credential.identity));
+      need(who[2] === group.row.peer && who[3] !== removedDeviceId
+        && !leaves.some(node => equal(node.leaf.signaturePublicKey, kp.leafNode.signaturePublicKey)), 'mls_replacement_member_conflict');
+      const changed = await createCommit({ state: group.value, cipherSuite: suite }, { extraProposals: [
+        { proposalType: 'remove', remove: { removed: retired.index / 2 } },
+        { proposalType: 'add', add: { keyPackage: kp } },
+      ] });
+      try {
+        need(changed.newState.groupContext.epoch === group.value.groupContext.epoch + 1n, 'mls_replacement_epoch_conflict');
+        const transfer = { id: operationId, conversationId, previousEpoch: expectedEpoch,
+          removedDeviceId, replacementDeviceId: who[3], epoch: String(changed.newState.groupContext.epoch),
+          packageHash: await hash(packageBytes), commit: encodeMlsMessage(changed.commit),
+          welcome: encodeMlsMessage({ version: 'mls10', wireformat: 'mls_welcome', welcome: changed.welcome }),
+          tree: encodeRatchetTree(changed.newState.ratchetTree) };
+        await put(saved, { [`mls:group:${conversationId}`]: { ...group.row, bytes: encodeGroupState(changed.newState), confirmed: false },
+          [`mls:membership:${conversationId}`]: transfer });
+        return structuredClone(transfer);
+      } finally { wipe(changed); }
+    });
+  }
   async function confirmMembership(conversationId, operationId) {
     return locked(async () => {
       const saved = await vault.snapshot(), group = await state(saved, conversationId), pending = saved.values[`mls:membership:${conversationId}`];
@@ -201,7 +248,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       await put(saved, { [`mls:group:${conversationId}`]: { ...group.row, confirmed: true } }, [`mls:membership:${conversationId}`]);
     });
   }
-  async function acceptWelcome(peer, transfer) {
+  async function acceptWelcome(peer, transfer, expectedPeerDeviceId) {
+    need(expectedPeerDeviceId === undefined || uuid(expectedPeerDeviceId), 'mls_peer_invalid');
     transfer = structuredClone(transfer);
     return locked(async () => {
       const id = transfer.conversationId; need(uuid(id) && ownerId(peer) && peer !== owner, 'mls_peer_invalid');
@@ -210,7 +258,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const transferHash = await hash(encoder.encode(JSON.stringify(['winga-mls-welcome',1,id,transfer.id,transfer.epoch,transfer.packageHash,
         Array.from(transfer.commit),Array.from(transfer.welcome),Array.from(transfer.tree)])));
       if (previous?.acceptedTransfer === transfer.id && previous.peer === peer) {
-        need(previous.acceptedHash === transferHash,'mls_replay_conflict');return id;
+        need(previous.acceptedHash === transferHash && (!expectedPeerDeviceId || previous.acceptedPeerDevice === expectedPeerDeviceId),'mls_replay_conflict');return id;
       }
       need(!previous && !saved.values[`mls:route:${peer}`], 'mls_group_exists');
       const admission = saved.values[`mls:package:${transfer.packageHash}`] || identity;
@@ -222,12 +270,18 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const joined = await joinGroup(decoded.welcome, identity.package.publicPackage, identity.package.privatePackage,
         emptyPskIndex, suite, exact(decodeRatchetTree, transfer.tree), undefined, configuration);
       need(decoder.decode(joined.groupContext.groupId) === id && String(joined.groupContext.epoch) === transfer.epoch, 'mls_welcome_binding_rejected');
-      for (const node of joined.ratchetTree) if (node?.nodeType === 'leaf') {
+      const leaves=joined.ratchetTree.filter(node=>node?.nodeType==='leaf');
+      need(leaves.length===2,'mls_unexpected_member');
+      let peerDevice;
+      for (const node of leaves) {
         need(await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
         const who = JSON.parse(decoder.decode(node.leaf.credential.identity)); need(who[2] === owner || who[2] === peer, 'mls_unexpected_member');
+        if(who[2]===owner)need(who[3]===identity.id,'mls_unexpected_member');
+        else {need(!peerDevice && (!expectedPeerDeviceId || who[3]===expectedPeerDeviceId),'mls_unexpected_member');peerDevice=who[3];}
       }
+      need(peerDevice,'mls_unexpected_member');
       current(); await policy.markEncrypted(owner, peer); current();
-      await put(saved, { [`mls:group:${id}`]: { peer, bytes: encodeGroupState(joined), confirmed: true, acceptedTransfer: transfer.id, acceptedHash: transferHash },
+      await put(saved, { [`mls:group:${id}`]: { peer, bytes: encodeGroupState(joined), confirmed: true, acceptedTransfer: transfer.id, acceptedHash: transferHash,acceptedPeerDevice:peerDevice },
         [`mls:route:${peer}`]: { conversationId: id }, 'mls:package-consumed': identity.hash,
         [`mls:consumed:${identity.hash}`]: true,
         [`mls:package:${identity.hash}`]: retirePackage(identity),
@@ -366,7 +420,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
     need(uuid(id) && saved.values[`mls:group:${id}`]?.confirmed,'mls_group_required');return id;
   }
-  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
+  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
     retryMessage,
     close() { closed = true; } };
 }

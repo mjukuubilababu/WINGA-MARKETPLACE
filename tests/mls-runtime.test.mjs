@@ -5,6 +5,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { createMlsRuntime, inspectBoundKeyPackage } from '../src/chat/mls-runtime.mjs';
 import { verifyBoundKeyPackage } from '../backend/conversation-mls-protocol.mjs';
+import { decodeGroupState, decodeMlsMessage, processPrivateMessage, emptyPskIndex, getCiphersuiteFromName, getCiphersuiteImpl,
+  createGroup, createCommit, joinGroup, createApplicationMessage, encodeGroupState } from 'ts-mls';
+import { defaultClientConfig } from 'ts-mls/clientConfig.js';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const queues = new Map();
@@ -61,6 +64,153 @@ async function pair() {
   return { alice, bob, id, transfer };
 }
 const message = text => ({ clientMessageId: randomUUID(), receiverId: 'bob', message: text, messageType: 'text' });
+
+async function replacementFixture() {
+  const old = await pair(), next = await participant('bob');
+  old.alice.pins.push({ ...next.device, status: 'active' });
+  next.pins.push({ ...old.alice.device, status: 'active' });
+  return { ...old, next };
+}
+
+test('peer replacement advances the MLS epoch and excludes the old device from future ciphertext', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  await alice.runtime.sendMessage(message('old epoch history'));
+  const oldPacket = alice.packets[0]; await bob.runtime.receive('alice', oldPacket);
+  alice.pins.find(pin => pin.id === bob.device.id).status = 'revoked';
+  await assert.rejects(alice.runtime.sendMessage(message('revoked')), { code: 'mls_untrusted_member' });
+  const transfer = await alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage);
+  assert.equal(transfer.previousEpoch, '1'); assert.equal(transfer.epoch, '2');
+  assert.equal(transfer.removedDeviceId, bob.device.id); assert.equal(transfer.replacementDeviceId, next.device.id);
+  const suite = await getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
+  const oldStateBytes = (await bob.vault.snapshot()).values[`mls:group:${id}`].bytes;
+  const oldState = { ...decodeGroupState(oldStateBytes, 0)[0], clientConfig: defaultClientConfig };
+  const removed = await processPrivateMessage(oldState, decodeMlsMessage(transfer.commit, 0)[0].privateMessage,
+    emptyPskIndex, suite, () => 'accept');
+  assert.equal(removed.newState.groupActiveState.kind, 'removedFromGroup');
+  assert.equal(removed.newState.groupContext.epoch, 1n);
+  await assert.rejects(alice.runtime.sendMessage(message('unconfirmed')), { code: 'mls_membership_pending' });
+  await next.runtime.acceptWelcome('alice', transfer);
+  await alice.runtime.confirmMembership(id, transfer.id);
+  await alice.runtime.sendMessage(message('new epoch secret'));
+  const fresh = alice.packets[1]; assert.equal(fresh.epoch, '2');
+  // Even bypassing the runtime's epoch gate cannot decrypt with retained old secrets.
+  const retained = { ...decodeGroupState(oldStateBytes, 0)[0], clientConfig: defaultClientConfig };
+  await assert.rejects(processPrivateMessage({ ...retained, groupContext: { ...retained.groupContext, epoch: 2n } },
+    decodeMlsMessage(fresh.ciphertext, 0)[0].privateMessage, emptyPskIndex, suite, () => 'reject'));
+  assert.equal((await next.runtime.receive('alice', fresh)).message, 'new epoch secret');
+  const oldBefore = await bob.vault.snapshot();
+  await assert.rejects(bob.runtime.receive('alice', fresh));
+  assert.deepEqual(await bob.vault.snapshot(), oldBefore);
+  await assert.rejects(next.runtime.receive('alice', oldPacket));
+  assert.equal((await next.runtime.history()).length, 1);
+  await next.runtime.sendMessage({ clientMessageId: randomUUID(), receiverId: 'alice', message: 'new device reply', messageType: 'text' });
+  assert.equal((await alice.runtime.receive('bob', next.packets[0])).message, 'new device reply');
+});
+
+test('replacement membership survives reload with exact durable commit and blocks concurrent replacement', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  const transfer = await alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage);
+  alice.runtime.close(); alice.runtime = await createMlsRuntime(alice.options);
+  assert.deepEqual((await alice.vault.snapshot()).values[`mls:membership:${id}`], transfer);
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '2', next.device.keyPackage), { code: 'mls_membership_pending' });
+  await assert.rejects(alice.runtime.confirmMembership(id, randomUUID()), { code: 'mls_membership_confirmation_rejected' });
+  await next.runtime.acceptWelcome('alice', transfer);
+  await alice.runtime.confirmMembership(id, transfer.id);
+  await alice.runtime.sendMessage(message('reload survived'));
+  assert.equal((await next.runtime.receive('alice', alice.packets[0])).message, 'reload survived');
+});
+
+test('remove-and-add leaf reuse marks only the removed member while another existing member advances and decrypts', async () => {
+  const alice = await participant('alice'), bob = await participant('bob'), charlie = await participant('charlie'), next = await participant('bob');
+  const suite = await getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
+  const packages = await Promise.all([alice, bob, charlie, next].map(async person => (await person.vault.snapshot()).values['mls:identity'].package));
+  let group = await createGroup(new TextEncoder().encode(randomUUID()), packages[0].publicPackage, packages[0].privatePackage, [], suite, defaultClientConfig);
+  const admission = await createCommit({ state: group, cipherSuite: suite }, { extraProposals: [
+    { proposalType: 'add', add: { keyPackage: packages[1].publicPackage } },
+    { proposalType: 'add', add: { keyPackage: packages[2].publicPackage } },
+  ] });
+  group = admission.newState;
+  const old = await joinGroup(admission.welcome, packages[1].publicPackage, packages[1].privatePackage, emptyPskIndex, suite, group.ratchetTree, undefined, defaultClientConfig);
+  const survivor = await joinGroup(admission.welcome, packages[2].publicPackage, packages[2].privatePackage, emptyPskIndex, suite, group.ratchetTree, undefined, defaultClientConfig);
+  const savedGroup = encodeGroupState(group), savedOld = encodeGroupState(old), savedSurvivor = encodeGroupState(survivor);
+  const restore = bytes => ({ ...decodeGroupState(bytes, 0)[0], clientConfig: defaultClientConfig });
+  const replacement = await createCommit({ state: group, cipherSuite: suite }, { extraProposals: [
+    { proposalType: 'remove', remove: { removed: old.privatePath.leafIndex } },
+    { proposalType: 'add', add: { keyPackage: packages[3].publicPackage } },
+  ] });
+  const newDevice = await joinGroup(replacement.welcome, packages[3].publicPackage, packages[3].privatePackage, emptyPskIndex, suite, replacement.newState.ratchetTree, undefined, defaultClientConfig);
+  assert.equal(newDevice.privatePath.leafIndex, old.privatePath.leafIndex);
+  const corrupted = structuredClone(replacement.commit.privateMessage); corrupted.ciphertext[corrupted.ciphertext.length - 1] ^= 1;
+  let authenticated = false;
+  await assert.rejects(processPrivateMessage(restore(savedOld), corrupted, emptyPskIndex, suite, () => { authenticated = true; return 'accept'; }));
+  assert.equal(authenticated, false);
+  const declined = await processPrivateMessage(restore(savedOld), replacement.commit.privateMessage, emptyPskIndex, suite, () => 'reject');
+  assert.equal(declined.newState.groupActiveState.kind, 'active'); assert.equal(declined.newState.groupContext.epoch, 1n);
+  const removed = await processPrivateMessage(old, replacement.commit.privateMessage, emptyPskIndex, suite, () => 'accept');
+  assert.equal(removed.newState.groupActiveState.kind, 'removedFromGroup');
+  const continued = await processPrivateMessage(survivor, replacement.commit.privateMessage, emptyPskIndex, suite, () => 'accept');
+  assert.equal(continued.newState.groupActiveState.kind, 'active'); assert.equal(continued.newState.groupContext.epoch, 2n);
+  const application = await createApplicationMessage(replacement.newState, new TextEncoder().encode('only current members'), suite);
+  for (const state of [newDevice, continued.newState]) {
+    const received = await processPrivateMessage(state, application.privateMessage, emptyPskIndex, suite, () => 'reject');
+    assert.equal(new TextDecoder().decode(received.message), 'only current members');
+  }
+  await assert.rejects(createApplicationMessage(removed.newState, new TextEncoder().encode('removed sender'), suite));
+  const removeOnly = await createCommit({ state: restore(savedGroup), cipherSuite: suite }, { extraProposals: [
+    { proposalType: 'remove', remove: { removed: old.privatePath.leafIndex } },
+  ] });
+  const plainRemoval = await processPrivateMessage(restore(savedOld), removeOnly.commit.privateMessage, emptyPskIndex, suite, () => 'accept');
+  assert.equal(plainRemoval.newState.groupActiveState.kind, 'removedFromGroup');
+  const untouched = await processPrivateMessage(restore(savedSurvivor), removeOnly.commit.privateMessage, emptyPskIndex, suite, () => 'accept');
+  assert.equal(untouched.newState.groupActiveState.kind, 'active'); assert.equal(untouched.newState.groupContext.epoch, 2n);
+  await assert.rejects(createCommit({ state: restore(savedGroup), cipherSuite: suite }, { extraProposals: [
+    { proposalType: 'remove', remove: { removed: group.privatePath.leafIndex } },
+  ] }));
+});
+
+test('replacement rejects wrong epoch, self removal, unpinned packages and the same device without changing vault', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  const before = await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '2', next.device.keyPackage), { code: 'mls_replacement_epoch_conflict' });
+  await assert.rejects(alice.runtime.replacePeer(id, alice.device.id, '1', next.device.keyPackage), { code: 'mls_replacement_member_conflict' });
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '1', bob.device.keyPackage), { code: 'mls_replacement_member_conflict' });
+  alice.pins.pop();
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage), { code: 'mls_untrusted_package' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+});
+
+test('a revoked replacement package is never admitted even when the retiring peer is also revoked', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  for (const pin of alice.pins) pin.status = 'revoked';
+  const before = await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage), { code: 'mls_untrusted_package' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+});
+
+test('replacement refuses unresolved text and attachment journals rather than abandoning old epoch retries', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  for (const prefix of ['mls:outbox:', 'media:pending:']) {
+    const key = prefix + randomUUID(), saved = await alice.vault.snapshot();
+    await alice.vault.write({ expectedRevision: saved.revision, values: { [key]: { conversationId: id } } });
+    const before = await alice.vault.snapshot();
+    await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage), { code: 'mls_pending_send_requires_retry' });
+    assert.deepEqual(await alice.vault.snapshot(), before);
+    await alice.vault.write({ expectedRevision: before.revision, values: {}, deleted: [key] });
+  }
+});
+
+test('aborted replacement vault write preserves the old epoch and permits a clean retry', async () => {
+  const { alice, bob, next, id } = await replacementFixture();
+  const before = await alice.vault.snapshot(); alice.vault.rejectNext = true;
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage), { code: 'storage_aborted' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+  await alice.runtime.sendMessage(message('still old epoch'));
+  assert.equal((await bob.runtime.receive('alice', alice.packets[0])).message, 'still old epoch');
+  const transfer = await alice.runtime.replacePeer(id, bob.device.id, '1', next.device.keyPackage);
+  await next.runtime.acceptWelcome('alice', transfer); await alice.runtime.confirmMembership(id, transfer.id);
+  await alice.runtime.sendMessage(message('retry new epoch'));
+  assert.equal((await next.runtime.receive('alice', alice.packets[1])).message, 'retry new epoch');
+});
 
 test('native-bound packages and actual MLS encrypted text round trip without plaintext transport', async () => {
   const { alice, bob } = await pair(), payload = message('siri ya Winga');

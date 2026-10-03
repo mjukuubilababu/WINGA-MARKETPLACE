@@ -16,6 +16,8 @@
     "web-push": "3.6.7"
   },
   "scripts": {
+    "postinstall": "node ../scripts/patch-ts-mls.js",
+    "prestart": "node ../scripts/patch-ts-mls.js --check",
     "start": "node server.js",
     "audit:legacy-uploads": "node audit-legacy-uploads.js",
     "copy:legacy-public-media": "node copy-legacy-public-media.js",

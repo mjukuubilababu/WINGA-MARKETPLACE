@@ -3,7 +3,7 @@ const { validateObject } = require('./conversation-private-media');
 const { failure } = require('./encrypted-content-contract');
 const need = (v, code='private_media_access_rejected', status=403) => { if(!v)throw failure(status,code); };
 const objectFor = row => ({id:row.id,bytes:row.bytes,sha256:row.sha256});
-function createEncryptedMediaLedger({withTransaction,authorizeDevice,access}) {
+function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,membershipFrozen}) {
   async function reserve(client,context,op,g) {
     const p=op.payload;validateObject({id:p.id,bytes:p.bytes,sha256:p.sha256});
     need(g.status==='active','encrypted_membership_pending',409);
@@ -44,10 +44,17 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access}) {
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1',[row.conversation_id])).rows[0];
       await access(client,g,op.actorId,context.owner);need(g.status==='active');
       if(action==='upload') {
+        need(!await membershipFrozen(client,g.id),'encrypted_membership_pending',409);
         need(row.uploader_device===op.actorId && ['reserved','uploaded','attached'].includes(row.status));
         // Extend before R2 I/O so cleanup cannot claim an in-flight bounded upload.
         if(row.status!=='attached')await client.query(`UPDATE encrypted_conversation_media SET expires_at=GREATEST(expires_at,NOW()+INTERVAL '1 hour') WHERE id=$1`,[row.id]);
-      } else need(action==='download' && row.status==='attached');
+      } else {
+        need(action==='download' && row.status==='attached');
+        const historical=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epochs e
+          ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch WHERE m.id=$1 AND m.media_id=$2
+          AND (e.creator_device=$3 OR e.recipient_device=$3)`,[row.message_id,row.id,op.actorId])).rows.length;
+        need(historical);
+      }
       return true;
     });
   }

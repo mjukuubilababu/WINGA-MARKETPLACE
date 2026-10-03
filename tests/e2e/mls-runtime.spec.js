@@ -70,6 +70,55 @@ async function prepare(page, username, captured) {
 const pin = (page, value) => page.evaluate(value => { pins.push({ ...value,
   signaturePublicKey: new Uint8Array(value.signaturePublicKey), status: 'active' }); }, value);
 
+test('browser MLS replacement rotates keys under strict CSP without transferring old epoch history', async ({ page }) => {
+  const violations = []; page.on('console', entry => { if (entry.text().includes('Content Security Policy')) violations.push(entry.text()); });
+  await page.goto(origin);
+  const result = await page.evaluate(async () => {
+    const records = [];
+    async function participant(owner) {
+      const session = { username: owner, sessionId: crypto.randomUUID(), token: crypto.randomUUID() };
+      const native = { owner, id: crypto.randomUUID(), fingerprint: 'a'.repeat(64), status: 'active' };
+      let revision = 0, values = {}; const pins = [], packets = [];
+      const vault = { async snapshot() { return { revision: String(revision), values: structuredClone(values) }; },
+        async write(change) {
+          if (change.expectedRevision !== String(revision)) throw new Error('vault_conflict');
+          for (const key of change.deleted || []) delete values[key];
+          Object.assign(values, structuredClone(change.values)); return String(++revision);
+        } };
+      const digest = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+      const runtime = await WingaMlsCandidate.createMlsRuntime({ getSession: () => session, vault, trustedPins: () => pins,
+        policy: { async markEncrypted() {} }, identityClient: { async enroll() { return native; },
+          async attestKeyPackage(bytes) { return { hash: await digest(bytes), deviceId: native.id }; } },
+        async publishPackage(payload) { return { version: 1, package: payload }; },
+        transport: { async send(packet) { packets.push(packet); return { id: packet.id, hash: packet.hash, status: 'sent' }; } },
+      });
+      const device = await runtime.initialize(); const participant = { runtime, device, pins, packets }; records.push(participant); return participant;
+    }
+    try {
+      const alice = await participant('alice'), old = await participant('bob'), next = await participant('bob');
+      alice.pins.push({ ...old.device, status: 'active' }, { ...next.device, status: 'active' });
+      old.pins.push({ ...alice.device, status: 'active' }); next.pins.push({ ...alice.device, status: 'active' });
+      const id = await alice.runtime.createConversation('bob'), initial = await alice.runtime.addPeer(id, old.device.keyPackage);
+      await old.runtime.acceptWelcome('alice', initial); await alice.runtime.confirmMembership(id, initial.id);
+      await alice.runtime.sendMessage({ clientMessageId: crypto.randomUUID(), receiverId: 'bob', message: 'old epoch' });
+      await old.runtime.receive('alice', alice.packets[0]); alice.pins[0].status = 'revoked';
+      const transfer = await alice.runtime.replacePeer(id, old.device.id, '1', next.device.keyPackage);
+      let pendingBlocked = false;
+      try { await alice.runtime.sendMessage({ clientMessageId: crypto.randomUUID(), receiverId: 'bob', message: 'not confirmed' }); }
+      catch (error) { pendingBlocked = error.code === 'mls_membership_pending'; }
+      await next.runtime.acceptWelcome('alice', transfer); await alice.runtime.confirmMembership(id, transfer.id);
+      await alice.runtime.sendMessage({ clientMessageId: crypto.randomUUID(), receiverId: 'bob', message: 'replacement secret' });
+      const received = await next.runtime.receive('alice', alice.packets[1]); let oldExcluded = false, historyExcluded = false;
+      try { await old.runtime.receive('alice', alice.packets[1]); } catch { oldExcluded = true; }
+      try { await next.runtime.receive('alice', alice.packets[0]); } catch { historyExcluded = true; }
+      return { epoch: transfer.epoch, pendingBlocked, oldExcluded, historyExcluded, message: received.message,
+        history: (await next.runtime.history()).length };
+    } finally { for (const record of records) record.runtime.close(); }
+  });
+  expect(result).toEqual({ epoch: '2', pendingBlocked: true, oldExcluded: true, historyExcluded: true, message: 'replacement secret', history: 1 });
+  expect(violations).toEqual([]);
+});
+
 test('real browser native enrollment, MLS publication, encrypted text and durable retry under unchanged CSP', async ({ browser }) => {
   const a = await browser.newContext(), b = await browser.newContext();
   try {

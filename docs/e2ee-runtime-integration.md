@@ -105,6 +105,154 @@ All four localization catalogs pass with 1359 keys each and no hard-coded UI deb
 These use local disposable databases and a private-storage SDK fixture, not a
 live R2 acceptance test or independent cryptographic audit.
 
+## Native Device Approval UI
+
+The local follow-up adds an owner-scoped device dialog to the actual chat
+header. It uses the existing gated native-device API, independently of MLS
+initialization, so pending devices can show their own full fingerprint.
+
+- An active device must confirm the target's full independently obtained
+  fingerprint before approving or revoking it. Directory public keys are
+  canonically decoded, hashed and checked; own-device substitutions fail closed.
+- Approval and revocation use the existing session-bound native Ed25519 proof.
+  The exact signed operation is retained in IndexedDB before HTTP, survives
+  reload/lost responses and is reconciled with a fresh authenticated directory.
+- Pending devices cannot approve themselves. Self-revocation is explicitly
+  labelled and warned; only its retained exact operation can reconcile a lost
+  accepted reply after that device becomes revoked.
+- A changed session cannot replay the old session's signed intent. The explicit
+  stop-retrying action retires only the local journal; it never reverses a
+  server approval or revocation. A fresh action needs current authorization.
+- Approval does not add an MLS member, copy group secrets or restore access to
+  an existing encrypted conversation. Server replacement/rekey/rejoin and its
+  UX are still unimplemented and remain a separate audited protocol change.
+
+The device UI uses the existing native-device flag, changes neither CSP nor
+the server membership protocol, and has not been deployed in this follow-up.
+Final verification: 28/28 strict-CSP browser tests, 29/29 focused native-device
+and MLS Node tests, 144 frontend core checks plus 68 behavior tests, and four
+locales with 1375 keys each passed. The generated bundle contains 81 synchronized
+modules. Mobile screenshots were inspected and dialog hidden-state CSS fixed.
+The first full browser run hit a Node/V8 test-worker fatal error; a fresh final
+run passed every case. These are local test results, not independent audit.
+
+## Local MLS Replacement Primitive
+
+The candidate runtime now exposes `replacePeer(groupId, retiringDeviceId,
+expectedEpoch, newPackage)`. It uses ts-mls Remove plus Add, a fresh UpdatePath
+and Welcome, and advances exactly one epoch. This is not wired to the server
+membership API or chat UI and is not a production rejoin feature.
+
+- Only the exact previously pinned peer leaf may be loaded after revocation,
+  solely to remove it. Authentication of the replacement and the resulting
+  group still requires active, independently pinned credentials.
+- A replacement requires a confirmed two-member group, the expected epoch,
+  a different native identity/signing key and a valid unused admission package
+  on the joining device. Self removal, another owner, revoked/unpinned packages
+  and mismatched epochs fail closed.
+- Existing text outbox and encrypted attachment journals block replacement.
+  New group state and exact membership transfer are written atomically; sends
+  remain blocked until membership confirmation. A storage abort leaves the
+  old epoch unchanged and reload retains the exact transfer.
+- Fresh-device Welcome imports no old ratchet/history. Local tests verify both
+  directions of new traffic, reject old ciphertext on the new device, and show
+  old retained secrets cannot decrypt new ciphertext even when the test bypasses
+  the runtime epoch gate.
+
+The ts-mls 1.6.4 removed-device edge case has a tracked local correction in
+`scripts/patch-ts-mls.js`. Previously `selfRemoved` tested whether the old leaf
+slot was empty after applying Add. Reusing that slot incorrectly kept the old
+device active and caused an UpdatePath error. Detection now checks the validated
+Remove proposals against the client's original leaf index. The authenticated
+removed member returns `removedFromGroup` without deriving new epoch keys.
+
+The correction accepts only exact version 1.6.4 and the recorded whole-file
+SHA-256 before/after hashes, normalizing CRLF. Unexpected version or source
+drift fails closed. Root/backend postinstall applies it idempotently; frontend
+bundling, secure-content tests and backend npm prestart require its verified
+presence. Skipping install scripts requires explicitly running the patch before
+these operations. This is a local dependency correction, not an upstream release
+or independent cryptographic audit, and must be reviewed when updating ts-mls.
+
+Regressions cover same-slot replacement in two- and three-member groups,
+plain removal, unaffected member/new member decryption, refusal to send after
+removal, old-key decryption failure, malformed Commit authentication, rejection
+callbacks and invalid committer self-removal. The fixture uses real MLS crypto.
+
+The primitive-only browser test uses native browser cryptography and strict `script-src
+'self'`, with in-memory identity/publication/transport fixtures. It is not evidence
+of server-authorized replacement, signed acceptance or live failover. Those need
+an epoch-bound replacement transaction, exact retry/acceptance proofs, recovery
+discovery, historical media access policy and authenticated end-to-end UI tests.
+
+Replacement follow-up verification on 2026-10-03: 25/25 MLS Node tests (six new
+replacement cases) passed on the final focused run; the secure-content suite
+passed 86/86 before the additional raw-library exclusion assertions, which the
+final focused run then verified. Complete strict-CSP browser suite: 29/29 passed,
+including the new replacement test. Local frontend build `20261003124859`,
+81-module synchronization and CRLF-aware whitespace check passed. No live flags,
+database migration, server membership endpoint, push or deploy changed here.
+Protocol reference: [RFC 9420, Sections 12 and 16](https://www.rfc-editor.org/rfc/rfc9420.html).
+
+Dependency correction verification on 2026-10-03: secure-content suite 92/92,
+final focused patch/MLS suite 31/31 (including forged Commit, ordinary removal
+and rejection-callback assertions), and complete strict-CSP browser suite 29/29
+passed. Root/backend npm postinstall are idempotent; backend prestart verifies
+the patched source. Local build `20261003125900`, 81-module synchronization and
+CRLF-aware whitespace checks passed. The library edge-case gate above is resolved
+locally. The server replacement protocol and rejoin UI were implemented in the
+follow-up below; independent audit remains a release requirement. This dependency
+correction was not pushed or deployed.
+
+## Authorized Device Replacement And Rejoin
+
+The additive `2026100306_encrypted_conversation_replacement` migration records
+epoch-specific membership and durable replacement reservations. A selected,
+active surviving device can replace the other account's selected device with a
+fresh, approved native device. The target must not have participated in this
+conversation before. Account status and blocks are checked again inside the
+serialized transaction; revocation of the removed device does not prevent its
+authorized removal. Creator/recipient account ownership does not change.
+
+Reservation drains the initiator's inbound epoch first and then freezes sends
+and media reservations. The client persists the exact intent before HTTP,
+verifies the target's native-attested MLS package and independently entered full
+fingerprint, and journals one Remove+Add Commit with its new state. Transfer and
+acceptance retain exact retry identities. Only the selected replacement can
+accept; its Welcome must contain exactly its own device and the pinned surviving
+device. Signed acceptance is verified before the initiator confirms the epoch.
+
+The actual chat security dialog supports replacement and incoming rejoin. A
+fresh approved native device discovers the existing conversation through the
+authenticated directory, without receiving old ciphertext. Lost HTTP responses,
+reload and a previously rejected pending-device initialization can retry safely.
+Current-epoch message polling excludes old ciphertext; historical receipts and
+media downloads additionally require membership in the original message epoch.
+The surviving device retains its local history. Approval alone does not copy
+history or grant the replacement access to historical media.
+
+Operational limits remain explicit: an unfinished reservation has no automatic
+cancel or timeout rollback. Loss of the initiator's vault or expiry of admission
+material before completing the transfer requires recovery investigation, not
+silent epoch rollback. Returning devices with an existing group state must use a
+fresh native identity for this flow. Recovery-authorized historical media access
+is not implemented by membership replacement and needs a separately audited
+policy. These are release gates, not reasons to weaken cryptographic checks.
+
+Local tests cover both member roles, revoked-device replacement, exact retries,
+foreign/pending/blocked admission, old-epoch receipt and media exclusion, and real
+HTTP/browser UI with actual MLS crypto. Independent PostgreSQL connections test
+competing target reservations, undrained inbox rejection and a send waiting
+behind the membership freeze. No live flags, production data or CSP changed.
+
+Final local replacement/rejoin verification on 2026-10-03: secure-content Node
+suite 95/95, complete strict-CSP browser suite 29/29, and independent-connection
+event/encrypted PostgreSQL suite 29/29 passed. Frontend regressions passed 144
+core checks and 68 behavior tests. All four catalogs have 1380 keys with zero
+hard-coded UI debt. Build `20261003133028`, synchronization of all 81 frontend
+modules and CRLF-aware whitespace checks passed. The mobile rejoin dialog was
+visually inspected. This follow-up has not been committed, pushed or deployed.
+
 ## Verification And Release Gates
 
 Run `npm run test:secure-content`, `npm run test:secure-content-browser`,
@@ -113,6 +261,14 @@ Run `npm run test:secure-content`, `npm run test:secure-content-browser`,
 localhost `WINGA_TEST_POSTGRES_URL`; it never falls back to production credentials.
 It tests opposite initiator races, exact retries and authorization after waits
 on independent PostgreSQL connections.
+
+Run `npm run test:encrypted-concurrency` against that disposable localhost URL.
+The media extension additionally holds transactions open to test both outcomes
+of send-versus-cleanup, an upload authorization protecting an expired orphan,
+exclusive multi-worker cleanup claims, lease expiry/reclaim and stale-worker
+completion, uploader quota under concurrent reservations, and revocation while
+media authorization waits. The tests use isolated random schemas and drop them
+after each case; no production credentials or bucket operations are used.
 
 The authenticated browser integration uses actual HTTP routes, native browser
 signatures, the real database store, encrypted IndexedDB, the real chat message
@@ -138,10 +294,15 @@ The encrypted browser fixture now waits for each rejected fingerprint request
 to settle before changing directory policy, avoiding stale error-text assertions.
 These are local tests, not production/device acceptance or a cryptographic audit.
 
+Independent-connection media follow-up on 2026-10-03: all eight tests passed,
+including six new media race/quota cases. A fresh combined event and encrypted
+concurrency run passed 26/26. The disposable PostgreSQL server was stopped
+after verification; production databases and feature switches were unchanged.
+
 Still required before production activation: independent protocol/library audit;
-live private-bucket acceptance and independent-connection orphan-cleanup race
-coverage; device approval
-and member rekey/rejoin UX; Android closed-app acceptance; production capacity,
+live private-bucket acceptance; deployed member rekey/rejoin acceptance and
+unfinished-replacement recovery policy;
+Android closed-app acceptance; production capacity,
 operational monitoring and deployed encrypted failover evidence. The text queue
 currently uses one transaction advisory serialization guard; capacity evidence
 must precede rollout. Do not label section 109 complete from local test passes.

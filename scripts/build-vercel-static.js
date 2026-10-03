@@ -74,7 +74,7 @@ const fileCopies = [
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
-  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download"]
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "monitor-smartphone"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 
@@ -145,6 +145,7 @@ const bundledModuleSources = [
   "src/chat/secure-content.js",
   "src/chat/encrypted-policy.js",
   "src/chat/crypto-devices.js",
+  "src/chat/device-management-ui.js",
   "src/chat/encryption-session.js",
   "src/chat/encrypted-media-client.js",
   "src/chat/encrypted-media-ui.js",

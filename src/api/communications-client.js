@@ -36,7 +36,7 @@
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
-      })();
+      })().catch(error=>{if(encryptionOwner===key)encryptionReady=null;throw error;});
       return encryptionReady;
     }
     async function isEncryptedConversation(peer) {
@@ -436,10 +436,15 @@
       enableEncryptedConversation: async (peer,deviceId,fingerprint) => {
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.enable(peer,deviceId,fingerprint);
       },
+      replaceEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.replace(peer,deviceId,fingerprint);
+      },
       sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
       createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
+      cryptoDeviceManagementAvailable:async()=>{try{const r=await fetchJson(`${baseUrl}/conversations/crypto/devices`,{headers:authHeaders()});return r.version===1&&Array.isArray(r.devices);}catch(error){if(error.status===404)return false;throw error;}},
+      createCryptoDeviceManagement:()=>globalThis.WingaDeviceManagementUi.createManagementSession({getSession:deps.getSession,request:api.cryptoDeviceRequest}),
       cryptoMediaRequest:async(method,object,proof,blob)=>{
         requireFetcher();if(!['GET','PUT'].includes(method))throw new Error('private_media_invalid');
         const encoded=btoa(JSON.stringify(proof)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
