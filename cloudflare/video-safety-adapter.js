@@ -77,7 +77,8 @@ async function acceptWingaScan(request, env) {
   }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await withScanStage("hive_response", () => readProviderJson(response)) })));
   if (!providerResponse.ok) {
 
-    console.error(JSON.stringify({ event: "video_safety_provider_rejected", status: providerResponse.status }));
+    const diagnostic = summarizeProviderRejection(providerBody);
+    console.error(JSON.stringify({ event: "video_safety_provider_rejected", status: providerResponse.status, ...diagnostic }));
     return json({ ok: false, error: "provider_rejected", providerStatus: providerResponse.status }, 502);
   }
   const normalized = await withScanStage("hive_normalize", () => normalizeHiveV3Result(scan, providerBody));
@@ -153,6 +154,19 @@ async function deliverWingaResult(normalized, env) {
 }
 
 
+function summarizeProviderRejection(payload) {
+  const message = clean(["message", "detail", "error", "error_message", "msg"].map(key => findNestedString(payload, new Set([key]))).join(" "), 4000)
+    .toLowerCase().replace(/https?:\/\/\S+/g, "");
+  const vocabulary = ["unsupported", "supported", "invalid", "media", "media_url", "image", "video", "m3u8", "hls", "mp4", "format", "file", "download", "url", "fetch", "input", "array", "object", "json", "base64", "size", "duration", "maximum", "exceeded", "model", "permission", "access", "credit", "balance", "payment", "quota", "rate", "limit", "not", "found", "required", "content", "type"];
+  const terms = vocabulary.filter(term => new RegExp("\\b" + term + "\\b").test(message));
+  let reason = "invalid_request";
+  if (/balance|credit|payment/.test(message)) reason = "balance_required";
+  else if (/quota|rate.?limit/.test(message)) reason = "quota_exceeded";
+  else if (/unsupported|not supported|format|content.?type|m3u8|\bhls\b/.test(message)) reason = "unsupported_media_format";
+  else if (/download|fetch|media.?url/.test(message)) reason = "media_unavailable";
+  else if (/array|object|json|input/.test(message)) reason = "invalid_input";
+  return { reason, terms };
+}
 async function normalizeHiveV3Result(scan, payload) {
   // Reject errors, empty outputs and malformed scores. Missing predictions
   // must never be interpreted as zero risk.
@@ -456,3 +470,4 @@ function json(body, status = 200) {
     }
   });
 }
+

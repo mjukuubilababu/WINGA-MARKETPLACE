@@ -313,3 +313,14 @@ test("provider and backend redirects never forward credentials or acknowledge su
     assert.equal(diagnostics[0].reason,"redirect_blocked");
   }
 });
+test("provider rejection logs use fixed terms and never expose private media URLs", async () => {
+  const diagnostics=[];
+  const worker=adapter(async()=>Response.json({error:{message:"Unsupported video format m3u8 at https://private.example/secret-token"}},{status:400}),false,diagnostics);
+  const response=await worker.fetch(request(),env);
+  assert.equal(response.status,502);
+  assert.equal((await response.json()).providerStatus,400);
+  assert.equal(diagnostics[0].reason,"unsupported_media_format");
+  assert.ok(diagnostics[0].terms.includes("m3u8"));
+  assert.ok(!JSON.stringify(diagnostics).includes("secret-token"));
+  assert.ok(!JSON.stringify(diagnostics).includes("private.example"));
+});
