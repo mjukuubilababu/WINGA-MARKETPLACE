@@ -85,7 +85,7 @@ async function acceptWingaScan(request, env) {
   }
   const normalized = await withScanStage("hive_normalize", () => normalizeHiveV3Result(scan, providerBody));
   if (!normalized) {
-    console.error(JSON.stringify({ event: "video_safety_provider_invalid_response" }));
+    console.error(JSON.stringify({ event: "video_safety_provider_invalid_response", shape: hiveResponseShape(providerBody) }));
     return json({ ok: false, error: "provider_invalid_response" }, 502);
   }
   const delivery = await withScanStage("winga_callback", () => deliverWingaResult(normalized, env));
@@ -169,6 +169,36 @@ function summarizeProviderRejection(payload) {
   else if (/array|object|json|input/.test(message)) reason = "invalid_input";
   return { reason, terms };
 }
+function hiveResponseShape(payload) {
+  const allowed = ["output", "status", "response", "result", "data", "classes", "predictions", "class_name", "value", "class", "score", "name", "confidence", "label"];
+  const pending = [{ node: payload, path: "root", depth: 0 }];
+  const shapes = [];
+  while (pending.length && shapes.length < 24) {
+    const { node, path, depth } = pending.shift();
+    if (!node || typeof node !== "object") continue;
+    const shape = { path, fields: allowed.filter(key => Object.hasOwn(node, key)) };
+    if (Array.isArray(node)) shape.count = node.length;
+    if (Array.isArray(node.classes)) {
+      shape.classCount = node.classes.length;
+      const first = node.classes[0];
+      shape.classFields = first && typeof first === "object" ? allowed.filter(key => Object.hasOwn(first, key)) : [];
+      shape.valueType = typeof first?.value;
+      shape.scoreType = typeof first?.score;
+      shape.hasNsfw = node.classes.some(item => item?.class_name === "general_nsfw" || item?.class === "general_nsfw");
+    }
+    shapes.push(shape);
+    if (depth >= 6) continue;
+    if (Array.isArray(node)) {
+      if (node.length) pending.push({ node: node[0], path: path + "[0]", depth: depth + 1 });
+    } else {
+      for (const key of ["output", "status", "response", "result", "data"]) {
+        if (node[key] && typeof node[key] === "object") pending.push({ node: node[key], path: path + "." + key, depth: depth + 1 });
+      }
+    }
+  }
+  return shapes;
+}
+
 function parseHiveClass(prediction) {
   if (!prediction || typeof prediction !== "object" || Array.isArray(prediction)) return null;
   const modern = "class_name" in prediction || "value" in prediction;
