@@ -2199,6 +2199,10 @@ async loadAdminPayments(filters) {
         },
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
+        sendEncryptedMedia(peer,file,text) { return getCommunicationsApiClient().sendEncryptedMedia(peer,file,text); },
+        downloadEncryptedMedia(id) { return getCommunicationsApiClient().downloadEncryptedMedia(id); },
+        encryptedRecoveryAvailable() { return getCommunicationsApiClient().encryptedRecoveryAvailable(); },
+        createEncryptedRecovery() { return getCommunicationsApiClient().createEncryptedRecovery(); },
         isEncryptedConversation(peer) {
           return getCommunicationsApiClient().isEncryptedConversation(peer);
         },
@@ -4262,6 +4266,10 @@ async loadAdminPayments() {
       async inspectEncryptedConversation(peer) {
         assertBuyerCapableAccess();ensureAdapter();return state.adapter.inspectEncryptedConversation?state.adapter.inspectEncryptedConversation(peer):{status:'disabled'};
       },
+      async sendEncryptedMedia(peer,file,text) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text); },
+      async downloadEncryptedMedia(id) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.downloadEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.downloadEncryptedMedia(id); },
+      async encryptedRecoveryAvailable() { assertBuyerCapableAccess();ensureAdapter();return state.adapter.encryptedRecoveryAvailable?state.adapter.encryptedRecoveryAvailable():false; },
+      async createEncryptedRecovery() { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.createEncryptedRecovery)throw new Error('recovery_unavailable');return state.adapter.createEncryptedRecovery(); },
       async isEncryptedConversation(peer) {
         assertBuyerCapableAccess();ensureAdapter();return state.adapter.isEncryptedConversation?state.adapter.isEncryptedConversation(peer):false;
       },

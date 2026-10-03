@@ -2,12 +2,15 @@ function createEncryptedConversationBackupsApi(deps) {
   const { collectBody, sendJson, findSession, readAuthToken, ensureMarketplaceUser,
     getPostgresStore, enabled = false } = deps;
   async function handle(req, res, url) {
-    if (url.pathname !== '/api/conversations/recovery') return false;
+    if (!['/api/conversations/recovery','/api/conversations/recovery/capabilities'].includes(url.pathname)) return false;
     const headers = { 'Cache-Control': 'private, no-store', 'Pragma': 'no-cache' };
     if (!enabled) { sendJson(res, 404, { code: 'encrypted_backup_disabled' }, headers); return true; }
     const session = findSession(readAuthToken(req));
     const user = ensureMarketplaceUser(session, res);
     if (!user) return true;
+    if(url.pathname.endsWith('/capabilities')) {
+      sendJson(res,req.method==='GET'?200:405,req.method==='GET'?{enabled:true,version:1}:{code:'method_not_allowed'},headers);return true;
+    }
     const store = getPostgresStore();
     if (!store?.readEncryptedConversationBackup) {
       sendJson(res, 503, { code: 'encrypted_backup_unavailable' }, headers); return true;

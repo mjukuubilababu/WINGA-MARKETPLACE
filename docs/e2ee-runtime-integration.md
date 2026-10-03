@@ -3,7 +3,7 @@
 ## Scope
 
 The real communications client, data-service, chat headers, composers and
-message renderer are now connected to the gated MLS text workflow. This is
+message renderer are now connected to the gated MLS text and attachment workflow. This is
 local implementation and regression evidence, not independent audit approval
 or production E2EE activation. CSP is unchanged.
 
@@ -59,9 +59,51 @@ activate any conversation. No production database or deployment was changed.
 - The metadata-only local policy and always-authenticated canonical mode lookup
   block plaintext transport after reload, local storage wipe or nonmember-device
   use. An unavailable configured database cannot authorize a legacy fallback.
-- Existing plaintext chat remains compatible when gates are off. The fixed
-  encrypted text path rejects attachments, product-reference payloads and replies;
-  it does not silently send their contents through a plaintext route.
+- Existing plaintext chat remains compatible when gates are off. Attachments
+  require the separate media capability. Product-reference payloads and quoted
+  replies remain unsupported; none silently use a plaintext route.
+
+## Encrypted Attachments And User Recovery
+
+The follow-up implementation is included in this release, with feature switches
+unchanged. Migration `2026100305_encrypted_conversation_media` is additive.
+
+- The real chat composer accepts attachments up to 2 MiB. The existing native
+  AES-256-GCM codec encrypts file contents and metadata before upload. Its key
+  and filename descriptor travel only inside the signed MLS private message.
+  The storage protocol limit remains 8 MiB; the UI limit preserves vault bounds.
+- A durable encrypted local journal retains exact ciphertext through offline
+  sends, lost HTTP replies and reload. After upload, the existing MLS outbox owns
+  exact message retries and the normal Sent/Delivered/Read receipt progression.
+- Authenticated binary PUT/GET routes require native signed object proofs,
+  current selected membership, exact digest/size and the isolated private R2
+  bucket. GET releases no plaintext; full hash and AEAD checks precede download.
+  Files download as octet-stream, never execute as HTML or SVG in the app.
+- Reservations are bounded by pending-upload quotas. Attachment binding and
+  message insertion share a transaction. Orphan cleanup uses expiring exclusive
+  row leases, bounded provider operations and retained deletion tombstones.
+  Attached files cannot be claimed by the orphan cleaner.
+- The recovery dialog exports a provisional user-held key file before the first
+  backup. It requires key confirmation and acknowledgement of file retention.
+  After encrypted backup acceptance it exports the latest independent freshness
+  checkpoint, which must also be retained. A key-only file cannot restore.
+- Restore rejects wrong owner/key, rollback and conflicting immutable history.
+  Receipt progress merges monotonically. Restored history contains attachment
+  descriptors, but never live MLS group secrets or automatic device admission.
+  A pending new device can view its restored archive; live attachment downloads
+  still require an admitted device. Rekey/rejoin remains a separate release gate.
+- Recovery is gated by `WINGA_ENCRYPTED_BACKUP_ENABLED`; media by
+  `WINGA_ENCRYPTED_MEDIA_ENABLED` plus the three existing crypto gates.
+  Every example switch remains false. Private storage needs the documented
+  `R2_CONVERSATION_*` isolation credentials, not the public asset bucket.
+
+Follow-up verification: 80 secure-content Node tests and 23 strict-CSP browser
+tests with actual attachment UI/download, offline reload and pending-device
+recovery, plus a full-server binary-route/CSRF regression. Frontend checks passed
+144 core and 68 behavior cases; the synchronized bundle now contains 80 modules.
+All four localization catalogs pass with 1359 keys each and no hard-coded UI debt.
+These use local disposable databases and a private-storage SDK fixture, not a
+live R2 acceptance test or independent cryptographic audit.
 
 ## Verification And Release Gates
 
@@ -97,8 +139,8 @@ to settle before changing directory policy, avoiding stale error-text assertions
 These are local tests, not production/device acceptance or a cryptographic audit.
 
 Still required before production activation: independent protocol/library audit;
-private encrypted media HTTP/grant/cleanup wiring; user recovery-key
-confirmation/export/restore UI and retained freshness evidence; device approval
+live private-bucket acceptance and independent-connection orphan-cleanup race
+coverage; device approval
 and member rekey/rejoin UX; Android closed-app acceptance; production capacity,
 operational monitoring and deployed encrypted failover evidence. The text queue
 currently uses one transaction advisory serialization guard; capacity evidence

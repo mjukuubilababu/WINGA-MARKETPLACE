@@ -6,7 +6,7 @@ const {createEncryptedConversationsApi}=require('../backend/encrypted-conversati
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function fixture(t) {
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
-  for(const name of ['message-web-push','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations'])
+  for(const name of ['message-web-push','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media'])
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
@@ -23,7 +23,7 @@ async function fixture(t) {
     };
     members[owner]=member;
   }
-  const store=createEncryptedConversationStore({withTransaction:work=>db.transaction(work),enqueuePush:require('../backend/message-web-push').enqueueMessagePush}),id=crypto.randomUUID(),transferId=crypto.randomUUID();
+  const store=createEncryptedConversationStore({withTransaction:work=>db.transaction(work),mediaEnabled:true,enqueuePush:require('../backend/message-web-push').enqueueMessagePush}),id=crypto.randomUUID(),transferId=crypto.randomUUID();
   const reserve={conversationId:id,peer:'bob',sourceHash:members.alice.hash,targetHash:members.bob.hash};
   const call=(owner,action,payload)=>store.encryptedOperation(members[owner].context,members[owner].sign(action,payload));
   let group=await mls.createGroup(new TextEncoder().encode(id),members.alice.pkg.publicPackage,members.alice.pkg.privatePackage,[],suite);
@@ -124,4 +124,65 @@ test('encrypted sends enqueue one generic background push, authorize deep links 
   assert.deepEqual(await push.resolveWebPush({owner:'bob',token:'b1',sessionId:'b1',id:jobs[0].id}),{withUser:'alice'});
   const result=await push.dispatchWebPushBatch();assert.equal(result.accepted,1);
   assert.deepEqual(Object.keys(payloads[0]).sort(),['id','locale','version']);assert.equal(JSON.stringify(payloads).includes('server must not receive this'),false);
+});
+
+function privateStorage(f) {
+  const objects=new Map(),calls=[];
+  const env={R2_ACCOUNT_ID:'a'.repeat(32),R2_BUCKET_NAME:'public-assets',R2_CONVERSATION_BUCKET_NAME:'chat-private',R2_CONVERSATION_ACCESS_KEY_ID:'fixture',R2_CONVERSATION_SECRET_ACCESS_KEY:'fixture',R2_CONVERSATION_API_TOKEN:'fixture',R2_CONVERSATION_ISOLATION_CONFIRMED:'true'};
+  const storage=require('../backend/conversation-private-media').createPrivateMediaStorage({env,privacyCheck:async()=>{},authorize:f.store.authorizeEncryptedMedia,client:{send:async cmd=>{
+    const p=cmd.input;calls.push(cmd.constructor.name);
+    if(cmd.constructor.name==='PutObjectCommand'){if(objects.has(p.Key))throw {$metadata:{httpStatusCode:412}};objects.set(p.Key,Buffer.from(p.Body));return {};}
+    if(cmd.constructor.name==='DeleteObjectCommand'){objects.delete(p.Key);return {};}
+    const bytes=objects.get(p.Key);if(!bytes)throw new Error('missing');return {ContentLength:bytes.length,ContentType:'application/octet-stream',Metadata:{sha256:hash(bytes)},Body:require('node:stream').Readable.from([bytes])};
+  }}});
+  const bytes=Buffer.concat([Buffer.from('WINGAEM2'),crypto.randomBytes(80)]),object={id:crypto.randomUUID(),bytes:bytes.length,sha256:hash(bytes)};
+  const context=(owner,action)=>({...f.members[owner].context,proof:f.members[owner].sign(`media-${action}`,object)});
+  const reserve=()=>f.call('alice','media-reserve',{...object,conversationId:f.id,messageId:f.packet.id});
+  return {storage,objects,calls,bytes,object,context,reserve};
+}
+test('private media is immutable, member-scoped, bound to one accepted message and never public',async t=>{
+  const f=await fixture(t);await f.active();const m=privateStorage(f);await m.reserve();await m.reserve();
+  await assert.rejects(m.storage.get(m.context('bob','download'),m.object),{code:'private_media_access_rejected'});
+  await assert.rejects(m.storage.put(m.context('bob','upload'),m.object,m.bytes),{code:'private_media_access_rejected'});
+  await assert.rejects(f.call('alice','send',{...f.packet,mediaId:m.object.id}),{code:'private_media_not_uploaded'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+  await m.storage.put(m.context('alice','upload'),m.object,m.bytes);await f.store.completeEncryptedMediaUpload(m.context('alice','upload'),m.object);
+  await f.call('alice','send',{...f.packet,mediaId:m.object.id});await f.call('alice','send',{...f.packet,mediaId:m.object.id});
+  assert.deepEqual(await m.storage.get(m.context('bob','download'),m.object),m.bytes);
+  await assert.rejects(m.storage.get(m.context('eve','download'),m.object),{code:'encrypted_membership_required'});
+  await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_send_conflict'});
+  await f.db.query("UPDATE encrypted_conversation_media SET expires_at=NOW()-INTERVAL '2 days'");
+  assert.deepEqual(await f.store.claimEncryptedMediaCleanup(),[]);assert.equal(m.objects.size,1);
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob'");
+  await assert.rejects(m.storage.get(m.context('bob','download'),m.object),{code:'encrypted_proof_rejected'});
+});
+test('expired orphan cleanup uses durable leases and blocks late upload or attachment resurrection',async t=>{
+  const f=await fixture(t);await f.active();const m=privateStorage(f);await m.reserve();await m.storage.put(m.context('alice','upload'),m.object,m.bytes);
+  await f.store.completeEncryptedMediaUpload(m.context('alice','upload'),m.object);
+  await f.db.query("UPDATE encrypted_conversation_media SET expires_at=NOW()-INTERVAL '2 days'");
+  const jobs=await f.store.claimEncryptedMediaCleanup();assert.equal(jobs.length,1);assert.deepEqual(await f.store.claimEncryptedMediaCleanup(),[]);
+  await assert.rejects(m.storage.put(m.context('alice','upload'),m.object,m.bytes),{code:'private_media_access_rejected'});
+  await assert.rejects(f.call('alice','send',{...f.packet,mediaId:m.object.id}),{code:'private_media_not_uploaded'});
+  await assert.rejects(m.storage.remove({lease:crypto.randomUUID()},m.object),{code:'private_media_access_rejected'});
+  await m.storage.remove({lease:jobs[0].lease},m.object);await m.storage.remove({lease:jobs[0].lease},m.object);await f.store.finishEncryptedMediaCleanup(jobs[0]);
+  assert.equal(m.objects.size,0);assert.equal((await f.db.query('SELECT status FROM encrypted_conversation_media')).rows[0].status,'deleted');
+  await assert.rejects(m.reserve(),{code:'private_media_conflict'});
+});
+test('media upload extends the orphan deadline and quotas and signed body bindings fail closed',async t=>{
+  const f=await fixture(t);await f.active();const m=privateStorage(f);await m.reserve();
+  await f.db.query("UPDATE encrypted_conversation_media SET expires_at=NOW()-INTERVAL '1 second'");
+  await m.storage.put(m.context('alice','upload'),m.object,m.bytes);assert.deepEqual(await f.store.claimEncryptedMediaCleanup(),[]);
+  const proof=m.context('alice','upload');proof.proof.payload={...m.object,sha256:'0'.repeat(64)};
+  await assert.rejects(m.storage.put(proof,m.object,m.bytes),{code:'private_media_access_rejected'});
+  await assert.rejects(f.call('alice','media-reserve',{...m.object,conversationId:f.id,messageId:f.packet.id,key:'must not reach server'}),{code:'encrypted_operation_invalid'});
+  await f.db.query(`INSERT INTO encrypted_conversation_media(id,conversation_id,message_id,uploader_device,bytes,sha256)
+    SELECT gen_random_uuid()::text,$1,gen_random_uuid()::text,$2,40,$3 FROM generate_series(1,49)`,[f.id,f.members.alice.id,m.object.sha256]);
+  await assert.rejects(f.call('alice','media-reserve',{...m.object,id:crypto.randomUUID(),messageId:crypto.randomUUID(),conversationId:f.id}),{code:'private_media_quota'});
+});
+test('media API is default off, rejects extra binary bytes and hides provider details',async()=>{
+  const {createEncryptedMediaApi,collectCiphertext}=require('../backend/encrypted-media-api');let response,accessed=false;
+  const api=createEncryptedMediaApi({sendJson:(_,status,body)=>response={status,body},getStorage:()=>{accessed=true;}});
+  assert.equal(await api.handle({method:'PUT'},{},new URL('https://localhost/api/conversations/encrypted/media/fixture')),true);
+  assert.equal(response.status,404);assert.equal(accessed,false);
+  await assert.rejects(collectCiphertext(require('node:stream').Readable.from([Buffer.from('extra')]),2),{code:'private_media_invalid'});
 });

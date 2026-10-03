@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { assertPrivateBucket } = require('./backup-legacy-private-media');
 const { failure } = require('./encrypted-content-contract');
 const MAX_BYTES = 8 * 1024 * 1024 + 4136;
@@ -99,7 +99,12 @@ function createPrivateMediaStorage({ env = process.env, client, authorize, fetch
       throw failure(503, 'private_media_unavailable');
     }
   }
-  // Cleanup requires a separate durable orphan ledger; never delete an uncertain accepted object here.
-  return { put, get, close: () => { if (ownedClient) client.destroy(); } };
+  async function remove(context,object) {
+    context=Object.freeze({...context});object=Object.freeze({...object});const key=validateObject(object);
+    await allowed(context,object,'cleanup');await privateBucket();await allowed(context,object,'cleanup');
+    try {await client.send(new DeleteObjectCommand({Bucket:config.bucket,Key:key}),{abortSignal:AbortSignal.timeout(timeoutMs)});}
+    catch {throw failure(503,'private_media_unavailable');}
+  }
+  return { put, get, remove, close: () => { if (ownedClient) client.destroy(); } };
 }
 module.exports = { createPrivateMediaStorage, readPrivateMediaConfig, validateObject, MAX_BYTES };

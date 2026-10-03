@@ -30,6 +30,19 @@ test("message retry header is permitted only for an allowed CORS origin", async 
   assert.notEqual(denied.headers.get("access-control-allow-origin"), "https://untrusted.example");
 });
 
+test("private encrypted media binary uploads retain CSRF and strict path boundaries", async () => {
+  const media='/conversations/encrypted/media/11111111-1111-4111-8111-111111111111';
+  const options={method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:Buffer.from('ciphertext')};
+  assert.equal((await request(media,{...options,skipCsrf:true})).response.status,403);
+  const disabled=await request(media,options);
+  assert.equal(disabled.response.status,404);
+  assert.equal(disabled.body.code,'private_media_disabled');
+  assert.equal((await request(media,{...options,method:'POST'})).response.status,415);
+  assert.equal((await request(media.replace('11111111-1111-4111-8111-111111111111','not-a-uuid'),options)).response.status,415);
+  const preflight=await fetch(`${baseUrl}${media}`,{method:'OPTIONS',headers:{Origin:'https://wingamarket.com','Access-Control-Request-Method':'PUT','Access-Control-Request-Headers':'x-winga-crypto-proof,content-type'}});
+  assert.match(preflight.headers.get('access-control-allow-headers')||'',/X-Winga-Crypto-Proof/i);
+});
+
 test("paged message reads reject unauthenticated callers before querying data", async () => {
   for (const path of ["/messages/inbox?limit=1", "/messages/history?withUser=someone&limit=1", "/messages/capabilities", "/messages/replay", "/messages/device", "/messages/pending-delivery", "/messages/push/config", "/messages/push/resolve?id=forged"]) {
     const { response, body } = await request(path);

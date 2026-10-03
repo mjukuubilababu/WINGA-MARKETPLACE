@@ -265,7 +265,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
         try { changed = await createApplicationMessage(group.value, bytes, suite); } finally { bytes.fill(0); }
         try {
           const ciphertext = wire(changed.privateMessage);
-          job = { id: content.id, conversationId: id, epoch: content.epoch, deviceId: identity.id, ciphertext, hash: await hash(ciphertext) };
+          need(!payload.mediaId || uuid(payload.mediaId),'mls_content_unsupported');
+          job = { id: content.id, conversationId: id, epoch: content.epoch, deviceId: identity.id, ciphertext, hash: await hash(ciphertext),...(payload.mediaId?{mediaId:payload.mediaId}:{}) };
           history = { ...content, hash: job.hash, timestamp: new Date(now()).toISOString(), status: 'pending' };
           await put(saved, { [`mls:group:${id}`]: { ...group.row, bytes: encodeGroupState(changed.newState) },
             [`mls:outbox:${content.id}`]: job, [`history:${content.id}`]: history });
@@ -361,7 +362,11 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       await put(saved, { [`history:${p.id}`]: { ...item, status: item.status === 'read' ? 'read' : p.kind } }, [`mls:outbox:${p.id}`]);
     });
   }
-  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,
+  async function conversationId(peer) {
+    current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
+    need(uuid(id) && saved.values[`mls:group:${id}`]?.confirmed,'mls_group_required');return id;
+  }
+  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
     retryMessage,
     close() { closed = true; } };
 }

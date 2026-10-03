@@ -6,6 +6,19 @@
   const fields = ['version', 'algorithm', 'purpose', 'owner', 'id', 'generation', 'nonce', 'ciphertext'];
   const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
   const fail = code => { throw Object.assign(new Error(code), { code }); };
+  function mergeHistory(prior,current) {
+    const result={...prior},rank={pending:0,sent:1,delivered:2,read:3};
+    for(const [key,value] of Object.entries(current)) {
+      const old=result[key];
+      if(old!==undefined && JSON.stringify(old)!==JSON.stringify(value)) {
+        const stable=v=>{const copy={...v};delete copy.status;return JSON.stringify(copy);};
+        if(!old || !value || typeof old!=='object' || typeof value!=='object' || !Object.hasOwn(rank,old.status) || !Object.hasOwn(rank,value.status)
+          || stable(old)!==stable(value))fail('recovery_local_history_conflict');
+        result[key]={...value,status:rank[old.status]>rank[value.status]?old.status:value.status};
+      } else result[key]=value;
+    }
+    return result;
+  }
   async function checkpointFor(capsule, revision, crypto = globalThis.crypto) {
     if (!capsule || Object.keys(capsule).length !== fields.length || fields.some(key => !Object.hasOwn(capsule, key))
       || typeof revision !== 'string' || !/^[1-9][0-9]{0,15}$/.test(revision) || !Number.isSafeInteger(Number(revision))
@@ -63,8 +76,7 @@
             try {
               const prior = readArchive(bytes).items;
               if (!Object.keys(items).length) fail('recovery_restore_required');
-              if (Object.keys(prior).some(key => items[key] !== undefined && JSON.stringify(items[key]) !== JSON.stringify(prior[key]))) fail('recovery_local_history_conflict');
-              items = { ...prior, ...items };
+              items = mergeHistory(prior,items);
             } finally { bytes.fill(0); }
           }
           if (Object.keys(items).length > 1999) fail('recovery_archive_invalid');
@@ -103,11 +115,10 @@
           owner, id: remote.capsule.id, generation: remote.capsule.generation });
         let archive;
         try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
-        const conflicting = Object.keys(archive.items).some(key => local.values[key] !== undefined
-          && JSON.stringify(local.values[key]) !== JSON.stringify(archive.items[key]));
-        if (conflicting || local.values['backup:pending']) fail('recovery_local_history_conflict');
+        if (local.values['backup:pending']) fail('recovery_local_history_conflict');
+        const items=mergeHistory(archive.items,historyOnly(local.values));
         current(session);
-        await vault.write({ expectedRevision: local.revision, values: { ...archive.items, 'recovery:checkpoint': checkpoint } });
+        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
       });
     }

@@ -381,3 +381,24 @@ test('recovery retains prior archive history when a local record has been evicte
   }, session);
   expect(result).toEqual({ revision: '2', texts: ['older', 'current', 'newer'] });
 });
+
+test('recovery merges receipt progress monotonically but rejects changed message contents',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
+    const codec=await WingaSecureContent.loadSecureContent(),key=codec.generateRecoveryKey();
+    const recovery=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec,request:window.recoveryRequest});
+    const write=async status=>{const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{'history:one':{id:'one',message:'immutable',status}}});};
+    try {
+      await write('sent');await recovery.backup(key);
+      await write('read');await recovery.restore(key);
+      const advanced=(await vault.snapshot()).values['history:one'].status;
+      await recovery.backup(key);await write('delivered');await recovery.restore(key);
+      const retained=(await vault.snapshot()).values['history:one'].status;
+      let s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{'history:one':{id:'one',message:'changed',status:'read'}}});
+      s=await vault.snapshot();let rejected='';try{await recovery.restore(key);}catch(e){rejected=e.code;}
+      const after=await vault.snapshot();return {advanced,retained,rejected,unchanged:JSON.stringify(s)===JSON.stringify(after)};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({advanced:'read',retained:'read',rejected:'recovery_local_history_conflict',unchanged:true});
+});

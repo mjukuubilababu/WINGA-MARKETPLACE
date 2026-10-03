@@ -12790,3 +12790,10 @@ body.visual-categories-view #quick-discovery-rail{
 .chat-security-dialog input, .chat-security-dialog select { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border: 1px solid #9da7ad; border-radius: 4px; font: inherit; }
 .chat-fingerprint { display: block; overflow-wrap: anywhere; line-height: 1.6; user-select: all; }
 .chat-security-dialog .action-btn { margin: 8px 8px 0 0; }
+.chat-encrypted-file{display:flex;align-items:center;gap:8px;max-width:100%;padding:8px;border:1px solid #d5ded8;border-radius:6px;background:#f4f8f5;color:#19462c;text-align:start;cursor:pointer}
+.chat-encrypted-file span{min-width:0;overflow-wrap:anywhere}.chat-encrypted-file img{flex:none}.chat-encrypted-file:disabled{opacity:.55;cursor:default}
+.chat-security-dialog textarea{display:block;width:100%;max-width:100%;min-height:80px;resize:vertical;font:inherit;letter-spacing:0}
+.chat-security-actions{display:flex;flex-wrap:wrap;gap:8px}.chat-recovery-dialog label{overflow-wrap:anywhere}.chat-recovery-dialog input[type=checkbox]{width:auto;margin-inline-end:8px}
+.chat-recovery-dialog label:not([hidden]):has(> input[data-recovery-saved]){display:flex;flex-direction:row;align-items:flex-start;gap:8px}
+.chat-recovery-dialog input[data-recovery-saved]{flex:0 0 auto;margin:3px 0 0}
+.chat-recovery-archive{max-height:220px;overflow:auto;overflow-wrap:anywhere}.chat-recovery-archive p{padding-block:8px;border-bottom:1px solid #d5ded8}

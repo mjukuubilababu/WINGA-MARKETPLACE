@@ -32,6 +32,7 @@
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
+          mediaEnabled:capabilities.mediaEnabled===true,mediaRequest:api.cryptoMediaRequest,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
@@ -434,6 +435,22 @@
       },
       enableEncryptedConversation: async (peer,deviceId,fingerprint) => {
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.enable(peer,deviceId,fingerprint);
+      },
+      sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
+      downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
+      encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
+      createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
+      cryptoMediaRequest:async(method,object,proof,blob)=>{
+        requireFetcher();if(!['GET','PUT'].includes(method))throw new Error('private_media_invalid');
+        const encoded=btoa(JSON.stringify(proof)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+        const response=await fetch(`${baseUrl}/conversations/encrypted/media/${object.id}`,{method,headers:{...jsonHeaders(),'Content-Type':'application/octet-stream','X-Winga-Crypto-Proof':encoded},...(method==='PUT'?{body:blob}:{}),signal:AbortSignal.timeout(30000)});
+        if(!response.ok){const value=await response.json();throw Object.assign(new Error(value.code),{code:value.code,status:response.status});}
+        if(method==='PUT')return response.json();
+        if(response.headers.get('content-type')!=='application/octet-stream')throw new Error('private_media_integrity_rejected');
+        const reader=response.body.getReader(),chunks=[];let bytes=0;
+        try {while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>object.bytes)throw new Error('private_media_integrity_rejected');chunks.push(part.value);}}
+        finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
+        if(bytes!==object.bytes)throw new Error('private_media_integrity_rejected');return new Blob(chunks,{type:'application/octet-stream'});
       },
       createEncryptedCandidate: options => {
         if (candidateReady) return candidateReady;

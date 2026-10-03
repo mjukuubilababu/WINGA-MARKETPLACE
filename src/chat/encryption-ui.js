@@ -1,6 +1,8 @@
 (() => {
   function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{}}) {
     const t=translate;
+    globalThis.WingaRecoveryUi?.bind(scope,{dataLayer,translate,refresh});
+    globalThis.WingaEncryptedMediaUi?.bindDownloads(scope,{dataLayer,translate});
     for(const button of scope.querySelectorAll('[data-chat-security]')) {
       if(button.dataset.securityBound)continue;button.dataset.securityBound='true';
       const peer=button.dataset.chatSecurity;
@@ -10,8 +12,9 @@
           button.hidden=info.status==='disabled';button.dataset.securityStatus=info.status;
           button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
           button.setAttribute('aria-label',button.title);
+          if(info.status==='active' && info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
           if(['active','reserved','pending','blocked','recovery-required'].includes(info.status)) {
-            onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Encrypted chat currently supports text messages only.');control.classList.remove('selected');});
+            onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }
         }catch{button.hidden=false;button.dataset.securityStatus='unavailable';}

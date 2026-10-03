@@ -4942,7 +4942,7 @@ test("api writes attach a CSRF token before sending state-changing requests", ()
   assert.match(backendSource, /fetchSite === "cross-site"/);
   assert.match(backendSource, /isServerToServerWebhookPath\(pathname\)/);
   assert.match(backendSource, /code: "origin_not_allowed"/);
-  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id, Idempotency-Key"/);
+  assert.match(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id, X-Winga-Crypto-Proof, Idempotency-Key"/);
   assert.doesNotMatch(backendSource, /"Access-Control-Allow-Headers"] = "Content-Type, Authorization/);
   assert.match(backendSource, /function validateJsonRequestContentType\(req, pathname\)/);
   assert.match(backendSource, /requiresJsonRequestBody\(req, pathname\)/);

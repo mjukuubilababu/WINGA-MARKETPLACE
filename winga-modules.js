@@ -1186,6 +1186,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
+          mediaEnabled:capabilities.mediaEnabled===true,mediaRequest:api.cryptoMediaRequest,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
@@ -1588,6 +1589,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       },
       enableEncryptedConversation: async (peer,deviceId,fingerprint) => {
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.enable(peer,deviceId,fingerprint);
+      },
+      sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
+      downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
+      encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
+      createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
+      cryptoMediaRequest:async(method,object,proof,blob)=>{
+        requireFetcher();if(!['GET','PUT'].includes(method))throw new Error('private_media_invalid');
+        const encoded=btoa(JSON.stringify(proof)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+        const response=await fetch(`${baseUrl}/conversations/encrypted/media/${object.id}`,{method,headers:{...jsonHeaders(),'Content-Type':'application/octet-stream','X-Winga-Crypto-Proof':encoded},...(method==='PUT'?{body:blob}:{}),signal:AbortSignal.timeout(30000)});
+        if(!response.ok){const value=await response.json();throw Object.assign(new Error(value.code),{code:value.code,status:response.status});}
+        if(method==='PUT')return response.json();
+        if(response.headers.get('content-type')!=='application/octet-stream')throw new Error('private_media_integrity_rejected');
+        const reader=response.body.getReader(),chunks=[];let bytes=0;
+        try {while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>object.bytes)throw new Error('private_media_integrity_rejected');chunks.push(part.value);}}
+        finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
+        if(bytes!==object.bytes)throw new Error('private_media_integrity_rejected');return new Blob(chunks,{type:'application/octet-stream'});
       },
       createEncryptedCandidate: options => {
         if (candidateReady) return candidateReady;
@@ -17295,6 +17312,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${message.encrypted && message.attachmentId ? `<button type="button" class="chat-encrypted-file" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button>` : ''}
             <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
             ${enableActions && !message.encrypted ? `
@@ -18463,10 +18481,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     });
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
-    let closed=false,runtime,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    let closed=false,runtime,media,groups=[],tail=Promise.resolve(),lastSnapshot='';
     const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
     const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
     const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
@@ -18474,7 +18492,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function operation(action,payload,id) {current();const signed=await identity.signCryptoOperation(action,payload,id);const r=await operationRequest(signed);current();return r;}
     const serialize=work=>{const result=tail.then(()=>navigator.locks.request(`winga-encryption-session:${owner}`,async()=>{current();return work();}));tail=result.catch(()=>{});return result;};
     function messageView(item) {
-      return {...item,senderId:item.owner,receiverId:item.peer,messageType:'text',productId:'',productName:'',productItems:[],replyToMessageId:'',encrypted:true,
+      const a=globalThis.WingaEncryptedMedia?.attachment(item);
+      return {...item,message:a?a.text:item.message,...(a?{attachmentId:a.attachment.object.id,attachmentName:a.attachment.name}:{}),senderId:item.owner,receiverId:item.peer,messageType:a?'file':'text',productId:'',productName:'',productItems:[],replyToMessageId:'',encrypted:true,
         isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
         sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
     }
@@ -18514,6 +18533,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
         publishPackage:packageRequest,trustedPins:pins,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
       await runtime.initialize();const own=await runtime.prepareKeyPackage();
+      if(mediaEnabled && globalThis.WingaEncryptedMedia && typeof mediaRequest==='function')media=await WingaEncryptedMedia.createMediaClient({owner,getSession,vault,runtime,identity,operation,request:mediaRequest,onChange});
       async function syncInternal() {
         const result=await operation('poll',{});if(result?.version!==1 || !Array.isArray(result.groups))fail('mls_transport_invalid');
         groups=result.groups;
@@ -18549,6 +18569,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           for(const proof of g.receipts)await verifyReceipt(proof);
         }
+        if(media)for(const job of await media.list())if(groups.some(g=>g.id===job.conversationId&&g.status==='active'))await media.resume(job.id);
         for(const item of await runtime.history())if(item.owner===owner && item.status==='pending'
           && groups.some(g=>g.id===item.conversationId && g.status==='active')) {
           await runtime.retryMessage(item.id);queueMicrotask(onChange);
@@ -18559,7 +18580,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       async function inspect(peer) {
         return serialize(async()=>{
           await syncInternal();const g=groups.find(g=>g.creator===peer || g.recipient===peer);
-          if(g?.status==='active' && await runtime.isEncrypted(peer))return {status:'active',ownFingerprint:own.fingerprint};
+          if(g?.status==='active' && await runtime.isEncrypted(peer))return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media)};
           if(g?.status==='active')return {status:'recovery-required',ownFingerprint:own.fingerprint};
           if(g?.status==='blocked')return {status:'blocked',ownFingerprint:own.fingerprint};
           const candidates=g?.packages?.filter(p=>p.owner===peer) || (await operation('directory',{peer})).packages;
@@ -18601,7 +18622,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const service={
         inspect,enable,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>Boolean(groups.find(g=>g.creator===peer || g.recipient===peer)) || runtime.isEncrypted(peer),
-        history:async peer=>(await runtime.history(peer)).map(messageView),
+        history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
+        sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');return messageView(await media.send(peer,file,text));}),
+        downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
         sendMessage:payload=>serialize(async()=>{
           try {const result=messageView(await runtime.sendMessage(payload));queueMicrotask(onChange);return result;}
           catch(error) {
@@ -18610,7 +18633,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             queueMicrotask(onChange);return messageView(item);
           }
         }),
-        retryMessage:id=>serialize(async()=>{const item=await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;}),
+        retryMessage:id=>serialize(async()=>{const item=(media?await media.resume(id):null)||await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;}),
         markRead:(peer,messageIds=[])=>serialize(async()=>{
           if(document.visibilityState!=='visible' || !document.hasFocus())return;
           const visible=[...document.querySelectorAll('[data-chat-read-user]')].some(el=>el.dataset.chatReadUser===peer && el.getClientRects().length);
@@ -18629,10 +18652,135 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/encrypted-media-client.js
+(() => {
+  const PREFIX='WINGA-MEDIA/1\n',MAX_FILE_BYTES=2*1024*1024;
+  const fail=code=>{throw Object.assign(new Error(code),{code});};
+  const uuid=v=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v);
+  const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+  function attachment(item) {
+    if(!item?.message?.startsWith(PREFIX))return null;
+    try {
+      const value=JSON.parse(item.message.slice(PREFIX.length)),a=value.attachment,d=a?.descriptor,o=a?.object;
+      if(Object.keys(value).sort().join(',')!=='attachment,text' || typeof value.text!=='string' || value.text.length>4096
+        || Object.keys(a||{}).sort().join(',')!=='descriptor,name,object' || typeof a.name!=='string' || a.name.length>255
+        || Object.keys(o||{}).sort().join(',')!=='bytes,id,sha256' || !uuid(o.id) || !Number.isSafeInteger(o.bytes)
+        || o.bytes<40 || o.bytes>MAX_FILE_BYTES+4136 || !/^[a-f0-9]{64}$/.test(o.sha256)
+        || Object.keys(d||{}).sort().join(',')!=='algorithm,attachmentId,conversationId,key,version' || d.version!==2
+        || d.algorithm!=='webcrypto-aes256gcm-v1' || d.conversationId!==item.conversationId || d.attachmentId!==o.id
+        || !/^[A-Za-z0-9_-]{43}$/.test(d.key))return null;
+      return value;
+    }catch{return null;}
+  }
+  async function createMediaClient({owner,getSession,vault,runtime,identity,operation,request,onChange=()=>{}}) {
+    const codec=await WingaSecureContent.loadSecureContent(),initial={...getSession()};
+    const current=()=>{const s=getSession();if(s?.username!==owner || s.token!==initial.token || s.sessionId!==initial.sessionId)fail('mls_session_changed');};
+    async function list() {current();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('media:pending:')).map(([,v])=>v);}
+    const pendingView=job=>({id:job.id,conversationId:job.conversationId,owner,peer:job.peer,message:job.message,timestamp:job.timestamp,status:'pending'});
+    async function resume(id) {
+      current();let s=await vault.snapshot(),job=s.values[`media:pending:${id}`];if(!job)return null;
+      let existing=(await runtime.history(job.peer)).find(v=>v.id===id);
+      try {
+        if(existing) {
+          const retried=await runtime.retryMessage(id);return retried || existing;
+        }
+        const object=job.attachment.object;
+        const grant=await operation('media-reserve',{...object,conversationId:job.conversationId,messageId:id},id);
+        if(JSON.stringify(grant,Object.keys(grant||{}).sort())!==JSON.stringify(object,Object.keys(object).sort()))fail('private_media_integrity_rejected');
+        const proof=await identity.signCryptoOperation('media-upload',object,id);
+        const uploaded=await request('PUT',object,proof,new Blob([job.ciphertext],{type:'application/octet-stream'}));current();
+        if(JSON.stringify(uploaded,Object.keys(uploaded||{}).sort())!==JSON.stringify(object,Object.keys(object).sort()))fail('private_media_integrity_rejected');
+        return await runtime.sendMessage({clientMessageId:id,receiverId:job.peer,message:job.message,messageType:'text',mediaId:object.id});
+      }finally {
+        existing=(await runtime.history(job.peer)).find(v=>v.id===id);
+        if(existing) {s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{},deleted:[`media:pending:${id}`]});}
+        queueMicrotask(onChange);
+      }
+    }
+    async function send(peer,file,text='') {
+      current();if(!(file instanceof Blob)||file.size>MAX_FILE_BYTES || typeof text!=='string'||text.length>4096)fail('private_media_invalid');
+      const pending=await list();if(pending.length>=10 || pending.some(v=>v.peer===peer))fail('mls_pending_send_requires_retry');
+      const conversationId=await runtime.conversationId(peer),id=crypto.randomUUID(),attachmentId=crypto.randomUUID();
+      const name=String(file.name||'attachment').slice(0,255),sealed=await codec.encryptMedia(file,{conversationId,attachmentId},{name});current();
+      const ciphertext=new Uint8Array(await sealed.ciphertext.arrayBuffer()),object={id:attachmentId,bytes:ciphertext.length,sha256:await hash(ciphertext)};
+      const a={object,descriptor:sealed.descriptor,name},message=PREFIX+JSON.stringify({text,attachment:a});
+      const job={id,peer,conversationId,message,attachment:a,ciphertext,timestamp:new Date().toISOString()},s=await vault.snapshot();
+      await vault.write({expectedRevision:s.revision,values:{[`media:pending:${id}`]:job}});ciphertext.fill(0);
+      try {return await resume(id);}catch(error) {
+        if(!(error instanceof TypeError)&&error.status!==503)throw error;
+        const item=(await runtime.history(peer)).find(v=>v.id===id);return item || pendingView(job);
+      }
+    }
+    async function download(id) {
+      current();const item=(await runtime.history()).find(v=>v.id===id),value=attachment(item);
+      if(!value)fail('private_media_invalid');const {object,descriptor}=value.attachment;
+      const proof=await identity.signCryptoOperation('media-download',object);
+      const blob=await request('GET',object,proof);current();
+      if(!(blob instanceof Blob)||blob.size!==object.bytes||await hash(await blob.arrayBuffer())!==object.sha256)fail('private_media_integrity_rejected');
+      const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();return result;
+    }
+    return {send,resume,list,download,pendingHistory:async()=> (await list()).map(pendingView)};
+  }
+  globalThis.WingaEncryptedMedia={createMediaClient,attachment,MAX_FILE_BYTES};
+})();
+
+
+// src/chat/encrypted-media-ui.js
+(() => {
+  function bindDownloads(scope,{dataLayer,translate=(k,f)=>f}) {
+    for(const button of scope.querySelectorAll('[data-encrypted-media-download]')) {
+      if(button.dataset.downloadBound)continue;button.dataset.downloadBound='true';
+      button.onclick=async()=>{
+        button.disabled=true;let url;
+        try {
+          const result=await dataLayer.downloadEncryptedMedia(button.dataset.encryptedMediaDownload);
+          // Download only: never execute recovered HTML/SVG or open an untrusted URL.
+          url=URL.createObjectURL(new Blob([result.blob],{type:'application/octet-stream'}));
+          const link=document.createElement('a');link.href=url;link.download=result.name.replace(/[\\/<>:"|?*\x00-\x1f]/g,'_').slice(0,255)||'attachment';
+          document.body.append(link);link.click();link.remove();
+        }catch{button.title=translate('chat.mediaFailed','Encrypted file operation failed');}
+        finally {button.disabled=false;if(url)setTimeout(()=>URL.revokeObjectURL(url),1000);}
+      };
+    }
+  }
+  function bind(scope,{peer,dataLayer,translate=(k,f)=>f,refresh=()=>{}}) {
+    bindDownloads(scope,{dataLayer,translate});
+    const toolbar=scope.querySelector('.chat-compose-footer');if(!toolbar || toolbar.querySelector('[data-encrypted-media-upload]'))return;
+    const t=translate,button=document.createElement('button'),input=document.createElement('input');button.type='button';button.className='chat-security-control';button.dataset.encryptedMediaUpload='';
+    button.title=t('chat.mediaAttach','Attach encrypted file');button.setAttribute('aria-label',button.title);
+    const icon=document.createElement('img');icon.src='/icons/navigation/paperclip.svg';icon.width=icon.height=18;icon.alt='';button.append(icon);
+    input.type='file';input.hidden=true;toolbar.prepend(button,input);button.onclick=()=>input.click();
+    input.onchange=()=>{
+      const file=input.files[0];input.value='';if(!file)return;
+      const dialog=document.createElement('dialog');dialog.className='chat-security-dialog';
+      const heading=document.createElement('h3');heading.textContent=t('chat.mediaAttach','Attach encrypted file');dialog.append(heading);
+      const name=document.createElement('p');name.className='chat-fingerprint';name.textContent=file.name;dialog.append(name);
+      const label=document.createElement('label');label.textContent=t('chat.mediaCaption','Caption');const text=document.createElement('textarea');text.maxLength=4096;text.rows=3;label.append(text);dialog.append(label);
+      const status=document.createElement('p');status.setAttribute('role','status');dialog.append(status);
+      const send=document.createElement('button');send.type='button';send.className='action-btn';send.textContent=t('chat.mediaSend','Send encrypted file');dialog.append(send);
+      const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.cancel','Cancel');dialog.append(close);
+      let busy=false;
+      if(file.size>globalThis.WingaEncryptedMedia.MAX_FILE_BYTES){send.disabled=true;status.textContent=t('chat.mediaLimit','The encrypted file limit is 2 MiB.');}
+      close.onclick=()=>dialog.close();dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});dialog.addEventListener('close',()=>{text.value='';dialog.remove();},{once:true});
+      send.onclick=async()=>{
+        if(busy)return;busy=true;send.disabled=close.disabled=true;status.textContent=t('chat.secureWorking','Working...');
+        try {await dataLayer.sendEncryptedMedia(peer,file,text.value);await refresh();dialog.close();}
+        catch {status.textContent=t('chat.mediaFailed','Encrypted file operation failed');}
+        finally {busy=false;send.disabled=close.disabled=false;}
+      };
+      document.body.append(dialog);dialog.showModal();text.focus();
+    };
+  }
+  globalThis.WingaEncryptedMediaUi={bind,bindDownloads};
+})();
+
+
 // src/chat/encryption-ui.js
 (() => {
   function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{}}) {
     const t=translate;
+    globalThis.WingaRecoveryUi?.bind(scope,{dataLayer,translate,refresh});
+    globalThis.WingaEncryptedMediaUi?.bindDownloads(scope,{dataLayer,translate});
     for(const button of scope.querySelectorAll('[data-chat-security]')) {
       if(button.dataset.securityBound)continue;button.dataset.securityBound='true';
       const peer=button.dataset.chatSecurity;
@@ -18642,8 +18790,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           button.hidden=info.status==='disabled';button.dataset.securityStatus=info.status;
           button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
           button.setAttribute('aria-label',button.title);
+          if(info.status==='active' && info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
           if(['active','reserved','pending','blocked','recovery-required'].includes(info.status)) {
-            onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Encrypted chat currently supports text messages only.');control.classList.remove('selected');});
+            onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }
         }catch{button.hidden=false;button.dataset.securityStatus='unavailable';}
@@ -18884,6 +19033,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const fields = ['version', 'algorithm', 'purpose', 'owner', 'id', 'generation', 'nonce', 'ciphertext'];
   const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
   const fail = code => { throw Object.assign(new Error(code), { code }); };
+  function mergeHistory(prior,current) {
+    const result={...prior},rank={pending:0,sent:1,delivered:2,read:3};
+    for(const [key,value] of Object.entries(current)) {
+      const old=result[key];
+      if(old!==undefined && JSON.stringify(old)!==JSON.stringify(value)) {
+        const stable=v=>{const copy={...v};delete copy.status;return JSON.stringify(copy);};
+        if(!old || !value || typeof old!=='object' || typeof value!=='object' || !Object.hasOwn(rank,old.status) || !Object.hasOwn(rank,value.status)
+          || stable(old)!==stable(value))fail('recovery_local_history_conflict');
+        result[key]={...value,status:rank[old.status]>rank[value.status]?old.status:value.status};
+      } else result[key]=value;
+    }
+    return result;
+  }
   async function checkpointFor(capsule, revision, crypto = globalThis.crypto) {
     if (!capsule || Object.keys(capsule).length !== fields.length || fields.some(key => !Object.hasOwn(capsule, key))
       || typeof revision !== 'string' || !/^[1-9][0-9]{0,15}$/.test(revision) || !Number.isSafeInteger(Number(revision))
@@ -18941,8 +19103,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             try {
               const prior = readArchive(bytes).items;
               if (!Object.keys(items).length) fail('recovery_restore_required');
-              if (Object.keys(prior).some(key => items[key] !== undefined && JSON.stringify(items[key]) !== JSON.stringify(prior[key]))) fail('recovery_local_history_conflict');
-              items = { ...prior, ...items };
+              items = mergeHistory(prior,items);
             } finally { bytes.fill(0); }
           }
           if (Object.keys(items).length > 1999) fail('recovery_archive_invalid');
@@ -18981,11 +19142,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           owner, id: remote.capsule.id, generation: remote.capsule.generation });
         let archive;
         try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
-        const conflicting = Object.keys(archive.items).some(key => local.values[key] !== undefined
-          && JSON.stringify(local.values[key]) !== JSON.stringify(archive.items[key]));
-        if (conflicting || local.values['backup:pending']) fail('recovery_local_history_conflict');
+        if (local.values['backup:pending']) fail('recovery_local_history_conflict');
+        const items=mergeHistory(archive.items,historyOnly(local.values));
         current(session);
-        await vault.write({ expectedRevision: local.revision, values: { ...archive.items, 'recovery:checkpoint': checkpoint } });
+        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
       });
     }
@@ -18994,6 +19154,110 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   }
   return { createRecoveryClient, checkpointFor, verifyCheckpoint };
 });
+
+
+// src/chat/recovery-ui.js
+(() => {
+  const fail=code=>{throw Object.assign(new Error(code),{code});};
+  function validateKit(value,owner,allowKeyOnly=false) {
+    if(!value || Object.keys(value).sort().join(',')!=='checkpoint,key,owner,purpose,version' || value.version!==1
+      || value.purpose!=='winga-history-recovery' || value.owner!==owner || typeof value.key!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(value.key)
+      || (!(allowKeyOnly && value.checkpoint===null) && (!value.checkpoint || Object.keys(value.checkpoint).sort().join(',')!=='hash,owner,revision,v'
+      || value.checkpoint.v!==1 || value.checkpoint.owner!==owner || typeof value.checkpoint.revision!=='string' || !/^[1-9][0-9]{0,15}$/.test(value.checkpoint.revision)
+      || !Number.isSafeInteger(Number(value.checkpoint.revision)) || typeof value.checkpoint.hash!=='string' || !/^[a-f0-9]{64}$/.test(value.checkpoint.hash))))fail('recovery_checkpoint_rejected');return value;
+  }
+  async function createRecoverySession({getSession,request}) {
+    const initial={...getSession()},owner=initial.username;
+    const current=()=>{const s=getSession();if(!owner || s?.username!==owner || s.token!==initial.token || s.sessionId!==initial.sessionId)fail('recovery_session_changed');};
+    current();const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});let codec;
+    try{codec=await WingaSecureContent.loadSecureContent();current();}catch(error){vault.close();throw error;}
+    const guarded=async(...args)=>{current();const result=await request(...args);current();return result;};
+    const client=WingaRecoveryClient.createRecoveryClient({owner,getSession,vault,codec,request:guarded});
+    let closed=false;const active=()=>{current();if(closed)fail('recovery_session_changed');};
+    return {owner,
+      check:active,
+      generateKey(){active();return codec.generateRecoveryKey();},
+      async state(){active();const s=getSession();return guarded('GET',undefined,{owner,deviceId:s.sessionId,token:s.token});},
+      async backup(key,checkpoint){active();const result=await client.backup(key,{checkpoint});return {version:1,purpose:'winga-history-recovery',owner,key,checkpoint:result.checkpoint};},
+      async restore(kit){active();validateKit(kit,owner);return client.restore(kit.key,{checkpoint:kit.checkpoint});},
+      async archive(){active();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('history:')).map(([,v])=>v);},
+      close(){closed=true;vault.close();}
+    };
+  }
+  function saveKit(kit) {
+    const url=URL.createObjectURL(new Blob([JSON.stringify(kit,null,2)],{type:'application/json'})),link=document.createElement('a');
+    link.href=url;link.download='winga-history-recovery.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{}}) {
+    const t=translate,session=await dataLayer.createEncryptedRecovery();let dialog,kit,key='',busy=false;
+    try {
+      const remote=await session.state();
+      dialog=document.createElement('dialog');dialog.className='chat-security-dialog chat-recovery-dialog';
+      const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el;};
+      dialog.append(node('h3',t('chat.recovery','Encrypted history recovery')));
+      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Anyone with it can read your backed-up history. It does not restore live chat membership.')));
+      const status=node('p','');status.setAttribute('role','status');dialog.append(status);
+      const importLabel=node('label',t('chat.recoveryImport','Recovery file')),file=document.createElement('input');file.type='file';file.accept='.json,application/json';file.dataset.recoveryFile='';importLabel.append(file);dialog.append(importLabel);
+      const newKey=node('button',t('chat.recoveryCreate','Create recovery key'));newKey.type='button';newKey.className='action-btn action-btn-secondary';newKey.disabled=remote.revision!=='0';dialog.append(newKey);
+      const keyLabel=node('label',t('chat.recoveryKey','Recovery key')),keyOutput=document.createElement('code');keyOutput.className='chat-fingerprint';keyLabel.append(keyOutput);keyLabel.hidden=true;dialog.append(keyLabel);
+      const confirmLabel=node('label',t('chat.recoveryConfirm','Type the key again to confirm')),confirmation=document.createElement('input');confirmation.type='password';confirmation.autocomplete='off';confirmation.spellcheck=false;confirmation.dataset.recoveryConfirm='';confirmLabel.append(confirmation);confirmLabel.hidden=true;dialog.append(confirmLabel);
+      const actions=document.createElement('div');actions.className='chat-security-actions';
+      const backup=node('button',t('chat.recoveryBackup','Back up and export')),restore=node('button',t('chat.recoveryRestore','Restore history')),download=node('button',t('chat.recoveryDownload','Download recovery file'));
+      for(const b of [backup,restore,download]){b.type='button';b.className='action-btn';actions.append(b);}backup.disabled=restore.disabled=true;download.hidden=true;dialog.append(actions);
+      const savedLabel=node('label',t('chat.recoverySaved','I saved the latest recovery file outside Winga')),saved=document.createElement('input');saved.type='checkbox';saved.dataset.recoverySaved='';savedLabel.prepend(saved);savedLabel.hidden=true;dialog.append(savedLabel);
+      const archive=document.createElement('div');archive.className='chat-recovery-archive';dialog.append(archive);
+      const close=node('button',t('common.close','Close'));close.type='button';close.className='action-btn action-btn-secondary';dialog.append(close);
+      let exported=false;
+      const enabled=()=>{backup.disabled=busy || !key || confirmation.value!==key || !saved.checked;restore.disabled=busy || !kit?.checkpoint;file.disabled=busy;newKey.disabled=busy || remote.revision!=='0' || Boolean(key);close.disabled=busy || (exported&&!saved.checked);};
+      async function run(work) {
+        if(busy)return;busy=true;enabled();status.textContent=t('chat.secureWorking','Working...');
+        try {await work();}catch {status.textContent=t('chat.recoveryFailed','Recovery failed. Check the key and latest recovery file; no history was overwritten.');}
+        finally {busy=false;file.disabled=false;newKey.disabled=remote.revision!=='0'||Boolean(kit);enabled();}
+      }
+      newKey.onclick=()=>{key=session.generateKey();kit={version:1,purpose:'winga-history-recovery',owner:session.owner,key,checkpoint:null};keyOutput.textContent=key;keyLabel.hidden=confirmLabel.hidden=false;confirmation.value='';download.hidden=false;savedLabel.hidden=false;saved.checked=false;exported=true;saveKit(kit);status.textContent=t('chat.recoveryExported','Save this latest recovery file before closing.');enabled();};
+      confirmation.oninput=enabled;
+      file.onchange=()=>run(async()=>{
+        kit=null;key='';confirmation.value='';keyOutput.textContent='';keyLabel.hidden=true;
+        const selected=file.files[0];if(!selected || selected.size>16384)fail('recovery_checkpoint_rejected');
+        const contents=await selected.text();session.check();if(!dialog.isConnected)fail('recovery_session_changed');
+        kit=validateKit(JSON.parse(contents),session.owner,true);key=kit.key;keyOutput.textContent='';keyLabel.hidden=true;confirmLabel.hidden=false;confirmation.value='';saved.checked=true;exported=false;
+        download.hidden=true;savedLabel.hidden=true;status.textContent=t('chat.recoveryLoaded','Recovery file loaded');
+      });
+      backup.onclick=()=>run(async()=>{
+        if(!key || confirmation.value!==key)fail('recovery_checkpoint_rejected');
+        kit=await session.backup(key,kit?.checkpoint);download.hidden=false;saved.checked=false;savedLabel.hidden=false;newKey.disabled=true;
+        exported=true;saveKit(kit);status.textContent=t('chat.recoveryExported','Backup encrypted. Save this latest recovery file before closing.');
+      });
+      download.onclick=()=>{if(kit)saveKit(kit);};
+      saved.onchange=()=>{if(saved.checked)status.textContent=t('chat.recoveryRetained','Latest recovery file retained');enabled();};
+      restore.onclick=()=>run(async()=>{
+        const result=await session.restore(kit);status.textContent=t('chat.recoveryRestored','History restored')+`: ${result.restored}`;
+        archive.replaceChildren();
+        for(const item of (await session.archive()).slice(-20))if(item && typeof item.message==='string') {
+          const a=globalThis.WingaEncryptedMedia?.attachment(item),row=node('p',a?(a.text||a.attachment.name):item.message);archive.append(row);
+        }
+        // A pending device can restore its archive without gaining live MLS membership.
+        try{await refresh();}catch{}
+      });
+      const sessionTimer=setInterval(()=>{try{session.check();}catch{dialog.close();}},500);
+      close.onclick=()=>dialog.close();dialog.addEventListener('cancel',event=>{if(busy || (exported&&!saved.checked))event.preventDefault();});
+      dialog.addEventListener('close',()=>{clearInterval(sessionTimer);key='';kit=null;keyOutput.textContent='';confirmation.value='';file.value='';session.close();dialog.remove();},{once:true});
+      document.body.append(dialog);dialog.showModal();
+    }catch(error){session.close();dialog?.remove();throw error;}
+  }
+  function bind(scope,options) {
+    if(!options.dataLayer.encryptedRecoveryAvailable)return;
+    for(const security of scope.querySelectorAll('[data-chat-security]')) {
+      if(security.dataset.recoveryBound)continue;security.dataset.recoveryBound='true';
+      const button=document.createElement('button');button.type='button';button.className='chat-security-control';button.dataset.chatRecovery='';button.hidden=true;
+      const title=(options.translate||((k,f)=>f))('chat.recovery','Encrypted history recovery');button.title=title;button.setAttribute('aria-label',title);
+      const icon=document.createElement('img');icon.src='/icons/navigation/key-round.svg';icon.width=icon.height=16;icon.alt='';button.append(icon);security.after(button);
+      options.dataLayer.encryptedRecoveryAvailable().then(v=>button.hidden=!v).catch(()=>{});
+      button.onclick=async()=>{button.disabled=true;try{await open(options);}catch{button.title=(options.translate||((k,f)=>f))('chat.recoveryFailed','Recovery unavailable');}finally{button.disabled=false;}};
+    }
+  }
+  globalThis.WingaRecoveryUi={createRecoverySession,validateKit,bind,open};
+})();
 
 
 // src/chat/controller.js

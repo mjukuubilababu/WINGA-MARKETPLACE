@@ -443,6 +443,7 @@
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${message.encrypted && message.attachmentId ? `<button type="button" class="chat-encrypted-file" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button>` : ''}
             <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
             ${enableActions && !message.encrypted ? `

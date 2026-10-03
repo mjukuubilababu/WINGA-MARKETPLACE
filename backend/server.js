@@ -39,6 +39,8 @@ const { createConversationOffersApi } = require("./conversation-offers-api");
 const { createConversationAvailabilityApi } = require("./conversation-availability-api");
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
 const { createEncryptedConversationBackupsApi } = require("./encrypted-conversation-backups-api");
+const { createPrivateMediaStorage } = require("./conversation-private-media");
+const { createEncryptedMediaApi, createEncryptedMediaCleanup } = require("./encrypted-media-api");
 const { createConversationCryptoDevicesApi } = require("./conversation-crypto-devices-api");
 const { createEncryptedConversationsApi } = require("./encrypted-conversations-api");
 const { requireLegacyPayload } = require("./encrypted-content-contract");
@@ -316,6 +318,13 @@ const realtimeBootId = crypto.randomUUID();
 let messageEventSubscription = null;
 let messageDispatchWorker = null;
 let webPushWorker = null;
+let encryptedMediaStorage = null;
+let encryptedMediaCleanup = null;
+const encryptedMediaEnabled = () => ['WINGA_ENCRYPTED_CONVERSATIONS_ENABLED','WINGA_CRYPTO_DEVICES_ENABLED','WINGA_MLS_CANDIDATE_ENABLED','WINGA_ENCRYPTED_MEDIA_ENABLED'].every(key=>process.env[key]==='true');
+function getEncryptedMediaStorage() {
+  if(!encryptedMediaStorage)encryptedMediaStorage=createPrivateMediaStorage({authorize:(context,object,action)=>postgresStore.authorizeEncryptedMedia(context,object,action)});
+  return encryptedMediaStorage;
+}
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
     databaseUrl: DATABASE_URL,
@@ -2453,7 +2462,7 @@ function buildSecurityHeaders(statusCode, extraHeaders = {}, req = null) {
     headers["Access-Control-Allow-Origin"] = corsOrigin;
     headers["Vary"] = "Origin";
     headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id, Idempotency-Key";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token, X-Winga-CSRF-Token, X-Winga-Audience-Id, X-Winga-Crypto-Proof, Idempotency-Key";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
 
@@ -6825,6 +6834,8 @@ function isBodylessApiActionPath(method, pathname) {
 }
 
 function validateJsonRequestContentType(req, pathname) {
+  if(req.method==='PUT' && /^\/api\/conversations\/encrypted\/media\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(pathname)
+    && req.headers['content-type']==='application/octet-stream')return {ok:true};
   if (!requiresJsonRequestBody(req, pathname)) {
     return { ok: true };
   }
@@ -7969,10 +7980,15 @@ const server = http.createServer(async (req, res) => {
         ensureMarketplaceUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
         getPostgresStore: () => postgresStore,
         legacyOnly: !process.env.DATABASE_URL,
+        mediaEnabled:encryptedMediaEnabled(),
         enabled: process.env.WINGA_ENCRYPTED_CONVERSATIONS_ENABLED === "true"
           && process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true" && process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
       });
       if (await encryptedTransport.handle(req, res, url)) return;
+      const encryptedMedia=createEncryptedMediaApi({sendJson,findSession:token=>findSession(store,token),readAuthToken,
+        ensureMarketplaceUser:(session,targetRes)=>ensureMarketplaceUser(store,session,targetRes),
+        getPostgresStore:()=>postgresStore,getStorage:getEncryptedMediaStorage,enabled:encryptedMediaEnabled()});
+      if(await encryptedMedia.handle(req,res,url))return;
       const encryptedBackups = createEncryptedConversationBackupsApi({
         collectBody, sendJson,
         findSession: token => findSession(store, token), readAuthToken,
@@ -15052,19 +15068,21 @@ function shutdownServer(signal = "SIGTERM") {
   stopAdLifecycleSweeper();
   const dispatchStopped = messageDispatchWorker?.stop();
   const pushStopped = webPushWorker?.stop();
+  const encryptedMediaStopped=encryptedMediaCleanup?.stop();
   productImageMetadataQueue.length = 0;
   shutdownPromise = (async () => {
     const deadline = Date.now() + SHUTDOWN_GRACE_MS;
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
     const closePromise = waitForServerClose();
     await Promise.race([
-      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped, pushStopped]),
+      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped, pushStopped, encryptedMediaStopped]),
       new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
     ]);
     server.closeIdleConnections?.();
     if (Date.now() >= deadline) server.closeAllConnections?.();
     await Promise.allSettled([
       Promise.resolve(closeCache?.()),
+      Promise.resolve(encryptedMediaStorage?.close?.()),
       Promise.resolve(postgresStore?.close?.())
     ]);
     serverLifecycle.phase = "stopped";
@@ -15106,6 +15124,11 @@ server.listen(PORT, async () => {
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startConversationAckSweeper();
+    if(encryptedMediaEnabled()) {
+      encryptedMediaCleanup=createEncryptedMediaCleanup({getPostgresStore:()=>postgresStore,getStorage:getEncryptedMediaStorage,
+        onResult:state=>logStructuredEvent('info','encrypted_media_cleanup',{privacy:'aggregate-only',...state})});
+      encryptedMediaCleanup.start();
+    }
     startPaymentRefundSweeper();
     startAdLifecycleSweeper();
     if (postgresStore?.dispatchMessageBatch && process.env.WINGA_MESSAGE_DISPATCH_ENABLED !== "false") {

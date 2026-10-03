@@ -8,7 +8,8 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{} }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false }) {
+  const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access});
   async function authorize(client, context, operation) {
     await authenticateCryptoSession(client, context, now());
     assert(operation && uuid(operation.actorId) && uuid(operation.requestId) && Number.isSafeInteger(operation.issuedAt)
@@ -32,7 +33,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       keyPackage: p.package, mlsPublicKey: p.mls_public_key, identityProof: p.identity_proof }));
   }
   async function encryptedOperation(context, op) {
-    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll'].includes(op?.action));
+    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve'].includes(op?.action));
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
     const fields={directory:['peer'],reserve:['conversationId','peer','sourceHash','targetHash'],
@@ -40,6 +41,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       send:['id','conversationId','epoch','deviceId','ciphertext','hash'],receipt:['id','conversationId','epoch','hash','kind'],
       'receipt-ack':['id','conversationId','epoch','hash','kind'],poll:[]};
     fields.reject=['id','conversationId','epoch','hash','reason'];
+    fields['media-reserve']=['id','conversationId','messageId','bytes','sha256'];
+    if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
     return withTransaction(async client => {
@@ -92,6 +95,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       assert(uuid(p.conversationId));
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[p.conversationId])).rows[0];
       await access(client,g,op.actorId,context.owner);
+      if(op.action==='media-reserve') {
+        assert(mediaEnabled,503,'private_media_disabled');assert(uuid(p.id)&&uuid(p.messageId));
+        return media.reserve(client,context,op,g);
+      }
       if(op.action==='transfer') {
         assert(g.creator_device===op.actorId && p.packageHash===g.target_hash && p.epoch==='1' && uuid(p.id),403,'encrypted_membership_required');
         for(const key of ['commit','welcome','tree']) assert(typeof p[key]==='string' && /^[A-Za-z0-9_-]+$/.test(p[key]) && p[key].length<=90000);
@@ -108,6 +115,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       }
       assert(g.status==='active',409,'encrypted_membership_pending');
       if(op.action==='send') {
+        if(Object.hasOwn(p,'mediaId'))assert(mediaEnabled && uuid(p.mediaId),503,'private_media_disabled');
         assert(uuid(p.id) && p.deviceId===op.actorId && p.epoch===g.epoch && typeof p.ciphertext==='string' && /^[A-Za-z0-9_-]+$/.test(p.ciphertext));
         const bytes=Buffer.from(p.ciphertext,'base64url');
         assert(bytes.length<=65536 && bytes.toString('base64url')===p.ciphertext && digest(bytes)===p.hash);
@@ -116,11 +124,13 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(parsed && parsed[1]===bytes.length && parsed[0].wireformat==='mls_private_message'
           && Buffer.from(parsed[0].privateMessage.groupId).toString('utf8')===g.id && String(parsed[0].privateMessage.epoch)===g.epoch);
         const prior=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1',[p.id])).rows[0];
-        if(prior) assert(prior.conversation_id===g.id && prior.sender_device===op.actorId && prior.hash===p.hash && prior.ciphertext===p.ciphertext,409,'encrypted_send_conflict');
+        if(prior) assert(prior.conversation_id===g.id && prior.sender_device===op.actorId && prior.hash===p.hash && prior.ciphertext===p.ciphertext
+          && (prior.media_id || null)===(p.mediaId || null),409,'encrypted_send_conflict');
         else {
           const seq=(await client.query('UPDATE encrypted_conversations SET next_sequence=next_sequence+1 WHERE id=$1 RETURNING next_sequence',[g.id])).rows[0].next_sequence;
           await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
             [p.id,g.id,op.actorId,p.epoch,seq,p.ciphertext,p.hash,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+          await media.attach(client,g,op,p);
           await enqueuePush(client,{id:p.id,senderId:context.owner,receiverId:g.creator===context.owner?g.recipient:g.creator});
         }
         return {id:p.id,hash:p.hash,status:'sent'};
@@ -151,6 +161,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       return {version:1,mode:row?.security_mode || 'legacy-plaintext'};
     });
   }
-  return { encryptedOperation, readEncryptedConversationMode };
+  return { encryptedOperation, readEncryptedConversationMode,
+    authorizeEncryptedMedia:(context,object,action)=>{assert(mediaEnabled,503,'private_media_disabled');return media.authorize(context,object,action);},
+    completeEncryptedMediaUpload:media.uploaded,claimEncryptedMediaCleanup:media.claim,finishEncryptedMediaCleanup:media.finish };
 }
 module.exports={createEncryptedConversationStore,operationBytes};
