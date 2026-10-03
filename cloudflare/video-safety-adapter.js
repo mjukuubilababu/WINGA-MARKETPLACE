@@ -146,11 +146,18 @@ async function deliverWingaResult(normalized, env) {
     },
     body: callbackBody
   }, FETCH_TIMEOUT_MS, async response => {
-    await drainBounded(response, MAX_PROVIDER_RESPONSE_BYTES);
-    return { ok: response.ok, status: response.status };
+    const text = await readBoundedResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    let payload;
+    try { payload = JSON.parse(text); } catch {}
+    const knownCodes = new Set(["csrf_failed", "origin_not_allowed", "video_safety_unavailable", "invalid_video_safety_result", "invalid_result", "video_safety_result_conflict"]);
+    const reason = response.ok ? ""
+      : /error[^]{0,80}1042/i.test(text) ? "cloudflare_1042"
+      : knownCodes.has(payload?.code) ? payload.code
+      : response.status === 401 ? "signature_rejected" : "callback_rejected";
+    return { ok: response.ok, status: response.status, reason };
   });
   if (!response.ok) {
-    console.error(JSON.stringify({ event: "video_safety_result_delivery_failed", status: response.status }));
+    console.error(JSON.stringify({ event: "video_safety_result_delivery_failed", status: response.status, reason: response.reason }));
   }
   return { ok: response.ok };
 }
@@ -201,12 +208,14 @@ function hiveResponseShape(payload) {
 
 function parseHiveClass(prediction) {
   if (!prediction || typeof prediction !== "object" || Array.isArray(prediction)) return null;
-  const modern = "class_name" in prediction || "value" in prediction;
-  const classic = "class" in prediction || "score" in prediction;
-  if (modern && classic
-      && (prediction.class_name !== prediction.class || prediction.value !== prediction.score)) return null;
-  const rawLabel = modern ? prediction.class_name : prediction.class;
-  const score = modern ? prediction.value : prediction.score;
+  const named = Object.hasOwn(prediction, "class_name");
+  const classified = Object.hasOwn(prediction, "class");
+  const valued = Object.hasOwn(prediction, "value");
+  const scored = Object.hasOwn(prediction, "score");
+  if ((named && classified && prediction.class_name !== prediction.class)
+      || (valued && scored && prediction.value !== prediction.score)) return null;
+  const rawLabel = named ? prediction.class_name : prediction.class;
+  const score = valued ? prediction.value : prediction.score;
   if (typeof rawLabel !== "string" || rawLabel.length > 80) return null;
   const label = rawLabel.toLowerCase();
   if (!/^[a-z][a-z0-9_]*$/.test(label) || typeof score !== "number"
