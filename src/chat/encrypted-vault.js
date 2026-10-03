@@ -44,7 +44,8 @@
       || typeof getSession !== 'function') fail('crypto_vault_unavailable');
     const current = () => {
       const session = getSession();
-      if (session?.username !== owner || !session.token || !session.sessionId) fail('crypto_vault_session_required');
+      // HttpOnly sessions expose their ID, never the bearer cookie. Server I/O authenticates separately.
+      if (session?.username !== owner || !session.sessionId) fail('crypto_vault_session_required');
       return { ...session };
     };
     const assertCurrent = before => {

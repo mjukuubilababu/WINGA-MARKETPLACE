@@ -18357,7 +18357,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     });
     const session = () => {
       const value = getSession();
-      if (!value?.username || !value.sessionId || !value.token) fail('crypto_device_session_required');
+      if (!value?.username || !value.sessionId) fail('crypto_device_session_required');
       return { owner: value.username, deviceId: value.sessionId, token: value.token };
     };
     function current(context) {
@@ -19206,7 +19206,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       || typeof getSession !== 'function') fail('crypto_vault_unavailable');
     const current = () => {
       const session = getSession();
-      if (session?.username !== owner || !session.token || !session.sessionId) fail('crypto_vault_session_required');
+      // HttpOnly sessions expose their ID, never the bearer cookie. Server I/O authenticates separately.
+      if (session?.username !== owner || !session.sessionId) fail('crypto_vault_session_required');
       return { ...session };
     };
     const assertCurrent = before => {
@@ -19442,7 +19443,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       || !codec?.sealRecovery || !codec?.openRecovery || !locks?.request || typeof request !== 'function') fail('recovery_unavailable');
     const context = () => {
       const value = getSession();
-      if (value?.username !== owner || !value.sessionId || !value.token) fail('recovery_session_required');
+      if (value?.username !== owner || !value.sessionId) fail('recovery_session_required');
       return { owner, deviceId: value.sessionId, token: value.token };
     };
     const current = before => {

@@ -11,6 +11,7 @@ const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-c
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
 let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
+const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypto').randomBytes(32).toString('hex'),s]));
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
   db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
@@ -38,7 +39,16 @@ test.beforeAll(async()=>{
   const collectBody=req=>new Promise((resolve,reject)=>{let body='';req.on('data',chunk=>{body+=chunk;if(body.length>262144)reject(new Error('too_large'));});req.on('end',()=>{try{resolve(JSON.parse(body));}catch(e){reject(e);}});});
   server=http.createServer(async(req,res)=>{
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; object-src 'none'");
-    const url=new URL(req.url,'http://localhost'),session=sessions[req.headers['x-session']];
+    const url=new URL(req.url,'http://localhost');
+    const cookie=req.headers.cookie?.split(';').map(v=>v.trim()).find(v=>v.startsWith('fixture_session='))?.slice('fixture_session='.length);
+    const session=cookieSessions.get(cookie);
+    if(url.pathname==='/test-session') {
+      const wanted=Object.values(sessions).find(s=>s.username===url.searchParams.get('owner'));
+      const entry=[...cookieSessions].find(([,s])=>s===wanted);
+      if(!entry){sendJson(res,401,{code:'session_required'});return;}
+      res.setHeader('Set-Cookie',`fixture_session=${entry[0]}; HttpOnly; SameSite=Strict; Path=/`);
+      sendJson(res,200,{username:wanted.username,sessionId:wanted.sessionId});return;
+    }
     const assets={'/devices.js':'src/chat/crypto-devices.js','/vault.js':'src/chat/encrypted-vault.js','/policy.js':'src/chat/encrypted-policy.js',
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
       '/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
@@ -50,9 +60,9 @@ test.beforeAll(async()=>{
         window.WingaModules.chat=window.WingaModules.chat||{};
         window.start=async function(owner){
           window.owner=owner;window.peer=owner==='alice'?'bob':'alice';
-          const token=owner==='alice'?'a':owner==='bob'?'b1':'e';
-          window.client=WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>({username:owner,sessionId:token,token}),
-            createAuthHeaders:()=>({'X-Session':token}),fetchJson:async(url,options)=>{const response=await fetch(url,options);const value=await response.json();if(!response.ok)throw Object.assign(new Error(value.code),{code:value.code,status:response.status});return value;}});
+          window.browserSession=await (await fetch('/test-session?owner='+encodeURIComponent(owner))).json();
+          window.client=WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>window.browserSession,
+            createAuthHeaders:()=>({}),fetchJson:async(url,options)=>{const response=await fetch(url,options);const value=await response.json();if(!response.ok)throw Object.assign(new Error(value.code),{code:value.code,status:response.status});return value;}});
           window.render=async()=>{
             const items=(await client.loadConversationPage(peer)).items;
             const ui=WingaModules.chat.createChatUiModule({getCurrentUser:()=>owner,getActiveChatContext:()=>({withUser:peer}),escapeHtml:v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),getMessageProductItems:()=>[],getReplyPreviewMessage:()=>null,getOpenChatMessageMenuId:()=>''});
@@ -69,7 +79,7 @@ test.beforeAll(async()=>{
       if(!session){sendJson(res,401,{code:'session_required'});return;}
       const context={owner:session.username,deviceId:session.sessionId,token:session.token};
       try {
-        const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:r=>r.headers['x-session'],ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
+        const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:()=>session.token,ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
         const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true});
         const media=createEncryptedMediaApi({...common,getPostgresStore:()=>transport,getStorage:()=>storage});
         const backupApi=createEncryptedConversationBackupsApi({...common,getPostgresStore:()=>backups});
@@ -101,12 +111,14 @@ test.beforeAll(async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 });
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
-test('authenticated server membership, ciphertext-only HTTP, real chat renderer, receipts, reload and exact retry',async({browser})=>{
+test('HttpOnly cookie-only sessions support server membership, ciphertext-only HTTP, chat, receipts, reload and exact retry',async({browser})=>{
   test.setTimeout(120000);
   const a=await browser.newContext(),b=await browser.newContext();
   try {
     const alice=await a.newPage(),bob=await b.newPage();await alice.goto(origin);await bob.goto(origin);
     const ai=await test.step('enroll Alice',()=>alice.evaluate(()=>start('alice'))),bi=await test.step('enroll Bob',()=>bob.evaluate(()=>start('bob')));
+    for(const page of [alice,bob])expect(await page.evaluate(()=>({hasToken:Object.hasOwn(browserSession,'token'),visibleCookie:document.cookie}))).toEqual({hasToken:false,visibleCookie:''});
+    expect((await alice.evaluate(()=>client.loadInboxPage())).items).toEqual([]);
     await expect(alice.locator('[data-chat-devices]')).toBeVisible();await alice.locator('[data-chat-devices]').click();
     await expect(alice.locator('dialog .chat-fingerprint').first()).toHaveText(ai.ownFingerprint);
     await expect(alice.locator('[data-crypto-device-apply]')).toBeDisabled();await alice.getByRole('button',{name:'Close',exact:true}).click();
@@ -317,6 +329,10 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
     await bob.screenshot({path:'test-results/encrypted-chat-mobile.png'});await bob.getByRole('button',{name:'Close',exact:true}).click();
     await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob'");
     await expect(alice.evaluate(async()=>{const p=await client.prepareMessage({receiverId:'bob',message:'must block',messageType:'text'});await client.sendMessage(p);})).rejects.toThrow('encrypted_access_denied');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(8);
+    await a.clearCookies();
+    await expect(alice.evaluate(()=>client.loadInboxPage())).rejects.toThrow('session_required');
+    await expect(alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'no cookie must not send',messageType:'text'})))).rejects.toThrow('session_required');
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(8);
   }finally{await a.close().catch(()=>{});await b.close().catch(()=>{});}
 });

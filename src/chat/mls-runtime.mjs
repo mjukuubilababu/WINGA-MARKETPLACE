@@ -57,7 +57,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     && typeof trustedPins === 'function' && locks?.request && crypto?.subtle
     && policy?.markEncrypted, 'mls_runtime_unavailable');
   const initial = getSession(), owner = initial?.username;
-  need(ownerId(owner) && initial.sessionId && initial.token, 'mls_session_required');
+  need(ownerId(owner) && initial.sessionId, 'mls_session_required');
   const session = { ...initial };
   let closed = false;
   const current = () => {

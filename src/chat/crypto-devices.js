@@ -32,7 +32,7 @@
     });
     const session = () => {
       const value = getSession();
-      if (!value?.username || !value.sessionId || !value.token) fail('crypto_device_session_required');
+      if (!value?.username || !value.sessionId) fail('crypto_device_session_required');
       return { owner: value.username, deviceId: value.sessionId, token: value.token };
     };
     function current(context) {

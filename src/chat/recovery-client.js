@@ -42,7 +42,7 @@
       || !codec?.sealRecovery || !codec?.openRecovery || !locks?.request || typeof request !== 'function') fail('recovery_unavailable');
     const context = () => {
       const value = getSession();
-      if (value?.username !== owner || !value.sessionId || !value.token) fail('recovery_session_required');
+      if (value?.username !== owner || !value.sessionId) fail('recovery_session_required');
       return { owner, deviceId: value.sessionId, token: value.token };
     };
     const current = before => {

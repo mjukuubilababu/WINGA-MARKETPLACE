@@ -1,5 +1,11 @@
 # Encrypted content and user-key recovery
 
+> Historical design snapshot: several statements below describe the earlier
+> codec-only phase, not the integrated candidate deployed in `63077e6`.
+> For current implementation evidence, journal/recovery limits and release
+> blockers, use `docs/audits/e2ee-20261003.md` and
+> `docs/audits/e2ee-release-20261003.md`. The release report records current gates.
+
 ## Release Boundary
 
 This phase adds a native-browser authenticated-encryption codec and an opt-in,
