@@ -33,7 +33,18 @@ async function enqueueMessagePush(client, message) {
   }
 }
 
-function createMessageWebPushStore({ query, withTransaction, provider = webPush }) {
+function createMessageWebPushStore({ query, withTransaction, provider = webPush, encrypted = false }) {
+  const sources=encrypted?`WITH push_messages AS (
+    SELECT id,sender_id,receiver_id,is_read FROM messages UNION ALL
+    SELECT m.id,d.owner_id,CASE WHEN d.owner_id=g.creator THEN g.recipient ELSE g.creator END,
+      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.kind='read')
+    FROM encrypted_conversation_messages m JOIN encrypted_conversations g ON g.id=m.conversation_id
+    JOIN conversation_crypto_devices d ON d.id=m.sender_device AND d.status='active'
+    JOIN conversation_crypto_devices a ON a.id=g.creator_device AND a.status='active'
+    JOIN conversation_crypto_devices b ON b.id=g.recipient_device AND b.status='active'
+    JOIN users ca ON ca.username=g.creator AND ca.status='active'
+    JOIN users cb ON cb.username=g.recipient AND cb.status='active' WHERE g.status='active'
+  )`:`WITH push_messages AS (SELECT id,sender_id,receiver_id,is_read FROM messages)`;
   let identityPromise;
   function identity() {
     if (!identityPromise) identityPromise = (async () => {
@@ -92,9 +103,9 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush 
     if (!validId(id)) throw reject(404);
     return withTransaction(async client => {
       await liveSession(client, owner, token, sessionId);
-      const result = await client.query(`SELECT m.sender_id AS "withUser" FROM web_push_jobs j
+      const result = await client.query(`${sources} SELECT m.sender_id AS "withUser" FROM web_push_jobs j
         JOIN web_push_subscriptions p ON p.id=j.subscription_id AND p.session_id=j.session_id
-        JOIN messages m ON m.id=j.message_id AND m.receiver_id=j.owner_id
+        JOIN push_messages m ON m.id=j.message_id AND m.receiver_id=j.owner_id
         WHERE j.id=$1 AND j.owner_id=$2 AND j.session_id=$3 AND j.expires_at>NOW()
         AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE
           (b.blocker_username=m.sender_id AND b.blocked_username=$2) OR
@@ -122,12 +133,12 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush 
         return id;
       });
       if (!job) break;
-      const result = await query(`SELECT j.id,j.attempts,p.id AS subscription_id,p.subscription,p.locale
+      const result = await query(`${sources} SELECT j.id,j.attempts,p.id AS subscription_id,p.subscription,p.locale
         FROM web_push_jobs j JOIN web_push_subscriptions p ON p.id=j.subscription_id
           AND p.session_id=j.session_id AND p.owner_id=j.owner_id
         JOIN sessions s ON s.session_id=j.session_id AND s.username=j.owner_id
         JOIN users u ON u.username=j.owner_id
-        JOIN messages m ON m.id=j.message_id AND m.receiver_id=j.owner_id
+        JOIN push_messages m ON m.id=j.message_id AND m.receiver_id=j.owner_id
         WHERE j.id=$1 AND j.lease_token=$2 AND s.expires_at>$3 AND u.status='active' AND NOT m.is_read
         AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE
           (b.blocker_username=m.sender_id AND b.blocked_username=j.owner_id) OR

@@ -6,10 +6,72 @@
     const getEventSource = typeof deps.getEventSource === "function" ? deps.getEventSource : () => globalThis.EventSource;
     let messageCapabilities = null;
     let phoenix = null;
+    let encryptedConversations = deps.encryptedConversations || null;
+    let candidateReady = null;
+    let encryptionReady = null;
+    let encryptionOwner = '';
+    let encryptionService = null;
+    let encryptionChanged = () => {};
+    let api;
+    const networkFailure = error => error instanceof TypeError || error.status === 503;
+    function ensureEncryption() {
+      const s = deps.getSession?.();
+      if (!s?.username || !globalThis.WingaEncryptionSession) return Promise.resolve(null);
+      const key = JSON.stringify([s.username,s.sessionId,s.token]);
+      if (key !== encryptionOwner) {
+        if(encryptedConversations === encryptionService)encryptedConversations=null;
+        encryptionService?.close(); encryptionService = null; encryptionReady = null; encryptionOwner = key;
+      }
+      if (!encryptionReady) encryptionReady = (async () => {
+        let capabilities;
+        try { capabilities = await fetchJson(`${baseUrl}/conversations/encrypted/capabilities`, {headers:authHeaders()}); }
+        catch(error) { if(error.status === 404) return null; throw error; }
+        if(capabilities?.enabled !== true || capabilities.version !== 1) return null;
+        const service = await globalThis.WingaEncryptionSession.createEncryptionSession({
+          getSession:deps.getSession,deviceRequest:api.cryptoDeviceRequest,
+          packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
+          operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
+          onChange:()=>encryptionChanged(),
+        });
+        if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
+        encryptedConversations = encryptionService = service;return service;
+      })();
+      return encryptionReady;
+    }
+    async function isEncryptedConversation(peer) {
+      await ensureEncryption();
+      const active = deps.getSession?.(), session = active ? { ...active } : null;
+      const validName = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
+      const unchanged = () => {
+        const current = deps.getSession?.();
+        if (session && (current?.username !== session.username || current?.sessionId !== session.sessionId || current?.token !== session.token)) {
+          throw Object.assign(new Error('mls_session_changed'), { code: 'mls_session_changed' });
+        }
+      };
+      const stored = validName(session?.username) && validName(peer) && peer !== session.username && globalThis.WingaEncryptedPolicy
+        ? await globalThis.WingaEncryptedPolicy.isEncrypted(session.username, peer) : false;
+      unchanged();
+      const loaded = encryptedConversations ? await encryptedConversations.isEncrypted(peer) : false;
+      unchanged();
+      if(stored || loaded)return true;
+      if(globalThis.WingaEncryptionSession && validName(session?.username) && validName(peer) && peer!==session.username) {
+        const mode=await fetchJson(`${baseUrl}/conversations/encrypted/mode?peer=${encodeURIComponent(peer)}`,{headers:authHeaders()});
+        unchanged();if(mode?.version!==1 || !['encrypted','legacy-plaintext'].includes(mode.mode))runtimeRequired();
+        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy.markEncrypted(session.username,peer);unchanged();return true;}
+      }
+      return false;
+    }
+    const runtimeRequired = () => { throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' }); };
 
     async function prepareMessage(payload) {
       requireFetcher();
       if (payload?.clientMessageId) return payload;
+      if (await isEncryptedConversation(payload?.receiverId)) {
+        if (!encryptedConversations) runtimeRequired();
+        const clientMessageId = globalThis.crypto?.randomUUID?.();
+        if (!clientMessageId) throw Object.assign(new Error('mls_identifier_unavailable'), { code: 'mls_identifier_unavailable' });
+        return { ...payload, clientMessageId };
+      }
       if (!messageCapabilities) {
         messageCapabilities = fetchJson(`${baseUrl}/messages/capabilities`, { headers: authHeaders() })
           .catch((error) => {
@@ -46,10 +108,12 @@
 
     async function loadMessages() {
       requireFetcher();
-      const data = await fetchJson(`${baseUrl}/messages`, {
-        headers: authHeaders()
-      });
-      return Array.isArray(data) ? data : [];
+      const encrypted = await ensureEncryption();
+      if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
+      let data;
+      try { data=await fetchJson(`${baseUrl}/messages`, {headers:authHeaders()}); }
+      catch(error){if(!encrypted || !networkFailure(error))throw error;data=[];}
+      return [...(Array.isArray(data) ? data : []), ...(encrypted ? await encrypted.history() : [])];
     }
 
     async function loadMessagePage(path, options = {}) {
@@ -59,11 +123,38 @@
       if (options.cursor) params.set("cursor", options.cursor);
       if (options.withUser) params.set("withUser", options.withUser);
       if (options.order === "sequence") params.set("order", "sequence");
-      return fetchJson(`${baseUrl}/messages/${path}?${params}`, { headers: authHeaders() });
+      const encrypted = ['inbox','history'].includes(path) ? await ensureEncryption() : null;
+      if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
+      let page;
+      try { page=await fetchJson(`${baseUrl}/messages/${path}?${params}`, {headers:authHeaders()}); }
+      catch(error){if(!encrypted || !networkFailure(error))throw error;page={items:[],hasMore:false,nextCursor:''};}
+      if(!encrypted) return page;
+      const history = await encrypted.history(options.withUser);
+      if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
+      if(path === 'inbox') {
+        const merged = new Map(page.items.map(item=>[item.withUser,item]));
+        for(const item of history) {
+          const own=deps.getSession().username,peer=item.senderId===own?item.receiverId:item.senderId;
+          const prior=merged.get(peer);
+          if(!prior || Date.parse(item.timestamp)>=Date.parse(prior.timestamp))merged.set(peer,{withUser:peer,latestMessage:item.message,timestamp:item.timestamp,
+            lastMessageId:item.id,productId:'',productName:'',unreadCount:history.filter(m=>m.senderId===peer && !m.isRead).length});
+        }
+        return {...page,items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
+      }
+      return page;
     }
 
     async function sendMessage(payload) {
       requireFetcher();
+      if (await isEncryptedConversation(payload?.receiverId)) {
+        // Resolve durable mode before touching either legacy transport. A lookup
+        // or encryption failure is not permission to send plaintext instead.
+        if (!encryptedConversations) runtimeRequired();
+        return encryptedConversations.sendMessage(payload);
+      }
+      if (payload?.encrypted || payload?.securityMode === 'encrypted') {
+        throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' });
+      }
       const transported = await phoenix?.sendMessage(payload);
       if (transported) return transported;
       return fetchJson(`${baseUrl}/messages`, {
@@ -83,6 +174,10 @@
 
     async function markConversationRead(payload) {
       requireFetcher();
+      const encrypted=await ensureEncryption();
+      if(encrypted && await encrypted.isEncrypted(payload.withUser)) {
+        await encrypted.markRead(payload.withUser,payload.messageIds);return {ok:true};
+      }
       return fetchJson(`${baseUrl}/messages/read`, {
         method: "PATCH",
         headers: jsonHeaders(),
@@ -190,8 +285,18 @@
     }
 
     function openRealtimeChannel(handlers = {}) {
+      encryptionChanged = () => { if(!handlers.isCurrent || handlers.isCurrent()) Promise.resolve(handlers.onMessageRead?.()).catch(()=>{}); };
+      let encryptionPolling = false;
+      const encryptionTimer = setInterval(async () => {
+        if(encryptionPolling || (handlers.isCurrent && !handlers.isCurrent())) return;
+        encryptionPolling=true;
+        try { const service=await ensureEncryption();if(service)await service.sync(); }
+        catch(error) { handlers.onError?.(); }
+        finally { encryptionPolling=false; }
+      },3000);
       const EventSourceCtor = getEventSource();
       if (typeof EventSourceCtor === "undefined") {
+        clearInterval(encryptionTimer);
         return null;
       }
 
@@ -310,6 +415,10 @@
 
       return {
         close() {
+          clearInterval(encryptionTimer);
+          encryptionChanged=()=>{};
+          if(encryptedConversations === encryptionService)encryptedConversations=null;
+          encryptionService?.close();encryptionService=null;encryptionReady=null;encryptionOwner='';
           closed = true;
           deviceStream?.close();
           if (phoenix === deviceStream) phoenix = null;
@@ -319,7 +428,47 @@
       };
     }
 
-    return {
+    return api = {
+      inspectEncryptedConversation: async peer => {
+        const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
+      },
+      enableEncryptedConversation: async (peer,deviceId,fingerprint) => {
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.enable(peer,deviceId,fingerprint);
+      },
+      createEncryptedCandidate: options => {
+        if (candidateReady) return candidateReady;
+        candidateReady = (async () => {
+          const session = deps.getSession?.();
+          const create = globalThis.WingaMlsCandidate?.createMlsRuntime;
+          if (!session?.username || typeof create !== 'function'
+            || !globalThis.WingaCryptoDevices?.createCryptoDeviceClient
+            || !globalThis.WingaEncryptedVault?.createEncryptedVault) {
+            throw Object.assign(new Error('mls_runtime_unavailable'), { code: 'mls_runtime_unavailable' });
+          }
+          let identityClient, vault, runtime;
+          try {
+            identityClient = await globalThis.WingaCryptoDevices.createCryptoDeviceClient({
+              getSession: deps.getSession, request: api.cryptoDeviceRequest,
+            });
+            vault = await globalThis.WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: deps.getSession });
+            runtime = await create({ ...options, getSession: deps.getSession, vault, identityClient,
+              publishPackage: (payload, context) => api.cryptoPackageRequest('POST', payload, context) });
+            await runtime.initialize();
+            const close = runtime.close;
+            runtime.close = () => { close(); vault.close(); identityClient.close(); };
+            return runtime;
+          } catch (error) { runtime?.close(); vault?.close(); identityClient?.close(); throw error; }
+        })();
+        // Failed opt-in stays fail-closed; it cannot quietly restore legacy send.
+        encryptedConversations = {
+          isEncrypted: async peer => (await candidateReady).isEncrypted(peer),
+          sendMessage: async payload => (await candidateReady).sendMessage(payload),
+          retryMessage: async id => (await candidateReady).retryMessage(id),
+        };
+        return candidateReady;
+      },
+      isEncryptedConversation,
+      retryEncryptedMessage: async id => { await ensureEncryption();return encryptedConversations?.retryMessage ? encryptedConversations.retryMessage(id) : null; },
       prepareMessage,
       cryptoDeviceRequest: (method, payload, context) => {
         requireFetcher();

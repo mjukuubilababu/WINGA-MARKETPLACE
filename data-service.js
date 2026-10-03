@@ -2194,6 +2194,17 @@ async loadAdminPayments(filters) {
         async sendMessage(payload) {
           return getCommunicationsApiClient().sendMessage(payload);
         },
+        createEncryptedCandidate(options) {
+          return getCommunicationsApiClient().createEncryptedCandidate(options);
+        },
+        inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
+        enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
+        isEncryptedConversation(peer) {
+          return getCommunicationsApiClient().isEncryptedConversation(peer);
+        },
+        retryEncryptedMessage(id) {
+          return getCommunicationsApiClient().retryEncryptedMessage(id);
+        },
         async prepareMessage(payload) {
           return getCommunicationsApiClient().prepareMessage(payload);
         },
@@ -4196,6 +4207,12 @@ async loadAdminPayments() {
         const sendingSession = readStoredSession();
         const adapter = state.adapter;
         let prepared = payload;
+        if (adapter.isEncryptedConversation && await adapter.isEncryptedConversation(payload?.receiverId)) {
+          prepared = await adapter.prepareMessage(payload);
+          // MLS stages ratchet, plaintext history and ciphertext outbox inside
+          // its encrypted vault. Never copy it into the legacy offline queue.
+          return adapter.sendMessage(prepared);
+        }
         if (globalThis.navigator?.onLine === false) {
           return queueOfflineMessageAction(payload, sendingSession);
         }
@@ -4228,7 +4245,30 @@ async loadAdminPayments() {
         assertBuyerCapableAccess();
         ensureAdapter();
         if (typeof id !== "string" || !id) return 0;
+        if (state.adapter.retryEncryptedMessage) {
+          const encrypted = await state.adapter.retryEncryptedMessage(id);
+          if (encrypted) return encrypted;
+        }
         return getOfflineQueueTools().flushOfflineActionQueue(state.adapter, id);
+      },
+      async createEncryptedCandidate(options) {
+        assertBuyerCapableAccess();
+        ensureAdapter();
+        if (!state.adapter.createEncryptedCandidate) {
+          throw Object.assign(new Error('mls_runtime_unavailable'), { code: 'mls_runtime_unavailable' });
+        }
+        return state.adapter.createEncryptedCandidate(options);
+      },
+      async inspectEncryptedConversation(peer) {
+        assertBuyerCapableAccess();ensureAdapter();return state.adapter.inspectEncryptedConversation?state.adapter.inspectEncryptedConversation(peer):{status:'disabled'};
+      },
+      async isEncryptedConversation(peer) {
+        assertBuyerCapableAccess();ensureAdapter();return state.adapter.isEncryptedConversation?state.adapter.isEncryptedConversation(peer):false;
+      },
+      async enableEncryptedConversation(peer,deviceId,fingerprint) {
+        assertBuyerCapableAccess();ensureAdapter();
+        if(!state.adapter.enableEncryptedConversation)throw new Error('mls_runtime_unavailable');
+        return state.adapter.enableEncryptedConversation(peer,deviceId,fingerprint);
       },
       async deleteMessage(messageId) {
         assertBuyerCapableAccess();

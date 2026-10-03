@@ -40,6 +40,7 @@ const { createConversationAvailabilityApi } = require("./conversation-availabili
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
 const { createEncryptedConversationBackupsApi } = require("./encrypted-conversation-backups-api");
 const { createConversationCryptoDevicesApi } = require("./conversation-crypto-devices-api");
+const { createEncryptedConversationsApi } = require("./encrypted-conversations-api");
 const { requireLegacyPayload } = require("./encrypted-content-contract");
 const conversationTransport = createConversationTransport();
 
@@ -7963,6 +7964,15 @@ const server = http.createServer(async (req, res) => {
         packagesEnabled: process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
       });
       if (await cryptoDevices.handle(req, res, url)) return;
+      const encryptedTransport = createEncryptedConversationsApi({
+        collectBody, sendJson, findSession: token => findSession(store, token), readAuthToken,
+        ensureMarketplaceUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
+        getPostgresStore: () => postgresStore,
+        legacyOnly: !process.env.DATABASE_URL,
+        enabled: process.env.WINGA_ENCRYPTED_CONVERSATIONS_ENABLED === "true"
+          && process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true" && process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
+      });
+      if (await encryptedTransport.handle(req, res, url)) return;
       const encryptedBackups = createEncryptedConversationBackupsApi({
         collectBody, sendJson,
         findSession: token => findSession(store, token), readAuthToken,

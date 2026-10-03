@@ -512,6 +512,7 @@
 
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
+      globalThis.WingaEncryptedChatUi?.bind(modal,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},refresh:async()=>{await deps.refreshMessagesState();replaceContextChatModal();}});
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -526,14 +527,15 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
           deps.setChatComposeStatus?.("context", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
-            productId: activeChatContext.productId || "",
-            productName: activeChatContext.productName || "",
+            productId: encrypted ? "" : activeChatContext.productId || "",
+            productName: encrypted ? "" : activeChatContext.productName || "",
             message,
             messageType: productItems.length > 1 ? "product_inquiry" : productItems.length === 1 ? "product_reference" : "text",
             productItems,
@@ -893,6 +895,7 @@
       if (!scope) {
         return;
       }
+      globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -1479,14 +1482,15 @@
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
           deps.setChatComposeStatus?.("profile", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
-            productId: activeChatContext.productId || "",
-            productName: activeChatContext.productName || "",
+            productId: encrypted ? "" : activeChatContext.productId || "",
+            productName: encrypted ? "" : activeChatContext.productName || "",
             message,
             replyToMessageId: deps.getActiveChatReplyMessageId()
           }), {

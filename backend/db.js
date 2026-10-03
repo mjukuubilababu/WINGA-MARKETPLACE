@@ -17,6 +17,7 @@ const { createEncryptedConversationBackupStore } = require("./encrypted-conversa
 const { createConversationCryptoDeviceStore } = require("./conversation-crypto-devices");
 const { isLegacyConversation } = require("./conversation-security-mode");
 const { createCryptoKeyPackageStore } = require("./conversation-crypto-key-packages");
+const { createEncryptedConversationStore } = require("./encrypted-conversations");
 const { readMessageIdempotencyKey, messageRequestHash, reconcileMessageRetry, recordMessageAcceptance } = require("./message-idempotency");
 const { lockCheckoutReservation, reservationWindowSeconds, createCheckoutReservationStore } = require("./checkout-reservations");
 const { reserveOrderItems, settleOrderInventory, refreshOrderInventoryAvailability, lockOrderInventoryProducts } = require("./inventory-order-items");
@@ -10013,11 +10014,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageReplayStore({ query }),
     ...createMessageDispatchStore({ query, withTransaction }),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
-    ...createMessageWebPushStore({ query, withTransaction }),
+    ...createMessageWebPushStore({ query, withTransaction, encrypted: true }),
     ...createConversationEventStore({ withTransaction }),
     ...createEncryptedConversationBackupStore({ withTransaction }),
     ...createConversationCryptoDeviceStore({ withTransaction }),
     ...createCryptoKeyPackageStore({ withTransaction }),
+    ...createEncryptedConversationStore({ withTransaction, enqueuePush: enqueueMessagePush }),
     close
   };
 }

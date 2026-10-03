@@ -443,15 +443,15 @@
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
-            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
-            ${enableActions ? `
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
+            ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
+            ${enableActions && !message.encrypted ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
-                  <button type="button" data-message-reply="${message.id}">Reply</button>
-                  <button type="button" data-message-share="${message.id}">Forward</button>
+                  ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
-                  ${canDelete ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
+                  ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
                 </div>
               ` : ""}
             ` : ""}
@@ -595,6 +595,7 @@
                     ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
+                    <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
                   </div>
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">⋮</summary><div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
@@ -732,6 +733,7 @@
               <p class="eyebrow">Chat</p>
               <h3 id="context-chat-title">${safeSellerName}</h3>
               <p class="context-chat-presence">${lastActiveLabel}</p>
+              <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
             </div>
           </div>
           <div class="context-chat-product">

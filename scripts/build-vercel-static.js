@@ -74,7 +74,7 @@ const fileCopies = [
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
-  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x"]
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 
@@ -143,7 +143,10 @@ const bundledModuleSources = [
   "src/chat/pagination.js",
   "src/chat/device-receipts.js",
   "src/chat/secure-content.js",
+  "src/chat/encrypted-policy.js",
   "src/chat/crypto-devices.js",
+  "src/chat/encryption-session.js",
+  "src/chat/encryption-ui.js",
   "src/chat/encrypted-vault.js",
   "src/chat/recovery-client.js",
   "src/chat/controller.js",
@@ -997,6 +1000,7 @@ async function main() {
     applyAssetVersionToHtml(path.join(outputDir, "index.html"));
 
     copyDirectoryRecursive(path.join(rootDir, "src"), path.join(outputDir, "src"));
+    require('./build-mls-browser').buildMlsBrowser(path.join(outputDir, 'vendor'));
     writeFrontendModuleBundle(path.join(outputDir, "winga-modules.js"));
     criticalImageUrls = await generateProductSharePages(fs.readFileSync(path.join(outputDir, "index.html"), "utf8"), getPublicOrigin());
     if (!hasGeneratedProductSharePages()) {

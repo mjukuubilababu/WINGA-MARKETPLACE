@@ -48,8 +48,10 @@ Independent PostgreSQL connections prove both upgrade-before-write rejection
 and write-before-upgrade serialization. This does not establish crypto-device
 enrollment concurrency or cryptographic membership/epoch validation.
 
-No activation API, ciphertext writer, peer key-package exchange, authenticated mode
-transition or MLS group rekey exists yet. Do not manually switch production
+At the foundation checkpoint no activation API, ciphertext writer, peer package
+exchange or authenticated mode transition existed. The connected text workflow
+is now implemented locally as recorded in `e2ee-runtime-integration.md`; group
+removal/rekey/rejoin and independent release approval remain open. Do not manually switch production
 streams to `encrypted`: legacy sending and snapshot restore for those streams
 will intentionally fail closed. The migration needs a bounded writer-maintenance
 window for its table locks. It does not re-encrypt historical messages and must
@@ -65,13 +67,15 @@ Candidate integration follow-up 2026-10-03:
   attests the package hash/account/session/device; the separate MLS signing key
   and basic credential bind that device fingerprint. Both MLS leaf and outer
   package signatures, suite, lifetime and complete wire decoding are checked.
-  No private MLS key is uploaded. Peer admission must independently verify the
-  identity attestation against a trusted pin; that client/admission path is open.
+  No private MLS key is uploaded. The connected browser admission path now checks
+  both package signatures and native attestation against an independently entered
+  fingerprint, never just the directory's asserted signing key.
 - `src/chat/encrypted-vault.js` encrypts typed state and outbox records with a
   nonextractable native AES-256-GCM key. A revision CAS, Web Lock and strict IDB
   transaction make all related puts/deletes atomic. Record-count and aggregate
   byte limits are checked before commit. Corruption, key loss and account/session
-  changes fail closed. No actual production MLS state machine uses this vault yet.
+  changes fail closed. The gated real-chat MLS runtime now uses this vault; no
+  production activation or independent security acceptance has occurred.
 - `src/chat/recovery-client.js` connects this vault to the existing backup store
   through the authenticated communications helper. The user key and independently
   retained latest ciphertext checkpoint are required for fresh-device restore.
@@ -328,6 +332,14 @@ root dependency scan flags sharp 0.35.3, while the backend lock is already 0.35.
 See `docs/e2ee-internal-security-review.md` for evidence, scope and retest gates.
 Production E2EE remains blocked and disabled pending independent review and
 production integration/dependency gates; the four audited local defects are closed.
+
+The 2026-10-03 candidate runtime follow-up connects native-bound MLS text to the
+communications/data-service send boundary, adds encrypted atomic outbox/retry and
+a persistent local no-downgrade mode guard. See `e2ee-runtime-integration.md` for
+the exact implemented scope. Server membership/ciphertext HTTP dispatch and the
+real chat receipt/UI boundary are now connected locally. Encrypted media,
+recovery UI, multi-device rekey/rejoin and independent-audit activation gates remain.
+This is not production E2EE acceptance and no rollout switch is enabled.
 
 Post-fix verification passed 14/14 security regressions, 5/5 integrated scenarios,
 15/15 MLS/device-identity baseline cases, 16/16 native crypto/backup contracts and

@@ -133,7 +133,16 @@
       payload.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
       current(context); return payload;
     }
-    return { enroll, attestKeyPackage, close: () => db.close() };
+    async function signCryptoOperation(action, payload, requestId = crypto.randomUUID()) {
+      const context = session(), row = await identity(context);
+      const operation = { action, actorId: row.id, requestId, issuedAt: Date.now(), payload: structuredClone(payload) };
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(operation.payload,Object.keys(operation.payload).sort())))), b => b.toString(16).padStart(2, '0')).join('');
+      const bytes = new TextEncoder().encode(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
+        action, row.id, requestId, operation.issuedAt, digest]));
+      operation.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
+      current(context); return operation;
+    }
+    return { enroll, attestKeyPackage, signCryptoOperation, close: () => db.close() };
   }
   return { createCryptoDeviceClient, operationBytes };
 });

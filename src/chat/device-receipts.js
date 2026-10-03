@@ -21,6 +21,7 @@
   }
 
   async function writeInbox(indexedDB, scope, messages, clear = false) {
+    messages = messages.filter(message => !message.encrypted);
     const db = await openInbox(indexedDB);
     try {
       await new Promise((resolve, reject) => {
@@ -155,6 +156,13 @@
       return true;
     }
     async function receive(messages, kind, visible) {
+      const encrypted = messages.filter(m => m?.encrypted && m.receiverId === owner && m.senderId !== owner);
+      let encryptedChanged = false;
+      if(kind === 'read') for(const partner of new Set(encrypted.map(m=>m.senderId))) {
+        const ids=encrypted.filter(m=>m.senderId===partner && !m.isRead && visible(m.id)).map(m=>m.id);
+        if(ids.length && active()) { await dataLayer.markConversationRead({withUser:partner,messageIds:ids}); encryptedChanged=true; }
+      }
+      messages = messages.filter(m=>!m?.encrypted);
       if (!await identity()) return false;
       const incoming = [...new Map(messages.filter(m => m?.id && m.receiverId === owner && m.senderId !== owner)
         .map(m => [m.id, m])).values()];
@@ -163,7 +171,7 @@
         if (!groups.has(message.senderId)) groups.set(message.senderId, []);
         groups.get(message.senderId).push(message);
       }
-      let changed = false;
+      let changed = encryptedChanged;
       for (const [partner, rows] of groups) for (let start = 0; start < rows.length; start += 100) {
         if (!active()) return false;
         const batch = rows.slice(start, start + 100);

@@ -1160,10 +1160,72 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const getEventSource = typeof deps.getEventSource === "function" ? deps.getEventSource : () => globalThis.EventSource;
     let messageCapabilities = null;
     let phoenix = null;
+    let encryptedConversations = deps.encryptedConversations || null;
+    let candidateReady = null;
+    let encryptionReady = null;
+    let encryptionOwner = '';
+    let encryptionService = null;
+    let encryptionChanged = () => {};
+    let api;
+    const networkFailure = error => error instanceof TypeError || error.status === 503;
+    function ensureEncryption() {
+      const s = deps.getSession?.();
+      if (!s?.username || !globalThis.WingaEncryptionSession) return Promise.resolve(null);
+      const key = JSON.stringify([s.username,s.sessionId,s.token]);
+      if (key !== encryptionOwner) {
+        if(encryptedConversations === encryptionService)encryptedConversations=null;
+        encryptionService?.close(); encryptionService = null; encryptionReady = null; encryptionOwner = key;
+      }
+      if (!encryptionReady) encryptionReady = (async () => {
+        let capabilities;
+        try { capabilities = await fetchJson(`${baseUrl}/conversations/encrypted/capabilities`, {headers:authHeaders()}); }
+        catch(error) { if(error.status === 404) return null; throw error; }
+        if(capabilities?.enabled !== true || capabilities.version !== 1) return null;
+        const service = await globalThis.WingaEncryptionSession.createEncryptionSession({
+          getSession:deps.getSession,deviceRequest:api.cryptoDeviceRequest,
+          packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
+          operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
+          onChange:()=>encryptionChanged(),
+        });
+        if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
+        encryptedConversations = encryptionService = service;return service;
+      })();
+      return encryptionReady;
+    }
+    async function isEncryptedConversation(peer) {
+      await ensureEncryption();
+      const active = deps.getSession?.(), session = active ? { ...active } : null;
+      const validName = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
+      const unchanged = () => {
+        const current = deps.getSession?.();
+        if (session && (current?.username !== session.username || current?.sessionId !== session.sessionId || current?.token !== session.token)) {
+          throw Object.assign(new Error('mls_session_changed'), { code: 'mls_session_changed' });
+        }
+      };
+      const stored = validName(session?.username) && validName(peer) && peer !== session.username && globalThis.WingaEncryptedPolicy
+        ? await globalThis.WingaEncryptedPolicy.isEncrypted(session.username, peer) : false;
+      unchanged();
+      const loaded = encryptedConversations ? await encryptedConversations.isEncrypted(peer) : false;
+      unchanged();
+      if(stored || loaded)return true;
+      if(globalThis.WingaEncryptionSession && validName(session?.username) && validName(peer) && peer!==session.username) {
+        const mode=await fetchJson(`${baseUrl}/conversations/encrypted/mode?peer=${encodeURIComponent(peer)}`,{headers:authHeaders()});
+        unchanged();if(mode?.version!==1 || !['encrypted','legacy-plaintext'].includes(mode.mode))runtimeRequired();
+        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy.markEncrypted(session.username,peer);unchanged();return true;}
+      }
+      return false;
+    }
+    const runtimeRequired = () => { throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' }); };
 
     async function prepareMessage(payload) {
       requireFetcher();
       if (payload?.clientMessageId) return payload;
+      if (await isEncryptedConversation(payload?.receiverId)) {
+        if (!encryptedConversations) runtimeRequired();
+        const clientMessageId = globalThis.crypto?.randomUUID?.();
+        if (!clientMessageId) throw Object.assign(new Error('mls_identifier_unavailable'), { code: 'mls_identifier_unavailable' });
+        return { ...payload, clientMessageId };
+      }
       if (!messageCapabilities) {
         messageCapabilities = fetchJson(`${baseUrl}/messages/capabilities`, { headers: authHeaders() })
           .catch((error) => {
@@ -1200,10 +1262,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function loadMessages() {
       requireFetcher();
-      const data = await fetchJson(`${baseUrl}/messages`, {
-        headers: authHeaders()
-      });
-      return Array.isArray(data) ? data : [];
+      const encrypted = await ensureEncryption();
+      if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
+      let data;
+      try { data=await fetchJson(`${baseUrl}/messages`, {headers:authHeaders()}); }
+      catch(error){if(!encrypted || !networkFailure(error))throw error;data=[];}
+      return [...(Array.isArray(data) ? data : []), ...(encrypted ? await encrypted.history() : [])];
     }
 
     async function loadMessagePage(path, options = {}) {
@@ -1213,11 +1277,38 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (options.cursor) params.set("cursor", options.cursor);
       if (options.withUser) params.set("withUser", options.withUser);
       if (options.order === "sequence") params.set("order", "sequence");
-      return fetchJson(`${baseUrl}/messages/${path}?${params}`, { headers: authHeaders() });
+      const encrypted = ['inbox','history'].includes(path) ? await ensureEncryption() : null;
+      if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
+      let page;
+      try { page=await fetchJson(`${baseUrl}/messages/${path}?${params}`, {headers:authHeaders()}); }
+      catch(error){if(!encrypted || !networkFailure(error))throw error;page={items:[],hasMore:false,nextCursor:''};}
+      if(!encrypted) return page;
+      const history = await encrypted.history(options.withUser);
+      if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
+      if(path === 'inbox') {
+        const merged = new Map(page.items.map(item=>[item.withUser,item]));
+        for(const item of history) {
+          const own=deps.getSession().username,peer=item.senderId===own?item.receiverId:item.senderId;
+          const prior=merged.get(peer);
+          if(!prior || Date.parse(item.timestamp)>=Date.parse(prior.timestamp))merged.set(peer,{withUser:peer,latestMessage:item.message,timestamp:item.timestamp,
+            lastMessageId:item.id,productId:'',productName:'',unreadCount:history.filter(m=>m.senderId===peer && !m.isRead).length});
+        }
+        return {...page,items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
+      }
+      return page;
     }
 
     async function sendMessage(payload) {
       requireFetcher();
+      if (await isEncryptedConversation(payload?.receiverId)) {
+        // Resolve durable mode before touching either legacy transport. A lookup
+        // or encryption failure is not permission to send plaintext instead.
+        if (!encryptedConversations) runtimeRequired();
+        return encryptedConversations.sendMessage(payload);
+      }
+      if (payload?.encrypted || payload?.securityMode === 'encrypted') {
+        throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' });
+      }
       const transported = await phoenix?.sendMessage(payload);
       if (transported) return transported;
       return fetchJson(`${baseUrl}/messages`, {
@@ -1237,6 +1328,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function markConversationRead(payload) {
       requireFetcher();
+      const encrypted=await ensureEncryption();
+      if(encrypted && await encrypted.isEncrypted(payload.withUser)) {
+        await encrypted.markRead(payload.withUser,payload.messageIds);return {ok:true};
+      }
       return fetchJson(`${baseUrl}/messages/read`, {
         method: "PATCH",
         headers: jsonHeaders(),
@@ -1344,8 +1439,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function openRealtimeChannel(handlers = {}) {
+      encryptionChanged = () => { if(!handlers.isCurrent || handlers.isCurrent()) Promise.resolve(handlers.onMessageRead?.()).catch(()=>{}); };
+      let encryptionPolling = false;
+      const encryptionTimer = setInterval(async () => {
+        if(encryptionPolling || (handlers.isCurrent && !handlers.isCurrent())) return;
+        encryptionPolling=true;
+        try { const service=await ensureEncryption();if(service)await service.sync(); }
+        catch(error) { handlers.onError?.(); }
+        finally { encryptionPolling=false; }
+      },3000);
       const EventSourceCtor = getEventSource();
       if (typeof EventSourceCtor === "undefined") {
+        clearInterval(encryptionTimer);
         return null;
       }
 
@@ -1464,6 +1569,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       return {
         close() {
+          clearInterval(encryptionTimer);
+          encryptionChanged=()=>{};
+          if(encryptedConversations === encryptionService)encryptedConversations=null;
+          encryptionService?.close();encryptionService=null;encryptionReady=null;encryptionOwner='';
           closed = true;
           deviceStream?.close();
           if (phoenix === deviceStream) phoenix = null;
@@ -1473,7 +1582,47 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       };
     }
 
-    return {
+    return api = {
+      inspectEncryptedConversation: async peer => {
+        const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
+      },
+      enableEncryptedConversation: async (peer,deviceId,fingerprint) => {
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.enable(peer,deviceId,fingerprint);
+      },
+      createEncryptedCandidate: options => {
+        if (candidateReady) return candidateReady;
+        candidateReady = (async () => {
+          const session = deps.getSession?.();
+          const create = globalThis.WingaMlsCandidate?.createMlsRuntime;
+          if (!session?.username || typeof create !== 'function'
+            || !globalThis.WingaCryptoDevices?.createCryptoDeviceClient
+            || !globalThis.WingaEncryptedVault?.createEncryptedVault) {
+            throw Object.assign(new Error('mls_runtime_unavailable'), { code: 'mls_runtime_unavailable' });
+          }
+          let identityClient, vault, runtime;
+          try {
+            identityClient = await globalThis.WingaCryptoDevices.createCryptoDeviceClient({
+              getSession: deps.getSession, request: api.cryptoDeviceRequest,
+            });
+            vault = await globalThis.WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: deps.getSession });
+            runtime = await create({ ...options, getSession: deps.getSession, vault, identityClient,
+              publishPackage: (payload, context) => api.cryptoPackageRequest('POST', payload, context) });
+            await runtime.initialize();
+            const close = runtime.close;
+            runtime.close = () => { close(); vault.close(); identityClient.close(); };
+            return runtime;
+          } catch (error) { runtime?.close(); vault?.close(); identityClient?.close(); throw error; }
+        })();
+        // Failed opt-in stays fail-closed; it cannot quietly restore legacy send.
+        encryptedConversations = {
+          isEncrypted: async peer => (await candidateReady).isEncrypted(peer),
+          sendMessage: async payload => (await candidateReady).sendMessage(payload),
+          retryMessage: async id => (await candidateReady).retryMessage(id),
+        };
+        return candidateReady;
+      },
+      isEncryptedConversation,
+      retryEncryptedMessage: async id => { await ensureEncryption();return encryptedConversations?.retryMessage ? encryptedConversations.retryMessage(id) : null; },
       prepareMessage,
       cryptoDeviceRequest: (method, payload, context) => {
         requireFetcher();
@@ -17146,15 +17295,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
-            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
-            ${enableActions ? `
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
+            ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
+            ${enableActions && !message.encrypted ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
-                  <button type="button" data-message-reply="${message.id}">Reply</button>
-                  <button type="button" data-message-share="${message.id}">Forward</button>
+                  ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
-                  ${canDelete ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
+                  ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
                 </div>
               ` : ""}
             ` : ""}
@@ -17298,6 +17447,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                     ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
+                    <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
                   </div>
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">⋮</summary><div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
@@ -17435,6 +17585,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               <p class="eyebrow">Chat</p>
               <h3 id="context-chat-title">${safeSellerName}</h3>
               <p class="context-chat-presence">${lastActiveLabel}</p>
+              <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
             </div>
           </div>
           <div class="context-chat-product">
@@ -17702,6 +17853,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   }
 
   async function writeInbox(indexedDB, scope, messages, clear = false) {
+    messages = messages.filter(message => !message.encrypted);
     const db = await openInbox(indexedDB);
     try {
       await new Promise((resolve, reject) => {
@@ -17836,6 +17988,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return true;
     }
     async function receive(messages, kind, visible) {
+      const encrypted = messages.filter(m => m?.encrypted && m.receiverId === owner && m.senderId !== owner);
+      let encryptedChanged = false;
+      if(kind === 'read') for(const partner of new Set(encrypted.map(m=>m.senderId))) {
+        const ids=encrypted.filter(m=>m.senderId===partner && !m.isRead && visible(m.id)).map(m=>m.id);
+        if(ids.length && active()) { await dataLayer.markConversationRead({withUser:partner,messageIds:ids}); encryptedChanged=true; }
+      }
+      messages = messages.filter(m=>!m?.encrypted);
       if (!await identity()) return false;
       const incoming = [...new Map(messages.filter(m => m?.id && m.receiverId === owner && m.senderId !== owner)
         .map(m => [m.id, m])).values()];
@@ -17844,7 +18003,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (!groups.has(message.senderId)) groups.set(message.senderId, []);
         groups.get(message.senderId).push(message);
       }
-      let changed = false;
+      let changed = encryptedChanged;
       for (const [partner, rows] of groups) for (let start = 0; start < rows.length; start += 100) {
         if (!active()) return false;
         const batch = rows.slice(start, start + 100);
@@ -18086,6 +18245,57 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 });
 
 
+// src/chat/encrypted-policy.js
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.WingaEncryptedPolicy = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const failure = code => Object.assign(new Error(code), { code });
+  let opening;
+  function names(owner, peer) {
+    if (![owner, peer].every(value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)) || owner === peer) {
+      throw failure('mls_policy_identity_invalid');
+    }
+  }
+  function database() {
+    if (!globalThis.indexedDB) return Promise.reject(failure('mls_policy_unavailable'));
+    if (!opening) opening = new Promise((resolve, reject) => {
+      const request = globalThis.indexedDB.open('winga-encrypted-policy-v1', 1); let blocked = false;
+      request.onupgradeneeded = () => request.result.createObjectStore('modes', { keyPath: ['owner', 'peer'] });
+      request.onerror = () => { opening = null; reject(failure('mls_policy_storage_failed')); };
+      request.onblocked = () => { blocked = true; opening = null; reject(failure('mls_policy_storage_blocked')); };
+      request.onsuccess = () => {
+        if (blocked) return request.result.close();
+        request.result.onversionchange = () => { request.result.close(); opening = null; };
+        resolve(request.result);
+      };
+    });
+    return opening;
+  }
+  async function access(owner, peer, mark) {
+    names(owner, peer); const db = await database();
+    return new Promise((resolve, reject) => {
+      let result = false, tx;
+      try { tx = db.transaction('modes', mark ? 'readwrite' : 'readonly', mark ? { durability: 'strict' } : undefined); }
+      catch { reject(failure('mls_policy_storage_failed')); return; }
+      tx.onabort = () => reject(failure('mls_policy_storage_failed'));
+      tx.onerror = () => {};
+      tx.oncomplete = () => resolve(result);
+      const store = tx.objectStore('modes'), read = store.get([owner, peer]);
+      read.onsuccess = () => {
+        if (read.result && (read.result.owner !== owner || read.result.peer !== peer || read.result.mode !== 'encrypted')) { tx.abort(); return; }
+        result = Boolean(read.result || mark);
+        if (mark && !read.result) store.add({ owner, peer, mode: 'encrypted' });
+      };
+    });
+  }
+  // Metadata only. There is deliberately no downgrade/delete API. The encrypted
+  // vault remains authoritative for keys, ratchets, messages and exact outbox.
+  return { isEncrypted: (owner, peer) => access(owner, peer, false), markEncrypted: (owner, peer) => access(owner, peer, true) };
+});
+
+
 // src/chat/crypto-devices.js
 (function (root, factory) {
   const api = factory();
@@ -18222,10 +18432,272 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       payload.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
       current(context); return payload;
     }
-    return { enroll, attestKeyPackage, close: () => db.close() };
+    async function signCryptoOperation(action, payload, requestId = crypto.randomUUID()) {
+      const context = session(), row = await identity(context);
+      const operation = { action, actorId: row.id, requestId, issuedAt: Date.now(), payload: structuredClone(payload) };
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(operation.payload,Object.keys(operation.payload).sort())))), b => b.toString(16).padStart(2, '0')).join('');
+      const bytes = new TextEncoder().encode(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
+        action, row.id, requestId, operation.issuedAt, digest]));
+      operation.signature = encode(await crypto.subtle.sign('Ed25519', row.privateKey, bytes));
+      current(context); return operation;
+    }
+    return { enroll, attestKeyPackage, signCryptoOperation, close: () => db.close() };
   }
   return { createCryptoDeviceClient, operationBytes };
 });
+
+
+// src/chat/encryption-session.js
+(() => {
+  const fail = code => { throw Object.assign(new Error(code), {code}); };
+  const encode = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const decode = text => Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+  const digest = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+  let bundle;
+  function loadRuntime() {
+    if(globalThis.WingaMlsCandidate) return Promise.resolve();
+    if(!bundle) bundle=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');script.src='/vendor/winga-mls-candidate.js';script.async=true;
+      script.onload=()=>globalThis.WingaMlsCandidate?resolve():reject(new Error('mls_runtime_unavailable')); // i18n-gate: allow -- internal diagnostic, UI displays translated failure
+      script.onerror=()=>reject(new Error('mls_runtime_unavailable'));document.head.append(script); // i18n-gate: allow -- internal diagnostic, UI displays translated failure
+    });
+    return bundle;
+  }
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,onChange=()=>{}}) {
+    await loadRuntime();
+    const initial={...getSession()},owner=initial.username;
+    let closed=false,runtime,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
+    const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
+    const pins=async()=>Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('mls:pin:')).map(([,v])=>v);
+    async function operation(action,payload,id) {current();const signed=await identity.signCryptoOperation(action,payload,id);const r=await operationRequest(signed);current();return r;}
+    const serialize=work=>{const result=tail.then(()=>navigator.locks.request(`winga-encryption-session:${owner}`,async()=>{current();return work();}));tail=result.catch(()=>{});return result;};
+    function messageView(item) {
+      return {...item,senderId:item.owner,receiverId:item.peer,messageType:'text',productId:'',productName:'',productItems:[],replyToMessageId:'',encrypted:true,
+        isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
+        sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
+    }
+    async function verifyPackage(p,expected) {
+      if(p.fingerprint!==expected || await digest(decode(p.publicKey))!==expected || await digest(decode(p.keyPackage))!==p.hash)fail('mls_identity_verification_failed');
+      const proof=p.identityProof;
+      if(proof?.owner!==p.owner || proof.deviceId!==p.deviceId || proof.hash!==p.hash || proof.keyPackage!==p.keyPackage)fail('mls_identity_verification_failed');
+      const key=await crypto.subtle.importKey('raw',decode(p.publicKey),'Ed25519',false,['verify']);
+      const bytes=new TextEncoder().encode(JSON.stringify(['winga-crypto-key-package',1,p.owner,proof.sessionId,p.deviceId,proof.requestId,proof.issuedAt,p.hash]));
+      if(!await crypto.subtle.verify('Ed25519',key,decode(proof.signature),bytes))fail('mls_identity_verification_failed');
+      const signaturePublicKey=await WingaMlsCandidate.inspectBoundKeyPackage(decode(p.keyPackage),{owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint});
+      if(encode(signaturePublicKey)!==p.mlsPublicKey)fail('mls_identity_verification_failed');
+      const pin={owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,publicKey:p.publicKey,signaturePublicKey,status:'active'};
+      const saved=await vault.snapshot(),prior=saved.values[`mls:pin:${p.deviceId}`];
+      if(prior && (prior.fingerprint!==pin.fingerprint || encode(prior.signaturePublicKey)!==p.mlsPublicKey || prior.publicKey!==p.publicKey))fail('mls_identity_changed');
+      await vault.write({expectedRevision:saved.revision,values:{[`mls:pin:${p.deviceId}`]:pin}});
+      return pin;
+    }
+    async function verifyProof(proof,action) {
+      const pin=(await pins()).find(v=>v.id===proof.actorId && v.owner===proof.owner && v.status==='active');
+      if(!pin || proof.action!==action)fail('mls_receipt_rejected');
+      const key=await crypto.subtle.importKey('raw',decode(pin.publicKey),'Ed25519',false,['verify']);
+      const h=await digest(new TextEncoder().encode(JSON.stringify(proof.payload,Object.keys(proof.payload).sort())));
+      const bytes=new TextEncoder().encode(JSON.stringify(['winga-crypto-transport',1,proof.owner,proof.sessionId,proof.action,proof.actorId,proof.requestId,proof.issuedAt,h]));
+      if(!await crypto.subtle.verify('Ed25519',key,decode(proof.signature),bytes))fail('mls_receipt_rejected');
+      return pin;
+    }
+    async function verifyReceipt(proof) {
+      const pin=await verifyProof(proof,'receipt');
+      await runtime.applyReceipt(proof.payload,pin);
+      await operation('receipt-ack',proof.payload);
+    }
+    async function acknowledge(item,kind) {
+      await operation('receipt',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash,kind});
+    }
+    try {
+      runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
+        publishPackage:packageRequest,trustedPins:pins,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
+      await runtime.initialize();const own=await runtime.prepareKeyPackage();
+      async function syncInternal() {
+        const result=await operation('poll',{});if(result?.version!==1 || !Array.isArray(result.groups))fail('mls_transport_invalid');
+        groups=result.groups;
+        const saved=await vault.snapshot();
+        for(const g of groups) {
+          if(g.status==='blocked')continue;
+          const peer=g.creator===owner?g.recipient:g.creator;
+          const pending=saved.values[`mls:membership:${g.id}`];
+          if(g.creator===owner && pending) {
+            if(g.status==='active') {
+              const proof=g.acceptance;
+              if(proof?.actorId!==g.recipient_device || proof.payload?.conversationId!==g.id || proof.payload?.transferId!==pending.id)fail('mls_membership_confirmation_rejected');
+              await verifyProof(proof,'accept');await runtime.confirmMembership(g.id,pending.id);
+            }
+            else if(g.status==='reserved')await operation('transfer',{...pending,commit:encode(pending.commit),welcome:encode(pending.welcome),tree:encode(pending.tree)},pending.id);
+          }
+          const accepted=saved.values[`mls:group:${g.id}`]?.acceptedTransfer;
+          if(g.recipient===owner && g.status==='pending' && accepted===g.transfer?.id)await operation('accept',{conversationId:g.id,transferId:accepted},accepted);
+          if(g.status!=='active' || !saved.values[`mls:route:${peer}`])continue;
+          for(const m of g.messages) {
+            let item;
+            try {
+              const proof=m.proof,p=proof?.payload;
+              if(proof?.owner!==peer || proof.actorId!==m.sender_device || p?.id!==m.id || p.conversationId!==g.id || p.epoch!==m.epoch || p.hash!==m.hash || p.ciphertext!==m.ciphertext)fail('mls_envelope_binding_rejected');
+              await verifyProof(proof,'send');
+              item=await runtime.receive(peer,{...m,conversationId:g.id,ciphertext:decode(m.ciphertext)});
+            }catch(error) {
+              const invalid=['mls_wire_rejected','mls_envelope_binding_rejected','mls_application_required','mls_content_binding_rejected','mls_sender_rejected','mls_message_id_conflict','mls_replay_conflict','mls_ciphertext_rejected','mls_receipt_rejected'];
+              if(!invalid.includes(error.code))throw error;
+              await operation('reject',{id:m.id,conversationId:g.id,epoch:m.epoch,hash:m.hash,reason:'invalid-ciphertext'});continue;
+            }
+            await acknowledge(item,'delivered');
+          }
+          for(const proof of g.receipts)await verifyReceipt(proof);
+        }
+        for(const item of await runtime.history())if(item.owner===owner && item.status==='pending'
+          && groups.some(g=>g.id===item.conversationId && g.status==='active')) {
+          await runtime.retryMessage(item.id);queueMicrotask(onChange);
+        }
+        current();const snapshot=JSON.stringify(groups);
+        if(snapshot!==lastSnapshot){lastSnapshot=snapshot;queueMicrotask(onChange);}return groups;
+      }
+      async function inspect(peer) {
+        return serialize(async()=>{
+          await syncInternal();const g=groups.find(g=>g.creator===peer || g.recipient===peer);
+          if(g?.status==='active' && await runtime.isEncrypted(peer))return {status:'active',ownFingerprint:own.fingerprint};
+          if(g?.status==='active')return {status:'recovery-required',ownFingerprint:own.fingerprint};
+          if(g?.status==='blocked')return {status:'blocked',ownFingerprint:own.fingerprint};
+          const candidates=g?.packages?.filter(p=>p.owner===peer) || (await operation('directory',{peer})).packages;
+          return {status:g?.status || 'available',ownFingerprint:own.fingerprint,packages:candidates,group:g};
+        });
+      }
+      async function enable(peer,deviceId,expectedFingerprint) {
+        return serialize(async()=>{
+          await syncInternal();const group=groups.find(g=>g.creator===peer || g.recipient===peer);
+          if(group?.status==='blocked')fail('encrypted_access_denied');
+          const candidates=group?.packages?.filter(p=>p.owner===peer) || (await operation('directory',{peer})).packages;
+          const p=candidates.find(p=>p.deviceId===deviceId);if(!p)fail('encrypted_package_unavailable');
+          await verifyPackage(p,expectedFingerprint);
+          if(group && group.recipient===owner) {
+            if(!group.transfer)fail('mls_membership_pending');
+            const proof=group.transfer_proof;
+            if(proof?.actorId!==group.creator_device || proof.owner!==peer || JSON.stringify(proof.payload,Object.keys(proof.payload).sort())!==JSON.stringify(group.transfer,Object.keys(group.transfer).sort()))fail('mls_membership_confirmation_rejected');
+            await verifyProof(proof,'transfer');
+            const transfer={...group.transfer,commit:decode(group.transfer.commit),welcome:decode(group.transfer.welcome),tree:decode(group.transfer.tree)};
+            await runtime.acceptWelcome(peer,transfer);
+            await operation('accept',{conversationId:group.id,transferId:transfer.id},transfer.id);
+          } else {
+            let saved=await vault.snapshot(),intent=saved.values[`mls:reservation:${peer}`];
+            if(!intent) {
+              const pkg=await runtime.prepareKeyPackage();
+              intent={conversationId:crypto.randomUUID(),peer,sourceHash:pkg.hash,targetHash:p.hash};
+              saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`mls:reservation:${peer}`]:intent}});
+            }
+            await operation('reserve',intent,intent.conversationId);
+            saved=await vault.snapshot();
+            if(!saved.values[`mls:group:${intent.conversationId}`])await runtime.createConversation(peer,intent.conversationId);
+            saved=await vault.snapshot();
+            const transfer=saved.values[`mls:membership:${intent.conversationId}`] || await runtime.addPeer(intent.conversationId,decode(p.keyPackage));
+            await operation('transfer',{...transfer,commit:encode(transfer.commit),welcome:encode(transfer.welcome),tree:encode(transfer.tree)},transfer.id);
+          }
+          await syncInternal();await runtime.prepareKeyPackage();const g=groups.find(g=>g.creator===peer || g.recipient===peer);return {status:g?.status || 'pending'};
+        });
+      }
+      const service={
+        inspect,enable,sync:()=>serialize(syncInternal),
+        isEncrypted:async peer=>Boolean(groups.find(g=>g.creator===peer || g.recipient===peer)) || runtime.isEncrypted(peer),
+        history:async peer=>(await runtime.history(peer)).map(messageView),
+        sendMessage:payload=>serialize(async()=>{
+          try {const result=messageView(await runtime.sendMessage(payload));queueMicrotask(onChange);return result;}
+          catch(error) {
+            const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
+            if(!item || (!(error instanceof TypeError) && error.status!==503))throw error;
+            queueMicrotask(onChange);return messageView(item);
+          }
+        }),
+        retryMessage:id=>serialize(async()=>{const item=await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;}),
+        markRead:(peer,messageIds=[])=>serialize(async()=>{
+          if(document.visibilityState!=='visible' || !document.hasFocus())return;
+          const visible=[...document.querySelectorAll('[data-chat-read-user]')].some(el=>el.dataset.chatReadUser===peer && el.getClientRects().length);
+          if(!visible)return;
+          for(const item of await runtime.history(peer))if(item.owner===peer && item.status!=='read' && messageIds.includes(item.id)) {
+            await acknowledge(item,'read');
+            const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{[`history:${item.id}`]:{...item,status:'read'}}});
+          }
+        }),
+        close(){closed=true;runtime.close();vault.close();identity.close();}
+      };
+      await service.sync();return service;
+    }catch(error){runtime?.close();vault.close();identity.close();throw error;}
+  }
+  globalThis.WingaEncryptionSession={createEncryptionSession};
+})();
+
+
+// src/chat/encryption-ui.js
+(() => {
+  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{}}) {
+    const t=translate;
+    for(const button of scope.querySelectorAll('[data-chat-security]')) {
+      if(button.dataset.securityBound)continue;button.dataset.securityBound='true';
+      const peer=button.dataset.chatSecurity;
+      const update=async()=>{
+        try {
+          const info=await dataLayer.inspectEncryptedConversation(peer);
+          button.hidden=info.status==='disabled';button.dataset.securityStatus=info.status;
+          button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
+          button.setAttribute('aria-label',button.title);
+          if(['active','reserved','pending','blocked','recovery-required'].includes(info.status)) {
+            onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Encrypted chat currently supports text messages only.');control.classList.remove('selected');});
+            scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
+          }
+        }catch{button.hidden=false;button.dataset.securityStatus='unavailable';}
+      };
+      update();
+      button.addEventListener('click',async()=>{
+        if(button.disabled)return;button.disabled=true;
+        let dialog;
+        try {
+          const info=await dataLayer.inspectEncryptedConversation(peer);
+          dialog=document.createElement('dialog');dialog.className='chat-security-dialog';
+          const title=document.createElement('h3');title.textContent=t('chat.security','Chat security');dialog.append(title);
+          const state=document.createElement('p');state.setAttribute('role','status');
+          const label=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):
+            info.status==='blocked'?t('chat.encryptionBlocked','Encrypted chat is blocked'):
+            info.status==='recovery-required'?t('chat.encryptionRecovery','This device needs its encrypted conversation keys'):
+            t('chat.encryptionVerify','Compare device fingerprints through a separate trusted channel before accepting.');
+          state.textContent=label;dialog.append(state);
+          const historyNote=document.createElement('p');historyNote.textContent=t('chat.encryptionNewMessages','Encryption applies to new messages. Earlier messages are unchanged.');dialog.append(historyNote);
+          if(info.ownFingerprint) {
+            const own=document.createElement('label');own.textContent=t('chat.ownFingerprint','Your device fingerprint');
+            const value=document.createElement('code');value.className='chat-fingerprint';value.textContent=info.ownFingerprint;own.append(value);dialog.append(own);
+          }
+          const options=info.packages || [];
+          if(options.length && !['active','blocked','recovery-required'].includes(info.status)) {
+            const form=document.createElement('form');
+            const deviceLabel=document.createElement('label');deviceLabel.textContent=t('chat.peerDevice','Recipient device');
+            const select=document.createElement('select');select.name='device';
+            for(const p of options){const option=document.createElement('option');option.value=p.deviceId;option.textContent=p.fingerprint.slice(0,16);select.append(option);}
+            deviceLabel.append(select);form.append(deviceLabel);
+            const label=document.createElement('label');label.textContent=t('chat.expectedFingerprint','Fingerprint received from your contact');
+            const input=document.createElement('input');input.name='fingerprint';input.required=true;input.pattern='[a-fA-F0-9 ]{64,95}';input.autocomplete='off';input.spellcheck=false;label.append(input);form.append(label);
+            const submit=document.createElement('button');submit.type='submit';submit.className='action-btn';submit.textContent=t('chat.verifyAndAccept','Verify and accept');form.append(submit);
+            form.addEventListener('submit',async event=>{
+              event.preventDefault();submit.disabled=true;
+              try {
+                const result=await dataLayer.enableEncryptedConversation(peer,select.value,input.value.replace(/\s/g,'').toLowerCase());
+                state.textContent=result.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.encryptionPending','Waiting for your contact to verify and accept');
+                form.remove();await refresh();await update();
+              }catch{state.textContent=t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;}
+            });dialog.append(form);
+          } else if(!options.length && !['active','blocked','recovery-required'].includes(info.status)) {
+            state.textContent=t('chat.encryptionNoDevice','Your contact has no available encryption device yet.');
+          }
+          const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.close','Close');close.onclick=()=>dialog.close();dialog.append(close);
+          dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputFocus(dialog);
+        }catch{dialog?.remove();button.title=t('chat.encryptionUnavailable','Chat encryption is unavailable');}
+        finally{button.disabled=false;}
+      });
+    }
+  }
+  function inputFocus(dialog){dialog.querySelector('input')?.focus();}
+  globalThis.WingaEncryptedChatUi={bind};
+})();
 
 
 // src/chat/encrypted-vault.js
@@ -19039,6 +19511,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
+      globalThis.WingaEncryptedChatUi?.bind(modal,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},refresh:async()=>{await deps.refreshMessagesState();replaceContextChatModal();}});
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -19053,14 +19526,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
+          const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
           deps.setChatComposeStatus?.("context", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
-            productId: activeChatContext.productId || "",
-            productName: activeChatContext.productName || "",
+            productId: encrypted ? "" : activeChatContext.productId || "",
+            productName: encrypted ? "" : activeChatContext.productName || "",
             message,
             messageType: productItems.length > 1 ? "product_inquiry" : productItems.length === 1 ? "product_reference" : "text",
             productItems,
@@ -19420,6 +19894,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!scope) {
         return;
       }
+      globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -20006,14 +20481,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
+          const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
           deps.setChatComposeStatus?.("profile", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
           });
           const sendResult = await runRetrySafeMessageSend(sendKey, () => deps.dataLayer.sendMessage({
             receiverId: activeChatContext.withUser,
-            productId: activeChatContext.productId || "",
-            productName: activeChatContext.productName || "",
+            productId: encrypted ? "" : activeChatContext.productId || "",
+            productName: encrypted ? "" : activeChatContext.productName || "",
             message,
             replyToMessageId: deps.getActiveChatReplyMessageId()
           }), {

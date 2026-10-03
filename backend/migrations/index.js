@@ -124,6 +124,7 @@ const MIGRATIONS = Object.freeze([
   require("./conversation-crypto-devices"),
   require("./conversation-security-mode"),
   require("./conversation-crypto-key-packages"),
+  require("./encrypted-conversations"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([
