@@ -201,12 +201,14 @@ function hiveResponseShape(payload) {
 
 function parseHiveClass(prediction) {
   if (!prediction || typeof prediction !== "object" || Array.isArray(prediction)) return null;
-  const modern = "class_name" in prediction || "value" in prediction;
-  const classic = "class" in prediction || "score" in prediction;
-  if (modern && classic
-      && (prediction.class_name !== prediction.class || prediction.value !== prediction.score)) return null;
-  const rawLabel = modern ? prediction.class_name : prediction.class;
-  const score = modern ? prediction.value : prediction.score;
+  const named = Object.hasOwn(prediction, "class_name");
+  const classified = Object.hasOwn(prediction, "class");
+  const valued = Object.hasOwn(prediction, "value");
+  const scored = Object.hasOwn(prediction, "score");
+  if ((named && classified && prediction.class_name !== prediction.class)
+      || (valued && scored && prediction.value !== prediction.score)) return null;
+  const rawLabel = named ? prediction.class_name : prediction.class;
+  const score = valued ? prediction.value : prediction.score;
   if (typeof rawLabel !== "string" || rawLabel.length > 80) return null;
   const label = rawLabel.toLowerCase();
   if (!/^[a-z][a-z0-9_]*$/.test(label) || typeof score !== "number"

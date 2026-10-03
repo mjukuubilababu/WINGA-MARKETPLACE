@@ -399,3 +399,34 @@ test("invalid response diagnostics expose schema fields without media URLs or pr
   assert.ok(!log.includes("secret-token"));
   assert.ok(!log.includes("private_metadata"));
 });
+
+test("observed Hive V3 class/value video output completes without changing risk thresholds",async()=>{
+  let delivered;
+  const worker=adapter(async(url,init)=>{
+    if(url===env.HIVE_API_URL)return Response.json({output:[
+      {time:0,classes:[{class:"general_nsfw",value:0.1},{class:"no_gun",value:0.99}]},
+      {time:1,classes:[{class:"general_nsfw",value:0.95},{class:"gun_in_hand",value:0.88}]}
+    ]});
+    delivered=JSON.parse(init.body);return Response.json({ok:true});
+  });
+  const response=await worker.fetch(request(),env);
+  assert.equal(response.status,202);
+  assert.equal(delivered.verdict,"review");
+  assert.equal(delivered.riskScore,0.95);
+  assert.equal(delivered.scores.gun_in_hand,0.88);
+  assert.ok(!delivered.labels.includes("no_gun"));
+});
+test("conflicting name and score aliases reject the whole Hive response",async()=>{
+  for(const prediction of [
+    {class:"general_nsfw",class_name:"no_gun",value:0.99},
+    {class:"general_nsfw",value:0.1,score:0.99},
+    {class:"general_nsfw",value:null,score:0.99},
+    {class:"general_nsfw",value:"0.1"},
+    {class:"general_nsfw",value:0.1,class_name:null}
+  ]){
+    let calls=0;
+    const worker=adapter(async()=>{calls++;return hive([prediction]);});
+    assert.equal((await worker.fetch(request(),env)).status,502);
+    assert.equal(calls,1);
+  }
+});
