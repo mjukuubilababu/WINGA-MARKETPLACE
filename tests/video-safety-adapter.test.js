@@ -19,7 +19,7 @@ function loadAdapterInternals() {
     URL, Response, Request, Headers, TextEncoder, TextDecoder, Uint8Array,
     AbortController, setTimeout, clearTimeout, crypto: webcrypto,
     fetch: async () => { throw new Error("network disabled in unit test"); },
-    console: { log() {}, error() {} }
+    console: { log() {}, error(message) { diagnostics.push(JSON.parse(message)); } }
   });
   new vm.Script(source, { filename: sourcePath }).runInContext(context);
   return context.__adapterTest;
@@ -104,11 +104,11 @@ function request(body = scan, secret = env.VIDEO_SAFETY_SCAN_WEBHOOK_SECRET) {
     body: raw
   });
 }
-function adapter(fetchImpl, fastTimeout = false) {
+function adapter(fetchImpl, fastTimeout = false, diagnostics = []) {
   const sandbox = {
     crypto: webcrypto, Request, Response, URL, TextEncoder, TextDecoder,
     AbortController, setTimeout, clearTimeout, fetch: fetchImpl,
-    console: { log() {}, error() {} }
+    console: { log() {}, error(message) { diagnostics.push(JSON.parse(message)); } }
   };
   let code = source.replace("export default", "const adapter =");
   if (fastTimeout) code = code.replace("const HIVE_V3_TIMEOUT_MS = 45000;", "const HIVE_V3_TIMEOUT_MS = 25;");
@@ -263,4 +263,34 @@ test("deadline remains active while reading the Hive response body", async () =>
     }), { status: 200 }
   )), true);
   assert.equal((await worker.fetch(request(), env)).status, 504);
+});
+
+
+test("failure diagnostics identify Hive and callback stages without leaking messages", async () => {
+  for (const failureStage of ["hive_request", "winga_callback"]) {
+    const diagnostics = [];
+    const worker = adapter(async url => {
+      if (failureStage === "winga_callback" && url === env.HIVE_API_URL) {
+        return hive([{ class_name: "general_nsfw", value: 0.1 }]);
+      }
+      throw new TypeError("fetch failed for https://private.example/secret-token");
+    }, false, diagnostics);
+    assert.equal((await worker.fetch(request(), env)).status, 502);
+    assert.equal(diagnostics[0].stage, failureStage);
+    assert.equal(diagnostics[0].reason, "network_failure");
+    assert.ok(!JSON.stringify(diagnostics).includes("secret-token"));
+  }
+});
+
+test("oversized Hive responses identify the response stage and never deliver decisions", async () => {
+  const diagnostics = [];
+  let calls = 0;
+  const worker = adapter(async () => {
+    calls++;
+    return new Response("x".repeat(128 * 1024 + 1));
+  }, false, diagnostics);
+  assert.equal((await worker.fetch(request(), env)).status, 502);
+  assert.equal(calls, 1);
+  assert.equal(diagnostics[0].stage, "hive_response");
+  assert.equal(diagnostics[0].reason, "response_too_large");
 });

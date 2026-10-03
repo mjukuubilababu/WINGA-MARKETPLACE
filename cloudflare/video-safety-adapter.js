@@ -29,7 +29,7 @@ export default {
         return await acceptWingaScan(request, env);
       } catch (error) {
         const timeout = error?.name === "AbortError";
-        console.error(JSON.stringify({ event: "video_safety_scan_failed", timeout }));
+        console.error(JSON.stringify({ event: "video_safety_scan_failed", timeout, stage: error?.scanStage || "scan_validation", reason: safeFailureReason(error) }));
         return json({ ok: false, error: timeout ? "provider_timeout" : "scan_failed" }, timeout ? 504 : 502);
       }
     }
@@ -64,7 +64,7 @@ async function acceptWingaScan(request, env) {
 
   // V3 returns predictions in this response. Do not acknowledge the scan
   // until the signed result has reached the durable Render backend.
-  const { response: providerResponse, body: providerBody } = await fetchWithTimeout(clean(env.HIVE_API_URL, 2048), {
+  const { response: providerResponse, body: providerBody } = await withScanStage("hive_request", () => fetchWithTimeout(clean(env.HIVE_API_URL, 2048), {
     method: "POST",
     redirect: "error",
     headers: {
@@ -74,17 +74,18 @@ async function acceptWingaScan(request, env) {
       "User-Agent": "winga-video-safety-adapter/2"
     },
     body: JSON.stringify({ input: [{ media_url: scan.mediaUrl }] })
-  }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await readProviderJson(response) }));
+  }, HIVE_V3_TIMEOUT_MS, async response => ({ response, body: await withScanStage("hive_response", () => readProviderJson(response)) })));
   if (!providerResponse.ok) {
+
     console.error(JSON.stringify({ event: "video_safety_provider_rejected", status: providerResponse.status }));
     return json({ ok: false, error: "provider_rejected", providerStatus: providerResponse.status }, 502);
   }
-  const normalized = await normalizeHiveV3Result(scan, providerBody);
+  const normalized = await withScanStage("hive_normalize", () => normalizeHiveV3Result(scan, providerBody));
   if (!normalized) {
     console.error(JSON.stringify({ event: "video_safety_provider_invalid_response" }));
     return json({ ok: false, error: "provider_invalid_response" }, 502);
   }
-  const delivery = await deliverWingaResult(normalized, env);
+  const delivery = await withScanStage("winga_callback", () => deliverWingaResult(normalized, env));
   if (!delivery.ok) return json({ ok: false, error: "winga_callback_failed" }, 502);
   console.log(JSON.stringify({ event: "video_safety_result_delivered", apiVersion: "v3", verdict: normalized.verdict }));
   return json({
@@ -150,6 +151,7 @@ async function deliverWingaResult(normalized, env) {
   }
   return { ok: response.ok };
 }
+
 
 async function normalizeHiveV3Result(scan, payload) {
   // Reject errors, empty outputs and malformed scores. Missing predictions
@@ -224,6 +226,7 @@ async function normalizeHiveResult(providerId, payload, rawBody) {
   const riskScore = positive.reduce((maximum, [, score]) => Math.max(maximum, score), 0);
   const labels = positive.filter(([, score]) => score >= LABEL_THRESHOLD)
     .sort((left, right) => right[1] - left[1]).slice(0, 40).map(([label]) => label);
+
   const providerError = Boolean(firstString(payload, ["error", "error_code", "errorCode"]));
   const taskId = clean(firstString(payload, ["task_id", "taskId", "id"])
     || findNestedString(payload, new Set(["task_id", "taskid", "id"])), 160);
@@ -305,6 +308,7 @@ function getReadiness(env) {
 }
 
 function parseAllowlist(value) {
+
   return String(value || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean).slice(0, 20);
 }
 
@@ -338,6 +342,24 @@ function isFutureTimestamp(value) {
   const seconds = Number(value);
   const now = Math.floor(Date.now() / 1000);
   return Number.isInteger(seconds) && seconds >= now - MAX_REQUEST_AGE_SECONDS && seconds <= now + CALLBACK_TTL_SECONDS;
+}
+
+async function withScanStage(stage, operation) {
+  try { return await operation(); }
+  catch (error) {
+    const failure = error && typeof error === "object" ? error : new Error("scan_stage_failed");
+    if (!failure.scanStage) failure.scanStage = stage;
+    throw failure;
+  }
+}
+
+function safeFailureReason(error) {
+  if (error?.message === "body_limit_exceeded") return "response_too_large";
+  if (error?.name === "AbortError") return "timeout";
+  if (/redirect/i.test(String(error?.message || ""))) return "redirect_blocked";
+  if (/fetch failed|network|socket|dns|connection/i.test(String(error?.message || ""))) return "network_failure";
+  if (error?.name === "TypeError") return "type_error";
+  return "runtime_failure";
 }
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS, consume = null) {
@@ -378,6 +400,7 @@ async function readStream(stream, limit) {
   try {
     while (true) {
       const part = await reader.read();
+
       if (part.done) break;
       size += part.value.byteLength;
       if (size > limit) { await reader.cancel(); throw new Error("body_limit_exceeded"); }
