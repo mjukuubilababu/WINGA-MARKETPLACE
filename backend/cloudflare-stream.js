@@ -266,14 +266,15 @@ function createCloudflareStreamClient(options = {}) {
     }
     return task;
   }
-  async function ensureSignedPlaybackPolicy(providerId) {
+  async function ensureSignedPlaybackPolicy(providerId, options = {}) {
     const now = Date.now();
     const cached = signedPlaybackPolicyCache.get(providerId);
     if (cached && cached.expiresAt > now) return cached.task;
     signedPlaybackPolicyCache.delete(providerId);
     const task = request(`/${encodeURIComponent(providerId)}`, {
       method: "POST",
-      body: JSON.stringify({ allowedOrigins: config.allowedOrigins, requireSignedURLs: true })
+      body: JSON.stringify({ allowedOrigins: config.allowedOrigins, requireSignedURLs: true }),
+      signal: options.signal
     }).then(() => true).catch((error) => {
       signedPlaybackPolicyCache.delete(providerId);
       throw error;
@@ -341,7 +342,7 @@ function createCloudflareStreamClient(options = {}) {
   async function issuePlaybackToken(providerId, options = {}) {
     const safeId = cleanText(providerId, 64);
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
-    await ensureSignedPlaybackPolicy(safeId);
+    await ensureSignedPlaybackPolicy(safeId, options);
     const customerCode = config.customerCode || extractStreamCustomerCode(options.posterUrl, options.hlsUrl, options.dashUrl);
     if (!customerCode) {
       const error = new Error("Cloudflare Stream customer code is unavailable.");
@@ -360,7 +361,8 @@ function createCloudflareStreamClient(options = {}) {
         sub: safeId,
         kid: config.signingKeyId,
         exp: nowSeconds + config.playbackTokenTtlSeconds,
-        nbf: Math.max(0, nowSeconds - 5)
+        nbf: Math.max(0, nowSeconds - 5),
+        ...(options.downloadable === true ? { downloadable: true } : {})
       };
       const unsignedToken = `${encodeJwtPart(header)}.${encodeJwtPart(payload)}`;
       const signature = crypto.sign("RSA-SHA256", Buffer.from(unsignedToken, "utf8"), localSigningKey).toString("base64url");
@@ -372,7 +374,8 @@ function createCloudflareStreamClient(options = {}) {
       };
     }
     const result = await request(`/${encodeURIComponent(safeId)}/token`, {
-      method: "POST", body: JSON.stringify({ exp: Math.floor(Date.now() / 1000) + config.playbackTokenTtlSeconds, downloadable: false })
+      method: "POST", body: JSON.stringify({ exp: Math.floor(Date.now() / 1000) + config.playbackTokenTtlSeconds, downloadable: options.downloadable === true }),
+      signal: options.signal
     });
     const token = cleanText(result.token, 8192);
     if (!token) { const error = new Error("Cloudflare Stream returned no playback token."); error.code = "stream_invalid_provider_response"; throw error; }
@@ -396,6 +399,55 @@ function createCloudflareStreamClient(options = {}) {
     return { ...(await task), cacheHit: false };
   }
 
-  return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, readVideoDetails, createPlaybackToken, deleteVideo, listCaptions, readCaptionVtt, isConfigured: () => isCloudflareStreamConfigured(config) };
+
+  async function createModerationMedia(providerId) {
+    const safeId = cleanText(providerId, 64);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(safeId)) throw new TypeError("A valid Stream video identifier is required.");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      // Keep the generated MP4 private, including videos uploaded before this policy.
+      await ensureSignedPlaybackPolicy(safeId, { signal: controller.signal });
+      let downloads;
+      try {
+        downloads = await request(`/${encodeURIComponent(safeId)}/downloads`, { signal: controller.signal });
+      } catch (error) {
+        if (error?.status !== 404) throw error;
+        downloads = {};
+      }
+      if (!downloads.default || downloads.default.status === "error") {
+        downloads = await request(`/${encodeURIComponent(safeId)}/downloads/default`, {
+          method: "POST", body: "{}", signal: controller.signal
+        });
+      }
+      if (downloads.default?.status !== "ready") {
+        const error = new Error("Private MP4 preparation is pending; retry after Cloudflare finishes.");
+        error.code = "stream_download_pending";
+        throw error;
+      }
+      // Issue a fresh download token; never put it in the viewer playback cache.
+      const download = await issuePlaybackToken(safeId, { downloadable: true, signal: controller.signal });
+      if (!/^[a-zA-Z0-9-]{4,128}$/.test(download.customerCode)) {
+        const error = new Error("Cloudflare Stream customer code is invalid.");
+        error.code = "stream_customer_code_missing";
+        throw error;
+      }
+      return {
+        mediaUrl: `https://customer-${download.customerCode}.cloudflarestream.com/${encodeURIComponent(download.token)}/downloads/default.mp4`,
+        expiresInSeconds: download.expiresInSeconds
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        const timeoutError = new Error("Cloudflare Stream MP4 preparation timed out.");
+        timeoutError.code = "stream_download_timeout";
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return { config: { ...config, apiToken: "", webhookSecret: "", signingJwk: "" }, createDirectUpload, createResumableUpload, readVideoDetails, createPlaybackToken, createModerationMedia, deleteVideo, listCaptions, readCaptionVtt, isConfigured: () => isCloudflareStreamConfigured(config) };
 }
 module.exports = { DEFAULT_MAX_DURATION_SECONDS, createCloudflareStreamClient, extractStreamCustomerCode, isCloudflareStreamConfigured, normalizeCaptionTrack, normalizeStreamVideo, parseWebhookSignature, readCloudflareStreamConfig, verifyCloudflareStreamWebhook };

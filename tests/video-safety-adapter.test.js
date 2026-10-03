@@ -287,7 +287,7 @@ test("oversized Hive responses identify the response stage and never deliver dec
   let calls = 0;
   const worker = adapter(async () => {
     calls++;
-    return new Response("x".repeat(128 * 1024 + 1));
+    return new Response("x".repeat(4 * 1024 * 1024 + 1));
   }, false, diagnostics);
   assert.equal((await worker.fetch(request(), env)).status, 502);
   assert.equal(calls, 1);
@@ -312,4 +312,75 @@ test("provider and backend redirects never forward credentials or acknowledge su
     assert.equal(diagnostics[0].stage,stage);
     assert.equal(diagnostics[0].reason,"redirect_blocked");
   }
+});
+test("provider rejection logs use fixed terms and never expose private media URLs", async () => {
+  const diagnostics=[];
+  const worker=adapter(async()=>Response.json({error:{message:"Unsupported video format m3u8 at https://private.example/secret-token"}},{status:400}),false,diagnostics);
+  const response=await worker.fetch(request(),env);
+  assert.equal(response.status,502);
+  assert.equal((await response.json()).providerStatus,400);
+  assert.equal(diagnostics[0].reason,"unsupported_media_format");
+  assert.ok(diagnostics[0].terms.includes("m3u8"));
+  assert.ok(!JSON.stringify(diagnostics).includes("secret-token"));
+  assert.ok(!JSON.stringify(diagnostics).includes("private.example"));
+});
+test("video results larger than 128 KiB retain every frame and the highest risk", async () => {
+  const output=Array.from({length:100},(_,frame)=>({time:frame,classes:[
+    {class_name:"general_nsfw",value:frame===99?0.96:0.1},
+    ...Array.from({length:79},(_,index)=>({class_name:"attribute_"+index,value:0.1}))
+  ]}));
+  const raw=JSON.stringify({output});
+  assert.ok(Buffer.byteLength(raw)>128*1024);
+  let delivered;
+  const worker=adapter(async(url,init)=>{
+    if(url===env.HIVE_API_URL)return new Response(raw,{headers:{"Content-Type":"application/json"}});
+    delivered=JSON.parse(init.body);
+    return Response.json({ok:true});
+  });
+  assert.equal((await worker.fetch(request(),env)).status,202);
+  assert.equal(delivered.verdict,"review");
+  assert.equal(delivered.riskScore,0.96);
+});
+test("documented class/score fields retain the same review threshold",async()=>{
+  let delivered;
+  const worker=adapter(async(url,init)=>{
+    if(url===env.HIVE_API_URL)return Response.json({output:[{time:0,classes:[
+      {class:"general_nsfw",score:0.95},{class:"general_not_nsfw_not_suggestive",score:0.05}
+    ]}]});
+    delivered=JSON.parse(init.body);return Response.json({ok:true});
+  });
+  assert.equal((await worker.fetch(request(),env)).status,202);
+  assert.equal(delivered.riskScore,0.95);
+  assert.equal(delivered.verdict,"review");
+});
+test("conflicting class formats and excessive prediction counts never deliver a verdict",async()=>{
+  for(const classes of [
+    [{class_name:"general_nsfw",value:0.1,class:"general_nsfw",score:0.99}],
+    Array.from({length:50001},()=>({class_name:"general_nsfw",value:0.1})),
+    [{class_name:"general_nsfw",value:0.1},...Array.from({length:1024},(_,i)=>({class_name:"attribute_"+i,value:0.1}))]
+  ]){
+    let calls=0;
+    const worker=adapter(async()=>{calls++;return hive(classes);});
+    const response=await worker.fetch(request(),env);
+    assert.equal(response.status,502);
+    assert.equal((await response.json()).error,"provider_invalid_response");
+    assert.equal(calls,1);
+  }
+});
+test("class names matching Object properties cannot turn a high score into NaN",async()=>{
+  let delivered;
+  const worker=adapter(async(url,init)=>{
+    if(url===env.HIVE_API_URL)return hive([{class_name:"general_nsfw",value:0.1},{class_name:"constructor",value:0.99}]);
+    delivered=JSON.parse(init.body);return Response.json({ok:true});
+  });
+  assert.equal((await worker.fetch(request(),env)).status,202);
+  assert.equal(delivered.riskScore,0.99);
+  assert.equal(delivered.verdict,"review");
+});
+test("the Render callback retains its smaller bounded response limit",async()=>{
+  const diagnostics=[];
+  const worker=adapter(async(url)=>url===env.HIVE_API_URL?hive(predictions):new Response("x".repeat(128*1024+1)),false,diagnostics);
+  assert.equal((await worker.fetch(request(),env)).status,502);
+  assert.equal(diagnostics[0].stage,"winga_callback");
+  assert.equal(diagnostics[0].reason,"response_too_large");
 });

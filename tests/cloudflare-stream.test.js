@@ -273,3 +273,90 @@ test("Stream captions are normalized, cached, and served only as valid WebVTT", 
     { code: "stream_invalid_caption_response" }
   );
 });
+function moderationClient(fetchImpl, extra={}) {
+  return createCloudflareStreamClient({
+    config:readCloudflareStreamConfig({
+      CLOUDFLARE_STREAM_ACCOUNT_ID:"account-123",CLOUDFLARE_STREAM_API_TOKEN:"synthetic-secret",
+      CLOUDFLARE_STREAM_CUSTOMER_CODE:"examplecode",CLOUDFLARE_STREAM_PLAYBACK_TOKEN_TTL_SECONDS:"600",...extra}),
+    fetchImpl
+  });
+}
+function streamResponse(result) { return {ok:true,status:200,json:async()=>({success:true,result})}; }
+test("moderation uses a ready private MP4 and a fresh downloadable token outside the playback cache",async()=>{
+  const calls=[];
+  const client=moderationClient(async(url,init)=>{
+    calls.push({url,init});
+    if(url.endsWith("/downloads"))return streamResponse({default:{status:"ready",url:"https://customer-examplecode.cloudflarestream.com/stream-video-123/downloads/default.mp4"}});
+    if(url.endsWith("/token"))return streamResponse({token:JSON.parse(init.body).downloadable?"private.download.token":"viewer.playback.token"});
+    return streamResponse({});
+  });
+  const playback=await client.createPlaybackToken("stream-video-123");
+  const media=await client.createModerationMedia("stream-video-123");
+  const cached=await client.createPlaybackToken("stream-video-123");
+  assert.equal(media.mediaUrl,"https://customer-examplecode.cloudflarestream.com/private.download.token/downloads/default.mp4");
+  assert.equal(media.expiresInSeconds,600);
+  assert.equal(playback.token,cached.token);
+  assert.equal(cached.cacheHit,true);
+  assert.equal(JSON.parse(calls[0].init.body).requireSignedURLs,true);
+  const tokenCalls=calls.filter(c=>c.url.endsWith("/token"));
+  assert.equal(tokenCalls.length,2);
+  assert.equal(JSON.parse(tokenCalls[0].init.body).downloadable,false);
+  assert.equal(JSON.parse(tokenCalls[1].init.body).downloadable,true);
+  assert.ok(JSON.parse(tokenCalls[1].init.body).exp<=Math.floor(Date.now()/1000)+600);
+  assert.equal(calls.some(c=>c.url.endsWith("/downloads/default")),false);
+  assert.ok(!JSON.stringify(media).includes("synthetic-secret"));
+});
+test("MP4 generation returns pending until ready and does not issue a token early",async()=>{
+  let ready=false;
+  const calls=[];
+  const client=moderationClient(async(url,init)=>{
+    calls.push({url,init});
+    if(url.endsWith("/downloads"))return streamResponse(ready?{default:{status:"ready"}}:{});
+    if(url.endsWith("/downloads/default"))return streamResponse({default:{status:"inprogress"}});
+    if(url.endsWith("/token"))return streamResponse({token:"download.token"});
+    return streamResponse({});
+  });
+  await assert.rejects(client.createModerationMedia("stream-video-123"),{code:"stream_download_pending"});
+  assert.equal(calls.some(c=>c.url.endsWith("/token")),false);
+  assert.equal(calls.find(c=>c.url.endsWith("/downloads/default")).init.method,"POST");
+  ready=true;
+  assert.match((await client.createModerationMedia("stream-video-123")).mediaUrl,/\/downloads\/default\.mp4$/);
+  assert.equal(calls.filter(c=>c.url.endsWith("/downloads/default")).length,1);
+});
+test("an MP4 already in progress is polled without restarting generation",async()=>{
+  const calls=[];
+  const client=moderationClient(async(url,init)=>{
+    calls.push({url,init});
+    return streamResponse(url.endsWith("/downloads")?{default:{status:"inprogress"}}:{});
+  });
+  await assert.rejects(client.createModerationMedia("stream-video-123"),{code:"stream_download_pending"});
+  assert.equal(calls.length,2);
+  assert.ok(!calls.some(c=>c.url.endsWith("/token")||c.url.endsWith("/downloads/default")));
+});
+test("MP4 download permission is signed locally while playback remains non-downloadable",async()=>{
+  const {privateKey,publicKey}=crypto.generateKeyPairSync("rsa",{modulusLength:2048});
+  const calls=[];
+  const client=moderationClient(async(url,init)=>{
+    calls.push({url,init});
+    return streamResponse(url.endsWith("/downloads")?{default:{status:"ready"}}:{});
+  },{CLOUDFLARE_STREAM_SIGNING_KEY_ID:"signing-key-123",CLOUDFLARE_STREAM_SIGNING_JWK:JSON.stringify(privateKey.export({format:"jwk"}))});
+  const media=await client.createModerationMedia("stream-video-123");
+  const token=decodeURIComponent(new URL(media.mediaUrl).pathname.split("/")[1]);
+  const [header,payload,signature]=token.split(".");
+  const claims=JSON.parse(Buffer.from(payload,"base64url").toString());
+  assert.equal(claims.downloadable,true);
+  assert.equal(claims.sub,"stream-video-123");
+  assert.ok(crypto.verify("RSA-SHA256",Buffer.from(header+"."+payload),publicKey,Buffer.from(signature,"base64url")));
+  const playback=await client.createPlaybackToken("stream-video-123");
+  assert.equal(JSON.parse(Buffer.from(playback.token.split(".")[1],"base64url").toString()).downloadable,undefined);
+  assert.equal(calls.some(c=>c.url.endsWith("/token")),false);
+});
+test("MP4 preparation timeouts and provider rejection never issue media credentials",async()=>{
+  for(const failure of [
+    Object.assign(new Error("aborted"),{name:"AbortError"}),
+    Object.assign(new Error("unavailable"),{code:"stream_provider_error",status:503})
+  ]){
+    const client=moderationClient(async()=>{throw failure;});
+    await assert.rejects(client.createModerationMedia("stream-video-123"),{code:failure.name==="AbortError"?"stream_download_timeout":"stream_provider_error"});
+  }
+});

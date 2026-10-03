@@ -7199,6 +7199,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const clientIp = getClientIp(req);
+
   if (req.method === "GET" && url.pathname === "/api/ops/database/health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
@@ -7507,61 +7509,86 @@ const server = http.createServer(async (req, res) => {
       }, { "Cache-Control": "no-store" });
       return;
     }
-    const payload = await collectBody(req);
-    if (String(payload?.confirmation || "") !== "recover-video-operations") {
-      requestMeta.statusCode = 400;
-      sendJson(res, 400, {
-        ok: false,
-        error: "A valid recovery confirmation is required."
+    const applied = {};
+    try {
+      const payload = await collectBody(req);
+      if (String(payload?.confirmation || "") !== "recover-video-operations") {
+        requestMeta.statusCode = 400;
+        sendJson(res, 400, {
+          ok: false,
+          error: "A valid recovery confirmation is required."
+        }, { "Cache-Control": "no-store" });
+        return;
+      }
+      const retryDeadLimit = Math.max(0, Math.min(Number.parseInt(payload?.retryDeadLimit, 10) || 0, 100));
+      const pruneStaleWorkers = payload?.pruneStaleWorkers === true;
+      const staleWorkerAgeSeconds = Math.max(60, Math.min(Number.parseInt(payload?.staleWorkerAgeSeconds, 10) || 300, 86400));
+      const staleWorkerLimit = Math.max(1, Math.min(Number.parseInt(payload?.staleWorkerLimit, 10) || 100, 1000));
+      if (!retryDeadLimit && !pruneStaleWorkers) {
+        requestMeta.statusCode = 400;
+        sendJson(res, 400, {
+          ok: false,
+          error: "At least one bounded recovery action is required."
+        }, { "Cache-Control": "no-store" });
+        return;
+      }
+      const safety = retryDeadLimit
+        ? await postgresStore.retryDeadVideoSafetyJobs({ limit: retryDeadLimit })
+        : { retried: 0, requested: 0 };
+      applied.safety = safety;
+      const workers = pruneStaleWorkers
+        ? await postgresStore.pruneStaleVideoWorkerHeartbeats({
+          olderThanSeconds: staleWorkerAgeSeconds,
+          limit: staleWorkerLimit
+        })
+        : { pruned: 0, olderThanSeconds: staleWorkerAgeSeconds, requested: 0 };
+      applied.workers = workers;
+      const result = { safety, workers };
+      await appendAuditLog({
+        time: new Date().toISOString(),
+        ip: clientIp,
+        method: req.method,
+        path: url.pathname,
+        event: "ops_token_video_recovery",
+        username: "ops-token",
+        statusCode: 200,
+        requestId: requestMeta.requestId,
+        details: result
+      });
+      requestMeta.statusCode = 200;
+      logRouteSummary(requestMeta, {
+        lightweight: true,
+        event: "ops_video_recovery",
+        videoSafetyRetried: safety.retried,
+        videoWorkersPruned: workers.pruned
+      });
+      sendJson(res, 200, {
+        ok: true,
+        privacy: "ops-aggregate-only",
+        criticalPath: false,
+        ...result
       }, { "Cache-Control": "no-store" });
-      return;
-    }
-    const retryDeadLimit = Math.max(0, Math.min(Number.parseInt(payload?.retryDeadLimit, 10) || 0, 100));
-    const pruneStaleWorkers = payload?.pruneStaleWorkers === true;
-    const staleWorkerAgeSeconds = Math.max(60, Math.min(Number.parseInt(payload?.staleWorkerAgeSeconds, 10) || 300, 86400));
-    const staleWorkerLimit = Math.max(1, Math.min(Number.parseInt(payload?.staleWorkerLimit, 10) || 100, 1000));
-    if (!retryDeadLimit && !pruneStaleWorkers) {
-      requestMeta.statusCode = 400;
-      sendJson(res, 400, {
+    } catch (error) {
+      const code = error?.code === "INVALID_JSON" ? "invalid_json"
+        : error?.code === "PAYLOAD_TOO_LARGE" ? "payload_too_large" : "video_recovery_failed";
+      requestMeta.statusCode = code === "invalid_json" ? 400 : code === "payload_too_large" ? 413 : 503;
+      logRouteSummary(requestMeta, {
+        lightweight: true,
+        event: "ops_video_recovery_failed",
+        code,
+        videoSafetyRetried: applied.safety?.retried || 0,
+        videoWorkersPruned: applied.workers?.pruned || 0
+      });
+      sendJson(res, requestMeta.statusCode, {
         ok: false,
-        error: "At least one bounded recovery action is required."
+        code,
+        error: code === "invalid_json" ? "Invalid JSON request body."
+          : code === "payload_too_large" ? "Request body is too large." : "Video operations recovery failed.",
+        privacy: "ops-aggregate-only",
+        criticalPath: false,
+        ...applied
       }, { "Cache-Control": "no-store" });
-      return;
     }
-    const safety = retryDeadLimit
-      ? await postgresStore.retryDeadVideoSafetyJobs({ limit: retryDeadLimit })
-      : { retried: 0, requested: 0 };
-    const workers = pruneStaleWorkers
-      ? await postgresStore.pruneStaleVideoWorkerHeartbeats({
-        olderThanSeconds: staleWorkerAgeSeconds,
-        limit: staleWorkerLimit
-      })
-      : { pruned: 0, olderThanSeconds: staleWorkerAgeSeconds, requested: 0 };
-    const result = { safety, workers };
-    await appendAuditLog({
-      time: new Date().toISOString(),
-      ip: clientIp,
-      method: req.method,
-      path: url.pathname,
-      event: "ops_token_video_recovery",
-      username: "ops-token",
-      statusCode: 200,
-      requestId: requestMeta.requestId,
-      details: result
-    });
-    requestMeta.statusCode = 200;
-    logRouteSummary(requestMeta, {
-      lightweight: true,
-      event: "ops_video_recovery",
-      videoSafetyRetried: safety.retried,
-      videoWorkersPruned: workers.pruned
-    });
-    sendJson(res, 200, {
-      ok: true,
-      privacy: "ops-aggregate-only",
-      criticalPath: false,
-      ...result
-    }, { "Cache-Control": "no-store" });
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/ops/messages/dispatch-health") {
@@ -7941,7 +7968,6 @@ const server = http.createServer(async (req, res) => {
       storeTablesSkipped
     });
   }
-  const clientIp = getClientIp(req);
 
   const rateLimitStatus = await evaluateRateLimit(req, store);
   if (rateLimitStatus.limited) {

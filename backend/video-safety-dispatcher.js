@@ -16,6 +16,8 @@ function classifyVideoSafetyDeliveryError(error) {
   const status = Number(error?.status || 0);
   const providerStatus = Number(error?.providerStatus || 0);
   const message = cleanText(error?.message || error, 500).toLowerCase();
+  if (code === "stream_download_pending") return "stream_download_pending";
+  if (code === "stream_download_timeout") return "stream_download_timeout";
   if (error?.name === "AbortError" || /abort|timed? out|timeout/.test(message)) return "adapter_timeout";
   if (code === "video_safety_provider_rejected") {
     if (providerStatus === 401 || providerStatus === 403) return "hive_provider_auth_rejected";
@@ -58,7 +60,7 @@ function createVideoSafetyDispatcher(options = {}) {
   const workerId = cleanText(options.workerId || `${process.pid}:video-safety`, 120);
   const intervalMs = clampInteger(options.intervalMs, 5000, 30 * 60 * 1000, 30000);
   const batchSize = clampInteger(options.batchSize, 1, 100, 10);
-  const requestTimeoutMs = clampInteger(options.requestTimeoutMs, 1000, 60000, 10000);
+  const requestTimeoutMs = clampInteger(options.requestTimeoutMs, 60000, 120000, 60000);
   const leaseSeconds = clampInteger(options.leaseSeconds, 30, 3600, 600);
   const concurrency = clampInteger(options.concurrency, 1, 10, 3);
   let timer = null;
@@ -67,7 +69,7 @@ function createVideoSafetyDispatcher(options = {}) {
 
   function isConfigured() {
     return Boolean(store?.claimVideoSafetyBatch && store?.completeVideoSafetyDelivery
-      && streamClient?.isConfigured?.() && streamClient?.createPlaybackToken
+      && streamClient?.isConfigured?.() && streamClient?.createModerationMedia
       && cleanText(streamClient?.config?.customerCode, 128)
       && /^https:\/\//i.test(cleanText(config.scanUrl, 2048))
       && cleanText(config.deliverySecret, 512).length >= 32
@@ -80,17 +82,20 @@ function createVideoSafetyDispatcher(options = {}) {
     if (!/^[a-zA-Z0-9_-]{8,64}$/.test(providerId) || idempotencyKey !== `video-safety:${providerId}`) {
       throw new Error("Video safety job identity is invalid.");
     }
-    const playback = await streamClient.createPlaybackToken(providerId);
-    const customerCode = cleanText(playback?.customerCode, 128);
-    const token = cleanText(playback?.token, 8192);
-    if (!/^[a-zA-Z0-9-]{4,128}$/.test(customerCode) || !token) {
-      throw new Error("Cloudflare Stream returned incomplete private playback credentials.");
+    const media = await streamClient.createModerationMedia(providerId);
+    const mediaUrl = cleanText(media?.mediaUrl, 16384);
+    const url = new URL(mediaUrl);
+    const customerCode = cleanText(streamClient.config.customerCode, 128);
+    if (url.protocol !== "https:" || url.hostname !== `customer-${customerCode}.cloudflarestream.com`
+        || url.username || url.password || url.port || url.search || url.hash
+        || !/^\/[^/]+\/downloads\/default\.mp4$/.test(url.pathname)) {
+      throw new Error("Cloudflare Stream returned an invalid private moderation URL.");
     }
     const body = JSON.stringify({
       version: "video-safety-scan-v1",
       providerId,
       idempotencyKey,
-      mediaUrl: `https://customer-${customerCode}.cloudflarestream.com/${encodeURIComponent(token)}/manifest/video.m3u8`
+      mediaUrl
     });
     const timestamp = String(Math.floor(Date.now() / 1000));
     const controller = new AbortController();

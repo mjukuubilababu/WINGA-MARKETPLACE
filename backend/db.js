@@ -8613,7 +8613,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const latestSafetyFailure = String(safetyQueue.latestFailure || "").toLowerCase();
     const knownSafetyFailureCodes = [
       "stream_signing_key_invalid", "stream_customer_code_missing", "stream_invalid_provider_response",
-      "stream_not_configured", "stream_provider_auth_rejected", "stream_video_not_found",
+      "stream_not_configured", "stream_download_pending", "stream_download_timeout",
+      "stream_provider_auth_rejected", "stream_video_not_found",
       "stream_provider_rate_limited", "stream_provider_unavailable", "stream_provider_request_rejected",
       "adapter_timeout", "adapter_signature_rejected", "adapter_payload_rejected", "adapter_rate_limited",
       "adapter_provider_unavailable", "adapter_network_error", "hive_provider_auth_rejected",
