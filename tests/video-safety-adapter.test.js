@@ -148,7 +148,7 @@ test("V3 Bearer request and signed Render delivery preserve risk thresholds", as
   assert.equal(calls[0].url, env.HIVE_API_URL);
   assert.equal(calls[0].init.headers.Authorization, "Bearer " + env.HIVE_API_KEY);
   assert.deepEqual(JSON.parse(calls[0].init.body), { input: [{ media_url: scan.mediaUrl }] });
-  assert.equal(calls[0].init.redirect, "error");
+  assert.equal(calls[0].init.redirect, "manual");
 });
 
 test("safe predictions complete only after backend success", async () => {
@@ -293,4 +293,23 @@ test("oversized Hive responses identify the response stage and never deliver dec
   assert.equal(calls, 1);
   assert.equal(diagnostics[0].stage, "hive_response");
   assert.equal(diagnostics[0].reason, "response_too_large");
+});
+test("provider and backend redirects never forward credentials or acknowledge submission", async () => {
+  for (const stage of ["hive_request", "winga_callback"]) {
+    const diagnostics = [];
+    const calls = [];
+    const worker = adapter(async (url, init) => {
+      calls.push(url);
+      assert.equal(init.redirect, "manual");
+      if (stage === "winga_callback" && url === env.HIVE_API_URL) {
+        return hive([{class_name:"general_nsfw", value:0.1}]);
+      }
+      return new Response("", {status:307, headers:{Location:"https://untrusted.example/"}});
+    }, false, diagnostics);
+    assert.equal((await worker.fetch(request(),env)).status,502);
+    assert.equal(calls.length,stage === "hive_request" ? 1 : 2);
+    assert.ok(!calls.some(url => url.includes("untrusted.example")));
+    assert.equal(diagnostics[0].stage,stage);
+    assert.equal(diagnostics[0].reason,"redirect_blocked");
+  }
 });

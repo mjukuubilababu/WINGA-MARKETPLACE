@@ -66,7 +66,7 @@ async function acceptWingaScan(request, env) {
   // until the signed result has reached the durable Render backend.
   const { response: providerResponse, body: providerBody } = await withScanStage("hive_request", () => fetchWithTimeout(clean(env.HIVE_API_URL, 2048), {
     method: "POST",
-    redirect: "error",
+    redirect: "manual",
     headers: {
       Authorization: `Bearer ${clean(env.HIVE_API_KEY, 1000)}`,
       "Content-Type": "application/json",
@@ -134,7 +134,7 @@ async function deliverWingaResult(normalized, env) {
   const signature = await hmacHex(env.VIDEO_SAFETY_RESULT_WEBHOOK_SECRET, `${timestamp}.${callbackBody}`);
   const response = await fetchWithTimeout(env.WINGA_VIDEO_SAFETY_RESULT_URL, {
     method: "POST",
-    redirect: "error",
+    redirect: "manual",
     headers: {
       "Content-Type": "application/json",
       "X-Winga-Video-Safety-Timestamp": timestamp,
@@ -367,6 +367,10 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS, co
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
+    if (response.status >= 300 && response.status < 400) {
+      if (response.body) await response.body.cancel();
+      throw new Error("redirect_blocked");
+    }
     return consume ? await consume(response) : response;
   }
   finally { clearTimeout(timer); }
