@@ -20,7 +20,7 @@
         "chat.deviceRevoke": "Ondoa idhini",
         "chat.deviceActionFailed": "Hatua ya kifaa imeshindwa. Jaribu hatua ileile au kagua hali ya kifaa.",
         "chat.recovery": "Recovery ya historia iliyosimbwa",
-        "chat.recoveryNotice": "Hifadhi faili ya recovery nje ya Winga. Mwenye faili hiyo anaweza kusoma historia yako iliyohifadhiwa. Hairudishi uanachama wa chat hai.",
+        "chat.recoveryNotice": "Hifadhi faili ya recovery nje ya Winga. Backup huhifadhi ujumbe 1,999 wa karibuni ndani ya 2 MiB; historia ya zamani hubaki kwenye kifaa hiki. Mwenye faili anaweza kusoma backup. Hairudishi uanachama wa chat hai.",
         "chat.recoveryImport": "Faili ya recovery",
         "chat.recoveryCreate": "Tengeneza recovery key",
         "chat.recoveryKey": "Recovery key",

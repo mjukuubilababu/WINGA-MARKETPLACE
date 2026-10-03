@@ -21,12 +21,19 @@ function createMembershipReplacement({access}) {
   }
   async function handle(client,context,op,g) {
     const p=op.payload;need(g,'encrypted_membership_required',403);
-    if(op.action==='replace-reserve') {
+    if(op.action==='replace-reserve' || op.action==='replace-retire') {
       need(uuid(p.id) && uuid(p.removedDeviceId) && uuid(p.replacementDeviceId)
         && typeof p.previousEpoch==='string' && /^[1-9][0-9]{0,19}$/.test(p.previousEpoch)
         && typeof p.packageHash==='string' && /^[a-f0-9]{64}$/.test(p.packageHash),'encrypted_operation_invalid',400);
+      const retired=(await client.query('SELECT * FROM encrypted_replacement_retirements WHERE id=$1',[p.id])).rows[0];
+      if(retired) {
+        need(retired.conversation_id===g.id && retired.initiator_device===op.actorId && canonical(retired.intent)===canonical(p));
+        need(op.action==='replace-retire','encrypted_replacement_retired');
+        return {version:1,id:p.id,status:'retired',conversationId:g.id,epoch:p.previousEpoch};
+      }
       const prior=(await client.query(`SELECT * FROM encrypted_conversation_replacements WHERE conversation_id=$1 AND previous_epoch=$2 FOR UPDATE`,[g.id,p.previousEpoch])).rows[0];
       if(prior) {
+        need(op.action!=='replace-retire','encrypted_replacement_exists');
         need(prior.initiator_device===op.actorId && canonical(prior.intent)===canonical(p));
         await access(client,projected(g,prior),op.actorId,context.owner);
         return {version:1,id:prior.id,status:prior.status};
@@ -36,6 +43,13 @@ function createMembershipReplacement({access}) {
       need(creator||recipient,'encrypted_membership_required',403);
       need(g.status==='active' && g.epoch===p.previousEpoch && !await frozen(client,g.id));
       need(p.removedDeviceId===(creator?g.recipient_device:g.creator_device) && p.replacementDeviceId!==p.removedDeviceId);
+      if(op.action==='replace-retire') {
+        // The transport lock serializes this tombstone against delayed reserve requests.
+        await access(client,g,op.actorId,context.owner,{retiringIntent:true});
+        await client.query(`INSERT INTO encrypted_replacement_retirements(id,conversation_id,initiator_device,intent,proof)
+          VALUES($1,$2,$3,$4,$5)`,[p.id,g.id,op.actorId,canonical(p),JSON.stringify(proof(context,op))]);
+        return {version:1,id:p.id,status:'retired',conversationId:g.id,epoch:g.epoch};
+      }
       const peer=creator?g.recipient:g.creator;
       const pkg=(await client.query(`SELECT p.* FROM conversation_crypto_key_packages p JOIN conversation_crypto_devices d ON d.id=p.device_id
         WHERE p.hash=$1 AND p.device_id=$2 AND d.owner_id=$3 AND d.status='active' AND p.consumed_at IS NULL AND p.expires_at>NOW() FOR UPDATE OF p`,[p.packageHash,p.replacementDeviceId,peer])).rows[0];

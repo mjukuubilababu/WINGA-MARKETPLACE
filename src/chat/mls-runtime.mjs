@@ -69,6 +69,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
   const hash = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
   const locked = work => { current(); return locks.request(`winga-mls-operation:${owner}`, async () => { current(); return work(); }); };
   const put = async (saved, values, deleted = []) => { current(); return vault.write({ expectedRevision: saved.revision, values, deleted }); };
+  const record = async (saved,key) => saved.values[key] ?? (vault.lookup?await vault.lookup(key):undefined);
   function validLifetime(kp) {
     const life = kp?.leafNode?.lifetime, time = BigInt(Math.floor(now() / 1000));
     need(life && typeof life.notBefore === 'bigint' && typeof life.notAfter === 'bigint'
@@ -161,7 +162,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const saved = await vault.snapshot(), identity = saved.values['mls:identity'];
       need(identity && saved.values['mls:published'] === identity.hash, 'mls_identity_required');
       need(!saved.values[`mls:route:${peer}`] && !saved.values[`mls:group:${conversationId}`], 'mls_group_exists');
-      need(!saved.values[`mls:consumed:${identity.hash}`] && saved.values['mls:package-consumed'] !== identity.hash, 'mls_package_consumed');
+      need(!(await record(saved,`mls:consumed:${identity.hash}`)) && saved.values['mls:package-consumed'] !== identity.hash, 'mls_package_consumed');
       validLifetime(identity.package.publicPackage);
       const { configuration } = await config(saved);
       const group = await createGroup(encoder.encode(conversationId), identity.package.publicPackage,
@@ -261,8 +262,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
         need(previous.acceptedHash === transferHash && (!expectedPeerDeviceId || previous.acceptedPeerDevice === expectedPeerDeviceId),'mls_replay_conflict');return id;
       }
       need(!previous && !saved.values[`mls:route:${peer}`], 'mls_group_exists');
-      const admission = saved.values[`mls:package:${transfer.packageHash}`] || identity;
-      need(!saved.values[`mls:consumed:${admission.hash}`] && saved.values['mls:package-consumed'] !== admission.hash && transfer.packageHash === admission.hash, 'mls_package_consumed');
+      const admission = await record(saved,`mls:package:${transfer.packageHash}`) || identity;
+      need(!(await record(saved,`mls:consumed:${admission.hash}`)) && saved.values['mls:package-consumed'] !== admission.hash && transfer.packageHash === admission.hash, 'mls_package_consumed');
       identity = admission;
       validLifetime(identity.package.publicPackage);
       const { configuration } = await config(saved), decoded = exact(decodeMlsMessage, transfer.welcome);
@@ -303,7 +304,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       need(uuid(id), 'mls_group_required'); const identity = saved.values['mls:identity'];
       need(!Object.entries(saved.values).some(([key, job]) => key.startsWith('mls:outbox:')
         && job.conversationId === id && job.id !== payload.clientMessageId), 'mls_pending_send_requires_retry');
-      let job = saved.values[`mls:outbox:${payload.clientMessageId}`], history = saved.values[`history:${payload.clientMessageId}`];
+      let job = saved.values[`mls:outbox:${payload.clientMessageId}`], history = await record(saved,`history:${payload.clientMessageId}`);
       if (history) need(history.owner === owner && history.peer === payload.receiverId && history.message === payload.message
         && history.conversationId === id, 'mls_send_retry_conflict');
       if (history && !job) return { ...history, encrypted: true };
@@ -344,10 +345,10 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       need(uuid(envelope?.id) && uuid(envelope.conversationId) && envelope.ciphertext instanceof Uint8Array, 'mls_wire_rejected');
       const saved = await vault.snapshot(), id = saved.values[`mls:route:${peer}`]?.conversationId;
       need(id === envelope.conversationId, 'mls_peer_invalid');
-      const digest = await hash(envelope.ciphertext), prior = saved.values[`mls:received:${envelope.id}`];
-      if (prior) { need(prior === digest, 'mls_replay_conflict'); return saved.values[`history:${envelope.id}`]; }
+      const digest = await hash(envelope.ciphertext), prior = await record(saved,`mls:received:${envelope.id}`);
+      if (prior) { need(prior === digest, 'mls_replay_conflict'); return await record(saved,`history:${envelope.id}`); }
       if(envelope.hash)need(envelope.hash===digest,'mls_envelope_binding_rejected');
-      need(!saved.values[`history:${envelope.id}`], 'mls_message_id_conflict');
+      need(!(await record(saved,`history:${envelope.id}`)), 'mls_message_id_conflict');
       const group = await state(saved, id), parsed = exact(decodeMlsMessage, envelope.ciphertext);
       need(group.row.confirmed && parsed.wireformat === 'mls_private_message'
         && decoder.decode(parsed.privateMessage.groupId) === id && String(parsed.privateMessage.epoch) === envelope.epoch
@@ -376,7 +377,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
   }
   async function retryMessage(id) {
     current(); need(uuid(id), 'mls_message_id_invalid');
-    const saved = await vault.snapshot(), pending = saved.values[`mls:outbox:${id}`], item = saved.values[`history:${id}`];
+    const saved = await vault.snapshot(), pending = saved.values[`mls:outbox:${id}`], item = await record(saved,`history:${id}`);
     if (!pending) return null;
     need(item?.owner === owner && item.status === 'pending', 'mls_send_retry_conflict');
     return sendMessage({ clientMessageId: id, receiverId: item.peer, message: item.message, messageType: 'text' });
@@ -387,10 +388,11 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
   }
   async function prepareKeyPackage() {
     await locked(async () => {
+      if(vault.pruneExpiredAdmissions)await vault.pruneExpiredAdmissions(now());
       const saved = await vault.snapshot(), identity = saved.values['mls:identity'];
       need(identity, 'mls_identity_required');
       const expired = identity.package.publicPackage.leafNode.lifetime.notAfter <= BigInt(Math.floor(now() / 1000));
-      if (!expired && !saved.values[`mls:consumed:${identity.hash}`] && saved.values['mls:package-consumed'] !== identity.hash) return;
+      if (!expired && !(await record(saved,`mls:consumed:${identity.hash}`)) && saved.values['mls:package-consumed'] !== identity.hash) return;
       const time = BigInt(Math.floor(now() / 1000));
       const pkg = await generateKeyPackageWithKey(credential(identity), defaultCapabilities(),
         { notBefore: time - 10n, notAfter: time + 86400n }, [], {
@@ -404,13 +406,13 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     return initialize();
   }
   async function history(peer) {
-    current(); const saved = await vault.snapshot(); current();
+    current(); const saved = await (vault.historySnapshot?vault.historySnapshot():vault.snapshot()); current();
     return Object.entries(saved.values).filter(([key,value]) => key.startsWith('history:') && (!peer || value.owner === peer || value.peer === peer))
       .map(([,value]) => structuredClone(value)).sort((a,b) => a.timestamp.localeCompare(b.timestamp));
   }
   async function applyReceipt(p, pin) {
     return locked(async () => {
-      const saved = await vault.snapshot(), item = saved.values[`history:${p.id}`];
+      const saved = await vault.snapshot(), item = await record(saved,`history:${p.id}`);
       need(item && item.owner === owner && p.hash === item.hash && p.conversationId === item.conversationId && p.epoch === item.epoch
         && pin?.owner === item.peer && ['delivered','read'].includes(p.kind), 'mls_receipt_rejected');
       await put(saved, { [`history:${p.id}`]: { ...item, status: item.status === 'read' ? 'read' : p.kind } }, [`mls:outbox:${p.id}`]);
@@ -420,7 +422,13 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
     need(uuid(id) && saved.values[`mls:group:${id}`]?.confirmed,'mls_group_required');return id;
   }
+  async function conversationEpoch(peer) {
+    current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,row=saved.values[`mls:group:${id}`];
+    need(uuid(id) && row?.confirmed,'mls_group_required');
+    const parsed=decodeGroupState(row.bytes,0);need(parsed && parsed[1]===row.bytes.length && decoder.decode(parsed[0].groupContext.groupId)===id,'mls_state_invalid');
+    current();return String(parsed[0].groupContext.epoch);
+  }
   return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
-    retryMessage,
+    retryMessage,conversationEpoch,
     close() { closed = true; } };
 }

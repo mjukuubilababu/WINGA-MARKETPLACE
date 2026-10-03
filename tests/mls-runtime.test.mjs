@@ -65,6 +65,23 @@ async function pair() {
 }
 const message = text => ({ clientMessageId: randomUUID(), receiverId: 'bob', message: text, messageType: 'text' });
 
+test('archived history and replay markers remain usable without loading them into the ratchet snapshot',async()=>{
+  const {alice,bob}=await pair();
+  for(const p of [alice,bob]) {
+    const snapshot=p.vault.snapshot.bind(p.vault);p.vault.historySnapshot=snapshot;
+    p.vault.lookup=async key=>(await snapshot()).values[key];
+    p.vault.snapshot=async()=>{const s=await snapshot();s.values=Object.fromEntries(Object.entries(s.values).filter(([k])=>!k.startsWith('history:')&&!k.startsWith('mls:received:')&&!k.startsWith('mls:consumed:')&&!k.startsWith('mls:package:')));return s;};
+  }
+  for(let n=0;n<130;n++){await alice.runtime.sendMessage(message('paged '+n));await bob.runtime.receive('alice',alice.packets.at(-1));}
+  const before=await bob.vault.snapshot(),replay=await bob.runtime.receive('alice',alice.packets[0]);
+  assert.equal(replay.message,'paged 0');assert.deepEqual(await bob.vault.snapshot(),before);
+  await assert.rejects(bob.runtime.receive('alice',{...alice.packets[1],id:alice.packets[0].id}),{code:'mls_replay_conflict'});
+  assert.equal((await bob.runtime.history('alice')).length,130);
+  const old=alice.packets[0];await alice.runtime.applyReceipt({id:old.id,conversationId:old.conversationId,epoch:old.epoch,hash:old.hash,kind:'read'},bob.device);
+  assert.equal((await alice.runtime.history('bob'))[0].status,'read');
+  await alice.runtime.prepareKeyPackage();
+});
+
 async function replacementFixture() {
   const old = await pair(), next = await participant('bob');
   old.alice.pins.push({ ...next.device, status: 'active' });

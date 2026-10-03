@@ -12,7 +12,7 @@ async function fixture(t){
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement'])
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements'])
     await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);});
     await transaction(migrationClient,async c=>{for(const sql of require('../backend/migrations/encrypted-conversation-media').statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
@@ -60,6 +60,19 @@ test('authorization is rechecked after a transaction waits for membership serial
 });
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+test('reservation retirement and a delayed reservation serialize to exactly one durable outcome',async t=>{
+  const f=await replacementFixture(t),a=f.members.alice,intent=f.intent(f.targets[0]);
+  const results=await Promise.allSettled([
+    f.store.encryptedOperation(a.context,a.sign('replace-retire',intent)),
+    f.store.encryptedOperation(a.context,a.sign('replace-reserve',intent))
+  ]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  const retired=(await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_replacement_retirements')).rows[0].n;
+  const reserved=(await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n;
+  assert.equal(retired+reserved,1);
+  assert.equal(results.find(r=>r.status==='rejected').reason.code,retired?'encrypted_replacement_retired':'encrypted_replacement_exists');
+  assert.equal(Boolean((await f.pool.query('SELECT consumed_at FROM conversation_crypto_key_packages WHERE hash=$1',[intent.packageHash])).rows[0].consumed_at),Boolean(reserved));
+});
 async function replacementFixture(t) {
   const f=await fixture(t),a=f.members.alice;
   await f.store.encryptedOperation(a.context,a.sign('reserve',f.reserve));

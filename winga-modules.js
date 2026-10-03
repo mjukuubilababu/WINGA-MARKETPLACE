@@ -18705,9 +18705,32 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return {intent,p,pin};
       }
       if(mediaEnabled && globalThis.WingaEncryptedMedia && typeof mediaRequest==='function')media=await WingaEncryptedMedia.createMediaClient({owner,getSession,vault,runtime,identity,operation,request:mediaRequest,onChange});
+      async function retireAbsentIntent(peer,g) {
+        let saved=await vault.snapshot();const intent=saved.values[`mls:replacement:${peer}`];
+        if(!intent || g?.status!=='active' || g.replacement?.status && g.replacement.status!=='accepted')return;
+        const row=saved.values[`mls:group:${g.id}`];
+        if(intent.conversationId!==g.id || intent.previousEpoch!==g.epoch || !row?.confirmed
+          || saved.values[`mls:membership:${g.id}`] || await runtime.conversationId(peer)!==g.id
+          || await runtime.conversationEpoch(peer)!==intent.previousEpoch)return;
+        const reply=await operation('replace-retire',intent,intent.id);
+        if(reply?.version!==1 || reply.id!==intent.id || reply.status!=='retired' || reply.conversationId!==g.id || reply.epoch!==intent.previousEpoch)fail('mls_replacement_recovery_rejected');
+        saved=await vault.snapshot();
+        if(canonical(saved.values[`mls:replacement:${peer}`] || {})!==canonical(intent)
+          || !saved.values[`mls:group:${g.id}`]?.confirmed || saved.values[`mls:membership:${g.id}`]
+          || await runtime.conversationEpoch(peer)!==intent.previousEpoch)fail('mls_replacement_recovery_rejected');
+        await vault.write({expectedRevision:saved.revision,deleted:[`mls:replacement:${peer}`]});
+      }
       async function syncInternal() {
-        const result=await operation('poll',{});if(result?.version!==1 || !Array.isArray(result.groups))fail('mls_transport_invalid');
-        groups=result.groups;
+        const collected=[],seen=new Set();let after;
+        do {
+          const result=await operation('poll',after?{after}:{});
+          if(result?.version!==1 || !Array.isArray(result.groups) || result.groups.length>100
+            || result.groups.some(g=>seen.has(g.id)))fail('mls_transport_invalid');
+          for(const g of result.groups){seen.add(g.id);collected.push(g);}
+          if(result.next && (result.next!==result.groups.at(-1)?.id || (after && result.next<=after)))fail('mls_transport_invalid');
+          after=result.next;
+        }while(after);
+        groups=collected;
         const saved=await vault.snapshot();
         for(const g of groups) {
           if(g.status==='blocked')continue;
@@ -18739,6 +18762,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             await operation('replace-accept',{conversationId:g.id,transferId:accepted,epoch:replacement.epoch},accepted);
           if(g.recipient===owner && g.status==='pending' && accepted===g.transfer?.id)await operation('accept',{conversationId:g.id,transferId:accepted},accepted);
           if(g.status!=='active' || !saved.values[`mls:route:${peer}`])continue;
+          await retireAbsentIntent(peer,g);
           for(const m of g.messages) {
             let item;
             try {
@@ -18756,16 +18780,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           for(const proof of g.receipts)await verifyReceipt(proof);
         }
         if(media)for(const job of await media.list())if(groups.some(g=>g.id===job.conversationId&&g.status==='active'))await media.resume(job.id);
-        for(const item of await runtime.history())if(item.owner===owner && item.status==='pending'
-          && groups.some(g=>g.id===item.conversationId && g.status==='active')) {
-          await runtime.retryMessage(item.id);queueMicrotask(onChange);
+        for(const [key,job] of Object.entries((await vault.snapshot()).values))if(key.startsWith('mls:outbox:')
+          && groups.some(g=>g.id===job.conversationId && g.status==='active')) {
+          await runtime.retryMessage(job.id);queueMicrotask(onChange);
         }
         current();const snapshot=JSON.stringify(groups);
         if(snapshot!==lastSnapshot){lastSnapshot=snapshot;queueMicrotask(onChange);}return groups;
       }
       async function inspect(peer) {
         return serialize(async()=>{
-          await syncInternal();let g=groups.find(g=>g.creator===peer || g.recipient===peer);
+          await syncInternal();const localRoute=(await vault.snapshot()).values[`mls:route:${peer}`]?.conversationId;
+          let g=groups.find(g=>g.id===localRoute) || groups.find(g=>g.creator===peer || g.recipient===peer);
           if(g?.replacement && g.status.startsWith('replacement-')) {
             const recovery=await replacementRecovery(g,await vault.snapshot());
             if(recovery?.reason)return {status:'replacement-recovery-required',ownFingerprint:own.fingerprint,recoveryReason:recovery.reason};
@@ -18775,6 +18800,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           let directory;
           try {directory=await operation('directory',{peer});}catch(error){if(error.code==='encrypted_access_denied')return {status:'blocked',ownFingerprint:own.fingerprint};throw error;}
+          if(g?.status==='blocked') {
+            // Only the surviving selected device can start a fresh replacement of a revoked old peer.
+            const stored=directory.group,selected=stored && (stored.creator===owner?stored.creator_device:stored.recipient_device);
+            if(!directory.canReplace || stored?.status!=='active' || selected!==own.id || !(await runtime.isEncrypted(peer)))return {status:'blocked',ownFingerprint:own.fingerprint};
+            const old=stored.creator===peer?stored.creator_device:stored.recipient_device;
+            return {status:'blocked',ownFingerprint:own.fingerprint,canReplace:true,packages:directory.packages.filter(p=>p.deviceId!==old),group:stored};
+          }
           if(!g && directory.group)g=directory.group;
           const selected=g && (g.creator===owner?g.creator_device:g.recipient_device),oldPeer=g && (g.creator===peer?g.creator_device:g.recipient_device);
           const candidates=directory.packages.filter(p=>p.deviceId!==oldPeer);
@@ -18834,7 +18866,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if(!g || g.status!=='active' || (g.creator===owner?g.creator_device:g.recipient_device)!==own.id)fail('encrypted_membership_required');
           let saved=await vault.snapshot(),intent=saved.values[`mls:replacement:${peer}`];
           const record=groups.find(group=>group.id===g.id)?.replacement;
-          const candidates=record?.initiator_device===own.id ? (groups.find(group=>group.id===g.id)?.packages || []) : directory.packages;
+          const candidates=record?.initiator_device===own.id && record.status!=='accepted' ? (groups.find(group=>group.id===g.id)?.packages || []) : directory.packages;
           const p=candidates.find(p=>p.deviceId===deviceId && p.owner===peer);if(!p)fail('encrypted_package_unavailable');
           await verifyPackage(p,expectedFingerprint);
           if(!intent) {
@@ -19137,6 +19169,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
+  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:)/.test(value);
+  const journalKind = value => value.startsWith('history:')?'history:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) value += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
@@ -19182,8 +19216,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     current();
     const name = `winga-encrypted-vault-v1:${owner}`;
     const db = await new Promise((resolve, reject) => {
-      let blocked = false; const request = indexedDB.open(name, 1);
-      request.onupgradeneeded = () => { for (const store of ['keys', 'records', 'metadata']) request.result.createObjectStore(store); };
+      let blocked = false; const request = indexedDB.open(name, 2);
+      request.onupgradeneeded = () => {
+        for (const store of ['keys', 'records', 'metadata']) if(!request.result.objectStoreNames.contains(store))request.result.createObjectStore(store);
+        const journal=request.result.createObjectStore('journal');journal.createIndex('order',['kind','order']);
+        // Move sealed records, never plaintext, in the same schema-upgrade transaction.
+        const read=request.transaction.objectStore('records').openCursor();
+        read.onsuccess=()=>{const cursor=read.result;if(!cursor)return;
+          if(journalId(cursor.key)){journal.put({...cursor.value,kind:journalKind(cursor.key),order:'0000000000000000:'+cursor.key},cursor.key);cursor.delete();}cursor.continue();};
+      };
       request.onerror = () => reject(request.error);
       request.onblocked = () => { blocked = true; reject(failure('crypto_vault_storage_blocked')); };
       request.onsuccess = () => {
@@ -19207,17 +19248,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     try {
       await locks.request(name, async () => {
         const candidate = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-        key = await transaction(['keys', 'records', 'metadata'], 'readwrite', (tx, done, abort) => {
+        key = await transaction(['keys', 'records', 'journal', 'metadata'], 'readwrite', (tx, done, abort) => {
           const read = tx.objectStore('keys').get('local');
           read.onsuccess = () => {
             const count = tx.objectStore('records').count();
             count.onsuccess = () => {
-              if (!read.result && count.result) return abort(failure('crypto_vault_key_missing'));
+              const archived=tx.objectStore('journal').count();
+              archived.onsuccess=()=>{
+              if (!read.result && (count.result || archived.result)) return abort(failure('crypto_vault_key_missing'));
               const chosen = read.result || candidate;
               if (chosen.type !== 'secret' || chosen.extractable || chosen.algorithm?.name !== 'AES-GCM' || chosen.algorithm.length !== 256
                 || chosen.usages.length !== 2 || !chosen.usages.includes('encrypt') || !chosen.usages.includes('decrypt')) return abort(failure('crypto_vault_key_invalid'));
               if (!read.result) { tx.objectStore('keys').add(chosen, 'local'); tx.objectStore('metadata').put('0', 'revision'); }
               done(chosen);
+              };
             };
           };
         });
@@ -19230,6 +19274,53 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         || !(sealed.ciphertext instanceof Uint8Array) || sealed.ciphertext.length > 4 * 1024 * 1024 + 16) fail('crypto_vault_record_invalid');
       const bytes = new Uint8Array(await crypto.subtle.decrypt(parameters(recordId, sealed.nonce), key, sealed.ciphertext));
       try { return unpack(bytes); } finally { bytes.fill(0); }
+    }
+    async function lookup(recordId) {
+      if(!id(recordId))fail('crypto_vault_write_invalid');const context=current();
+      const sealed=await transaction(['records','journal'],'readonly',(tx,done)=>{
+        const read=tx.objectStore(journalId(recordId)?'journal':'records').get(recordId);read.onsuccess=()=>done(read.result);
+      });
+      const value=sealed===undefined?undefined:await reveal(recordId,sealed);assertCurrent(context);return value;
+    }
+    async function historyPage({after,limit=100,expectedRevision,prefix='history:'}={}) {
+      if((after!==undefined && (typeof after!=='string' || after.length>192)) || !Number.isInteger(limit) || limit<1 || limit>100
+        || !['history:','mls:package:'].includes(prefix))fail('crypto_vault_write_invalid');
+      const context=current();
+      const saved=await transaction(['journal','metadata'],'readonly',(tx,done,abort)=>{
+        const revision=tx.objectStore('metadata').get('revision'),rows=[];let bytes=0,next;
+        const range=IDBKeyRange.bound([prefix,''],[prefix,after || '\uffff'],false,Boolean(after));
+        const read=tx.objectStore('journal').index('order').openCursor(range,'prev');
+        read.onsuccess=()=>{
+          const cursor=read.result;
+          if(cursor && String(cursor.primaryKey).startsWith(prefix)) {
+            const size=cursor.value.ciphertext.byteLength;
+            if(rows.length && (rows.length>=limit || bytes+size>4*1024*1024)){next=rows.at(-1)[2];}
+            else {rows.push([cursor.primaryKey,cursor.value,cursor.key[1]]);bytes+=size;cursor.continue();return;}
+          }else if(cursor){cursor.continue();return;}
+          if(expectedRevision!==undefined && revision.result!==expectedRevision)return abort(failure('crypto_vault_revision_conflict'));
+          done({revision:revision.result,rows,next});
+        };
+      });
+      const values=Object.fromEntries(await Promise.all(saved.rows.map(async([key,sealed])=>[key,await reveal(key,sealed)])));
+      assertCurrent(context);return {revision:saved.revision,values,next:saved.next};
+    }
+    async function historySnapshot() {
+      let after,revision;const values={};
+      do {const page=await historyPage({after,expectedRevision:revision});revision=page.revision;Object.assign(values,page.values);after=page.next;}while(after);
+      return {revision,values};
+    }
+    async function pruneExpiredAdmissions(now) {
+      if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');
+      let after;
+      do {
+        const page=await historyPage({after,prefix:'mls:package:'});after=page.next;
+        const deleted=Object.entries(page.values).filter(([,value])=>{
+          const expiry=value?.package?.publicPackage?.leafNode?.lifetime?.notAfter;
+          return typeof expiry==='bigint' && expiry<BigInt(Math.floor(now/1000));
+        }).map(([key])=>key);
+        // Expired admissions cannot join MLS. Consumption/replay tombstones remain untouched.
+        if(deleted.length)await write({expectedRevision:page.revision,deleted});
+      }while(after);
     }
     async function snapshot() {
       const context = current();
@@ -19248,6 +19339,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         };
       });
       const values = Object.fromEntries(await Promise.all(saved.values.map(async ([recordId, sealed]) => [recordId, await reveal(recordId, sealed)])));
+      const recent=await historyPage({expectedRevision:saved.revision});Object.assign(values,recent.values);
       assertCurrent(context); return { revision: saved.revision, values };
     }
     async function write({ expectedRevision, values = {}, deleted = [] } = {}) {
@@ -19261,24 +19353,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const context = current();
       return locks.request(name, async () => {
         assertCurrent(context);
-        const records = []; let changedBytes = 0;
+        const records = []; let changedBytes = 0,journalBytes=0;
         for (const [recordId, value] of Object.entries(values)) {
           const bytes = pack(value), nonce = crypto.getRandomValues(new Uint8Array(12));
           try {
-            changedBytes += bytes.length + 16;
-            if (changedBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
+            if(journalId(recordId))journalBytes+=bytes.length+16;else changedBytes+=bytes.length+16;
+            if (changedBytes > 32 * 1024 * 1024 || journalBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
             records.push([recordId, { v: 1, nonce, ciphertext: new Uint8Array(await crypto.subtle.encrypt(parameters(recordId, nonce), key, bytes)) }]);
           }
           finally { bytes.fill(0); }
         }
         assertCurrent(context);
-        const next = await transaction(['records', 'metadata'], 'readwrite', (tx, done, abort) => {
+        const next = await transaction(['records', 'journal', 'metadata'], 'readwrite', (tx, done, abort) => {
           const read = tx.objectStore('metadata').get('revision');
           read.onsuccess = () => {
             if (read.result !== expectedRevision) return abort(failure('crypto_vault_revision_conflict'));
             try { assertCurrent(context); } catch (error) { return abort(error); }
-            for (const recordId of deleted) tx.objectStore('records').delete(recordId);
-            for (const [recordId, sealed] of records) tx.objectStore('records').put(sealed, recordId);
+            for (const recordId of deleted) tx.objectStore(journalId(recordId)?'journal':'records').delete(recordId);
+            for (const [recordId, sealed] of records) {
+              if(journalId(recordId))tx.objectStore('journal').put({...sealed,kind:journalKind(recordId),order:String(Number(expectedRevision)+1).padStart(16,'0')+':'+recordId},recordId);
+              else tx.objectStore('records').put(sealed, recordId);
+            }
             // Count the resulting state before committing; rejection rolls back every put/delete.
             let count = 0, size = 0; const cursor = tx.objectStore('records').openCursor();
             cursor.onsuccess = () => {
@@ -19296,7 +19391,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         assertCurrent(context); return next;
       });
     }
-    return { snapshot, write, close: () => db.close() };
+    return { snapshot, write, lookup, historyPage, historySnapshot, pruneExpiredAdmissions, close: () => db.close() };
   }
   return { createEncryptedVault };
 });
@@ -19355,6 +19450,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (before.token !== after.token || before.deviceId !== after.deviceId) fail('recovery_session_changed');
     };
     const historyOnly = values => Object.fromEntries(Object.entries(values).filter(([key]) => /^history:[A-Za-z0-9._:-]{1,128}$/.test(key)));
+    const retainedWindow = values => {
+      const entries=Object.entries(values).sort((a,b)=>String(b[1]?.timestamp || '').localeCompare(String(a[1]?.timestamp || '')));
+      const result={};let bytes=0;
+      for(const [key,value] of entries) {
+        const size=encoder.encode(JSON.stringify({[key]:value})).length;
+        if(Object.keys(result).length>=1999 || bytes+size>2*1024*1024)break;
+        result[key]=value;bytes+=size;
+      }
+      return result;
+    };
+    const localHistory = async revision => {
+      const saved=await (vault.historySnapshot?vault.historySnapshot():vault.snapshot());
+      if(saved.revision!==revision)fail('crypto_vault_revision_conflict');return historyOnly(saved.values);
+    };
     const readArchive = bytes => {
       const archive = JSON.parse(decoder.decode(bytes));
       if (!archive || Object.keys(archive).length !== 3 || archive.v !== 1 || archive.owner !== owner
@@ -19367,7 +19476,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return locks.request(`winga-recovery-operation:${owner}`, async () => {
         current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
         if (!pending) {
-          let items = historyOnly(local.values);
+          let items = retainedWindow(await localHistory(local.revision));
           const remote = await request('GET', undefined, session); current(session);
           if (typeof remote?.revision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(remote.revision) || !Number.isSafeInteger(Number(remote.revision))
             || Number(remote.revision) >= Number.MAX_SAFE_INTEGER) fail('recovery_revision_invalid');
@@ -19384,7 +19493,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               items = mergeHistory(prior,items);
             } finally { bytes.fill(0); }
           }
-          if (Object.keys(items).length > 1999) fail('recovery_archive_invalid');
+          items=retainedWindow(items);
           const archive = encoder.encode(JSON.stringify({ v: 1, owner, items }));
           try {
             const capsule = await codec.sealRecovery(archive, key, { owner, id: crypto.randomUUID(), generation: Number(remote.revision) + 1 });
@@ -19421,7 +19530,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         let archive;
         try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
         if (local.values['backup:pending']) fail('recovery_local_history_conflict');
-        const items=mergeHistory(archive.items,historyOnly(local.values));
+        const history=await localHistory(local.revision),items=mergeHistory(archive.items,
+          Object.fromEntries(Object.entries(history).filter(([key])=>Object.hasOwn(archive.items,key))));
         current(session);
         await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
@@ -19458,7 +19568,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       async state(){active();const s=getSession();return guarded('GET',undefined,{owner,deviceId:s.sessionId,token:s.token});},
       async backup(key,checkpoint){active();const result=await client.backup(key,{checkpoint});return {version:1,purpose:'winga-history-recovery',owner,key,checkpoint:result.checkpoint};},
       async restore(kit){active();validateKit(kit,owner);return client.restore(kit.key,{checkpoint:kit.checkpoint});},
-      async archive(){active();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('history:')).map(([,v])=>v);},
+      async archive(){active();return Object.values((await vault.historySnapshot()).values);},
       close(){closed=true;vault.close();}
     };
   }
@@ -19473,7 +19583,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       dialog=document.createElement('dialog');dialog.className='chat-security-dialog chat-recovery-dialog';
       const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el;};
       dialog.append(node('h3',t('chat.recovery','Encrypted history recovery')));
-      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Anyone with it can read your backed-up history. It does not restore live chat membership.')));
+      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Backups retain the latest 1,999 messages within 2 MiB; older history stays on this device. Anyone with the file can read the backup. It does not restore live chat membership.')));
       const status=node('p','');status.setAttribute('role','status');dialog.append(status);
       const importLabel=node('label',t('chat.recoveryImport','Recovery file')),file=document.createElement('input');file.type='file';file.accept='.json,application/json';file.dataset.recoveryFile='';importLabel.append(file);dialog.append(importLabel);
       const newKey=node('button',t('chat.recoveryCreate','Create recovery key'));newKey.type='button';newKey.className='action-btn action-btn-secondary';newKey.disabled=remote.revision!=='0';dialog.append(newKey);

@@ -20,12 +20,12 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     assert(device && verifyDeviceSignature(device.public_key, operationBytes(context, operation), operation.signature), 403, 'encrypted_proof_rejected');
     return device;
   }
-  async function access(client, group, actor, owner) {
+  async function access(client, group, actor, owner, {retiringIntent=false}={}) {
     assert(group && ((group.creator === owner && group.creator_device === actor) || (group.recipient === owner && group.recipient_device === actor)), 403, 'encrypted_membership_required');
     const devices = await client.query(`SELECT id FROM conversation_crypto_devices WHERE id=ANY($1::text[]) AND status='active'`, [[group.creator_device, group.recipient_device]]);
     const users = await client.query(`SELECT username FROM users WHERE username=ANY($1::text[]) AND status='active'`, [[group.creator, group.recipient]]);
     const blocked = await client.query(`SELECT 1 FROM user_blocks WHERE (blocker_username=$1 AND blocked_username=$2) OR (blocker_username=$2 AND blocked_username=$1)`, [group.creator, group.recipient]);
-    assert(devices.rows.length === 2 && users.rows.length === 2 && !blocked.rows.length, 403, 'encrypted_access_denied');
+    assert((retiringIntent?devices.rows.some(d=>d.id===actor):devices.rows.length===2) && users.rows.length === 2 && !blocked.rows.length, 403, 'encrypted_access_denied');
   }
   async function packages(client, hashes) {
     return (await client.query(`SELECT p.*,d.owner_id,d.public_key,d.fingerprint FROM conversation_crypto_key_packages p
@@ -34,7 +34,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       keyPackage: p.package, mlsPublicKey: p.mls_public_key, identityProof: p.identity_proof }));
   }
   async function encryptedOperation(context, op) {
-    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept'].includes(op?.action));
+    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire'].includes(op?.action));
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
     const fields={directory:['peer'],reserve:['conversationId','peer','sourceHash','targetHash'],
@@ -44,9 +44,11 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields.reject=['id','conversationId','epoch','hash','reason'];
     fields['media-reserve']=['id','conversationId','messageId','bytes','sha256'];
     fields['replace-reserve']=['id','conversationId','previousEpoch','removedDeviceId','replacementDeviceId','packageHash'];
+    fields['replace-retire']=fields['replace-reserve'];
     fields['replace-transfer']=[...fields.transfer,'previousEpoch','removedDeviceId','replacementDeviceId'];
     fields['replace-accept']=['conversationId','transferId','epoch'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
+    if(op.action==='poll' && Object.hasOwn(p,'after'))fields.poll=['after'];
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
     return withTransaction(async client => {
@@ -62,7 +64,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
           WHERE d.owner_id=$1 AND d.status='active' AND p.consumed_at IS NULL AND p.expires_at>NOW() ORDER BY p.published_at DESC LIMIT 20`, [p.peer]);
         const group=(await client.query(`SELECT id,creator,recipient,creator_device,recipient_device,epoch,status FROM encrypted_conversations
           WHERE (creator=$1 AND recipient=$2) OR (creator=$2 AND recipient=$1)`,[context.owner,p.peer])).rows[0];
-        return { version: 1, packages: await packages(client, rows.rows.map(r => r.hash)),...(group?{group}: {}) };
+        const pending=group && await replacement.frozen(client,group.id);
+        return { version: 1, packages: await packages(client, rows.rows.map(r => r.hash)),...(group?{group,canReplace:!pending}: {}) };
       }
       if (op.action === 'reserve') {
         assert(uuid(p.conversationId) && typeof p.peer === 'string' && p.peer !== context.owner);
@@ -85,8 +88,12 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         return {version:1,group:{...group,status:'reserved'}};
       }
       if (op.action === 'poll') {
-        const groups=(await client.query(`SELECT g.* FROM encrypted_conversations g WHERE creator_device=$1 OR recipient_device=$1
-          OR EXISTS(SELECT 1 FROM encrypted_conversation_replacements r WHERE r.conversation_id=g.id AND r.replacement_device=$1 AND r.status<>'accepted') ORDER BY created_at LIMIT 100`,[op.actorId])).rows;
+        assert(p.after===undefined || uuid(p.after));
+        // UUID keyset order cannot repeat rows when timestamps collide or new groups arrive.
+        const page=(await client.query(`SELECT g.* FROM encrypted_conversations g WHERE (creator_device=$1 OR recipient_device=$1
+          OR EXISTS(SELECT 1 FROM encrypted_conversation_replacements r WHERE r.conversation_id=g.id AND r.replacement_device=$1 AND r.status<>'accepted'))
+          AND ($2::text IS NULL OR g.id>$2) ORDER BY g.id LIMIT 101`,[op.actorId,p.after || null])).rows;
+        const groups=page.slice(0,100);
         const result=[];
         for(const g of groups) {
           const r=await replacement.latest(client,g.id),pending=r && r.status!=='accepted';
@@ -103,7 +110,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
             WHERE m.conversation_id=$1 AND m.sender_device=$2 AND r.sender_ack_at IS NULL ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
           result.push({...g,...(r?{replacement:r}:{}),packages:await packages(client,[g.source_hash,g.target_hash]),messages,receipts});
         }
-        return {version:1,groups:result};
+        return {version:1,groups:result,next:page.length>100?groups.at(-1).id:null};
       }
       assert(uuid(p.conversationId));
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[p.conversationId])).rows[0];

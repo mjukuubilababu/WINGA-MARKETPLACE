@@ -21,7 +21,7 @@
       async state(){active();const s=getSession();return guarded('GET',undefined,{owner,deviceId:s.sessionId,token:s.token});},
       async backup(key,checkpoint){active();const result=await client.backup(key,{checkpoint});return {version:1,purpose:'winga-history-recovery',owner,key,checkpoint:result.checkpoint};},
       async restore(kit){active();validateKit(kit,owner);return client.restore(kit.key,{checkpoint:kit.checkpoint});},
-      async archive(){active();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('history:')).map(([,v])=>v);},
+      async archive(){active();return Object.values((await vault.historySnapshot()).values);},
       close(){closed=true;vault.close();}
     };
   }
@@ -36,7 +36,7 @@
       dialog=document.createElement('dialog');dialog.className='chat-security-dialog chat-recovery-dialog';
       const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el;};
       dialog.append(node('h3',t('chat.recovery','Encrypted history recovery')));
-      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Anyone with it can read your backed-up history. It does not restore live chat membership.')));
+      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Backups retain the latest 1,999 messages within 2 MiB; older history stays on this device. Anyone with the file can read the backup. It does not restore live chat membership.')));
       const status=node('p','');status.setAttribute('role','status');dialog.append(status);
       const importLabel=node('label',t('chat.recoveryImport','Recovery file')),file=document.createElement('input');file.type='file';file.accept='.json,application/json';file.dataset.recoveryFile='';importLabel.append(file);dialog.append(importLabel);
       const newKey=node('button',t('chat.recoveryCreate','Create recovery key'));newKey.type='button';newKey.className='action-btn action-btn-secondary';newKey.disabled=remote.revision!=='0';dialog.append(newKey);

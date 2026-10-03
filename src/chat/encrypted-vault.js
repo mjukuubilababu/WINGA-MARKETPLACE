@@ -7,6 +7,8 @@
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
+  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:)/.test(value);
+  const journalKind = value => value.startsWith('history:')?'history:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) value += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
@@ -52,8 +54,15 @@
     current();
     const name = `winga-encrypted-vault-v1:${owner}`;
     const db = await new Promise((resolve, reject) => {
-      let blocked = false; const request = indexedDB.open(name, 1);
-      request.onupgradeneeded = () => { for (const store of ['keys', 'records', 'metadata']) request.result.createObjectStore(store); };
+      let blocked = false; const request = indexedDB.open(name, 2);
+      request.onupgradeneeded = () => {
+        for (const store of ['keys', 'records', 'metadata']) if(!request.result.objectStoreNames.contains(store))request.result.createObjectStore(store);
+        const journal=request.result.createObjectStore('journal');journal.createIndex('order',['kind','order']);
+        // Move sealed records, never plaintext, in the same schema-upgrade transaction.
+        const read=request.transaction.objectStore('records').openCursor();
+        read.onsuccess=()=>{const cursor=read.result;if(!cursor)return;
+          if(journalId(cursor.key)){journal.put({...cursor.value,kind:journalKind(cursor.key),order:'0000000000000000:'+cursor.key},cursor.key);cursor.delete();}cursor.continue();};
+      };
       request.onerror = () => reject(request.error);
       request.onblocked = () => { blocked = true; reject(failure('crypto_vault_storage_blocked')); };
       request.onsuccess = () => {
@@ -77,17 +86,20 @@
     try {
       await locks.request(name, async () => {
         const candidate = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-        key = await transaction(['keys', 'records', 'metadata'], 'readwrite', (tx, done, abort) => {
+        key = await transaction(['keys', 'records', 'journal', 'metadata'], 'readwrite', (tx, done, abort) => {
           const read = tx.objectStore('keys').get('local');
           read.onsuccess = () => {
             const count = tx.objectStore('records').count();
             count.onsuccess = () => {
-              if (!read.result && count.result) return abort(failure('crypto_vault_key_missing'));
+              const archived=tx.objectStore('journal').count();
+              archived.onsuccess=()=>{
+              if (!read.result && (count.result || archived.result)) return abort(failure('crypto_vault_key_missing'));
               const chosen = read.result || candidate;
               if (chosen.type !== 'secret' || chosen.extractable || chosen.algorithm?.name !== 'AES-GCM' || chosen.algorithm.length !== 256
                 || chosen.usages.length !== 2 || !chosen.usages.includes('encrypt') || !chosen.usages.includes('decrypt')) return abort(failure('crypto_vault_key_invalid'));
               if (!read.result) { tx.objectStore('keys').add(chosen, 'local'); tx.objectStore('metadata').put('0', 'revision'); }
               done(chosen);
+              };
             };
           };
         });
@@ -100,6 +112,53 @@
         || !(sealed.ciphertext instanceof Uint8Array) || sealed.ciphertext.length > 4 * 1024 * 1024 + 16) fail('crypto_vault_record_invalid');
       const bytes = new Uint8Array(await crypto.subtle.decrypt(parameters(recordId, sealed.nonce), key, sealed.ciphertext));
       try { return unpack(bytes); } finally { bytes.fill(0); }
+    }
+    async function lookup(recordId) {
+      if(!id(recordId))fail('crypto_vault_write_invalid');const context=current();
+      const sealed=await transaction(['records','journal'],'readonly',(tx,done)=>{
+        const read=tx.objectStore(journalId(recordId)?'journal':'records').get(recordId);read.onsuccess=()=>done(read.result);
+      });
+      const value=sealed===undefined?undefined:await reveal(recordId,sealed);assertCurrent(context);return value;
+    }
+    async function historyPage({after,limit=100,expectedRevision,prefix='history:'}={}) {
+      if((after!==undefined && (typeof after!=='string' || after.length>192)) || !Number.isInteger(limit) || limit<1 || limit>100
+        || !['history:','mls:package:'].includes(prefix))fail('crypto_vault_write_invalid');
+      const context=current();
+      const saved=await transaction(['journal','metadata'],'readonly',(tx,done,abort)=>{
+        const revision=tx.objectStore('metadata').get('revision'),rows=[];let bytes=0,next;
+        const range=IDBKeyRange.bound([prefix,''],[prefix,after || '\uffff'],false,Boolean(after));
+        const read=tx.objectStore('journal').index('order').openCursor(range,'prev');
+        read.onsuccess=()=>{
+          const cursor=read.result;
+          if(cursor && String(cursor.primaryKey).startsWith(prefix)) {
+            const size=cursor.value.ciphertext.byteLength;
+            if(rows.length && (rows.length>=limit || bytes+size>4*1024*1024)){next=rows.at(-1)[2];}
+            else {rows.push([cursor.primaryKey,cursor.value,cursor.key[1]]);bytes+=size;cursor.continue();return;}
+          }else if(cursor){cursor.continue();return;}
+          if(expectedRevision!==undefined && revision.result!==expectedRevision)return abort(failure('crypto_vault_revision_conflict'));
+          done({revision:revision.result,rows,next});
+        };
+      });
+      const values=Object.fromEntries(await Promise.all(saved.rows.map(async([key,sealed])=>[key,await reveal(key,sealed)])));
+      assertCurrent(context);return {revision:saved.revision,values,next:saved.next};
+    }
+    async function historySnapshot() {
+      let after,revision;const values={};
+      do {const page=await historyPage({after,expectedRevision:revision});revision=page.revision;Object.assign(values,page.values);after=page.next;}while(after);
+      return {revision,values};
+    }
+    async function pruneExpiredAdmissions(now) {
+      if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');
+      let after;
+      do {
+        const page=await historyPage({after,prefix:'mls:package:'});after=page.next;
+        const deleted=Object.entries(page.values).filter(([,value])=>{
+          const expiry=value?.package?.publicPackage?.leafNode?.lifetime?.notAfter;
+          return typeof expiry==='bigint' && expiry<BigInt(Math.floor(now/1000));
+        }).map(([key])=>key);
+        // Expired admissions cannot join MLS. Consumption/replay tombstones remain untouched.
+        if(deleted.length)await write({expectedRevision:page.revision,deleted});
+      }while(after);
     }
     async function snapshot() {
       const context = current();
@@ -118,6 +177,7 @@
         };
       });
       const values = Object.fromEntries(await Promise.all(saved.values.map(async ([recordId, sealed]) => [recordId, await reveal(recordId, sealed)])));
+      const recent=await historyPage({expectedRevision:saved.revision});Object.assign(values,recent.values);
       assertCurrent(context); return { revision: saved.revision, values };
     }
     async function write({ expectedRevision, values = {}, deleted = [] } = {}) {
@@ -131,24 +191,27 @@
       const context = current();
       return locks.request(name, async () => {
         assertCurrent(context);
-        const records = []; let changedBytes = 0;
+        const records = []; let changedBytes = 0,journalBytes=0;
         for (const [recordId, value] of Object.entries(values)) {
           const bytes = pack(value), nonce = crypto.getRandomValues(new Uint8Array(12));
           try {
-            changedBytes += bytes.length + 16;
-            if (changedBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
+            if(journalId(recordId))journalBytes+=bytes.length+16;else changedBytes+=bytes.length+16;
+            if (changedBytes > 32 * 1024 * 1024 || journalBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
             records.push([recordId, { v: 1, nonce, ciphertext: new Uint8Array(await crypto.subtle.encrypt(parameters(recordId, nonce), key, bytes)) }]);
           }
           finally { bytes.fill(0); }
         }
         assertCurrent(context);
-        const next = await transaction(['records', 'metadata'], 'readwrite', (tx, done, abort) => {
+        const next = await transaction(['records', 'journal', 'metadata'], 'readwrite', (tx, done, abort) => {
           const read = tx.objectStore('metadata').get('revision');
           read.onsuccess = () => {
             if (read.result !== expectedRevision) return abort(failure('crypto_vault_revision_conflict'));
             try { assertCurrent(context); } catch (error) { return abort(error); }
-            for (const recordId of deleted) tx.objectStore('records').delete(recordId);
-            for (const [recordId, sealed] of records) tx.objectStore('records').put(sealed, recordId);
+            for (const recordId of deleted) tx.objectStore(journalId(recordId)?'journal':'records').delete(recordId);
+            for (const [recordId, sealed] of records) {
+              if(journalId(recordId))tx.objectStore('journal').put({...sealed,kind:journalKind(recordId),order:String(Number(expectedRevision)+1).padStart(16,'0')+':'+recordId},recordId);
+              else tx.objectStore('records').put(sealed, recordId);
+            }
             // Count the resulting state before committing; rejection rolls back every put/delete.
             let count = 0, size = 0; const cursor = tx.objectStore('records').openCursor();
             cursor.onsuccess = () => {
@@ -166,7 +229,7 @@
         assertCurrent(context); return next;
       });
     }
-    return { snapshot, write, close: () => db.close() };
+    return { snapshot, write, lookup, historyPage, historySnapshot, pruneExpiredAdmissions, close: () => db.close() };
   }
   return { createEncryptedVault };
 });

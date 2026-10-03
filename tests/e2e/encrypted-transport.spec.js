@@ -9,12 +9,12 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false;
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
   db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-conversation-backups'])
+  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-conversation-backups'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   devices=createConversationCryptoDeviceStore({withTransaction:work=>db.transaction(work)});
   packages=createCryptoKeyPackageStore({withTransaction:work=>db.transaction(work)});
@@ -78,8 +78,9 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve)){
           const body=await collectBody(req);
+          if(body.action==='replace-reserve' && rejectReplacementReserve){rejectReplacementReserve=false;sendJson(res,409,{code:'encrypted_package_unavailable'});return;}
           if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
           if(body.action==='replace-transfer' && rejectReplacementTransfer){sendJson(res,503,{code:'fixture_transfer_unavailable'});return;}
           if(body.action==='replace-transfer' && loseReplacementTransfer){loseReplacementTransfer=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
@@ -204,6 +205,20 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
         await page.getByRole('button',{name:'Close',exact:true}).click();
       }finally{await fresh.close();}
     });
+    await test.step('client follows signed poll pages when the real MLS conversation is beyond 100 queue fixtures',async()=>{
+      const group=(await db.query("SELECT * FROM encrypted_conversations WHERE creator='alice' AND recipient='bob'")).rows[0];
+      // These empty authorized queue fixtures test paging, not 100 additional cryptographic admissions.
+      for(let n=1;n<=100;n++) {
+        const peer='paging-peer-'+n,id='00000000-0000-4000-8000-'+String(n).padStart(12,'0'),device=require('node:crypto').randomUUID();
+        await db.query('INSERT INTO users(username) VALUES($1)',[peer]);
+        await db.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status)
+          SELECT $1,$2,public_key,fingerprint,'active' FROM conversation_crypto_devices WHERE id=$3`,[device,peer,group.recipient_device]);
+        const cid=(await db.query('SELECT winga_ensure_conversation($1,$2) AS id',['alice',peer])).rows[0].id;
+        await db.query(`INSERT INTO encrypted_conversations(id,canonical_id,creator,recipient,creator_device,recipient_device,source_hash,target_hash,status,created_at)
+          VALUES($1,$2,'alice',$3,$4,$5,$6,$7,'active',NOW()-interval '1 day')`,[id,cid,peer,group.creator_device,device,group.source_hash,group.target_hash]);
+      }
+      expect((await alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).status).toBe('active');
+    });
     await test.step('approved fresh device rejoins through verified replacement, lost response and reload without old history',async()=>{
       const fresh=await browser.newContext();try {
         const page=await fresh.newPage();await page.goto(origin);await page.evaluate(async()=>{try{await start('bob');}catch{}});
@@ -218,6 +233,14 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
         await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
         await expect(alice.getByRole('button',{name:'Replace contact device'})).toBeEnabled();
         expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n).toBe(0);
+        rejectReplacementReserve=true;
+        await expect(alice.evaluate(device=>client.replaceEncryptedConversationDevice('bob',device.id,device.fingerprint),device)).rejects.toThrow('encrypted_package_unavailable');
+        expect((await alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).status).toBe('active');
+        expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_replacement_retirements')).rows[0].n).toBe(1);
+        expect(await alice.evaluate(async()=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>({username:'alice',sessionId:'a',token:'a'})});try{return Boolean((await v.snapshot()).values['mls:replacement:bob']);}finally{v.close();}})).toBe(false);
+        await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob' AND id<>$1",[device.id]);
+        const revokedPeer=await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));expect(revokedPeer.status).toBe('blocked');expect(revokedPeer.canReplace).toBe(true);
+        await db.query("UPDATE conversation_crypto_devices SET status='active',revoked_at=NULL WHERE owner_id='bob' AND id<>$1",[device.id]);
         loseReplacementReserve=true;await alice.locator('dialog input[name=fingerprint]').fill(device.fingerprint);await alice.getByRole('button',{name:'Replace contact device'}).click();
         await expect.poll(async()=>(await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n).toBe(1);
         await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
@@ -267,6 +290,25 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
         await expect(bob.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'retired device must not send',messageType:'text'})))).rejects.toThrow('encrypted_membership_required');
         await page.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'New device reply',messageType:'text'})));
         await alice.evaluate(()=>render());await expect(alice.locator('.message-bubble')).toHaveCount(7);await expect(alice.locator('.message-bubble').last()).toContainText('New device reply');
+        const thirdContext=await browser.newContext();try {
+          const third=await thirdContext.newPage();await third.goto(origin);await third.evaluate(async()=>{try{await start('bob');}catch{}});
+          const thirdDevice=await third.evaluate(async()=>{const m=await client.createCryptoDeviceManagement();try{return (await m.list()).ownDevice;}finally{m.close();}});
+          await page.evaluate(async d=>{const m=await client.createCryptoDeviceManagement();try{await m.manage('approve',d.id,d.fingerprint);}finally{m.close();}},thirdDevice);
+          await third.reload();await third.evaluate(()=>start('bob'));
+          const offered=await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));expect(offered.packages.some(p=>p.deviceId===thirdDevice.id)).toBe(true);
+          await alice.evaluate(d=>client.replaceEncryptedConversationDevice('bob',d.id,d.fingerprint),thirdDevice);
+          // Revocation after reservation must be displayed as blocked, not active.
+          await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[thirdDevice.id]);
+          expect((await alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).status).toBe('blocked');
+          await db.query("UPDATE conversation_crypto_devices SET status='active',revoked_at=NULL WHERE id=$1",[thirdDevice.id]);
+          const invitation=await third.evaluate(()=>client.inspectEncryptedConversation('alice'));
+          await third.evaluate(({p,fp})=>client.enableEncryptedConversation('alice',p.deviceId,fp),{p:invitation.packages[0],fp:ai.ownFingerprint});
+          expect((await alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).status).toBe('active');
+          expect((await db.query("SELECT epoch FROM encrypted_conversations WHERE creator='alice' AND recipient='bob'")).rows[0].epoch).toBe('3');
+          await expect(page.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'second retired device',messageType:'text'})))).rejects.toThrow('encrypted_membership_required');
+          await alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Third epoch',messageType:'text'})));
+          const latest=await third.evaluate(()=>render());expect(latest).toHaveLength(1);expect(latest[0].message).toBe('Third epoch');
+        }finally{await thirdContext.close();}
       }finally{await fresh.close();}
     });
     await bob.setViewportSize({width:390,height:844});await bob.locator('[data-chat-security]').click();
@@ -275,6 +317,6 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
     await bob.screenshot({path:'test-results/encrypted-chat-mobile.png'});await bob.getByRole('button',{name:'Close',exact:true}).click();
     await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob'");
     await expect(alice.evaluate(async()=>{const p=await client.prepareMessage({receiverId:'bob',message:'must block',messageType:'text'});await client.sendMessage(p);})).rejects.toThrow('encrypted_access_denied');
-    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(7);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(8);
   }finally{await a.close().catch(()=>{});await b.close().catch(()=>{});}
 });

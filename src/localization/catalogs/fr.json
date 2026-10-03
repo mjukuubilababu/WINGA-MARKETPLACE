@@ -20,7 +20,7 @@
         "chat.deviceRevoke": "Révoquer",
         "chat.deviceActionFailed": "L’action a échoué. Réessayez la même action ou vérifiez l’état de l’appareil.",
         "chat.recovery": "Récupération de l'historique chiffré",
-        "chat.recoveryNotice": "Conservez le fichier hors de Winga. Son détenteur peut lire votre historique sauvegardé. Il ne restaure pas l'accès au chat actif.",
+        "chat.recoveryNotice": "Conservez le fichier hors de Winga. La sauvegarde garde les 1 999 messages les plus récents dans une limite de 2 MiB ; le reste demeure sur cet appareil. Le détenteur du fichier peut lire la sauvegarde. Elle ne restaure pas l'accès au chat actif.",
         "chat.recoveryImport": "Fichier de récupération",
         "chat.recoveryCreate": "Créer une clé de récupération",
         "chat.recoveryKey": "Clé de récupération",

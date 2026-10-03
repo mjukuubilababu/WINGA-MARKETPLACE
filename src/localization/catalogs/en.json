@@ -20,7 +20,7 @@
         "chat.deviceRevoke": "Revoke",
         "chat.deviceActionFailed": "Device action failed. Retry the same action or check the current device status.",
         "chat.recovery": "Encrypted history recovery",
-        "chat.recoveryNotice": "Keep the recovery file outside Winga. Anyone with it can read your backed-up history. It does not restore live chat membership.",
+        "chat.recoveryNotice": "Keep the recovery file outside Winga. Backups retain the latest 1,999 messages within 2 MiB; older history stays on this device. Anyone with the file can read the backup. It does not restore live chat membership.",
         "chat.recoveryImport": "Recovery file",
         "chat.recoveryCreate": "Create recovery key",
         "chat.recoveryKey": "Recovery key",

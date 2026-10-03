@@ -217,19 +217,19 @@ test('vault rejects unreadable aggregate state atomically and preserves typed in
   const result = await page.evaluate(async session => {
     const vault = await WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: () => session });
     try {
-      const values = Object.fromEntries(Array.from({ length: 1999 }, (_, i) => [`history:${i}`, { position: BigInt(-i) }]));
+      const values = Object.fromEntries(Array.from({ length: 1999 }, (_, i) => [`group:${i}`, { position: BigInt(-i) }]));
       await vault.write({ expectedRevision: '0', values });
       let limit, collision;
-      try { await vault.write({ expectedRevision: '1', values: { 'history:extra1': 1, 'history:extra2': 2 }, deleted: ['history:0'] }); }
+      try { await vault.write({ expectedRevision: '1', values: { 'group:extra1': 1, 'group:extra2': 2 }, deleted: ['group:0'] }); }
       catch (error) { limit = error.message; }
       // The first write reaches exactly 2000; a later extra record must roll back its deletion too.
-      try { await vault.write({ expectedRevision: '2', values: { 'history:extra3': 3, 'history:extra4': 4 }, deleted: ['history:1'] }); }
+      try { await vault.write({ expectedRevision: '2', values: { 'group:extra3': 3, 'group:extra4': 4 }, deleted: ['group:1'] }); }
       catch (error) { limit = error.message; }
       try { await vault.write({ expectedRevision: '2', values: { 'history:bad': { $integer: '1' } } }); }
       catch (error) { collision = error.message; }
       const saved = await vault.snapshot();
       return { revision: saved.revision, count: Object.keys(saved.values).length, limit, collision,
-        negativeInteger: saved.values['history:1']?.position === -1n, rolledBack: !saved.values['history:extra3'] };
+        negativeInteger: saved.values['group:1']?.position === -1n, rolledBack: !saved.values['group:extra3'] };
     } finally { vault.close(); }
   }, session);
   expect(result).toEqual({ revision: '2', count: 2000, limit: 'crypto_vault_snapshot_too_large',
@@ -244,7 +244,7 @@ test('vault ciphertext corruption never yields a partially decrypted snapshot', 
       await vault.write({ expectedRevision: '0', values: { 'history:a': 'secret', 'history:b': 'also secret' } });
       const db = await new Promise(resolve => { const open = indexedDB.open('winga-encrypted-vault-v1:bob'); open.onsuccess = () => resolve(open.result); });
       await new Promise((resolve, reject) => {
-        const tx = db.transaction('records', 'readwrite'), records = tx.objectStore('records'), read = records.get('history:b');
+        const tx = db.transaction('journal', 'readwrite'), records = tx.objectStore('journal'), read = records.get('history:b');
         read.onsuccess = () => { const value = read.result; value.ciphertext[0] ^= 1; records.put(value, 'history:b'); };
         tx.oncomplete = resolve; tx.onabort = reject;
       }); db.close();
@@ -252,6 +252,60 @@ test('vault ciphertext corruption never yields a partially decrypted snapshot', 
     } finally { vault.close(); }
   }, session);
   expect(result).toBe(true);
+});
+
+test('paged journal crosses 2000 records and 32 MiB without blocking ratchets, replay lookup, reload or bounded recovery',async({page})=>{
+  test.setTimeout(120000);await prepare(page);
+  const result=await page.evaluate(async session=>{
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
+    try {
+      let revision='0';const text='x'.repeat(16384);
+      for(let start=0;start<2500;start+=500){const values={};
+        for(let n=start;n<start+500;n++){
+          const id=String(n).padStart(6,'0');values['history:'+id]={id,message:text,timestamp:new Date(1700000000000+n).toISOString(),status:'delivered'};
+          values['mls:received:'+id]='a'.repeat(64);
+        }
+        values['group:ratchet']={epoch:start+500};revision=await vault.write({expectedRevision:revision,values});
+      }
+      const hot=await vault.snapshot(),cold=await vault.historySnapshot();
+      const recovery=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec:await WingaSecureContent.loadSecureContent(),request:window.recoveryRequest});
+      const key=(await WingaSecureContent.loadSecureContent()).generateRecoveryKey(),backup=await recovery.backup(key);
+      await recovery.restore(key);
+      const restored=await vault.lookup('history:000000');
+      return {hotCount:Object.keys(hot.values).length,count:Object.keys(cold.values).length,epoch:hot.values['group:ratchet'].epoch,
+        replay:await vault.lookup('mls:received:000000'),olderRetained:restored.message===text,backup:backup.revision};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({hotCount:101,count:2500,epoch:2500,replay:'a'.repeat(64),olderRetained:true,backup:'1'});
+  await page.reload();
+  expect(await page.evaluate(async session=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});try {
+    const s=await v.snapshot();await v.write({expectedRevision:s.revision,values:{'group:ratchet':{epoch:2501},'history:next':{message:'still live'}}});
+    return {replay:await v.lookup('mls:received:000000'),epoch:(await v.snapshot()).values['group:ratchet'].epoch};
+  }finally{v.close();}},session)).toEqual({replay:'a'.repeat(64),epoch:2501});
+});
+
+test('v1 vault upgrades sealed history atomically and expired admissions are pruned without deleting consumption evidence',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    const name='winga-encrypted-vault-v1:'+session.username,key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+    const values={'history:legacy':{message:'retained'},'mls:received:legacy':'a'.repeat(64)},rows=[];
+    for(const [id,value] of Object.entries(values)) {
+      const nonce=crypto.getRandomValues(new Uint8Array(12)),ciphertext=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:nonce,tagLength:128,
+        additionalData:new TextEncoder().encode(JSON.stringify(['winga-encrypted-vault',1,session.username,id]))},key,new TextEncoder().encode(JSON.stringify(value))));
+      rows.push([id,{v:1,nonce,ciphertext}]);
+    }
+    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>{for(const s of ['keys','records','metadata'])r.result.createObjectStore(s);};r.onerror=()=>reject(r.error);r.onsuccess=()=>resolve(r.result);});
+    await new Promise((resolve,reject)=>{const tx=db.transaction(['keys','records','metadata'],'readwrite');tx.objectStore('keys').put(key,'local');tx.objectStore('metadata').put('7','revision');
+      for(const [id,value] of rows)tx.objectStore('records').put(value,id);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
+    const v=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});try {
+      const s=await v.snapshot(),pkg=notAfter=>({package:{publicPackage:{leafNode:{lifetime:{notAfter}}}}});
+      await v.write({expectedRevision:s.revision,values:{'mls:package:expired':pkg(1n),'mls:package:live':pkg(9999999999n),'mls:consumed:expired':true}});
+      await v.pruneExpiredAdmissions(Date.now());
+      return {revision:s.revision,legacy:s.values['history:legacy'].message,replay:await v.lookup('mls:received:legacy'),expired:await v.lookup('mls:package:expired') || null,
+        live:Boolean(await v.lookup('mls:package:live')),consumed:await v.lookup('mls:consumed:expired')};
+    }finally{v.close();}
+  },session);
+  expect(result).toEqual({revision:'7',legacy:'retained',replay:'a'.repeat(64),expired:null,live:true,consumed:true});
 });
 
 test('vault captures the logical write before waiting on a tab lock', async ({ page }) => {

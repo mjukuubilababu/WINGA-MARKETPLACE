@@ -50,6 +50,20 @@
       if (before.token !== after.token || before.deviceId !== after.deviceId) fail('recovery_session_changed');
     };
     const historyOnly = values => Object.fromEntries(Object.entries(values).filter(([key]) => /^history:[A-Za-z0-9._:-]{1,128}$/.test(key)));
+    const retainedWindow = values => {
+      const entries=Object.entries(values).sort((a,b)=>String(b[1]?.timestamp || '').localeCompare(String(a[1]?.timestamp || '')));
+      const result={};let bytes=0;
+      for(const [key,value] of entries) {
+        const size=encoder.encode(JSON.stringify({[key]:value})).length;
+        if(Object.keys(result).length>=1999 || bytes+size>2*1024*1024)break;
+        result[key]=value;bytes+=size;
+      }
+      return result;
+    };
+    const localHistory = async revision => {
+      const saved=await (vault.historySnapshot?vault.historySnapshot():vault.snapshot());
+      if(saved.revision!==revision)fail('crypto_vault_revision_conflict');return historyOnly(saved.values);
+    };
     const readArchive = bytes => {
       const archive = JSON.parse(decoder.decode(bytes));
       if (!archive || Object.keys(archive).length !== 3 || archive.v !== 1 || archive.owner !== owner
@@ -62,7 +76,7 @@
       return locks.request(`winga-recovery-operation:${owner}`, async () => {
         current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
         if (!pending) {
-          let items = historyOnly(local.values);
+          let items = retainedWindow(await localHistory(local.revision));
           const remote = await request('GET', undefined, session); current(session);
           if (typeof remote?.revision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(remote.revision) || !Number.isSafeInteger(Number(remote.revision))
             || Number(remote.revision) >= Number.MAX_SAFE_INTEGER) fail('recovery_revision_invalid');
@@ -79,7 +93,7 @@
               items = mergeHistory(prior,items);
             } finally { bytes.fill(0); }
           }
-          if (Object.keys(items).length > 1999) fail('recovery_archive_invalid');
+          items=retainedWindow(items);
           const archive = encoder.encode(JSON.stringify({ v: 1, owner, items }));
           try {
             const capsule = await codec.sealRecovery(archive, key, { owner, id: crypto.randomUUID(), generation: Number(remote.revision) + 1 });
@@ -116,7 +130,8 @@
         let archive;
         try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
         if (local.values['backup:pending']) fail('recovery_local_history_conflict');
-        const items=mergeHistory(archive.items,historyOnly(local.values));
+        const history=await localHistory(local.revision),items=mergeHistory(archive.items,
+          Object.fromEntries(Object.entries(history).filter(([key])=>Object.hasOwn(archive.items,key))));
         current(session);
         await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
