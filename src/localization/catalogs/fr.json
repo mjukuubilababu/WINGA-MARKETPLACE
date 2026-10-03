@@ -53,6 +53,8 @@
         "chat.encryptionReplacementPending": "En attente de la vérification et de l’acceptation du nouvel appareil.",
         "chat.encryptionReplaceDevice": "Remplacer l’appareil du contact",
         "chat.encryptionReplacementNotice": "Le nouvel appareil reçoit uniquement les nouveaux messages. L’historique nécessite votre clé de récupération.",
+        "chat.encryptionReplacementResume": "Reprendre le remplacement de l’appareil",
+        "chat.encryptionReplacementRecovery": "Le remplacement ne peut pas reprendre sur cet appareil. Utilisez l’appareil d’origine avec ses clés de discussion enregistrées. Restaurer l’historique seul ne restaure pas ces clés.",
         "chat.encryptionVerify": "Comparez les empreintes des appareils via un canal de confiance distinct avant d'accepter.",
         "chat.ownFingerprint": "Empreinte de votre appareil",
         "chat.peerDevice": "Appareil du destinataire",

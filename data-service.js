@@ -2200,6 +2200,7 @@ async loadAdminPayments(filters) {
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
         replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
+        resumeEncryptedConversationReplacement(peer) { return getCommunicationsApiClient().resumeEncryptedConversationReplacement(peer); },
         sendEncryptedMedia(peer,file,text) { return getCommunicationsApiClient().sendEncryptedMedia(peer,file,text); },
         downloadEncryptedMedia(id) { return getCommunicationsApiClient().downloadEncryptedMedia(id); },
         encryptedRecoveryAvailable() { return getCommunicationsApiClient().encryptedRecoveryAvailable(); },
@@ -4287,6 +4288,11 @@ async loadAdminPayments() {
         assertBuyerCapableAccess();ensureAdapter();
         if(!state.adapter.replaceEncryptedConversationDevice)throw new Error('mls_runtime_unavailable');
         return state.adapter.replaceEncryptedConversationDevice(peer,deviceId,fingerprint);
+      },
+      async resumeEncryptedConversationReplacement(peer) {
+        assertBuyerCapableAccess();ensureAdapter();
+        if(!state.adapter.resumeEncryptedConversationReplacement)throw new Error('mls_runtime_unavailable');
+        return state.adapter.resumeEncryptedConversationReplacement(peer);
       },
       async deleteMessage(messageId) {
         assertBuyerCapableAccess();

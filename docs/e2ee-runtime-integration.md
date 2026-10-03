@@ -239,6 +239,37 @@ fresh native identity for this flow. Recovery-authorized historical media access
 is not implemented by membership replacement and needs a separately audited
 policy. These are release gates, not reasons to weaken cryptographic checks.
 
+The local recovery follow-up adds an explicit Resume action. It verifies the
+initiator's retained native-signed reservation proof against its own pinned
+public identity, binds the reservation to the local intent and exact journal,
+and checks that the saved route/group still exists. A pending reservation blocks
+new text and attachment staging before an old-epoch outbox can be created,
+rather than relying only on the server's frozen-send rejection. A reserved,
+not-yet-created Commit can be completed only using the previously verified target pin and a
+valid MLS admission package. A durably staged Commit is reused byte for byte;
+temporary transfer failures leave the session inspectable and resumable after
+reload. Membership confirmation still requires the new device's signed acceptance.
+
+Missing keys, missing or conflicting journals, changed intent and expired or
+invalid admission material expose a recovery-required state rather than an
+endless waiting prompt. There is no cancel/reset endpoint, fingerprint bypass,
+server-generated key reconstruction, or plaintext fallback. The original device
+with its encrypted vault is required; a history-only user recovery capsule is
+not a backup of live MLS group secrets. Loss of that vault does not have an
+automatic cryptographic recovery path in this implementation.
+
+Recovery follow-up verification on 2026-10-03: 95/95 secure-content Node tests,
+the final complete strict-CSP browser suite 29/29, and frontend regressions
+(144 core checks plus 68 behavior tests) passed. The real browser integration
+exercises a lost accepted reservation reply before Commit creation, a temporary
+transfer rejection after durable staging, reload, tampered reservation proof,
+loss of local route/group keys, and refusal to stage text/media while paused.
+Existing offline send/reconnect, native revocation and new-device exclusion
+remain covered. Build `20261003135304`, all 81 bundled modules, four catalogs
+with 1382 keys each and Windows-aware whitespace checks passed. This recovery
+follow-up is local, uncommitted and undeployed; production gates and CSP were
+not changed. These results are not an independent cryptographic audit.
+
 Local tests cover both member roles, revoked-device replacement, exact retries,
 foreign/pending/blocked admission, old-epoch receipt and media exclusion, and real
 HTTP/browser UI with actual MLS crypto. Independent PostgreSQL connections test

@@ -53,6 +53,8 @@
         "chat.encryptionReplacementPending": "بانتظار تحقق الجهاز الجديد وقبوله.",
         "chat.encryptionReplaceDevice": "استبدال جهاز جهة الاتصال",
         "chat.encryptionReplacementNotice": "يتلقى الجهاز الجديد الرسائل الجديدة فقط. يتطلب السجل السابق مفتاح الاسترداد الخاص بك.",
+        "chat.encryptionReplacementResume": "استئناف استبدال الجهاز",
+        "chat.encryptionReplacementRecovery": "لا يمكن استئناف الاستبدال على هذا الجهاز. استخدم الجهاز الأصلي بمفاتيح المحادثة المحفوظة. استعادة السجل وحدها لا تعيد مفاتيح المحادثة.",
         "chat.encryptionVerify": "قارن بصمات الأجهزة عبر قناة موثوقة منفصلة قبل القبول.",
         "chat.ownFingerprint": "بصمة جهازك",
         "chat.peerDevice": "جهاز المستلم",

@@ -53,6 +53,8 @@
         "chat.encryptionReplacementPending": "Tunasubiri kifaa kipya kithibitishe na kukubali.",
         "chat.encryptionReplaceDevice": "Badilisha kifaa cha mwenzako",
         "chat.encryptionReplacementNotice": "Kifaa kipya kinapokea ujumbe mpya tu. Historia ya awali inahitaji recovery key yako.",
+        "chat.encryptionReplacementResume": "Endeleza ubadilishaji wa kifaa",
+        "chat.encryptionReplacementRecovery": "Ubadilishaji hauwezi kuendelea kwenye kifaa hiki. Tumia kifaa cha awali chenye keys za chat zilizohifadhiwa. Kurejesha historia pekee hakurejeshi keys za chat.",
         "chat.encryptionVerify": "Linganisha alama za vifaa kupitia njia tofauti unayoiamini kabla ya kukubali.",
         "chat.ownFingerprint": "Alama ya kifaa chako",
         "chat.peerDevice": "Kifaa cha mpokeaji",

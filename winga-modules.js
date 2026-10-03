@@ -1593,6 +1593,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       replaceEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.replace(peer,deviceId,fingerprint);
       },
+      resumeEncryptedConversationReplacement:async peer=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.resumeReplacement(peer);
+      },
       sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
@@ -18650,8 +18653,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       await vault.write({expectedRevision:saved.revision,values:{[`mls:pin:${p.deviceId}`]:pin}});
       return pin;
     }
-    async function verifyProof(proof,action) {
-      const pin=(await pins()).find(v=>v.id===proof.actorId && v.owner===proof.owner && v.status==='active');
+    async function verifyProof(proof,action,expectedPin) {
+      const pin=expectedPin || (await pins()).find(v=>v.id===proof.actorId && v.owner===proof.owner && v.status==='active');
+      if(pin && (pin.id!==proof.actorId || pin.owner!==proof.owner || pin.status!=='active'))fail('mls_receipt_rejected');
       if(!pin || proof.action!==action)fail('mls_receipt_rejected');
       const key=await crypto.subtle.importKey('raw',decode(pin.publicKey),'Ed25519',false,['verify']);
       const h=await digest(new TextEncoder().encode(JSON.stringify(proof.payload,Object.keys(proof.payload).sort())));
@@ -18670,7 +18674,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     try {
       runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
         publishPackage:packageRequest,trustedPins:pins,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
-      await runtime.initialize();const own=await runtime.prepareKeyPackage();
+      await runtime.initialize();const own=await runtime.prepareKeyPackage(),native=await identity.enroll();
+      const canonical=value=>JSON.stringify(value,Object.keys(value).sort());
+      async function replacementRecovery(g,saved) {
+        const r=g.replacement,peer=g.creator===owner?g.recipient:g.creator;
+        if(r?.initiator_device!==own.id)return null;
+        const intent=r.intent,proof=r.reservation_proof;
+        if(!intent || intent.id!==r.id || intent.conversationId!==g.id || intent.previousEpoch!==r.previous_epoch
+          || intent.removedDeviceId!==r.removed_device || intent.replacementDeviceId!==r.replacement_device || intent.packageHash!==r.package_hash
+          || proof?.owner!==owner || proof.actorId!==own.id || !proof.payload || canonical(proof.payload)!==canonical(intent))fail('mls_replacement_recovery_rejected');
+        await verifyProof(proof,'replace-reserve',native);
+        const row=saved.values[`mls:group:${g.id}`],local=saved.values[`mls:replacement:${peer}`],transfer=saved.values[`mls:membership:${g.id}`];
+        if(!row || saved.values[`mls:route:${peer}`]?.conversationId!==g.id)return {reason:'keys-missing'};
+        if(local && canonical(local)!==canonical(intent))return {reason:'intent-conflict'};
+        if(transfer) {
+          if(row.confirmed)return {reason:'journal-conflict'};
+          if(transfer.id!==r.id || transfer.conversationId!==g.id || transfer.previousEpoch!==r.previous_epoch || transfer.epoch!==r.epoch
+            || transfer.removedDeviceId!==r.removed_device || transfer.replacementDeviceId!==r.replacement_device || transfer.packageHash!==r.package_hash)
+            return {reason:'journal-conflict'};
+          if(r.transfer && canonical({...transfer,commit:encode(transfer.commit),welcome:encode(transfer.welcome),tree:encode(transfer.tree)})!==canonical(r.transfer))return {reason:'journal-conflict'};
+          return {intent,transfer};
+        }
+        if(!row.confirmed)return {reason:'journal-missing'};
+        if(r.status!=='reserved' || !local)return {reason:'journal-missing'};
+        const p=g.packages.find(p=>p.hash===intent.packageHash && p.deviceId===intent.replacementDeviceId && p.owner===peer);
+        const pin=saved.values[`mls:pin:${intent.replacementDeviceId}`];
+        if(!p || !pin || pin.status!=='active' || pin.fingerprint!==p.fingerprint)return {reason:'verification-missing'};
+        try {await WingaMlsCandidate.inspectBoundKeyPackage(decode(p.keyPackage),{owner:p.owner,id:p.deviceId,fingerprint:pin.fingerprint});}
+        catch{return {reason:'admission-unavailable'};}
+        return {intent,p,pin};
+      }
       if(mediaEnabled && globalThis.WingaEncryptedMedia && typeof mediaRequest==='function')media=await WingaEncryptedMedia.createMediaClient({owner,getSession,vault,runtime,identity,operation,request:mediaRequest,onChange});
       async function syncInternal() {
         const result=await operation('poll',{});if(result?.version!==1 || !Array.isArray(result.groups))fail('mls_transport_invalid');
@@ -18688,7 +18721,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 || p.transferId!==pending.id || p.epoch!==pending.epoch)fail('mls_membership_confirmation_rejected');
               await verifyProof(proof,'replace-accept');await runtime.confirmMembership(g.id,pending.id);
               const fresh=await vault.snapshot();await vault.write({expectedRevision:fresh.revision,values:{},deleted:[`mls:replacement:${peer}`]});
-            }else if(replacement.status==='reserved')await operation('replace-transfer',{...pending,commit:encode(pending.commit),welcome:encode(pending.welcome),tree:encode(pending.tree)},pending.id);
+            }else if(replacement.status==='reserved') {
+              const recovery=await replacementRecovery(g,saved);
+              if(!recovery.reason)try {await operation('replace-transfer',{...pending,commit:encode(pending.commit),welcome:encode(pending.welcome),tree:encode(pending.tree)},pending.id);}
+              catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
+            }
           } else if(g.creator===owner && pending) {
             if(g.status==='active') {
               const proof=g.acceptance;
@@ -18729,9 +18766,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       async function inspect(peer) {
         return serialize(async()=>{
           await syncInternal();let g=groups.find(g=>g.creator===peer || g.recipient===peer);
-          if(g?.replacement && g.status.startsWith('replacement-'))return {status:g.status,ownFingerprint:own.fingerprint,group:g,
+          if(g?.replacement && g.status.startsWith('replacement-')) {
+            const recovery=await replacementRecovery(g,await vault.snapshot());
+            if(recovery?.reason)return {status:'replacement-recovery-required',ownFingerprint:own.fingerprint,recoveryReason:recovery.reason};
+            return {status:g.status,ownFingerprint:own.fingerprint,group:g,canResume:Boolean(recovery && g.replacement.status==='reserved'),
             packages:((g.replacement.replacement_device===own.id && g.replacement.status==='pending')
-              || (g.replacement.initiator_device===own.id && g.replacement.status==='reserved'))?g.packages.filter(p=>p.owner===peer):[],canReplace:g.replacement.initiator_device===own.id};
+              )?g.packages.filter(p=>p.owner===peer):[],canReplace:false};
+          }
           let directory;
           try {directory=await operation('directory',{peer});}catch(error){if(error.code==='encrypted_access_denied')return {status:'blocked',ownFingerprint:own.fingerprint};throw error;}
           if(!g && directory.group)g=directory.group;
@@ -18812,13 +18853,40 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           await syncInternal();return {status:'replacement-pending'};
         });
       }
+      async function resumeReplacement(peer) {
+        return serialize(async()=>{
+          await syncInternal();const g=groups.find(g=>g.creator===peer || g.recipient===peer);
+          if(g?.status==='active') {
+            if(await runtime.conversationId(peer)!==g.id)fail('mls_replacement_recovery_required');
+            return {status:'active'};
+          }
+          if(!g?.replacement || g.replacement.initiator_device!==own.id)fail('encrypted_membership_required');
+          const recovery=await replacementRecovery(g,await vault.snapshot());
+          if(recovery.reason)fail('mls_replacement_recovery_required');
+          if(g.replacement.status==='pending')return {status:'replacement-pending'};
+          const {intent,p,pin}=recovery;
+          if(p)await verifyPackage(p,pin.fingerprint);
+          const transfer=recovery.transfer || await runtime.replacePeer(g.id,intent.removedDeviceId,intent.previousEpoch,decode(p.keyPackage),intent.id);
+          await operation('replace-transfer',{...transfer,commit:encode(transfer.commit),welcome:encode(transfer.welcome),tree:encode(transfer.tree)},transfer.id);
+          await syncInternal();return {status:'replacement-pending'};
+        });
+      }
+      async function requireActiveMembership(peer) {
+        try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
+        const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
+        if(!g)fail('encrypted_membership_required');
+        if(g.status==='blocked')fail('encrypted_access_denied');
+        if(g.status!=='active' || saved.values[`mls:replacement:${peer}`])fail('encrypted_membership_pending');
+        if(await runtime.conversationId(peer)!==id)fail('encrypted_membership_required');
+      }
       const service={
-        inspect,enable,replace,sync:()=>serialize(syncInternal),
+        inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>Boolean(groups.find(g=>g.creator===peer || g.recipient===peer)) || runtime.isEncrypted(peer),
         history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
-        sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');return messageView(await media.send(peer,file,text));}),
+        sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
         sendMessage:payload=>serialize(async()=>{
+          await requireActiveMembership(payload.receiverId);
           try {const result=messageView(await runtime.sendMessage(payload));queueMicrotask(onChange);return result;}
           catch(error) {
             const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
@@ -18985,7 +19053,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
           button.setAttribute('aria-label',button.title);
           if(info.status==='active' && info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
-          if(['active','reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending'].includes(info.status)) {
+          if(['active','reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
             onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }
@@ -19001,6 +19069,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const title=document.createElement('h3');title.textContent=t('chat.security','Chat security');dialog.append(title);
           const state=document.createElement('p');state.setAttribute('role','status');
           const label=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):
+            info.status==='replacement-recovery-required'?t('chat.encryptionReplacementRecovery','Replacement cannot resume on this device. Use the original device with its saved chat keys. Recovering history alone does not restore chat keys.'):
             info.status==='rejoin-required'?t('chat.encryptionRejoinRequired','Ask your contact to replace your previous chat device, then verify their fingerprint here.'):
             info.status==='replacement-reserved'?t('chat.encryptionReplacementReserved','Device replacement reserved. Resume with the same verified device.'):
             info.status==='replacement-pending'?t('chat.encryptionReplacementPending','Waiting for the new device to verify and accept.'):
@@ -19017,7 +19086,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if(info.canReplace || info.status==='rejoin-required' || info.status.startsWith('replacement-')) {
             const note=document.createElement('p');note.textContent=t('chat.encryptionReplacementNotice','The new device receives new messages only. Earlier history needs your recovery key.');dialog.append(note);
           }
-          if(options.length && (info.canReplace || !['active','blocked','recovery-required','rejoin-required'].includes(info.status))) {
+          if(info.canResume) {
+            const resume=document.createElement('button');resume.type='button';resume.className='action-btn';resume.textContent=t('chat.encryptionReplacementResume','Resume device replacement');
+            resume.onclick=async()=>{resume.disabled=true;try {
+              const result=await dataLayer.resumeEncryptedConversationReplacement(peer);state.textContent=result.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.encryptionReplacementPending','Waiting for the new device to verify and accept.');
+              resume.remove();await refresh();await update();
+            }catch{state.textContent=t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');resume.disabled=false;}};
+            dialog.append(resume);
+          }
+          if(options.length && (info.canReplace || !['active','blocked','recovery-required','rejoin-required','replacement-recovery-required'].includes(info.status))) {
             const form=document.createElement('form');
             const deviceLabel=document.createElement('label');deviceLabel.textContent=t('chat.peerDevice','Recipient device');
             const select=document.createElement('select');select.name='device';
@@ -19035,7 +19112,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 form.remove();await refresh();await update();
               }catch{state.textContent=t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;}
             });dialog.append(form);
-          } else if(!options.length && !['active','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending'].includes(info.status)) {
+          } else if(!options.length && !['active','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
             state.textContent=t('chat.encryptionNoDevice','Your contact has no available encryption device yet.');
           }
           const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.close','Close');close.onclick=()=>dialog.close();dialog.append(close);

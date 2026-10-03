@@ -53,6 +53,8 @@
         "chat.encryptionReplacementPending": "Waiting for the new device to verify and accept.",
         "chat.encryptionReplaceDevice": "Replace contact device",
         "chat.encryptionReplacementNotice": "The new device receives new messages only. Earlier history needs your recovery key.",
+        "chat.encryptionReplacementResume": "Resume device replacement",
+        "chat.encryptionReplacementRecovery": "Replacement cannot resume on this device. Use the original device with its saved chat keys. Recovering history alone does not restore chat keys.",
         "chat.encryptionVerify": "Compare device fingerprints through a separate trusted channel before accepting.",
         "chat.ownFingerprint": "Your device fingerprint",
         "chat.peerDevice": "Recipient device",

@@ -9,7 +9,7 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,enabled=true,tamperDirectory=false;
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
@@ -31,6 +31,7 @@ test.beforeAll(async()=>{
     }}
   });
   const sendJson=(res,status,value,headers={})=>{
+    if(tamperReservation && value?.groups)value={...value,groups:value.groups.map(g=>g.replacement?{...g,replacement:{...g.replacement,reservation_proof:{...g.replacement.reservation_proof,signature:'A'.repeat(86)}}}:g)};
     if(tamperDirectory && value?.packages)value={...value,packages:value.packages.map(p=>({...p,mlsPublicKey:Buffer.alloc(32).toString('base64url')}))};
     res.writeHead(status,{'Content-Type':'application/json',...headers});res.end(JSON.stringify(value));
   };
@@ -77,8 +78,10 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer)){
           const body=await collectBody(req);
+          if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
+          if(body.action==='replace-transfer' && rejectReplacementTransfer){sendJson(res,503,{code:'fixture_transfer_unavailable'});return;}
           if(body.action==='replace-transfer' && loseReplacementTransfer){loseReplacementTransfer=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
           if(body.action==='send'){loseNextSend=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
           sendJson(res,200,await transport.encryptedOperation(context,body));return;
@@ -215,10 +218,38 @@ test('authenticated server membership, ciphertext-only HTTP, real chat renderer,
         await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
         await expect(alice.getByRole('button',{name:'Replace contact device'})).toBeEnabled();
         expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n).toBe(0);
-        loseReplacementTransfer=true;await alice.locator('dialog input[name=fingerprint]').fill(device.fingerprint);await alice.getByRole('button',{name:'Replace contact device'}).click();
+        loseReplacementReserve=true;await alice.locator('dialog input[name=fingerprint]').fill(device.fingerprint);await alice.getByRole('button',{name:'Replace contact device'}).click();
+        await expect.poll(async()=>(await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n).toBe(1);
+        await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
+        await expect(alice.getByRole('button',{name:'Replace contact device'})).toBeEnabled();
+        const reservation=(await db.query('SELECT id,intent,status,transfer FROM encrypted_conversation_replacements')).rows[0];
+        expect(reservation.status).toBe('reserved');expect(reservation.transfer).toBeNull();
+        await alice.reload();expect((await alice.evaluate(()=>start('alice'))).canResume).toBe(true);
+        const historyBefore=await alice.evaluate(()=>client.loadConversationPage('bob'));
+        await expect(alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'must not stage during replacement',messageType:'text'})))).rejects.toThrow('encrypted_membership_pending');
+        await expect(alice.evaluate(()=>client.sendEncryptedMedia('bob',new File(['blocked'],'blocked.txt',{type:'text/plain'}),'blocked'))).rejects.toThrow('encrypted_membership_pending');
+        expect(await alice.evaluate(()=>client.loadConversationPage('bob'))).toEqual(historyBefore);
+        expect(await alice.evaluate(async()=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>({username:'alice',sessionId:'a',token:'a'})});try{return Object.keys((await v.snapshot()).values).filter(k=>k.startsWith('mls:outbox:')||k.startsWith('media:pending:')).length;}finally{v.close();}})).toBe(0);
+        tamperReservation=true;await expect(alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).rejects.toThrow('mls_receipt_rejected');tamperReservation=false;
+        await alice.evaluate(async()=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>({username:'alice',sessionId:'a',token:'a'})});try {
+          const s=await v.snapshot();window.replacementState=Object.fromEntries(Object.entries(s.values).filter(([k])=>k.startsWith('mls:group:')||k.startsWith('mls:route:')));
+          await v.write({expectedRevision:s.revision,values:{},deleted:Object.keys(window.replacementState)});
+        }finally{v.close();}});
+        expect((await alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).status).toBe('replacement-recovery-required');
+        await expect(alice.evaluate(()=>client.resumeEncryptedConversationReplacement('bob'))).rejects.toThrow('mls_replacement_recovery_required');
+        expect((await db.query('SELECT id,intent,status,transfer FROM encrypted_conversation_replacements')).rows[0]).toEqual(reservation);
+        await alice.locator('[data-chat-security]').click();await expect(alice.locator('dialog [role=status]')).toContainText('Use the original device');await expect(alice.getByRole('button',{name:'Resume device replacement'})).toHaveCount(0);await alice.getByRole('button',{name:'Close',exact:true}).click();
+        await alice.evaluate(async()=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>({username:'alice',sessionId:'a',token:'a'})});try {const s=await v.snapshot();await v.write({expectedRevision:s.revision,values:window.replacementState});}finally{v.close();}});
+        rejectReplacementTransfer=true;await alice.locator('[data-chat-security]').click();await alice.getByRole('button',{name:'Resume device replacement'}).click();
+        await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
+        await expect(alice.getByRole('button',{name:'Resume device replacement'})).toBeEnabled();
+        expect((await db.query('SELECT transfer FROM encrypted_conversation_replacements')).rows[0].transfer).toBeNull();
+        await alice.reload();expect((await alice.evaluate(()=>start('alice'))).canResume).toBe(true);
+        await alice.locator('[data-chat-security]').click();await expect(alice.getByRole('button',{name:'Resume device replacement'})).toBeVisible();
+        rejectReplacementTransfer=false;loseReplacementTransfer=true;await alice.getByRole('button',{name:'Resume device replacement'}).click();
         // Chromium may retry the same POST after the fixture drops its accepted reply.
         await expect.poll(async()=>(await db.query('SELECT transfer FROM encrypted_conversation_replacements')).rows[0]?.transfer?.epoch).toBe('2');
-        await expect.poll(()=>alice.evaluate(()=>{const submit=document.querySelector('dialog button[type=submit]');return !submit || !submit.disabled;})).toBe(true);
+        await expect.poll(()=>alice.getByRole('button',{name:'Resume device replacement'}).count()).toBe(0);
         const before=(await db.query('SELECT id,transfer_hash,transfer FROM encrypted_conversation_replacements')).rows[0];expect(before.transfer.epoch).toBe('2');
         await alice.reload();await alice.evaluate(()=>start('alice'));
         expect((await db.query('SELECT id,transfer_hash,transfer FROM encrypted_conversation_replacements')).rows[0]).toEqual(before);

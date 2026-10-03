@@ -439,6 +439,9 @@
       replaceEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.replace(peer,deviceId,fingerprint);
       },
+      resumeEncryptedConversationReplacement:async peer=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.resumeReplacement(peer);
+      },
       sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
