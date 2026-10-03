@@ -3,7 +3,8 @@
   "name": "winga-video-safety-adapter",
   "main": "./cloudflare/video-safety-adapter.js",
   "compatibility_date": "2026-08-30",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat",
+    "global_fetch_strictly_public"],
   "workers_dev": true,
   "vars": {
     "ADAPTER_PUBLIC_URL": "https://winga-video-safety-adapter.willardmmbando.workers.dev",

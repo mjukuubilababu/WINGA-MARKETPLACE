@@ -430,3 +430,17 @@ test("conflicting name and score aliases reject the whole Hive response",async()
     assert.equal(calls,1);
   }
 });
+
+test("callback diagnostics distinguish Cloudflare routing and backend rejection without exposing body text",async()=>{
+  for(const [body,reason] of [
+    ["error code: 1042 at https://private.example/secret-token","cloudflare_1042"],
+    [JSON.stringify({code:"csrf_failed",error:"secret details"}),"csrf_failed"]
+  ]){
+    const diagnostics=[];
+    const worker=adapter(async url=>url===env.HIVE_API_URL?hive(predictions):new Response(body,{status:403}),false,diagnostics);
+    assert.equal((await worker.fetch(request(),env)).status,502);
+    assert.equal(diagnostics[0].status,403);
+    assert.equal(diagnostics[0].reason,reason);
+    assert.ok(!JSON.stringify(diagnostics).includes("secret"));
+  }
+});
