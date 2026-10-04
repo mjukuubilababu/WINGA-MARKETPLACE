@@ -161,7 +161,7 @@ expose bounded aggregate classification/outcome/integrity counts, no query/actor
 Raw internal observations follow existing intelligence-event retention (default
 180 days); privacy policy approval and retention tuning remain release gates.
 
-Important limitation: the bounded pre-enqueue task is process memory. A crash
+Initial increment limitation: the bounded pre-enqueue task is process memory. A crash
 after HTTP response and before queue commit, overload shedding, exhausted retries
 or a shutdown can lose capture. This increment does NOT satisfy durable capture
 for every search or the transactional outbox contract for future Demand updates.
@@ -178,3 +178,69 @@ The queue/ledger test uses a PostgreSQL engine, replays a committed observation
 score writes. Syntax and diff checks passed. No production flag, secret, schema
 migration or deployment was changed; production/browser/performance and recovery
 acceptance remain unverified.
+
+## Durable capture receipt continuation
+
+The server now returns a bounded, domain-separated HMAC-signed capture receipt
+with supported shadow search responses. It contains only the server-built outcome
+envelope and expires after 24 hours. Existing CSRF secret material is reused with
+a distinct signing domain; no secret/configuration was changed. All nodes must
+share that existing secret. These are signed bearer receipts, not encrypted data;
+responses containing them and capture acknowledgements are no-store. Do not log
+receipts or raw queries. Secret rotation invalidates pending receipts.
+
+`POST /api/search-demand/capture` preserves origin, CSRF, JSON and rate-limit
+guards. It accepts only a valid signed receipt, uses its original server outcome,
+and returns durablyRecorded:true only after queue insertion commits. A duplicate
+already stored in that queue acknowledges the same event. A DB failure returns a
+bounded 503 code; a forged/expired receipt gets 400. No Demand counter, score or
+notification is accepted from the client. Flag off or missing PostgreSQL returns
+503. The browser submits this independently of search results.
+
+For remote loadProductsPage searches, the data service supplies a stable searchId
+(callers can preserve options.searchId across HTTP retries) and a privacy-safe
+anonymous demand-session reference. The server namespaces event identity by its
+hashed actor and normalized query. Repeating an intent with a new searchId is a
+new raw event; retries reuse the same event. This is transport dedupe only; unique
+actor/window aggregation remains unimplemented. Browser-only search/image
+filtering is still outside this outcome integration.
+
+The existing intelligence API client durably stores each pending receipt under
+its own versioned localStorage key before background submission. Independent keys
+avoid lost queue entries from cross-tab list overwrites. Recovery runs on client
+initialization and online events. Work is account-scoped; a different signed-in
+account does not flush previous account receipts. The queue retains at most 50
+receipts, invalidates them at 24 hours and removes expired records on the next
+queue scan, persists a 12-attempt retry budget, uses bounded
+backoff with jitter, and removes only matching durable acknowledgements or terminal
+400/410 rejections. Concurrent tabs may send duplicates and race on retry budget;
+server uniqueness protects canonical business effects. Pending receipts may remain
+at their attempt limit until expiry. Browser storage/quota failure or queue overflow
+does not fail search and is not reported as durable capture. No pending work is
+silently evicted to accept a new receipt. These private browser records contain
+the receipt/search query and current account owner; retention/privacy acceptance
+and explicit user-deletion handling remain release requirements.
+
+The original bounded server observer is a best-effort backstop using the SAME
+event identity as the receipt. Worker ledger processing now rechecks primary
+classification evidence in its transaction so receipt recovery cannot bypass the
+identity boundary. Evidence-query failure rolls back and retries the durable job.
+Neither producer invokes the legacy seller pipeline or learning/scoring path.
+
+Remaining durability boundary: a server crash before its queue commit can be
+recovered when the browser has saved the receipt. A crash before the browser
+receives/persists it, storage rejection, explicit data clearing, receipt expiry,
+or exhausted retries can still lose capture. HTTP search success does not promise
+durable intelligence capture. No zero-loss or capture SLO is claimed. This closes
+the missing durable-ack/retry protocol for supported observations; transactional
+Demand-state/outbox emission and complete authoritative match-quality integration
+are still pending before N=1 canary.
+
+Recorded continuation validation: focused demand/capture tests 26/26; full
+integration 297/297; frontend Node tests 68/68 and frontend-core checks; frontend
+build and 81-module bundle synchronization passed. Tests include concurrent
+100-delivery queue dedupe, acknowledgement ordering, forged/expired receipt
+rejection, reload recovery, account boundaries, cross-tab receipt preservation,
+storage failure and bounded retries. No production variables or deployment changed.
+Browser-live receipt recovery, capture latency/load, privacy-retention acceptance
+and complete Demand-state/outbox recovery are still unverified.

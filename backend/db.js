@@ -2505,7 +2505,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function appendIntelligenceEvent(event, _legacyScores = {}) {
-    if (isSearchObservation(event)) return withTransaction(client => persistSearchObservation(client, event));
+    if (isSearchObservation(event)) return withTransaction(async client => {
+      validateSearchObservation(event);
+      // A primary evidence-query failure retries the durable job. Do not swallow
+      // an error inside a PostgreSQL transaction that is then aborted.
+      const evidence = (await readSearchDemandClassificationEvidence([event.metadata.searchObservation.query], client))[0];
+      const {evaluateSearchDemand} = require("./search-demand-contract");
+      const enriched = {...event, metadata:{...event.metadata, demandContract:{
+        ...evaluateSearchDemand(event.metadata.searchObservation.query, {evidence,
+          authoritativeOutcome:event.metadata.searchObservation.outcome, sensitive:true}), mode:"shadow"
+      }}};
+      return persistSearchObservation(client, enriched);
+    });
     return withTransaction((client) => persistIntelligenceEvent(client, event));
   }
 
@@ -7208,13 +7219,14 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       topVideos
     };
   }
-  async function readSearchDemandClassificationEvidence(queries = []) {
+  async function readSearchDemandClassificationEvidence(queries = [], transactionClient = null) {
     const values = Array.from(new Set(queries.filter(value => typeof value === "string")
       .map(value => value.trim().toLowerCase().slice(0,160)).filter(Boolean))).slice(0,25);
     if (!values.length) return [];
     // Shadow-only, exact evidence: product discovery continues to include shops.
     // Do not use the mixed search_vector as evidence of product intent.
-    const result = await queryPrimaryRead(
+    const execute = transactionClient ? transactionClient.query.bind(transactionClient) : queryPrimaryRead;
+    const result = await execute(
       `SELECT wanted.query,
          EXISTS(SELECT 1 FROM products p WHERE LOWER(p.name) = wanted.query AND p.status = 'approved') AS "productMatch",
          EXISTS(SELECT 1 FROM products p WHERE LOWER(p.shop) = wanted.query) AS "shopMatch",

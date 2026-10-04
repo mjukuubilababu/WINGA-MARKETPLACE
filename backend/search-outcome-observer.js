@@ -55,7 +55,9 @@ function buildSearchObservation(input) {
     sensitive:true
   });
   return validateSearchObservation({
-    eventId:`search_observation_${crypto.randomBytes(16).toString("hex")}`,
+    eventId:`search_observation_${input.searchId && /^[a-zA-Z0-9_-]{16,100}$/.test(input.searchId) && input.audience?.audienceKey
+      ? crypto.createHash("sha256").update(JSON.stringify([input.audience.audienceType,input.audience.audienceKey,query,input.searchId])).digest("hex").slice(0,32)
+      : crypto.randomBytes(16).toString("hex")}`,
     timestamp:new Date().toISOString(), schemaVersion:SCHEMA,
     sourceEvent:SOURCE, eventType:"search", domain:"commerce", entityType:"search",
     outcome:"observed", level:"info", appVersion:input.appVersion || "",
@@ -75,10 +77,10 @@ function createSearchOutcomeObserver({enabled=false, readEvidence, enqueue, maxP
   maxAttempts=3, schedule=fn=>setImmediate(fn), delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),
   random=Math.random} = {}) {
   const state = {enabled, pending:0, captured:0, failed:0, shed:0, skipped:0};
-  function observe(input) {
+  function observeEvent(event) {
     if (!enabled) return false;
-    const event = buildSearchObservation(input);
     if (!event) {state.skipped++; return false;}
+    validateSearchObservation(event);
     if (state.pending >= maxPending) {state.shed++; return false;}
     state.pending++;
     schedule(async()=>{
@@ -101,7 +103,9 @@ function createSearchOutcomeObserver({enabled=false, readEvidence, enqueue, maxP
     });
     return true;
   }
-  return {observe, snapshot:()=>({...state, durability:"queue_commit", sellerCutover:false})};
+  return {observe:input=>enabled ? observeEvent(buildSearchObservation(input)) : false, observeEvent,
+    recordFailure:()=>{state.failed++;},
+    snapshot:()=>({...state, durability:"queue_commit", sellerCutover:false})};
 }
 
 module.exports = {SOURCE, SCHEMA, isSearchObservation, validateSearchObservation,

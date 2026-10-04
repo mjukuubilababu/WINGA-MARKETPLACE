@@ -14,7 +14,8 @@ const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { evaluateSearchDemand } = require("./search-demand-contract");
-const {createSearchOutcomeObserver, isSearchObservation} = require("./search-outcome-observer");
+const {createSearchOutcomeObserver, isSearchObservation, buildSearchObservation} = require("./search-outcome-observer");
+const {issueSearchCaptureReceipt, acceptSearchCaptureReceipt} = require("./search-capture-receipt");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { readMediaStoragePolicy } = require("./media-storage-policy");
@@ -288,6 +289,7 @@ const RATE_LIMIT_RULES = {
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/search-demand/capture": { limit: 60, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -7962,6 +7964,7 @@ const server = http.createServer(async (req, res) => {
       || url.pathname.startsWith("/api/messages/push/")
       || url.pathname === "/api/messages/transport-ticket"
       || url.pathname === "/api/conversations/recovery"
+      || url.pathname === "/api/search-demand/capture"
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -9665,12 +9668,21 @@ const server = http.createServer(async (req, res) => {
           totalProducts: payload.total,
           hasMore: payload.hasMore
         });
-        sendJson(res, 200, payload);
-        if (requestedQuery) searchOutcomeObserver.observe({
-          query:requestedQuery, total:payload.total, page:safePage, cursor:requestedCursor,
-          category:requestedCategory, seller:requestedSeller, staff:isStaffViewer, freshPrimary,
-          audience:getCommerceAudience(session), appVersion:APP_BUILD_VERSION
-        });
+        let searchObservation = null;
+        try {
+          if (requestedQuery && searchOutcomeObserver.snapshot().enabled) searchObservation = buildSearchObservation({
+            query:requestedQuery, total:payload.total, page:safePage, cursor:requestedCursor,
+            category:requestedCategory, seller:requestedSeller, staff:isStaffViewer, freshPrimary,
+            searchId:String(url.searchParams.get("searchId") || ""),
+            audience:getCommerceAudience(session, url.searchParams.get("anonymousId") || ""), appVersion:APP_BUILD_VERSION
+          });
+          if (searchObservation) payload.searchCapture = issueSearchCaptureReceipt(searchObservation, CSRF_SECRET);
+        } catch {
+          searchObservation = null;
+          searchOutcomeObserver.recordFailure();
+        }
+        sendJson(res, 200, payload, searchObservation ? {"Cache-Control":"no-store"} : {});
+        if (searchObservation) searchOutcomeObserver.observeEvent(searchObservation);
         return;
       }
 
@@ -10619,6 +10631,24 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         accepted: safeMessages.length
       });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/search-demand/capture") {
+      // Signed outcome comes only from the server search response. Durable
+      // acknowledgement is independent of search latency and precedes HTTP 202.
+      if (!searchOutcomeObserver.snapshot().enabled || !postgresStore?.enqueueIntelligenceEvent) {
+        sendJson(res, 503, {code:"search_capture_unavailable"}, {"Cache-Control":"no-store"});
+        return;
+      }
+      const payload = await collectBody(req);
+      try {
+        const result=await acceptSearchCaptureReceipt(postgresStore,payload?.receipt,CSRF_SECRET);
+        sendJson(res, 202, result, {"Cache-Control":"no-store"});
+      } catch (error) {
+        const invalid=error?.code === "invalid_search_capture_receipt";
+        sendJson(res, invalid ? 400 : 503, {code:invalid ? "invalid_search_capture_receipt" : "search_capture_unavailable"}, {"Cache-Control":"no-store"});
+      }
       return;
     }
 

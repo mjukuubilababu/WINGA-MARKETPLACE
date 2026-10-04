@@ -88,6 +88,7 @@ test("PostgreSQL durable queue replays have one ledger effect and no scoring wri
       event_payload JSONB,score_payload JSONB,status TEXT,attempts INT DEFAULT 0,available_at TIMESTAMPTZ,
       locked_at TIMESTAMPTZ,locked_by TEXT,processed_at TIMESTAMPTZ,last_error TEXT,updated_at TIMESTAMPTZ);
       CREATE TABLE intelligence_events(event_id TEXT PRIMARY KEY,event_type TEXT,source_event TEXT,happened_at TIMESTAMPTZ,metadata JSONB);`);
+    await db.exec("CREATE TABLE products(name TEXT, shop TEXT, category TEXT, status TEXT); CREATE TABLE users(username TEXT,full_name TEXT);");
     const store=createPostgresStore({databaseUrl:"postgres://test/search",queryClient:db});
     const event=buildSearchObservation(input);
     assert.equal((await store.enqueueIntelligenceEvent(event)).enqueued,true);
