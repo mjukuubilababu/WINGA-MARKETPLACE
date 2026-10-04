@@ -1582,6 +1582,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     })
   });
   assert.equal(adminLogin.response.status, 200);
+  assert.match(adminLogin.body.sessionId || '', /^sess-[a-f0-9]{24}$/);
+  assert.equal(Object.hasOwn(adminLogin.body, 'token'), false);
   const adminToken = getAuthCookieToken(adminLogin.response);
 
   const retiredBulkUserSave = await request("/users", {
@@ -2205,6 +2207,8 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
     body: JSON.stringify({ profileImage: tinyImage })
   });
   assert.equal(sellerProfilePhoto.response.status, 200);
+  assert.equal(sellerProfilePhoto.body.sessionId, sellerSignup.body.sessionId);
+  assert.equal(Object.hasOwn(sellerProfilePhoto.body, 'token'), false);
   assert.equal(Boolean(sellerProfilePhoto.body.profileImage), true);
 
   const orderCreate = await request("/orders", {

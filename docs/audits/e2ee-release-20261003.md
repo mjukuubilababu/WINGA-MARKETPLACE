@@ -217,3 +217,34 @@ they also do not establish private-media configuration or migration state.
 Activation is service-wide availability, not the audited test-account-only pilot.
 No flags were changed by the agent. External review, production/device acceptance
 and the pilot authorization boundary remain outstanding despite activation.
+
+### Follow-Up: Missing Backend Session ID (2026-10-04)
+
+The operator still reported the same failure after the first hotfix. Read-only
+checks confirmed the marketplace serves build `20261003151719` with the token
+precondition removed. Investigation then identified a second contract defect:
+actual signup, login and session-restore responses omitted `sessionId`. The
+browser transport fixture had supplied that field itself, so it could not detect
+the real authentication response defect. The first hotfix was insufficient.
+
+An actual isolated backend signup reproduced the missing ID assertion before
+this correction. Self-session responses now include only the sanitized ID from
+the authenticated server session bound to the same owner. Signup, marketplace
+and staff login, restore (using the refreshed session), WhatsApp verification,
+profile update and seller upgrade supply that trusted session explicitly.
+Neither the session token nor the full server session is returned; HttpOnly,
+CSRF, device signatures, CSP and irreversible encrypted mode remain unchanged.
+
+The regression runs against its own backend so additional signup/login activity
+does not interfere with existing abuse-rate-limit tests. It checks token-free
+cookie signup/login/restore, the browser auth adapter replacing a cached session
+without an ID, profile continuity despite a forged client ID, cookie rotation
+with a stable ID, and rejection of old/revoked cookies. Existing staff login and
+profile checks also assert ID continuity and no bearer exposure.
+
+Verification: 17/17 actual HTTP integration tests, 98/98 secure-content tests
+and the strict-CSP cookie-only encrypted browser transport test passed. No new
+frontend build, production database mutation, flag change or key reset is needed.
+Production acceptance still requires the corrected backend commit to become Live
+and the operator to refresh/restore the authenticated session and exchange an
+encrypted message. Public ready health alone does not establish that acceptance.

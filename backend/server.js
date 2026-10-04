@@ -2685,8 +2685,12 @@ function sanitizeUser(user, options = {}) {
 }
 
 function buildSelfSessionPayload(user, options = {}) {
+  const sessionId = options.session?.username === user.username
+    ? sanitizePlainText(options.session.sessionId || "", 80)
+    : "";
   return {
     ...sanitizeUser(user, { viewer: user }),
+    ...(sessionId ? { sessionId } : {}),
     phoneNumber: String(user.phoneNumber || "").replace(/\D/g, "").slice(0, 20),
     paymentProvider: user.paymentProvider || "",
     paymentNumber: String(user.paymentNumber || "").replace(/\D/g, "").slice(0, 20),
@@ -9894,7 +9898,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        buildSelfSessionPayload(createdUser),
+        buildSelfSessionPayload(createdUser, { session }),
         { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
       );
       return;
@@ -10278,7 +10282,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        buildSelfSessionPayload(freshUser),
+        buildSelfSessionPayload(freshUser, { session }),
         { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
       );
       return;
@@ -10410,7 +10414,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        buildSelfSessionPayload(freshUser),
+        buildSelfSessionPayload(freshUser, { session }),
         { "Set-Cookie": buildAuthCookieHeader(session.token, req) }
       );
       return;
@@ -11040,7 +11044,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        buildSelfSessionPayload(user, { security: securityPayload }),
+        buildSelfSessionPayload(user, { session: refreshedSession, security: securityPayload }),
         (rotateSession || !hasAuthCookie) ? { "Set-Cookie": buildAuthCookieHeader(refreshedSession.token, req) } : {}
       );
       return;
@@ -13094,7 +13098,7 @@ const server = http.createServer(async (req, res) => {
         destinationLast4: verifiedWhatsappNumber.slice(-4)
       });
 
-      sendJson(res, 200, buildSelfSessionPayload(verifiedResult.user), { "Cache-Control": "no-store" });
+      sendJson(res, 200, buildSelfSessionPayload(verifiedResult.user, { session }), { "Cache-Control": "no-store" });
       return;
     }
     if (req.method === "PATCH" && url.pathname === "/api/users/me/profile") {
@@ -13290,7 +13294,7 @@ const server = http.createServer(async (req, res) => {
         username: user.username
       });
 
-      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser, { session }));
       return;
     }
 
@@ -13425,7 +13429,7 @@ const server = http.createServer(async (req, res) => {
         verificationStatus: "verified"
       });
 
-      sendJson(res, 200, buildSelfSessionPayload(updatedUser));
+      sendJson(res, 200, buildSelfSessionPayload(updatedUser, { session }));
       return;
     }
 
