@@ -1,4 +1,7 @@
 {
+  // Workers Builds: master, repository root, no build command.
+  // Deploy: npx wrangler deploy --config wrangler.video-safety.jsonc --keep-vars
+  // This configuration targets the safety adapter; wrangler.toml targets mkubwa.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "winga-video-safety-adapter",
   "main": "./cloudflare/video-safety-adapter.js",
