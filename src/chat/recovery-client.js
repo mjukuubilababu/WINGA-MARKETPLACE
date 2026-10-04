@@ -71,7 +71,7 @@
         || Object.keys(archive.items).length > 1999 || Object.keys(archive.items).some(key => !/^history:[A-Za-z0-9._:-]{1,128}$/.test(key))) fail('recovery_archive_invalid');
       return archive;
     };
-    async function backup(key, { checkpoint } = {}) {
+    async function backup(key, { checkpoint, previousKey } = {}) {
       const session = context();
       return locks.request(`winga-recovery-operation:${owner}`, async () => {
         current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
@@ -85,7 +85,7 @@
           if (retained && !remote.capsule) fail('recovery_freshness_rejected');
           if (remote.capsule) {
             await verifyCheckpoint(remote, checkpoint || retained, owner, crypto);
-            const bytes = await codec.openRecovery(remote.capsule, key, {
+            const bytes = await codec.openRecovery(remote.capsule, previousKey || key, {
               owner, id: remote.capsule.id, generation: remote.capsule.generation });
             try {
               const prior = readArchive(bytes).items;

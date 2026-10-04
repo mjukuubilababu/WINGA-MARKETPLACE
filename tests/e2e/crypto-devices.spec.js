@@ -10,6 +10,34 @@ const { createEncryptedConversationBackupStore } = require('../../backend/encryp
 const { createCryptoKeyPackageStore } = require('../../backend/conversation-crypto-key-packages');
 let server, origin, db, store, backups;
 const session = { username: 'bob', sessionId: 'b1', token: 'b1' };
+test('recovery key replacement retains exact pending ciphertext and rejects both wrong old keys and retired keys',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
+    const codec=await WingaSecureContent.loadSecureContent(),oldKey=codec.generateRecoveryKey(),newKey=codec.generateRecoveryKey();
+    let lose=false,puts=0;
+    const recovery=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec,
+      request:async(method,payload,context)=>{const r=await recoveryRequest(method,payload,context);if(method==='PUT'){puts++;if(lose){lose=false;throw new Error('lost_reply');}}return r;}});
+    try {
+      let s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{'history:rotate':{id:'rotate',message:'private history',status:'read'}}});
+      const first=await recovery.backup(oldKey);
+      let wrongOld=false;try{await recovery.backup(newKey,{checkpoint:first.checkpoint,previousKey:codec.generateRecoveryKey()});}catch{wrongOld=true;}
+      const before=await recoveryRequest('GET',undefined,{owner:session.username,deviceId:session.sessionId,token:session.token});
+      lose=true;try{await recovery.backup(newKey,{checkpoint:first.checkpoint,previousKey:oldKey});}catch(e){if(!e.message.includes('lost_reply'))throw e;}
+      const staged=(await vault.snapshot()).values['backup:pending'];
+      let wrongRetry=false;try{await recovery.backup(oldKey);}catch{wrongRetry=true;}
+      const retained=JSON.stringify(staged)===JSON.stringify((await vault.snapshot()).values['backup:pending']);
+      const accepted=await recovery.backup(newKey);
+      const remote=await recoveryRequest('GET',undefined,{owner:session.username,deviceId:session.sessionId,token:session.token});
+      const canonical=value=>JSON.stringify(Object.keys(value).sort().map(k=>[k,value[k]]));
+      const exact=canonical(staged.capsule)===canonical(remote.capsule);
+      let oldRejected=false;try{await recovery.restore(oldKey,{checkpoint:accepted.checkpoint});}catch{oldRejected=true;}
+      const restored=await recovery.restore(newKey,{checkpoint:accepted.checkpoint});
+      return {wrongOld:!!wrongOld,wrongRetry:!!wrongRetry,firstRevision:before.revision,revision:accepted.revision,retained,exact,oldRejected,restored:restored.restored,puts};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({wrongOld:true,wrongRetry:true,firstRevision:'1',revision:'2',retained:true,exact:true,oldRejected:true,restored:1,puts:3});
+});
 test.beforeAll(async () => {
   server = http.createServer((req, res) => {
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none'");

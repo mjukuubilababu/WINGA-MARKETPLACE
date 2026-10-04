@@ -30,6 +30,7 @@
     "verify:message-device-receipts": "node verify-message-device-receipts.js",
     "verify:conversation-events": "node verify-conversation-events.js",
     "verify:encrypted-conversation-backups": "node verify-encrypted-conversation-backups.js",
+    "verify:encrypted-chat-readiness": "node verify-encrypted-chat-readiness.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

@@ -12798,3 +12798,11 @@ body.visual-categories-view #quick-discovery-rail{
 .chat-recovery-dialog label:not([hidden]):has(> input[data-recovery-saved]){display:flex;flex-direction:row;align-items:flex-start;gap:8px}
 .chat-recovery-dialog input[data-recovery-saved]{flex:0 0 auto;margin:3px 0 0}
 .chat-recovery-archive{max-height:220px;overflow:auto;overflow-wrap:anywhere}.chat-recovery-archive p{padding-block:8px;border-bottom:1px solid #d5ded8}
+.chat-encrypted-attachment{display:flex;align-items:stretch;gap:6px;max-width:100%}
+.chat-encrypted-attachment .chat-encrypted-file{flex:1;min-width:0}
+.chat-encrypted-download{display:grid;place-items:center;flex:0 0 36px;border:1px solid #d5ded8;border-radius:6px;background:#f4f8f5;cursor:pointer}
+.chat-encrypted-attachment .chat-encrypted-download{flex:0 0 36px}
+.chat-encrypted-download:disabled{opacity:.55;cursor:default}
+.chat-media-preview-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto}
+.chat-media-preview-dialog h3{overflow-wrap:anywhere}
+.chat-decrypted-preview{display:block;max-width:100%;max-height:65dvh;object-fit:contain;margin:12px auto}

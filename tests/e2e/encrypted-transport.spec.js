@@ -38,7 +38,7 @@ test.beforeAll(async()=>{
   };
   const collectBody=req=>new Promise((resolve,reject)=>{let body='';req.on('data',chunk=>{body+=chunk;if(body.length>262144)reject(new Error('too_large'));});req.on('end',()=>{try{resolve(JSON.parse(body));}catch(e){reject(e);}});});
   server=http.createServer(async(req,res)=>{
-    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; object-src 'none'");
+    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; img-src 'self' blob:; object-src 'none'");
     const url=new URL(req.url,'http://localhost');
     const cookie=req.headers.cookie?.split(';').map(v=>v.trim()).find(v=>v.startsWith('fixture_session='))?.slice('fixture_session='.length);
     const session=cookieSessions.get(cookie);
@@ -52,7 +52,7 @@ test.beforeAll(async()=>{
     const assets={'/devices.js':'src/chat/crypto-devices.js','/vault.js':'src/chat/encrypted-vault.js','/policy.js':'src/chat/encrypted-policy.js',
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
       '/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
-    if(/^\/icons\/navigation\/(key-round|paperclip|download|monitor-smartphone)\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../public'+url.pathname)));return;}
+    if(/^\/icons\/navigation\/(key-round|paperclip|download|eye|monitor-smartphone)\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
     if(assets[url.pathname]){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(fs.readFileSync(path.resolve(__dirname,'../..',assets[url.pathname])));return;}
     if(url.pathname==='/vendor/winga-mls-candidate.js'){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(output,'winga-mls-candidate.js')));return;}
     if(url.pathname==='/fixture.js'){
@@ -180,13 +180,42 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
     });
     await test.step('real attachment UI retains offline ciphertext and resumes after reload',async()=>{
       await expect(alice.locator('[data-encrypted-media-upload]')).toBeVisible();await a.setOffline(true);
-      await alice.locator('.messages-compose input[type=file]').setInputFiles({name:'offline-private.txt',mimeType:'text/plain',buffer:Buffer.from('Offline private document')});
+      const image=await require('sharp')({create:{width:160,height:120,channels:3,background:'#259a67'}}).png().toBuffer();
+      await alice.locator('.messages-compose input[type=file]').setInputFiles({name:'offline-private.png',mimeType:'image/png',buffer:image});
       await alice.locator('dialog textarea').fill('Offline encrypted file caption');await alice.getByRole('button',{name:'Send encrypted file'}).click();await expect(alice.locator('dialog')).toHaveCount(0);
       const staged=await alice.evaluate(async()=>{const v=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>({username:'alice',sessionId:'a',token:'a'})});try{const job=Object.entries((await v.snapshot()).values).find(([k])=>k.startsWith('media:pending:'))[1];return {id:job.id,object:job.attachment.object,bytes:Array.from(job.ciphertext)};}finally{v.close();}});
       expect(objects.size).toBe(1);await a.setOffline(false);await alice.reload();await alice.evaluate(()=>start('alice'));await alice.evaluate(()=>render());await bob.evaluate(()=>render());
       expect(objects.size).toBe(2);expect([...objects.values()].some(bytes=>bytes.equals(Buffer.from(staged.bytes)))).toBe(true);
       await expect(bob.locator('[data-encrypted-media-download]')).toHaveCount(2);
       expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(5);
+      await bob.evaluate(()=>WingaEncryptedMediaUi.bindDownloads(document,{dataLayer:client}));
+      for(const width of [390,1440]) {
+        await bob.setViewportSize({width,height:844});
+        await bob.locator('[data-encrypted-media-preview]').last().click();
+        await expect(bob.locator('.chat-decrypted-preview')).toBeVisible();
+        const pixels=await bob.locator('.chat-decrypted-preview').evaluate(img=>({width:img.naturalWidth,height:img.naturalHeight,source:img.src}));
+        expect(pixels.width).toBe(160);expect(pixels.height).toBe(120);expect(pixels.source.startsWith('blob:')).toBe(true);
+        expect(await bob.locator('.chat-media-preview-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+        await bob.screenshot({path:`test-results/encrypted-media-${width}.png`});
+        await bob.getByRole('button',{name:'Close',exact:true}).click();
+        expect(await bob.evaluate(async url=>{try{await fetch(url);return false;}catch{return true;}},pixels.source)).toBe(true);
+      }
+      await bob.locator('[data-encrypted-media-preview]').first().click();
+      await expect(bob.locator('.chat-media-preview-dialog [role=status]')).toHaveText('Preview unavailable');
+      await expect(bob.locator('.chat-decrypted-preview')).toHaveCount(0);await bob.getByRole('button',{name:'Close',exact:true}).click();
+      for(const mime of ['image/svg+xml','text/html','image/png']) {
+        await bob.evaluate(mime=>{window.savedDownload=client.downloadEncryptedMedia;client.downloadEncryptedMedia=async id=>{
+          const result=await savedDownload(id);return {...result,blob:new Blob(['<svg xmlns="http://www.w3.org/2000/svg" onload="window.unsafePreview=true"></svg>'],{type:mime})};
+        };},mime);
+        await bob.locator('[data-encrypted-media-preview]').last().click();
+        await expect(bob.locator('.chat-media-preview-dialog [role=status]')).toHaveText('Preview unavailable');
+        await expect(bob.locator('.chat-decrypted-preview')).toHaveCount(0);
+        expect(await bob.evaluate(()=>Boolean(window.unsafePreview))).toBe(false);
+        await bob.getByRole('button',{name:'Close',exact:true}).click();await bob.evaluate(()=>{client.downloadEncryptedMedia=savedDownload;});
+      }
+      await bob.locator('[data-encrypted-media-preview]').last().click();await expect(bob.locator('.chat-decrypted-preview')).toBeVisible();
+      await bob.evaluate(()=>{window.originalSession=browserSession;browserSession={username:'alice',sessionId:'other'};});
+      await expect(bob.locator('.chat-media-preview-dialog')).toHaveCount(0);await bob.evaluate(()=>{browserSession=originalSession;});
     });
     await test.step('user-held recovery kit restores history on a fresh pending device without MLS secrets',async()=>{
       await expect(bob.locator('[data-chat-recovery]')).toBeVisible();await bob.locator('[data-chat-recovery]').click();
@@ -196,12 +225,23 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
       await expect(bob.getByRole('button',{name:'Back up and export'})).toBeDisabled();
       await bob.locator('[data-recovery-confirm]').fill(keyOnly.key);await bob.locator('[data-recovery-saved]').check();
       const exported=await Promise.all([bob.waitForEvent('download'),bob.getByRole('button',{name:'Back up and export'}).click()]);
-      const kit=JSON.parse(fs.readFileSync(await exported[0].path(),'utf8'));expect(kit.checkpoint.revision).toBe('1');
+      let kit=JSON.parse(fs.readFileSync(await exported[0].path(),'utf8'));expect(kit.checkpoint.revision).toBe('1');
       const stored=JSON.stringify((await db.query('SELECT capsule FROM encrypted_conversation_backups')).rows);
       expect(stored).not.toContain(kit.key);expect(stored).not.toContain('Private Winga text');
       await expect(bob.getByRole('button',{name:'Close',exact:true})).toBeDisabled();
       expect(await bob.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-      await bob.screenshot({path:'test-results/encrypted-recovery-mobile.png'});await bob.locator('[data-recovery-saved]').check();await bob.getByRole('button',{name:'Close',exact:true}).click();
+      await bob.screenshot({path:'test-results/encrypted-recovery-mobile.png'});await bob.locator('[data-recovery-saved]').check();
+      const retiredKey=kit.key;
+      const rotated=await Promise.all([bob.waitForEvent('download'),bob.getByRole('button',{name:'Replace recovery key'}).click()]);
+      const replacement=JSON.parse(fs.readFileSync(await rotated[0].path(),'utf8'));
+      expect(replacement.key).not.toBe(retiredKey);expect(replacement.checkpoint).toBe(null);
+      await expect(bob.getByRole('button',{name:'Back up and export'})).toBeDisabled();
+      await bob.locator('[data-recovery-confirm]').fill(retiredKey);await bob.locator('[data-recovery-saved]').check();
+      await expect(bob.getByRole('button',{name:'Back up and export'})).toBeDisabled();
+      await bob.locator('[data-recovery-confirm]').fill(replacement.key);
+      const resealed=await Promise.all([bob.waitForEvent('download'),bob.getByRole('button',{name:'Back up and export'}).click()]);
+      kit=JSON.parse(fs.readFileSync(await resealed[0].path(),'utf8'));expect(kit.checkpoint.revision).toBe('2');
+      await bob.locator('[data-recovery-saved]').check();await bob.getByRole('button',{name:'Close',exact:true}).click();
       const fresh=await browser.newContext();try {
         const page=await fresh.newPage();await page.goto(origin);await page.evaluate(async()=>{try{await start('bob');}catch{}});
         await page.locator('[data-chat-recovery]').click();

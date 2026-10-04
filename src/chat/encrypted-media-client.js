@@ -62,7 +62,8 @@
       const proof=await identity.signCryptoOperation('media-download',object);
       const blob=await request('GET',object,proof);current();
       if(!(blob instanceof Blob)||blob.size!==object.bytes||await hash(await blob.arrayBuffer())!==object.sha256)fail('private_media_integrity_rejected');
-      const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();return result;
+      const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();
+      return {...result,checkSession:current};
     }
     return {send,resume,list,download,pendingHistory:async()=> (await list()).map(pendingView)};
   }

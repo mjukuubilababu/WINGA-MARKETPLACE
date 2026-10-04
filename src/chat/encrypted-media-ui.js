@@ -1,5 +1,46 @@
 (() => {
+  const fail=code=>{throw Object.assign(new Error(code),{code});};
+  async function openPreview(button,{dataLayer,translate=(k,f)=>f}) {
+    const t=translate,dialog=document.createElement('dialog');dialog.className='chat-security-dialog chat-media-preview-dialog';
+    const title=document.createElement('h3');title.textContent=t('chat.mediaPreview','View encrypted attachment');dialog.append(title);
+    const status=document.createElement('p');status.setAttribute('role','status');status.textContent=t('chat.secureWorking','Working...');dialog.append(status);
+    const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.close','Close');dialog.append(close);
+    let url,timer,checkSession,bitmap;
+    const hidden=()=>{if(document.visibilityState!=='visible')dialog.close();};
+    const cleanup=()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);bitmap?.close();if(url)URL.revokeObjectURL(url);dialog.remove();button.disabled=false;};
+    close.onclick=()=>dialog.close();dialog.addEventListener('close',cleanup,{once:true});
+    document.addEventListener('visibilitychange',hidden);document.body.append(dialog);dialog.showModal();button.disabled=true;
+    try {
+      const result=await dataLayer.downloadEncryptedMedia(button.dataset.encryptedMediaPreview);
+      if(!dialog.isConnected)return;
+      if(typeof result.checkSession!=='function')fail('media_preview_session_required');
+      checkSession=result.checkSession;checkSession();title.textContent=result.name;
+      const mime=result.blob.type,head=new Uint8Array(await result.blob.slice(0,12).arrayBuffer());
+      const same=(offset,bytes)=>bytes.every((value,index)=>head[offset+index]===value);
+      const image=(mime==='image/png'&&same(0,[137,80,78,71,13,10,26,10]))
+        || (mime==='image/jpeg'&&same(0,[255,216,255]))
+        || (mime==='image/webp'&&same(0,[82,73,70,70])&&same(8,[87,69,66,80]))
+        || (mime==='image/gif'&&same(0,[71,73,70,56])&&[55,57].includes(head[4])&&head[5]===97);
+      checkSession();if(!dialog.isConnected)return;
+      if(image) {
+        bitmap=await createImageBitmap(result.blob);
+        if(bitmap.width*bitmap.height>16*1024*1024)fail('media_preview_too_large');
+        checkSession();if(!dialog.isConnected){bitmap.close();return;}
+        const picture=document.createElement('img');picture.alt=result.name;picture.className='chat-decrypted-preview';
+        url=URL.createObjectURL(result.blob);picture.src=url;dialog.insertBefore(picture,status);bitmap.close();bitmap=null;status.textContent='';
+      } else status.textContent=t('chat.mediaPreviewUnavailable','Preview unavailable');
+      timer=setInterval(()=>{try{checkSession();}catch{dialog.close();}},250);
+    }catch {
+      bitmap?.close();bitmap=null;if(url){URL.revokeObjectURL(url);url=null;}
+      if(checkSession){try{checkSession();}catch{dialog.close();return;}}
+      if(dialog.isConnected)status.textContent=t('chat.mediaFailed','Encrypted file operation failed');
+    }
+  }
   function bindDownloads(scope,{dataLayer,translate=(k,f)=>f}) {
+    for(const button of scope.querySelectorAll('[data-encrypted-media-preview]')) {
+      if(button.dataset.previewBound)continue;button.dataset.previewBound='true';
+      button.onclick=()=>{if(!button.disabled)openPreview(button,{dataLayer,translate});};
+    }
     for(const button of scope.querySelectorAll('[data-encrypted-media-download]')) {
       if(button.dataset.downloadBound)continue;button.dataset.downloadBound='true';
       button.onclick=async()=>{
@@ -43,5 +84,5 @@
       document.body.append(dialog);dialog.showModal();text.focus();
     };
   }
-  globalThis.WingaEncryptedMediaUi={bind,bindDownloads};
+  globalThis.WingaEncryptedMediaUi={bind,bindDownloads,openPreview};
 })();

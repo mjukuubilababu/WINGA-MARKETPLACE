@@ -248,3 +248,16 @@ frontend build, production database mutation, flag change or key reset is needed
 Production acceptance still requires the corrected backend commit to become Live
 and the operator to refresh/restore the authenticated session and exchange an
 encrypted message. Public ready health alone does not establish that acceptance.
+
+### Operator Acceptance And Follow-Up (2026-10-04)
+
+The operator subsequently confirmed connection, sending and receiving several
+chats between two distinct accounts on two physical devices. The text flow is
+therefore operator-confirmed functional acceptance, not independently observed
+or cryptographically approved by this audit.
+
+Attachment preview, recovery key replacement and the combined device workflow
+are tracked in `docs/encrypted-chat-acceptance-20261004.md`. Private R2 setup,
+production media/recovery flow and independent crypto review remain open.
+No historical media authorization relaxation or production flag change was
+made: verified replacements still cannot fetch original-epoch attachments.

@@ -45,7 +45,7 @@
     "verify:modules-sync": "node scripts/verify-modules-sync.js",
     "test:private-backup": "node --test tests/backup-legacy-private-media.test.js",
     "test:legacy-media": "node --test tests/legacy-public-media.test.js tests/legacy-public-inventory.test.js tests/legacy-public-cutover.test.js tests/legacy-post-cutover-audit.test.js tests/legacy-upload-compatibility.test.js tests/legacy-disk-coverage.test.js tests/worker-legacy-media.test.js tests/media-storage-policy.test.js",
-    "test:secure-content": "node scripts/patch-ts-mls.js --check && node --test tests/ts-mls-patch.test.js tests/secure-content.test.js tests/encrypted-conversation-backups.test.js tests/conversation-crypto-devices.test.js tests/conversation-security-mode.test.js tests/conversation-crypto-key-packages.test.js tests/conversation-private-media.test.js tests/mls-runtime.test.mjs tests/encrypted-conversations.test.js",
+    "test:secure-content": "node scripts/patch-ts-mls.js --check && node --test tests/ts-mls-patch.test.js tests/secure-content.test.js tests/encrypted-conversation-backups.test.js tests/encrypted-chat-readiness.test.js tests/conversation-crypto-devices.test.js tests/conversation-security-mode.test.js tests/conversation-crypto-key-packages.test.js tests/conversation-private-media.test.js tests/mls-runtime.test.mjs tests/encrypted-conversations.test.js",
     "test:secure-content-browser": "playwright test --config tests/secure-content.playwright.config.cjs",
     "test:ci": "npm run verify:modules-sync && npm run test:secure-content && npm run test:private-backup && npm run test:legacy-media && npm test",
     "monitor:video": "node scripts/check-video-health.js",
