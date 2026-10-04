@@ -27,10 +27,35 @@ operator's explicit decision. A restored descriptor/key alone does not bypass
 server authorization. Do not claim full historical attachment recovery on a
 replacement device under this policy.
 
-Private R2 configuration and production attachment/recovery acceptance remain
-external release steps. No flags, production accounts, keys or database rows
-were changed by this increment. Independent ts-mls/crypto review remains open;
-existing service-wide activation is not an audited account-scoped pilot.
+The original code increment did not change production flags, accounts, keys or
+database rows. Subsequent operator evidence below records private R2 setup and
+feature activation. Production attachment/recovery acceptance and independent
+ts-mls/crypto review remain open; service-wide activation is not an audited
+account-scoped pilot.
+
+## Operator Evidence And Reliability Follow-Up
+
+The operator supplied a successful private storage probe: synthetic ciphertext
+and plaintext roundtrips passed and deletion was acknowledged, with no database
+changes. The latest read-only readiness report shows all eight migrations and
+two guards ready, private-domain checks passing, and both encrypted media and
+recovery enabled. Credential scope is operator-attested, not independently
+verified. The report contains zero stored backups and does not prove authenticated
+media, recovery, replacement-device flows or cryptographic audit approval.
+
+A browser test reproduced a temporary crypto-script HTTP 503 leaving a rejected
+startup promise cached until reload. Failed loads now discard that promise and
+the failed script, allowing a fresh attempt without plaintext fallback or device
+reset. The cookie-only encrypted browser workflow passes without reloading after
+the injected failure, including its existing messaging, media and recovery flows.
+These are local embedded-PostgreSQL/mock-storage results, not production accounts.
+
+The frontend deployment command now preserves Cloudflare dashboard variables
+with `--keep-vars`. Reconnect/transport regression tests pass 61/61; push, offline
+retry and receipt tests pass 40/40; frontend core checks and 68/68 behavior tests
+pass. The transport fixture now models encryption-sync intervals and waits for
+the send to be staged before advancing its fake clock. No production secret,
+CSP, device authorization or historical attachment policy was changed.
 
 ## Private R2 Setup
 

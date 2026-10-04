@@ -116,6 +116,11 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
   const a=await browser.newContext(),b=await browser.newContext();
   try {
     const alice=await a.newPage(),bob=await b.newPage();await alice.goto(origin);await bob.goto(origin);
+    await test.step('a temporary crypto script outage retries without page reload or plaintext fallback',async()=>{
+      await alice.route('**/vendor/winga-mls-candidate.js',route=>route.fulfill({status:503,contentType:'text/plain',body:'temporarily unavailable'}),{times:1});
+      await expect(alice.evaluate(()=>start('alice'))).rejects.toThrow('mls_runtime_unavailable');
+      expect((await db.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_devices')).rows[0].n).toBe(0);
+    });
     const ai=await test.step('enroll Alice',()=>alice.evaluate(()=>start('alice'))),bi=await test.step('enroll Bob',()=>bob.evaluate(()=>start('bob')));
     for(const page of [alice,bob])expect(await page.evaluate(()=>({hasToken:Object.hasOwn(browserSession,'token'),visibleCookie:document.cookie}))).toEqual({hasToken:false,visibleCookie:''});
     expect((await alice.evaluate(()=>client.loadInboxPage())).items).toEqual([]);

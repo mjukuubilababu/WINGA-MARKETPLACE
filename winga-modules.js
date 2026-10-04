@@ -18618,8 +18618,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     if(!bundle) bundle=new Promise((resolve,reject)=>{
       const script=document.createElement('script');script.src='/vendor/winga-mls-candidate.js';script.async=true;
       script.onload=()=>globalThis.WingaMlsCandidate?resolve():reject(new Error('mls_runtime_unavailable')); // i18n-gate: allow -- internal diagnostic, UI displays translated failure
-      script.onerror=()=>reject(new Error('mls_runtime_unavailable'));document.head.append(script); // i18n-gate: allow -- internal diagnostic, UI displays translated failure
-    });
+      script.onerror=()=>{script.remove();reject(new Error('mls_runtime_unavailable'));};document.head.append(script); // i18n-gate: allow -- internal diagnostic, UI displays translated failure
+    }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
   async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {

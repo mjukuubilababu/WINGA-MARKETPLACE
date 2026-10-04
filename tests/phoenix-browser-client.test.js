@@ -10,6 +10,7 @@ function fixture(options = {}) {
   let time = 100000, active = true, issued = 0;
   const timers = new Map(), sockets = [];
   function later(fn, ms) { const id = {}; timers.set(id, {fn, at:time+ms}); return id; }
+  function every(fn, ms) { const id = {}; timers.set(id, {fn, at:time+ms,repeat:ms}); return id; }
   function cancel(id) { timers.delete(id); }
   class Push {
     constructor() { this.handlers = {}; }
@@ -40,7 +41,7 @@ function fixture(options = {}) {
     disconnect() { this.connected = false; }
   }
   const context = {window:{location:{hostname:'localhost'},Phoenix:{Socket}},URL,URLSearchParams,
-    Date:class extends Date {static now(){return time;}},setTimeout:later,clearTimeout:cancel};
+    Date:class extends Date {static now(){return time;}},setTimeout:later,clearTimeout:cancel,setInterval:every,clearInterval:cancel};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/api/phoenix-transport.js'),'utf8'),context);
   const api = context.window.WingaModules.api.phoenix;
   const make = overrides => api.createPhoenixTransport({
@@ -59,7 +60,7 @@ function fixture(options = {}) {
   }
   async function advance(ms) {
     time+=ms;
-    for(const [id,timer] of [...timers]) if(timer.at<=time) {timers.delete(id);timer.fn();}
+    for(const [id,timer] of [...timers]) if(timer.at<=time) {if(timer.repeat)timer.at=time+timer.repeat;else timers.delete(id);timer.fn();}
     await tick();
   }
   return {api,context,make,join,advance,sockets,timers,issued:()=>issued,invalidate(){active=false;}};
@@ -212,6 +213,7 @@ test('communications canary keeps legacy events and falls back only before a soc
   assert.equal((await client.sendMessage({...payload,productId:'product-reference'})).id,'rest');
   const before=requests.filter(r=>r.url.endsWith('/messages')).length;
   const pending=client.sendMessage(payload);pending.catch(()=>{});
+  await tick();assert.equal(socket.pushes.at(-1).event,'message.send');
   await f.advance(8001);await assert.rejects(pending,{code:'outcome_unknown'});
   assert.equal(requests.filter(r=>r.url.endsWith('/messages')).length,before);
   socket.closed();
