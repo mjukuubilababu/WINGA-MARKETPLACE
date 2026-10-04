@@ -5,6 +5,7 @@
       activeContext: null,
       profileMessagesMode: "list",
       profileMessagesFilter: "all",
+      conversationsView: "chats",
       profileHasSelection: false,
       currentDraft: "",
       conversationOffers: [],

@@ -1855,6 +1855,7 @@ function getWebPushTools() {
       chatUiState.activeContext = { withUser, displayName: getUserDisplayName(withUser), productId: "", productName: "" };
       chatUiState.currentDraft = loadStoredChatDraft(chatUiState.activeContext);
       chatUiState.profileMessagesMode = "detail";
+      chatUiState.conversationsView = "chats";
       chatUiState.profileHasSelection = true;
       chatUiState.profileMessagesFilter = "all";
       chatUiState.activeReplyMessageId = "";
@@ -2104,6 +2105,8 @@ function toggleMobileCategoryMenu(forceState) {
 }
 
 function syncBodyScrollLockState() {
+  const isConversationVisible = currentView === "profile"
+    && profileRuntimeState.activeSection === "profile-messages-panel";
   const isMobileSheetVisible = Boolean(
     getViewportWidth() <= 720
     && searchRuntimeState.isMobileCategoryOpen
@@ -2163,6 +2166,7 @@ function syncBodyScrollLockState() {
   document.body.classList.toggle("media-action-sheet-open", isMediaActionSheetVisible);
   document.body.classList.toggle("image-lightbox-open", isImageLightboxVisible);
   document.body.classList.toggle("person-profile-open", isPersonProfileVisible);
+  document.body.classList.toggle("conversations-open", isConversationVisible);
 }
 
 function scheduleHomeScrollRestore(scrollY = null) {
@@ -5772,6 +5776,7 @@ function setActiveProfileSection(sectionId) {
   if (currentView === "profile" && profileDiv) {
     profileDiv.dataset.activeSection = profileRuntimeState.activeSection;
   }
+  syncBodyScrollLockState();
 }
 
 function getActiveProfileSection() {
@@ -9822,8 +9827,27 @@ function replaceContextChatModal() {
 }
 
 function replaceMessagesPanel(scope = profileDiv) {
+  const previous = document.getElementById("profile-messages-panel");
+  const thread = previous?.querySelector(".messages-thread-body");
+  const list = previous?.querySelector(".messages-list");
+  const position = thread ? {
+    key: thread.dataset.chatContextKey,
+    top: thread.scrollTop,
+    atEnd: thread.scrollHeight - thread.clientHeight - thread.scrollTop < 64
+  } : null;
+  const listTop = list?.scrollTop || 0;
+  const view = previous?.dataset.conversationsView;
   document.getElementById("profile-messages-panel")?.replaceWith(createMessagesContainerFromState());
   bindMessageActions(scope);
+  const next = document.getElementById("profile-messages-panel");
+  const nextThread = next?.querySelector(".messages-thread-body");
+  if (nextThread && position?.key === nextThread.dataset.chatContextKey && !position.atEnd) {
+    nextThread.scrollTop = position.top;
+  }
+  if (view === next?.dataset.conversationsView) {
+    const nextList = next?.querySelector(".messages-list");
+    if (nextList) nextList.scrollTop = listTop;
+  }
 }
 
 function createOrdersContainerFromState() {
@@ -12700,6 +12724,7 @@ const {
   getPendingMessages: (partner) => window.WingaDataLayer.getPendingMessages?.(partner) || [],
   getProfileMessagesMode: () => chatUiState.profileMessagesMode,
   getProfileMessagesFilter: () => chatUiState.profileMessagesFilter,
+  getConversationsView: () => chatUiState.conversationsView,
   isCompactMessagesLayout: () => getViewportWidth() <= 720,
   getCurrentMessageDraft: () => chatUiState.currentDraft,
   getChatContactState,
@@ -12759,6 +12784,16 @@ const {
   resumeOrderPayment,
   dataLayer: window.WingaDataLayer,
   getProfileDiv: () => profileDiv,
+  getCurrentSession: () => currentSession,
+  navigateConversationHome: () => {
+    setCurrentViewState("home", { syncHistory: "push" });
+    renderCurrentView();
+  },
+  openConversationAlerts: () => openProfileSection("profile-notifications-panel"),
+  openConversationProfile: () => openProfileSection("profile-products-panel"),
+  setConversationsView: (value) => {
+    chatUiState.conversationsView = value === "rooms" ? "rooms" : "chats";
+  },
   renderProfile,
   refreshProductsFromStore,
   showInAppNotification,
@@ -12781,6 +12816,7 @@ const {
   getActiveChatContext: () => chatUiState.activeContext,
   setProfileMessagesMode: (value) => {
     chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
+    if (value === "detail") chatUiState.conversationsView = "chats";
   },
   setProfileMessagesFilter: (value) => {
     chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
@@ -19246,6 +19282,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
     profileRuntimeState.activeSection = retainedProfileSection?.active || "profile-products-panel";
     chatUiState.activeContext = null;
     chatUiState.profileMessagesMode = "list";
+    chatUiState.conversationsView = "chats";
     chatUiState.profileMessagesFilter = "all";
     chatUiState.profileHasSelection = false;
   if (isStaffRole(sessionData?.role || currentSession?.role || "")) {
@@ -19440,6 +19477,7 @@ function logout() {
     reviewSummaries = {};
     chatUiState.activeContext = null;
     chatUiState.profileMessagesMode = "list";
+    chatUiState.conversationsView = "chats";
     chatUiState.profileMessagesFilter = "all";
     chatUiState.profileHasSelection = false;
     clearRequestBoxSessionState();

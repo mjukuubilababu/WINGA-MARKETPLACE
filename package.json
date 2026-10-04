@@ -23,6 +23,7 @@
     "test:frontend": "node tests/frontend-core.test.js && node --test tests/photo-reel.test.js tests/decision-authority.test.js tests/offline-message-retry.test.js tests/message-receipts.test.js tests/video-playback-lifecycle.test.js",
     "test:integration": "node --test tests/integration-api.test.js tests/http-cookie-session.test.js tests/postgres-pagination.test.js tests/commerce-opportunity.test.js tests/global-context.test.js tests/r2-storage.test.js tests/legacy-uploads-audit.test.js tests/copy-legacy-public-media.test.js tests/image-processing.test.js tests/product-media.test.js tests/cloudflare-stream.test.js tests/video-safety.test.js tests/video-safety-adapter.test.js tests/video-safety-dispatcher.test.js tests/video-recovery.test.js tests/video-background-worker.test.js tests/cache.test.js tests/database-health-monitor.test.js tests/database-recovery.test.js tests/server-lifecycle.test.js tests/video-health-monitor.test.js",
     "test:e2e": "playwright test",
+    "test:chat-ui": "playwright test --config tests/chat-ui.playwright.config.cjs",
     "deploy:worker:frontend": "npm run build:vercel && npx wrangler deploy --config wrangler.toml --keep-vars",
     "deploy:worker:intelligence": "npx wrangler deploy --config wrangler.intelligence.toml",
     "deploy:worker:session-security": "npx wrangler deploy --config wrangler.session-security.toml",

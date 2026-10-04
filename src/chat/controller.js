@@ -7,6 +7,22 @@
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
     const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
+    function syncChatViewport() {
+      const profile = deps.getProfileDiv?.();
+      if (profile?.dataset?.activeSection !== "profile-messages-panel") return;
+      const height = Number(window.visualViewport?.height || window.innerHeight);
+      const top = Math.max(0, Number(window.visualViewport?.offsetTop) || 0);
+      if (Number.isFinite(height) && height > 0) {
+        profile.style.setProperty("--conversation-viewport-height", `${height}px`);
+        profile.style.setProperty("--conversation-viewport-top", `${top}px`);
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.visualViewport?.addEventListener?.("resize", syncChatViewport, { passive: true });
+      window.visualViewport?.addEventListener?.("scroll", syncChatViewport, { passive: true });
+      window.addEventListener?.("resize", syncChatViewport, { passive: true });
+    }
+
     function pruneRecentSubmissionRegistry(maxAgeMs = 15000) {
       const now = Date.now();
       Array.from(recentSubmissionRegistry.entries()).forEach(([key, value]) => {
@@ -895,6 +911,12 @@
       if (!scope) {
         return;
       }
+      syncChatViewport();
+      const scrollThread = scope.querySelector(".conversation-workspace .messages-thread-body");
+      if (scrollThread && scrollThread.dataset.scrollInitialized !== "true") {
+        scrollThread.dataset.scrollInitialized = "true";
+        scrollThread.scrollTop = scrollThread.scrollHeight;
+      }
       globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
@@ -945,6 +967,21 @@
               else window.scrollBy(0, delta);
             }
           }
+        };
+      });
+      scope.querySelectorAll("[data-conversations-action]").forEach((button) => {
+        button.onclick = () => {
+          const action = button.dataset.conversationsAction;
+          if (action === "home") return deps.navigateConversationHome?.();
+          if (action === "alerts") return deps.openConversationAlerts?.();
+          if (action === "profile") return deps.openConversationProfile?.();
+          if (action === "new") return openNewConversation();
+          if (!["chats", "rooms", "search"].includes(action)) return;
+          deps.setConversationsView?.(action === "rooms" ? "rooms" : "chats");
+          deps.setProfileMessagesMode?.("list");
+          deps.setProfileHasSelection?.(false);
+          deps.replaceMessagesPanel(scope);
+          if (action === "search") document.querySelector("#profile-messages-panel [data-inbox-search]")?.focus();
         };
       });
       scope.querySelectorAll("[data-inbox-filter]").forEach((button) => {
@@ -1352,12 +1389,8 @@
           }
         });
 
-      bindClickOnce("[data-conversation-user]", "ConversationUser", async (button) => {
-          const nextChatContext = {
-            withUser: button.dataset.conversationUser,
-            productId: button.dataset.conversationProduct || "",
-            productName: button.dataset.conversationName || ""
-          };
+      async function selectConversation(nextChatContext) {
+          const owner = deps.getCurrentUser(), session = deps.getCurrentSession?.();
           deps.setActiveChatContext(nextChatContext);
           deps.setActiveChatReplyMessageId("");
           deps.setOpenChatMessageMenuId("");
@@ -1370,6 +1403,10 @@
           } catch (error) {
             // Ignore passive read sync failures on thread switch.
           }
+          const activeContext = deps.getActiveChatContext();
+          if (owner !== deps.getCurrentUser() || session !== deps.getCurrentSession?.()
+            || nextChatContext.withUser !== activeContext?.withUser
+            || nextChatContext.productId !== activeContext?.productId) return;
           deps.replaceMessagesPanel(scope);
           try {
             await deps.markActiveConversationRead();
@@ -1377,6 +1414,50 @@
             // Keep the rendered conversation available when read sync fails.
           }
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
+      }
+
+      function openNewConversation() {
+        const owner = deps.getCurrentUser(), session = deps.getCurrentSession?.();
+        const dialog = document.createElement("dialog");
+        dialog.className = "chat-security-dialog conversation-new-dialog";
+        const form = document.createElement("form"), title = document.createElement("h3"), label = document.createElement("label");
+        title.textContent = t("inbox.newMessage", "New message");
+        label.textContent = t("inbox.username", "Username");
+        const input = document.createElement("input");
+        input.name = "username";input.required = true;input.maxLength = 40;input.autocomplete = "off";input.autocapitalize = "none";input.spellcheck = false;
+        label.append(input);
+        const status = document.createElement("p");status.setAttribute("role", "status");
+        const open = document.createElement("button"), close = document.createElement("button");
+        open.type = "submit";open.className = "action-btn";open.textContent = t("inbox.openChat", "Open chat");
+        close.type = "button";close.className = "action-btn action-btn-secondary";close.textContent = t("common.cancel", "Cancel");
+        close.onclick = () => dialog.close();
+        dialog.addEventListener("close", () => {dialog.remove();if(buttonIsAvailable())scope.querySelector('[data-conversations-action="new"]')?.focus();}, {once:true});
+        const buttonIsAvailable = () => scope.isConnected && scope.getClientRects().length > 0 && owner === deps.getCurrentUser() && session === deps.getCurrentSession?.();
+        form.onsubmit = async event => {
+          event.preventDefault();if(open.disabled)return;
+          const username = input.value.trim();
+          if(!username || username.toLocaleLowerCase() === String(owner).toLocaleLowerCase()) {status.textContent = t("inbox.contactUnavailable", "Contact unavailable");return;}
+          open.disabled = true;status.textContent = t("inbox.loading", "Loading...");
+          try {
+            const result = await deps.dataLayer.loadSocialProfile(username);
+            if(!dialog.open || !buttonIsAvailable()) {dialog.close();return;}
+            const profile = result?.profile;
+            if(!profile || typeof profile.username !== "string" || profile.username.toLocaleLowerCase() !== username.toLocaleLowerCase()) throw new Error("contact_lookup_invalid"); // i18n-gate: allow -- internal diagnostic, translated below
+            dialog.close();
+            await selectConversation({withUser:profile.username,displayName:profile.displayName || profile.username,productId:"",productName:""});
+          } catch (_error) {
+            if(dialog.open)status.textContent = t("inbox.contactUnavailable", "Contact unavailable");
+          } finally {open.disabled = false;}
+        };
+        form.append(title,label,status,open,close);dialog.append(form);document.body.append(dialog);dialog.showModal();input.focus();
+      }
+
+      bindClickOnce("[data-conversation-user]", "ConversationUser", async (button) => {
+          await selectConversation({
+            withUser: button.dataset.conversationUser,
+            productId: button.dataset.conversationProduct || "",
+            productName: button.dataset.conversationName || ""
+          });
         });
 
       bindClickOnce("[data-message-list-back]", "MessageListBack", () => {

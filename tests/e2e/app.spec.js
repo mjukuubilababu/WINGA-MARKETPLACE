@@ -1665,6 +1665,38 @@ test("logged in seller-buyer can open detail and open chat", async ({ browser })
   await context.close();
 });
 
+test("standalone conversations new-message lookup, profile and Home use the existing app routes", async ({ browser }) => {
+  const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {viewport:{width:390,height:844}});
+  try {
+    // This local file-backed server lacks the PostgreSQL social graph; stub only its public DTO.
+    await context.route("**/api/social/users/market_seller", route => route.fulfill({json:{profile:{username:"market_seller",displayName:"Market Seller"}}}));
+    await page.goto("/");
+    await openHeaderMenuAction(page, "profile");
+    await page.locator("[data-profile-action='messages']").click();
+    await page.locator("#profile-messages-panel [data-conversations-action='new']").click();
+    const dialog = page.locator(".conversation-new-dialog");
+    await dialog.locator("input[name='username']").fill("market_seller");
+    await dialog.locator("button[type='submit']").click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator("#profile-messages-panel [data-chat-read-user='market_seller']")).toBeVisible();
+    await expect(page.locator("#top-bar")).toBeHidden();
+    await expect(page.locator("#bottom-nav")).toBeHidden();
+    await page.locator("#message-compose-input").fill("Standalone conversations route check");
+    await page.locator("#message-compose-form button[type='submit']").click();
+    await expect(page.locator("#profile-messages-panel .message-bubble").last()).toContainText("Standalone conversations route check");
+    await page.locator("[data-notification-permission-later]").click();
+    await page.locator("#profile-messages-panel [data-message-list-back]").click();
+    await page.locator("#profile-messages-panel .conversation-bottom-nav [data-conversations-action='profile']").click();
+    await expect(page.locator("#profile-messages-panel")).toBeHidden();
+    await page.locator("[data-profile-action='messages']").click();
+    await page.locator("#profile-messages-panel .conversations-heading [data-conversations-action='home']").click();
+    await expect(page.locator("#profile-div")).toBeHidden();
+    await expect(page.locator("#products-container")).toBeVisible();
+    await expect(page.locator("#top-bar")).toBeVisible();
+    await expect(page.locator("#bottom-nav")).toBeVisible();
+  } finally {await context.close({reason:"chat navigation test completed"});}
+});
+
 test("modern inbox keeps person grouping, search, unread and compact responsive context", async ({ browser }, testInfo) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {
     viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true

@@ -1,6 +1,7 @@
 (() => {
   function createChatUiModule(deps) {
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
+    const icon = (name) => `<img src="/icons/navigation/${name}.svg" width="20" height="20" alt="" />`;
     function conversationName(context) {
       const name = context?.displayName || deps.getUserDisplayName(context?.withUser) || "";
       return /^(?:buyer|user|seller)-\d{10,}/i.test(name)
@@ -19,6 +20,13 @@
       }
       if (date.toDateString() === yesterday.toDateString()) return t("inbox.yesterday", "Yesterday");
       return date.toLocaleDateString(locale, { day: "numeric", month: "short", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
+    }
+
+    function renderConversationAvatar(context) {
+      const name = conversationName(context);
+      const avatar = deps.sanitizeImageSource?.(deps.getMarketplaceUser?.(context.withUser)?.profileImage || "", "");
+      return avatar ? renderResponsiveImageMarkup({src:avatar,alt:"",className:"inbox-avatar-image",fallbackKey:name.slice(0,1)})
+        : `<span class="conversation-avatar-initial">${deps.escapeHtml(name.slice(0,1))}</span>`;
     }
 
     function renderInboxContext(context, interactive = false) {
@@ -447,7 +455,7 @@
             <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
             ${enableActions && !message.encrypted ? `
-              <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}">...</button>
+              <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
                   ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
@@ -495,6 +503,7 @@
     }
 
     function renderMessagesSection() {
+      const conversationsView = deps.getConversationsView?.() === "rooms" ? "rooms" : "chats";
       const profileFilter = deps.getProfileMessagesFilter?.() || "all";
       const summaries = deps.getConversationSummariesFiltered
         ? deps.getConversationSummariesFiltered(profileFilter)
@@ -530,32 +539,39 @@
       };
       const activeWhatsApp = contactState.whatsapp;
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
-      const showConversationList = profileMessagesMode !== "detail";
-      const showConversationDetail = profileMessagesMode === "detail";
+      const showConversationList = true;
+      const showConversationDetail = conversationsView === "chats" && profileMessagesMode === "detail";
       const panelTitle = t("nav.inbox", "Inbox");
       const panelSubtitle = t("inbox.subtitle", "Your conversations");
       const lastActiveLabel = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
 
       return `
-        <section id="profile-messages-panel" class="modern-inbox">
-          <div class="section-heading">
+        <section id="profile-messages-panel" class="modern-inbox conversation-workspace" data-conversations-view="${conversationsView}" data-conversation-selected="${showConversationDetail}">
+          <div class="section-heading conversations-heading">
             <div>
-              <p class="eyebrow">${panelTitle}</p>
-              <h3>${panelSubtitle}</h3>
+              <p class="eyebrow">Winga</p>
+              <h3>${deps.escapeHtml(t("inbox.chats", "Chats"))}</h3>
             </div>
             <div class="messages-panel-actions">
-              ${showConversationList ? `<button class="message-panel-close message-list-profile-back" type="button" data-close-profile-messages="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>` : ""}
-              <span class="meta-copy">${deps.escapeHtml(t("inbox.count", "{count} conversations", { count: summaries.length }))}</span>
+              <button class="conversation-icon-button" type="button" data-conversations-action="home" title="${deps.escapeHtml(t("nav.home", "Home"))}" aria-label="${deps.escapeHtml(t("nav.home", "Home"))}">${icon("house")}</button>
+              <button class="conversation-icon-button" type="button" data-conversations-action="new" title="${deps.escapeHtml(t("inbox.newMessage", "New message"))}" aria-label="${deps.escapeHtml(t("inbox.newMessage", "New message"))}">${icon("square-pen")}</button>
             </div>
           </div>
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
+              <div class="conversation-view-tabs" role="group" aria-label="${deps.escapeHtml(panelTitle)}">
+                <button type="button" data-conversations-action="chats" aria-pressed="${conversationsView === "chats"}">${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
+                <button type="button" data-conversations-action="rooms" aria-pressed="${conversationsView === "rooms"}">${icon("users")}<span>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</span></button>
+              </div>
+              ${conversationsView === "chats" ? `
+              <label class="conversation-search-field">${icon("search")}
+                <input type="search" class="inbox-search" data-inbox-search aria-label="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" placeholder="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" />
+              </label>
               <div class="inbox-filters" role="group" aria-label="${deps.escapeHtml(t("inbox.filters", "Conversation filters"))}">
                 <button type="button" data-inbox-filter="all" aria-pressed="${profileFilter === "all"}">${deps.escapeHtml(t("inbox.all", "All"))}</button>
                 <button type="button" data-inbox-filter="unread" aria-pressed="${profileFilter === "unread"}">${deps.escapeHtml(t("profile.unreadStat", "Unread"))}</button>
               </div>
-              <input type="search" class="inbox-search" data-inbox-search aria-label="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" placeholder="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" />
               <details class="inbox-product-finder"${deps.getAssistantSearchState?.()?.query ? " open" : ""}>
                 <summary>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</summary>
                 ${renderAssistantProductFinder()}
@@ -563,13 +579,7 @@
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
-                    ${(() => {
-                      const partner = deps.getMarketplaceUser?.(summary.withUser);
-                      const avatar = deps.sanitizeImageSource?.(partner?.profileImage || "", "");
-                      return avatar
-                        ? renderResponsiveImageMarkup({ src: avatar, alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(summary).slice(0, 1) })
-                        : `<span>${deps.escapeHtml(conversationName(summary).slice(0, 1))}</span>`;
-                    })()}
+                    ${renderConversationAvatar(summary)}
                   </span>
                   <span class="message-thread-meta">
                     <span class="inbox-row-heading"><strong>${deps.escapeHtml(conversationName(summary))}</strong><time>${deps.escapeHtml(conversationTime(summary.timestamp))}</time></span>
@@ -581,24 +591,25 @@
               `).join("") : `<p class="empty-copy">${deps.escapeHtml(profileFilter === "unread" ? t("inbox.caughtUp", "You're all caught up.") : t("inbox.empty", "Your conversations will appear here."))}</p>`}
               <p class="empty-copy" data-inbox-no-results hidden>${deps.escapeHtml(t("inbox.noResults", "No conversations found."))}</p>
               ${renderMessagePageControl("inbox")}
+              ` : `<div class="conversation-empty-state">${icon("users")}<h4>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</h4><p>${deps.escapeHtml(t("inbox.roomsEmpty", "No chatrooms yet."))}</p></div>`}
             </div>
             ` : ""}
             ${showConversationDetail ? `
             <div class="messages-thread-card">
               ${activeChatContext ? `
                 <div class="messages-thread-head">
-                  <button class="message-list-back" type="button" data-message-list-back="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">←</button>
-                  <span class="message-thread-avatar">${renderResponsiveImageMarkup({ src: deps.getMarketplaceUser?.(activeChatContext.withUser)?.profileImage || "", alt: "", className: "inbox-avatar-image", fallbackKey: conversationName(activeChatContext).slice(0, 1) })}</span>
+                  <button class="message-list-back conversation-icon-button" type="button" data-message-list-back="true" title="${deps.escapeHtml(t("inbox.back", "Back"))}" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}">${icon("arrow-left")}</button>
+                  <span class="message-thread-avatar">${renderConversationAvatar(activeChatContext)}</span>
                   <div>
                     <strong>${deps.escapeHtml(conversationName(activeChatContext))}</strong>
-                    <p>${deps.escapeHtml(activeChatContext.productName || "General inquiry")}</p>
+                    <p>${deps.escapeHtml(activeChatContext.productName || t("inbox.directChat", "Direct conversation"))}</p>
                     ${activeCommerce?.label ? `<span class="message-thread-stage"><span class="status-pill${activeCommerce.tone ? ` ${activeCommerce.tone}` : ""}">${deps.escapeHtml(activeCommerce.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.label ? `<span class="message-thread-stage"><span class="status-pill${activeRelationshipMemory.tone ? ` ${activeRelationshipMemory.tone}` : ""}">${deps.escapeHtml(activeRelationshipMemory.label)}</span></span>` : ""}
                     ${activeRelationshipMemory?.detail ? `<small class="thread-relationship-copy">${deps.escapeHtml(activeRelationshipMemory.detail)}</small>` : ""}
                     <small class="thread-presence">${lastActiveLabel}</small>
                     <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
                   </div>
-                  <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">⋮</summary><div class="messages-thread-actions">
+                  <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
@@ -608,13 +619,15 @@
                   </div></details>
                 </div>
                 ${renderInboxContext(activeChatContext, true)}
+                <details class="conversation-commerce-drawer"><summary>${icon("store")}<span>${deps.escapeHtml(t("chat.commerceActivity", "Commerce activity"))}</span></summary><div>
                 <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
-                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}">
+                </div></details>
+                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}" data-chat-context-key="${deps.escapeHtml(deps.getChatContextKey(activeChatContext))}">
                   ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -625,26 +638,64 @@
                       <button type="button" data-clear-chat-reply="true" aria-label="${deps.escapeHtml(t("common.cancel", "Cancel"))}">&times;</button>
                     </div>
                   ` : ""}
-                  <textarea id="message-compose-input" rows="2" maxlength="1000" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}">${deps.escapeHtml(currentMessageDraft)}</textarea>
+                  <textarea id="message-compose-input" rows="2" maxlength="1000" aria-label="${deps.escapeHtml(t("inbox.compose", "Write a message"))}" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}">${deps.escapeHtml(currentMessageDraft)}</textarea>
                   ${renderComposeStatusMarkup("profile")}
                   <div class="chat-compose-footer">
                     ${deps.renderEmojiPicker("profile")}
                     <div class="chat-compose-actions">
                       <span class="meta-copy">${currentMessageDraft.trim().length}/1000</span>
-                      <button type="submit" class="action-btn buy-btn">Send Message</button>
+                      <button type="submit" class="action-btn buy-btn conversation-send-button" title="${deps.escapeHtml(t("inbox.send", "Send message"))}" aria-label="${deps.escapeHtml(t("inbox.send", "Send message"))}">${icon("send")}</button>
                     </div>
                   </div>
                 </form>
               ` : `<p class="empty-copy">Chagua conversation au tumia Message Muuzaji kutoka kwenye bidhaa.</p>`}
             </div>
-            ` : ""}
+            ` : `<div class="messages-thread-card conversation-idle"><div class="conversation-empty-state">${icon(conversationsView === "rooms" ? "users" : "message-circle")}<h4>${deps.escapeHtml(conversationsView === "rooms" ? t("inbox.rooms", "Chatrooms") : panelSubtitle)}</h4><p>${deps.escapeHtml(conversationsView === "rooms" ? t("inbox.roomsEmpty", "No chatrooms yet.") : t("inbox.selectChat", "Select a conversation"))}</p></div></div>`}
           </div>
+          <nav class="conversation-bottom-nav" aria-label="${deps.escapeHtml(t("inbox.navigation", "Conversation navigation"))}">
+            <button type="button" data-conversations-action="chats" ${conversationsView === "chats" ? 'aria-current="page"' : ''}>${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
+            <button type="button" data-conversations-action="rooms" ${conversationsView === "rooms" ? 'aria-current="page"' : ''}>${icon("users")}<span>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</span></button>
+            <button type="button" data-conversations-action="alerts">${icon("bell")}<span>${deps.escapeHtml(t("notification.eyebrow", "Notifications"))}</span></button>
+            <button type="button" data-conversations-action="profile">${icon("user-round")}<span>${deps.escapeHtml(t("inbox.me", "Me"))}</span></button>
+          </nav>
         </section>
       `;
     }
 
     function createNotificationsContainerFromState() {
       return createElementFromMarkup(renderNotificationsSection());
+    }
+
+    // Presentation only: room transport and authenticated membership are not connected yet.
+    function renderChatroomLayout(room = {}) {
+      room = room && typeof room === "object" ? room : {};
+      const members = Array.isArray(room.members) ? room.members.filter(member => member && typeof member.username === "string").slice(0, 200) : [];
+      const messages = Array.isArray(room.messages) ? room.messages.filter(message => message && typeof message.id === "string" && typeof message.senderId === "string").slice(-100) : [];
+      const identities = new Map(members.map(member => [member.username, member]));
+      const pinned = messages.find(message => message.id === room.pinnedMessageId);
+      const roomName = room.name || t("inbox.rooms", "Chatrooms");
+      const memberName = member => member?.displayName || member?.username || t("inbox.person", "Winga User");
+      return `<div class="messages-thread-card chatroom-layout" data-room-layout>
+        <div class="messages-thread-head">
+          <button class="message-list-back conversation-icon-button" type="button" data-message-list-back="true" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}" title="${deps.escapeHtml(t("inbox.back", "Back"))}">${icon("arrow-left")}</button>
+          <span class="message-thread-avatar">${icon("users")}</span>
+          <div><strong>${deps.escapeHtml(roomName)}</strong><p>${deps.escapeHtml(t("chat.roomMemberCount", "{count} members", {count:members.length}))}</p></div>
+          <details class="inbox-conversation-menu room-members-menu"><summary aria-label="${deps.escapeHtml(t("chat.roomMembers", "Room members"))}" title="${deps.escapeHtml(t("chat.roomMembers", "Room members"))}">${icon("info")}</summary>
+            <ul class="room-members-list">${members.map(member=>`<li><span>${deps.escapeHtml(memberName(member))}</span>${member.role === "admin" ? `<small>${deps.escapeHtml(t("chat.roomAdmin", "Admin"))}</small>` : ""}</li>`).join("")}</ul>
+          </details>
+        </div>
+        ${pinned ? `<a class="chatroom-pinned-message" href="#room-message-${encodeURIComponent(pinned.id)}" title="${deps.escapeHtml(t("chat.roomPinned", "Pinned message"))}">${icon("pin")}<span><strong>${deps.escapeHtml(memberName(identities.get(pinned.senderId)))}</strong>: ${deps.escapeHtml(pinned.message || "")}</span></a>` : ""}
+        <div class="messages-thread-body">${messages.map(message=>{
+          const own = message.senderId === deps.getCurrentUser(), member = identities.get(message.senderId);
+          return `<div class="chatroom-message-row${own ? " is-own" : ""}" id="room-message-${encodeURIComponent(message.id)}">
+            ${!own ? `<span class="message-thread-avatar">${renderConversationAvatar({withUser:message.senderId,displayName:memberName(member)})}</span>` : ""}
+            <div>${!own ? `<div class="chatroom-message-author"><strong>${deps.escapeHtml(memberName(member))}</strong>${member?.role === "admin" ? `<span>${deps.escapeHtml(t("chat.roomAdmin", "Admin"))}</span>` : ""}</div>` : ""}
+              <div class="message-bubble ${own ? "outgoing" : "incoming"}"><p>${deps.escapeHtml(message.message || "")}</p><small>${deps.escapeHtml(conversationTime(message.timestamp))}</small></div>
+            </div>
+          </div>`;
+        }).join("")}</div>
+        <div class="messages-compose"><textarea rows="1" disabled aria-label="${deps.escapeHtml(t("inbox.compose", "Write a message"))}" placeholder="${deps.escapeHtml(t("inbox.compose", "Write a message"))}"></textarea><div class="chat-compose-footer"><button type="button" class="conversation-send-button action-btn" disabled aria-label="${deps.escapeHtml(t("inbox.send", "Send message"))}" title="${deps.escapeHtml(t("inbox.send", "Send message"))}">${icon("send")}</button></div></div>
+      </div>`;
     }
 
     function createMessagesContainerFromState() {
@@ -806,6 +857,7 @@
     return {
       renderNotificationsSection,
       renderMessagesSection,
+      renderChatroomLayout,
       renderChatProductPreviewItems,
       renderConversationMessagesMarkup,
       createNotificationsContainerFromState,

@@ -19,6 +19,7 @@ public/
 .env
 .env.local
 .vercel/
+.wrangler/
 data/
 uploads/
 debug.log
