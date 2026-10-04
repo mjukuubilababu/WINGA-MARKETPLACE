@@ -36,7 +36,9 @@ export default {
       }
     }
     if (request.method === "POST" && url.pathname === "/callbacks/hive") {
-      return acceptHiveCallback(request, env, url);
+      // V3 returns predictions synchronously through /scan. Retire the permissive
+      // V2 callback instead of allowing it to bypass the strict V3 parser.
+      return json({ ok: false, error: "legacy_callback_retired" }, 410);
     }
     return json({ ok: false, error: "not_found" }, 404);
   }
@@ -149,7 +151,7 @@ async function deliverWingaResult(normalized, env) {
     const text = await readBoundedResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
     let payload;
     try { payload = JSON.parse(text); } catch {}
-    const knownCodes = new Set(["csrf_failed", "origin_not_allowed", "video_safety_unavailable", "invalid_video_safety_result", "invalid_result", "video_safety_result_conflict"]);
+    const knownCodes = new Set(["csrf_failed", "origin_not_allowed", "video_safety_unavailable", "invalid_video_safety_result", "invalid_result", "video_safety_result_conflict", "result_conflict", "not_found"]);
     const reason = response.ok ? ""
       : /error[^]{0,80}1042/i.test(text) ? "cloudflare_1042"
       : knownCodes.has(payload?.code) ? payload.code
@@ -533,4 +535,3 @@ function json(body, status = 200) {
     }
   });
 }
-

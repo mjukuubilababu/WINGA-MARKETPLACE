@@ -444,3 +444,25 @@ test("callback diagnostics distinguish Cloudflare routing and backend rejection 
     assert.ok(!JSON.stringify(diagnostics).includes("secret"));
   }
 });
+
+test("legacy callbacks cannot bypass V3 validation or deliver an empty safe result", async () => {
+  let calls = 0;
+  const worker = adapter(async () => { calls++; throw new Error("must not fetch"); });
+  const response = await worker.fetch(new Request("https://adapter.example/callbacks/hive", {
+    method: "POST", body: "{}"
+  }), env);
+  assert.equal(response.status, 410);
+  assert.equal((await response.json()).error, "legacy_callback_retired");
+  assert.equal(calls, 0);
+});
+
+test("callback diagnostics include durable identity rejection without raw secrets", async () => {
+  for (const code of ["result_conflict", "not_found", "untrusted-secret-code"]) {
+    const logs = [];
+    const worker = adapter(async url => url === env.HIVE_API_URL ? hive(predictions)
+      : Response.json({ code, details: "secret-token" }, { status: 409 }), false, logs);
+    assert.equal((await worker.fetch(request(), env)).status, 502);
+    assert.equal(logs[0].reason, code === "untrusted-secret-code" ? "callback_rejected" : code);
+    assert.ok(!JSON.stringify(logs).includes("secret"));
+  }
+});

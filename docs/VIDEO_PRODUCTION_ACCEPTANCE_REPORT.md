@@ -1,5 +1,27 @@
 # Winga Video Production Acceptance Report
 
+## Current acceptance boundary (2026-10-04)
+
+The report below is historical evidence for the September 8 release, not a
+current moderation acceptance certificate. Its percentages, test totals, deployed
+versions and "only unverified layer" statement must not be used for current
+release sign-off. Passing worker health does not complete moderation acceptance.
+See [the current moderation verification runbook](VIDEO_MODERATION_ACCEPTANCE.md).
+
+Current moderation uses a private signed downloadable MP4, synchronous Hive V3
+predictions, and an HMAC-signed callback through the public Worker to Render.
+Production evidence for that complete path remains NOT VERIFIED here.
+The legacy Hive V2 callback endpoint is retired with HTTP 410.
+
+The publication policy remains direct-publish: only explicit blocked/rejected
+decisions hide public videos. Pending, review and error are not quarantine states.
+Fail-closed parsing prevents fabricated safe results; it does not promise that
+all public videos have completed moderation or received human approval.
+
+`verify:video-production` checks viewer playback only. It requests a playback
+token and may enforce Stream signed-URL policy through a provider POST, so it is
+not a strictly read-only provider check. Do not invoke it under read-only scope.
+
 Date: 2026-09-08
 Release commit: dbc794f Add production video acceptance gate
 Canonical origin: https://wingamarket.com

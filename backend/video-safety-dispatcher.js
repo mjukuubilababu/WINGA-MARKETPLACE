@@ -8,7 +8,23 @@ function clampInteger(value, minimum, maximum, fallback) {
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, Math.trunc(parsed))) : fallback;
 }
 async function readLimitedText(response, maxBytes = 8192) {
-  return String(await response.text() || "").slice(0, maxBytes);
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) throw new Error("Video safety adapter response exceeded the byte limit.");
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 function classifyVideoSafetyDeliveryError(error) {
@@ -111,12 +127,14 @@ function createVideoSafetyDispatcher(options = {}) {
           "User-Agent": "winga-video-safety-dispatcher/1"
         },
         body,
+        redirect: "manual",
         signal: controller.signal
       });
       const responseText = await readLimitedText(response);
       let providerResponse = {};
       try { providerResponse = responseText ? JSON.parse(responseText) : {}; } catch {}
-      if (!response.ok || providerResponse?.submitted !== true) {
+      if (!response.ok || providerResponse?.submitted !== true
+          || providerResponse?.delivered !== true || providerResponse?.status !== "completed") {
         const error = new Error(`Video safety adapter rejected delivery with HTTP ${response.status}.`);
         error.code = providerResponse?.error === "provider_rejected"
           ? "video_safety_provider_rejected"
@@ -155,7 +173,6 @@ function createVideoSafetyDispatcher(options = {}) {
             else totals.submitted += 1;
           } catch (error) {
             const failureCode = classifyVideoSafetyDeliveryError(error);
-            totals.failureCodes[failureCode] = Number(totals.failureCodes[failureCode] || 0) + 1;
             const completion = await store.completeVideoSafetyDelivery(job.providerId, {
               submitted: false,
               attempts: job.attempts,
@@ -163,8 +180,12 @@ function createVideoSafetyDispatcher(options = {}) {
               error: serializeVideoSafetyDeliveryError(error),
               workerId: cleanText(job.lockedBy || workerId, 120)
             });
-            if (completion === null) totals.leaseLost += 1;
-            else totals.failed += 1;
+            if (completion?.status === "completed") totals.submitted += 1;
+            else {
+              totals.failureCodes[failureCode] = Number(totals.failureCodes[failureCode] || 0) + 1;
+              if (completion === null) totals.leaseLost += 1;
+              else totals.failed += 1;
+            }
           }
         }
       };

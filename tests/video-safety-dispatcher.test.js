@@ -47,7 +47,7 @@ test("video safety dispatcher submits private signed media without exposing prov
     config: { scanUrl: "https://scanner.example/scan", deliverySecret: secret },
     fetchImpl: async (url, init) => {
       request = { url, init };
-      return new Response(JSON.stringify({ submitted: true }), { status: 202 });
+      return new Response(JSON.stringify({ submitted: true, delivered: true, status: "completed" }), { status: 202 });
     }
   });
   dispatcher.start();
@@ -180,7 +180,7 @@ test("video safety dispatcher bounds downstream concurrency during queue pressur
       peakRequests = Math.max(peakRequests, activeRequests);
       await new Promise((resolve) => setTimeout(resolve, 10));
       activeRequests -= 1;
-      return new Response(JSON.stringify({ submitted: true }), { status: 202 });
+      return new Response(JSON.stringify({ submitted: true, delivered: true, status: "completed" }), { status: 202 });
     }
   });
 
@@ -244,7 +244,7 @@ test("ready signed MP4 completes the dispatcher-to-Hive-to-Render contract",asyn
       if(url==="https://api.thehive.ai/api/v3/hive/visual-moderation"){
         assert.equal(init.headers.Authorization,"Bearer synthetic-hive-v3-test-key");
         assert.equal(JSON.parse(init.body).input[0].media_url,"https://customer-examplecode.cloudflarestream.com/private.download.token/downloads/default.mp4");
-        return Response.json({output:[{classes:[{class_name:"general_nsfw",value:0.96}]}]});
+        return Response.json({output:[{classes:[{class:"general_nsfw",value:0.96}]}]});
       }
       assert.equal(url,"https://backend.example/api/media/videos/safety-results");
       assert.equal(verifyVideoSafetyResult(init.body,{
@@ -278,4 +278,77 @@ test("ready signed MP4 completes the dispatcher-to-Hive-to-Render contract",asyn
   assert.equal(result.providerId,"stream-video-123");
   assert.equal(result.verdict,"review");
   assert.equal(result.modelVersion,"visual-v3");
+});
+
+test("dispatcher blocks redirects and bounds response bytes before parsing", async () => {
+  for (const response of [new Response("", {status:307, headers:{Location:"https://untrusted.example"}}),
+    new Response("x".repeat(8193)), Response.json({submitted:true}),
+    Response.json({submitted:true,delivered:false,status:"completed"}),
+    Response.json({submitted:true,delivered:true,status:"pending"})]) {
+    const dispatcher = createVideoSafetyDispatcher({
+      streamClient: {config:{customerCode:"examplecode"}, async createModerationMedia() {
+        return {mediaUrl:"https://customer-examplecode.cloudflarestream.com/token/downloads/default.mp4"};
+      }},
+      config:{scanUrl:"https://adapter.example/scan",deliverySecret:"synthetic-scan-secret-at-least-32-characters"},
+      fetchImpl:async (_url, init) => { assert.equal(init.redirect,"manual"); return response; }
+    });
+    await assert.rejects(dispatcher.dispatch({providerId:"stream-video-123",idempotencyKey:"video-safety:stream-video-123"}));
+  }
+});
+
+test("durable MP4 retry completes without false lease loss, including a lost scan response", async () => {
+  const { PGlite } = require("@electric-sql/pglite");
+  const { createPostgresStore } = require("../backend/db");
+  const { MIGRATIONS } = require("../backend/migrations");
+  const db = new PGlite();
+  try {
+    for (const id of ["2026083002_video_upload_intents", "2026083003_video_upload_product_claims",
+      "2026083004_video_moderation_lifecycle", "2026083005_video_safety_outbox"]) {
+      for (const sql of MIGRATIONS.find(m => m.id === id).statements) await db.exec(sql);
+    }
+    const client = {query: db.query.bind(db), release() {}};
+    const store = createPostgresStore({databaseUrl:"postgres://test/video",queryClient:{
+      query:db.query.bind(db),connect:async()=>client
+    }});
+    for (const loseResponse of [false, true]) {
+      const providerId = loseResponse ? "stream-lost-response" : "stream-completed-response";
+      await db.query("INSERT INTO video_upload_intents (provider_id,upload_id,seller_id,status,upload_expires_at) VALUES ($1,$1,'seller','ready',NOW())",[providerId]);
+      await store.enqueueVideoSafetyJob(providerId);
+      let ready = false;
+      let fetches = 0;
+      const dispatcher = createVideoSafetyDispatcher({store,workerId:"test-worker",
+        streamClient:{config:{customerCode:"examplecode"},isConfigured:()=>true,async createModerationMedia(){
+          if (!ready) throw Object.assign(new Error("MP4 pending"),{code:"stream_download_pending"});
+          return {mediaUrl:"https://customer-examplecode.cloudflarestream.com/token/downloads/default.mp4"};
+        }},
+        config:{scanUrl:"https://adapter.example/scan",deliverySecret:"synthetic-scan-secret-at-least-32-characters"},
+        fetchImpl:async()=>{
+          fetches++;
+          await store.applyVideoSafetyResult({providerId,resultId:`hive-v3:${providerId}`,verdict:"review",riskScore:0.96,provider:"hive-visual-moderation",modelVersion:"visual-v3"});
+          if (loseResponse) throw new Error("fetch failed after callback committed");
+          return Response.json({submitted:true,delivered:true,status:"completed"});
+        }
+      });
+      assert.equal((await dispatcher.processOnce()).failed,1);
+      let row=(await db.query("SELECT * FROM video_safety_jobs WHERE provider_id=$1",[providerId])).rows[0];
+      assert.equal(row.status,"retry");
+      assert.equal(row.attempts,1);
+      assert.ok(new Date(row.next_attempt_at)>new Date(row.updated_at));
+      assert.equal(fetches,0);
+      ready=true;
+      await db.query("UPDATE video_safety_jobs SET next_attempt_at=NOW() WHERE provider_id=$1",[providerId]);
+      const totals=await dispatcher.processOnce();
+      assert.equal(totals.submitted,1);
+      assert.equal(totals.failed,0);
+      assert.equal(totals.leaseLost,0);
+      assert.deepEqual(totals.failureCodes,{});
+      row=(await db.query("SELECT * FROM video_safety_jobs WHERE provider_id=$1",[providerId])).rows[0];
+      assert.equal(row.status,"completed");
+      assert.equal(row.attempts,2);
+      assert.equal((await store.applyVideoSafetyResult({providerId,resultId:`hive-v3:${providerId}`,verdict:"review"})).duplicate,true);
+      assert.equal((await store.applyVideoSafetyResult({providerId,resultId:"conflicting-result",verdict:"safe"})).code,"result_conflict");
+      assert.equal((await dispatcher.processOnce()).claimed,0);
+    }
+    assert.equal(await store.completeVideoSafetyDelivery("missing-video",{submitted:true,workerId:"test-worker"}),null);
+  } finally { await db.close(); }
 });

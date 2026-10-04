@@ -8357,7 +8357,19 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        RETURNING provider_id AS "providerId", status, attempts`,
       [String(providerId || ""), workerId, submitted, retrySeconds, String(outcome.error || "").slice(0, 500)]
     );
-    return result.rows[0] || null;
+    if (result.rows[0]) return result.rows[0];
+    // The synchronous V3 callback can commit before the scan response arrives.
+    // It may also commit when that response is lost. Never retry or report a
+    // lost lease for a job whose durable result is already completed.
+    const completed = await query(
+      `SELECT jobs.provider_id AS "providerId", jobs.status, jobs.attempts
+       FROM video_safety_jobs jobs
+       JOIN video_upload_intents intent ON intent.provider_id = jobs.provider_id
+       WHERE jobs.provider_id = $1 AND jobs.status = 'completed'
+         AND intent.safety_result_id <> '' LIMIT 1`,
+      [String(providerId || "")]
+    );
+    return completed.rows[0] || null;
   }
 
   async function retryDeadVideoSafetyJobs(options = {}) {
