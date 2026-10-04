@@ -2005,6 +2005,17 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   });
   assert.equal(searchDemandBatch.response.status, 202);
   assert.equal(searchDemandBatch.body.accepted, 1);
+  const isolatedBatch = await request("/search-demand", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({events:[null,{query:"new red jacket",source:"text",resultCount:0,anonymousId:"isolated-buyer"}]})
+  });
+  assert.equal(isolatedBatch.response.status,202);
+  assert.equal(isolatedBatch.body.accepted,1);
+  const disabledCapture = await request("/search-demand/capture", {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({receipt:"forged"})
+  });
+  assert.equal(disabledCapture.response.status,503);
+  assert.equal(disabledCapture.body.code,"search_capture_unavailable");
   assert.equal(searchDemandBatch.body.summary.privacy, "anonymous-aggregate-only");
   assert.equal(searchDemandBatch.body.summary.trendingSearches.some((item) => item.queryKey === "white-dress"), false);
 

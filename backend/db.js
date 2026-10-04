@@ -1,6 +1,7 @@
 const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
+const {isSearchObservation, validateSearchObservation, persistSearchObservation} = require("./search-outcome-observer");
 const { normalizeProductMediaItems } = require("./product-media");
 const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
@@ -2504,6 +2505,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function appendIntelligenceEvent(event, _legacyScores = {}) {
+    if (isSearchObservation(event)) return withTransaction(async client => {
+      validateSearchObservation(event);
+      // A primary evidence-query failure retries the durable job. Do not swallow
+      // an error inside a PostgreSQL transaction that is then aborted.
+      const evidence = (await readSearchDemandClassificationEvidence([event.metadata.searchObservation.query], client))[0];
+      const {evaluateSearchDemand} = require("./search-demand-contract");
+      const enriched = {...event, metadata:{...event.metadata, demandContract:{
+        ...evaluateSearchDemand(event.metadata.searchObservation.query, {evidence,
+          authoritativeOutcome:event.metadata.searchObservation.outcome, sensitive:true}), mode:"shadow"
+      }}};
+      return persistSearchObservation(client, enriched);
+    });
     return withTransaction((client) => persistIntelligenceEvent(client, event));
   }
 
@@ -2512,6 +2525,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function enqueueIntelligenceEvent(event, scores = {}) {
+    if (isSearchObservation(event)) validateSearchObservation(event);
     const result = await query(
       `INSERT INTO intelligence_event_queue (
         event_id, event_payload, score_payload, status, available_at, updated_at
@@ -2582,7 +2596,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const attempts = Math.max(1, Number(options.attempts || 1) || 1);
     const maxAttempts = Math.max(1, Number(options.maxAttempts || 12) || 12);
     const backoffSeconds = Math.min(3600, Math.max(5, attempts * attempts * 10));
-    const terminal = attempts >= maxAttempts;
+    const terminal = error?.retryable === false || attempts >= maxAttempts;
     await query(
       `UPDATE intelligence_event_queue
        SET status = $2,
@@ -7205,6 +7219,48 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       topVideos
     };
   }
+  async function readSearchDemandClassificationEvidence(queries = [], transactionClient = null) {
+    const values = Array.from(new Set(queries.filter(value => typeof value === "string")
+      .map(value => value.trim().toLowerCase().slice(0,160)).filter(Boolean))).slice(0,25);
+    if (!values.length) return [];
+    // Shadow-only, exact evidence: product discovery continues to include shops.
+    // Do not use the mixed search_vector as evidence of product intent.
+    const execute = transactionClient ? transactionClient.query.bind(transactionClient) : queryPrimaryRead;
+    const result = await execute(
+      `SELECT wanted.query,
+         EXISTS(SELECT 1 FROM products p WHERE LOWER(p.name) = wanted.query AND p.status = 'approved') AS "productMatch",
+         EXISTS(SELECT 1 FROM products p WHERE LOWER(p.shop) = wanted.query) AS "shopMatch",
+         EXISTS(SELECT 1 FROM users u WHERE LOWER(u.username) = wanted.query OR LOWER(u.full_name) = wanted.query) AS "personMatch",
+         EXISTS(SELECT 1 FROM products p WHERE LOWER(p.category) = wanted.query AND p.status = 'approved') AS "categoryMatch"
+       FROM unnest($1::text[]) AS wanted(query)`, [values]
+    );
+    return result.rows || [];
+  }
+
+  async function readSearchDemandShadowReport() {
+    const result = await queryPrimaryRead(
+      `SELECT COALESCE(metadata->'demandContract'->>'classification', 'LEGACY_UNKNOWN') AS classification,
+         COALESCE(metadata->'demandContract'->>'reason', 'legacy_unverified') AS reason,
+         COUNT(*)::int AS events,
+         COUNT(*) FILTER (WHERE metadata->'demandContract'->>'eligible' = 'true')::int AS eligible
+       FROM search_demand_events WHERE happened_at >= NOW() - INTERVAL '7 days'
+       GROUP BY 1, 2 ORDER BY events DESC LIMIT 50`
+    );
+    const observations = await queryPrimaryRead(
+      `SELECT metadata->'demandContract'->>'classification' AS classification,
+         metadata->'searchObservation'->>'outcome' AS outcome,
+         metadata->'searchObservation'->>'integrity' AS integrity,
+         COUNT(*)::int AS events
+       FROM intelligence_events WHERE source_event = 'server_search_outcome_observed'
+         AND happened_at >= NOW() - INTERVAL '7 days'
+       GROUP BY 1, 2, 3 ORDER BY events DESC LIMIT 50`
+    );
+    return {version:"search-demand-contract-v1", mode:"shadow", windowDays:7,
+      privacy:"aggregate-only", rows:result.rows || [],
+      serverObservations:observations.rows || [],
+      acceptance:"NOT_VERIFIED", sellerCutover:false};
+  }
+
   async function appendSearchDemandEvents(events = []) {
     const sourceEvents = Array.isArray(events) ? events.slice(0, 25) : [];
     let inserted = 0;
@@ -9962,6 +10018,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     hasRecentVideoCommerceAttribution,
     readSellerVideoAnalytics,
     appendSearchDemandEvents,
+    readSearchDemandClassificationEvidence,
+    readSearchDemandShadowReport,
     readSearchDemandSummary,
     readCommerceOpportunityCandidates,
     upsertCommerceOpportunities,

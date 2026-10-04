@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { evaluateSearchDemand } = require("./search-demand-contract");
 
 const SEARCH_DEMAND_VERSION = "2026-07-04.1";
 const SEARCH_SOURCES = new Set(["text", "image", "visual_similarity"]);
@@ -116,7 +117,8 @@ function normalizeSearchDemandSignal(payload = {}, context = {}) {
     zeroResult: Boolean(payload.zeroResult) || resultCount === 0,
     metadata: {
       platformVersion: SEARCH_DEMAND_VERSION,
-      anonymous: true
+      anonymous: true,
+      demandContract: { ...evaluateSearchDemand(query, context), mode: "shadow" }
     }
   };
   const dedupeReference = sanitizeText(
@@ -124,7 +126,16 @@ function normalizeSearchDemandSignal(payload = {}, context = {}) {
     200
   );
   const audienceHash = hashIp(dedupeReference);
+  const suppliedEventId = typeof payload.eventId === "string" && /^[a-zA-Z0-9:_-]{8,160}$/.test(payload.eventId)
+    ? payload.eventId : "";
+  // Namespace retry identity by the server-resolved actor; never trust a client
+  // event ID globally across users. Legacy callers retain the old daily dedupe.
   event.eventId = createEventId(event);
+  event.metadata.demandContract.retryIdentity = suppliedEventId && audienceHash
+    ? `search_${crypto.createHash("sha256").update(`${audienceHash}:${suppliedEventId}`).digest("hex").slice(0,32)}`
+    : "";
+  // Keep canonical legacy counters unchanged until the shadow cutover. Moving
+  // this identity into the unique constraint requires an explicit migration.
   event.dedupeKey = createDedupeKey({ ...event, ipHash: audienceHash });
   return event;
 }
@@ -196,10 +207,26 @@ function createSearchDemandService(options = {}) {
     }));
   }
 
+  function normalizeBatchWithReport(payload = {}, context = {}) {
+    const entries = [];
+    let invalid = 0;
+    for (const [index, event] of (Array.isArray(payload.events) ? payload.events : []).slice(0,25).entries()) {
+      try {
+        if (!event || typeof event !== "object" || Array.isArray(event)
+            || (event.version !== undefined && event.version !== "search-demand-v1")) throw new Error("invalid_event");
+        entries.push({index, event:normalizeSearchDemandSignal(event, {
+          ...context, timestamp:context.timestamp || now().toISOString()
+        })});
+      } catch { invalid++; }
+    }
+    return {entries, invalid};
+  }
+
   return {
     version: SEARCH_DEMAND_VERSION,
     normalizeSearchDemandSignal,
     normalizeBatch,
+    normalizeBatchWithReport,
     summarizeSearchDemandEvents
   };
 }

@@ -1880,6 +1880,7 @@ async loadAdminPayments(filters) {
           baseUrl,
           fetchJson,
           createAuthHeaders,
+          getCaptureOwner: () => readStoredSession()?.username || getAnonymousDemandSessionId(),
           getConfig: () => window.WINGA_CONFIG || {}
         });
       }
@@ -1984,6 +1985,9 @@ async loadAdminPayments(filters) {
         }
         if (String(options.query || "").trim()) {
           query.set("q", String(options.query || "").trim());
+          query.set("searchId", String(options.searchId || window.crypto?.randomUUID?.()
+            || `search_${Date.now()}_${Math.random().toString(36).slice(2)}`));
+          query.set("anonymousId", getAnonymousDemandSessionId());
         }
         if (String(options.category || "").trim() && String(options.category || "").trim() !== "all") {
           query.set("category", String(options.category || "").trim());
@@ -1998,6 +2002,9 @@ async loadAdminPayments(filters) {
           signal: options.signal
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
+        if (data?.searchCapture) {
+          try {getIntelligenceApiClient().captureSearchReceipt(data.searchCapture);} catch {}
+        }
         if (enableLocalCacheFallback && Array.isArray(page.items) && page.items.length) {
           void localFallbackAdapter.loadProducts()
             .then((cachedProducts) => {

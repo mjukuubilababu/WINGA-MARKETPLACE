@@ -622,6 +622,10 @@ function createIntelligencePlatform(options = {}) {
   }
 
   async function ingestClientEvent(payload = {}, context = {}) {
+    // Reserved for the server search response producer, never client telemetry.
+    if (sanitizeText(payload.event, 80) === "server_search_outcome_observed") {
+      throw Object.assign(new Error("reserved_server_event"), {code:"reserved_server_event"});
+    }
     const event = buildCanonicalEvent(payload, context);
     processCanonicalEvent(event);
     const scoreSnapshot = {

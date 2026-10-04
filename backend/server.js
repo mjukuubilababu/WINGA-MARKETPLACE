@@ -13,6 +13,9 @@ const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
+const { evaluateSearchDemand } = require("./search-demand-contract");
+const {createSearchOutcomeObserver, isSearchObservation, buildSearchObservation} = require("./search-outcome-observer");
+const {issueSearchCaptureReceipt, acceptSearchCaptureReceipt} = require("./search-capture-receipt");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { readMediaStoragePolicy } = require("./media-storage-policy");
@@ -286,6 +289,7 @@ const RATE_LIMIT_RULES = {
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/search-demand/capture": { limit: 60, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/verify-change": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -1231,6 +1235,11 @@ function scheduleVideoPurchaseConversionAttribution({ req, session, product, ord
 
 const demandService = createDemandService();
 const searchDemandService = createSearchDemandService();
+const searchOutcomeObserver = createSearchOutcomeObserver({
+  enabled:process.env.WINGA_SEARCH_OUTCOME_SHADOW_ENABLED === "true",
+  readEvidence:queries=>postgresStore.readSearchDemandClassificationEvidence(queries),
+  enqueue:event=>postgresStore.enqueueIntelligenceEvent(event)
+});
 const recentDemandDedupeKeys = new Map();
 const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
 const INTELLIGENCE_QUEUE_WORKER_ID = `winga-intelligence-${process.pid}`;
@@ -1415,6 +1424,12 @@ async function processIntelligenceQueueOnce(options = {}) {
     for (const job of jobs) {
       try {
         await postgresStore.appendIntelligenceEvent(job.event, job.scores);
+        if (isSearchObservation(job.event)) {
+          await postgresStore.completeIntelligenceQueueItem(job.queueId);
+          intelligenceQueueWorkerState.processed += 1;
+          intelligenceQueueWorkerState.lastSuccessAt = new Date().toISOString();
+          continue;
+        }
         try {
           if (Date.now() < intelligenceSignalCircuitOpenUntil) throw Object.assign(new Error("WIP signal circuit is open."), { code: "learner_circuit_open" });
           const learned = learnFromObservation(job.event);
@@ -7949,6 +7964,7 @@ const server = http.createServer(async (req, res) => {
       || url.pathname.startsWith("/api/messages/push/")
       || url.pathname === "/api/messages/transport-ticket"
       || url.pathname === "/api/conversations/recovery"
+      || url.pathname === "/api/search-demand/capture"
       ? ["sessions", "users"]
       : req.method === "GET" && url.pathname === "/api/products"
       ? PRODUCT_LIST_STORE_TABLES
@@ -9601,7 +9617,9 @@ const server = http.createServer(async (req, res) => {
       });
 
       if (postgresStore?.readProductsPage) {
-        const readProductPage = () => postgresStore.readProductsPage({
+        let freshPrimary = false;
+        const readProductPage = async () => {
+          const result = await postgresStore.readProductsPage({
           limit: pageLimit,
           page: safePage,
           cursor: requestedCursor,
@@ -9612,7 +9630,10 @@ const server = http.createServer(async (req, res) => {
           viewerUsername: viewer?.username || "",
           isStaffViewer,
           usePrimary: Boolean(viewer)
-        });
+          });
+          freshPrimary = Boolean(viewer);
+          return result;
+        };
         const publicCacheKey = `products:v1:${crypto.createHash("sha256").update(JSON.stringify({
           limit: pageLimit,
           page: safePage,
@@ -9647,7 +9668,21 @@ const server = http.createServer(async (req, res) => {
           totalProducts: payload.total,
           hasMore: payload.hasMore
         });
-        sendJson(res, 200, payload);
+        let searchObservation = null;
+        try {
+          if (requestedQuery && searchOutcomeObserver.snapshot().enabled) searchObservation = buildSearchObservation({
+            query:requestedQuery, total:payload.total, page:safePage, cursor:requestedCursor,
+            category:requestedCategory, seller:requestedSeller, staff:isStaffViewer, freshPrimary,
+            searchId:String(url.searchParams.get("searchId") || ""),
+            audience:getCommerceAudience(session, url.searchParams.get("anonymousId") || ""), appVersion:APP_BUILD_VERSION
+          });
+          if (searchObservation) payload.searchCapture = issueSearchCaptureReceipt(searchObservation, CSRF_SECRET);
+        } catch {
+          searchObservation = null;
+          searchOutcomeObserver.recordFailure();
+        }
+        sendJson(res, 200, payload, searchObservation ? {"Cache-Control":"no-store"} : {});
+        if (searchObservation) searchOutcomeObserver.observeEvent(searchObservation);
         return;
       }
 
@@ -10599,32 +10634,84 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/search-demand/capture") {
+      // Signed outcome comes only from the server search response. Durable
+      // acknowledgement is independent of search latency and precedes HTTP 202.
+      if (!searchOutcomeObserver.snapshot().enabled || !postgresStore?.enqueueIntelligenceEvent) {
+        sendJson(res, 503, {code:"search_capture_unavailable"}, {"Cache-Control":"no-store"});
+        return;
+      }
+      const payload = await collectBody(req);
+      try {
+        const result=await acceptSearchCaptureReceipt(postgresStore,payload?.receipt,CSRF_SECRET);
+        sendJson(res, 202, result, {"Cache-Control":"no-store"});
+      } catch (error) {
+        const invalid=error?.code === "invalid_search_capture_receipt";
+        sendJson(res, invalid ? 400 : 503, {code:invalid ? "invalid_search_capture_receipt" : "search_capture_unavailable"}, {"Cache-Control":"no-store"});
+      }
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/search-demand") {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
       const payload = await collectBody(req);
       let events = [];
+      let normalizedEntries = [];
+      let excluded = 0;
       try {
-        events = searchDemandService.normalizeBatch(payload, {
+        const normalized = searchDemandService.normalizeBatchWithReport(payload, {
           req,
           headers: req.headers,
           clientIp,
           audienceReference: session?.username || "",
           timestamp: new Date().toISOString()
         });
+        normalizedEntries = normalized.entries;
+        excluded = normalized.invalid;
+        events = normalizedEntries.map(entry => entry.event);
       } catch (error) {
         sendJson(res, 400, { error: error.message || "Search demand payload si sahihi." });
         return;
       }
       if (!events.length) {
-        sendJson(res, 202, { ok: true, accepted: 0, inserted: 0 });
+        sendJson(res, 202, { ok: true, accepted: 0, inserted: 0, excluded });
         return;
       }
       const rawEvents = Array.isArray(payload?.events) ? payload.events : [];
       events = events.map((event, index) => ({
         ...event,
-        ...getCommerceAudience(session, rawEvents[index]?.anonymousId || payload?.anonymousId || "")
+        ...getCommerceAudience(session, rawEvents[normalizedEntries[index].index]?.anonymousId || payload?.anonymousId || "")
       }));
+
+      // Shadow contract: no seller cutover until authoritative result integrity,
+      // classification quality and N=1 privacy have passed acceptance.
+      let classificationEvidence = new Map();
+      let evidenceAvailable = true;
+      try {
+        if (postgresStore?.readSearchDemandClassificationEvidence) {
+          const rows = await postgresStore.readSearchDemandClassificationEvidence(events.map(event => event.query));
+          classificationEvidence = new Map(rows.map(row => [row.query, row]));
+        } else {
+          const products = Array.isArray(store.products) ? store.products : [];
+          const users = Array.isArray(store.users) ? store.users : [];
+          const evidence = {
+            productNames: products.filter(product => product.status === "approved").map(product => product.name),
+            shopNames: products.map(product => product.shop),
+            personNames: users.flatMap(user => [user.username, user.fullName]),
+            categoryNames: products.map(product => product.category)
+          };
+          classificationEvidence = new Map(events.map(event => [event.query, evidence]));
+        }
+      } catch {
+        evidenceAvailable = false;
+      }
+      events = events.map(event => ({...event, metadata: {...event.metadata,
+        demandContract: {...event.metadata.demandContract, ...evaluateSearchDemand(event.query, {
+          evidence:classificationEvidence.get(event.query), evidenceAvailable
+          // Client resultCount/zeroResult are intentionally not authoritative.
+        }), mode:"shadow"}
+      }}));
 
       let inserted = events.length;
       let updated = 0;
@@ -10678,6 +10765,7 @@ const server = http.createServer(async (req, res) => {
         path: url.pathname,
         event: "search_demand_batch_recorded",
         accepted: events.length,
+        excluded,
         inserted,
         updated
       });
@@ -10707,6 +10795,7 @@ const server = http.createServer(async (req, res) => {
         accepted: events.length,
         inserted,
         updated,
+        excluded,
         summary
       });
       return;
@@ -12293,6 +12382,14 @@ const server = http.createServer(async (req, res) => {
           ? await postgresStore.readSearchDemandSummary(10)
           : (store.searchDemandSummary || summarizeSearchDemandEvents(store.searchDemandEvents || [], { limit: 10 }));
         analytics.searchDemand = searchDemandSummary;
+        analytics.searchOutcomeCapture = searchOutcomeObserver.snapshot();
+        if (isAdminAnalytics && postgresStore?.readSearchDemandShadowReport) {
+          try {
+            analytics.searchDemandShadow = await postgresStore.readSearchDemandShadowReport();
+          } catch {
+            analytics.searchDemandShadow = {mode:"shadow", error:"unavailable", sellerCutover:false};
+          }
+        }
         analytics.market = {
           ...(analytics.market || {}),
           searchDemand: searchDemandSummary,
