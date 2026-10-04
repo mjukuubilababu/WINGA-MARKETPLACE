@@ -131,3 +131,50 @@ frontend Node tests 68/68 plus frontend-core checks; syntax and diff checks pass
 An intermediate integration run had one production-boot readiness timeout; that
 test passed independently and the full suite passed on rerun. Browser/live SLO,
 shadow quality, canary, restore, soak and production acceptance are not verified.
+
+## Server outcome observation increment
+
+`WINGA_SEARCH_OUTCOME_SHADOW_ENABLED=true` opts into observation of the existing
+GET /api/products?q= path. Default is off. No deployment variables were changed.
+The producer runs after sending results, has at most two pending tasks per process, retries
+queue insertion at most three times with exponential backoff and jitter, and
+counts failures/load shedding in admin analytics. It excludes pagination, staff,
+seller and category-filtered searches. The local development fallback is not
+captured. The existing browser-only filtering/image path is not yet integrated.
+
+Only server-returned totals are recorded. Primary reads, cache and replica results
+are distinguished. Fresh primary does not certify index completeness, semantic
+quality or adequate supply. Therefore zero outcomes remain ZERO_RESULTS_UNVERIFIED
+and nonzero outcomes MATCH_QUALITY_UNVERIFIED. The search-quality gate is not set
+by the route. Seller eligibility and unmet demand remain false until both search
+quality and sensitive-search policy pass acceptance. No notification or confidence
+promotion follows from these observations.
+
+This reuses intelligence_event_queue and intelligence_events, not a parallel
+Demand/Opportunity engine. A single queue INSERT is the durable capture boundary.
+Existing claim/recovery/dead-letter/manual replay mechanisms apply after commit.
+Embedded and external workers persist these versioned observations without score
+updates or WIP learning; event-ID uniqueness makes a crash after ledger commit
+before acknowledgement safe to replay. Invalid schema/payload is terminal.
+Client telemetry cannot submit this reserved server event type. Admin diagnostics
+expose bounded aggregate classification/outcome/integrity counts, no query/actor.
+Raw internal observations follow existing intelligence-event retention (default
+180 days); privacy policy approval and retention tuning remain release gates.
+
+Important limitation: the bounded pre-enqueue task is process memory. A crash
+after HTTP response and before queue commit, overload shedding, exhausted retries
+or a shutdown can lose capture. This increment does NOT satisfy durable capture
+for every search or the transactional outbox contract for future Demand updates.
+No capture SLO, zero-loss claim, raw-vs-unique aggregate, supply matcher, canonical
+N=1 visibility or end-to-end resolution acceptance is claimed. Next work is the
+authoritative SearchEvent/result-quality integration with stable client retry
+identity and a durable ingress protocol, then transactional aggregate/outbox
+processing and shadow quality comparison before canary seller cutover.
+
+Recorded increment validation: full integration 288/288; focused demand/observer
+tests 17/17 after the final reserved-name sanitization and concurrency bound.
+The queue/ledger test uses a PostgreSQL engine, replays a committed observation
+100 times before acknowledgement, and has no scoring tables to detect unintended
+score writes. Syntax and diff checks passed. No production flag, secret, schema
+migration or deployment was changed; production/browser/performance and recovery
+acceptance remain unverified.

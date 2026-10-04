@@ -1,5 +1,6 @@
 const { createPostgresStore } = require("./db");
 const { learnFromObservation } = require("./wip-mind");
+const {isSearchObservation} = require("./search-outcome-observer");
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const DATABASE_SSL = String(process.env.DATABASE_SSL || "").toLowerCase() === "true";
@@ -121,6 +122,11 @@ async function processOnce() {
     for (const job of jobs) {
       try {
         await store.appendIntelligenceEvent(job.event, job.scores);
+        if (isSearchObservation(job.event)) {
+          await store.completeIntelligenceQueueItem(job.queueId);
+          state.processed += 1;
+          continue;
+        }
         try {
           if (Date.now() < signalCircuitOpenUntil) throw Object.assign(new Error("WIP signal circuit is open."), { code: "learner_circuit_open" });
           const learned = learnFromObservation(job.event);

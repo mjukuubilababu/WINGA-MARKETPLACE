@@ -96,6 +96,7 @@ test("PostgreSQL-engine evidence and shadow report preserve collisions and aggre
     await db.exec(`CREATE TABLE products(name TEXT, shop TEXT, category TEXT, status TEXT);
       CREATE TABLE users(username TEXT,full_name TEXT);
       CREATE TABLE search_demand_events(metadata JSONB, happened_at TIMESTAMPTZ DEFAULT NOW());
+      CREATE TABLE intelligence_events(source_event TEXT, metadata JSONB, happened_at TIMESTAMPTZ DEFAULT NOW());
       INSERT INTO products VALUES ('White Dress','White Dress','dress','approved');
       INSERT INTO users VALUES ('wilhard','Wilhard Mmbando');`);
     const store=createPostgresStore({databaseUrl:"postgres://test/demand",queryClient:db});

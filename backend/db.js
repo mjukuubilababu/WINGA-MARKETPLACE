@@ -1,6 +1,7 @@
 const { Client, Pool } = require("pg");
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
+const {isSearchObservation, validateSearchObservation, persistSearchObservation} = require("./search-outcome-observer");
 const { normalizeProductMediaItems } = require("./product-media");
 const { createAdsStore } = require("./ads-store");
 const { createConversationOffersStore } = require("./conversation-offers-store");
@@ -2504,6 +2505,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function appendIntelligenceEvent(event, _legacyScores = {}) {
+    if (isSearchObservation(event)) return withTransaction(client => persistSearchObservation(client, event));
     return withTransaction((client) => persistIntelligenceEvent(client, event));
   }
 
@@ -2512,6 +2514,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   }
 
   async function enqueueIntelligenceEvent(event, scores = {}) {
+    if (isSearchObservation(event)) validateSearchObservation(event);
     const result = await query(
       `INSERT INTO intelligence_event_queue (
         event_id, event_payload, score_payload, status, available_at, updated_at
@@ -2582,7 +2585,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     const attempts = Math.max(1, Number(options.attempts || 1) || 1);
     const maxAttempts = Math.max(1, Number(options.maxAttempts || 12) || 12);
     const backoffSeconds = Math.min(3600, Math.max(5, attempts * attempts * 10));
-    const terminal = attempts >= maxAttempts;
+    const terminal = error?.retryable === false || attempts >= maxAttempts;
     await query(
       `UPDATE intelligence_event_queue
        SET status = $2,
@@ -7231,8 +7234,18 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        FROM search_demand_events WHERE happened_at >= NOW() - INTERVAL '7 days'
        GROUP BY 1, 2 ORDER BY events DESC LIMIT 50`
     );
+    const observations = await queryPrimaryRead(
+      `SELECT metadata->'demandContract'->>'classification' AS classification,
+         metadata->'searchObservation'->>'outcome' AS outcome,
+         metadata->'searchObservation'->>'integrity' AS integrity,
+         COUNT(*)::int AS events
+       FROM intelligence_events WHERE source_event = 'server_search_outcome_observed'
+         AND happened_at >= NOW() - INTERVAL '7 days'
+       GROUP BY 1, 2, 3 ORDER BY events DESC LIMIT 50`
+    );
     return {version:"search-demand-contract-v1", mode:"shadow", windowDays:7,
       privacy:"aggregate-only", rows:result.rows || [],
+      serverObservations:observations.rows || [],
       acceptance:"NOT_VERIFIED", sellerCutover:false};
   }
 

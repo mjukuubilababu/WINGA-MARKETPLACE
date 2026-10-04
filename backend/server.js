@@ -14,6 +14,7 @@ const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
 const { evaluateSearchDemand } = require("./search-demand-contract");
+const {createSearchOutcomeObserver, isSearchObservation} = require("./search-outcome-observer");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { readMediaStoragePolicy } = require("./media-storage-policy");
@@ -1232,6 +1233,11 @@ function scheduleVideoPurchaseConversionAttribution({ req, session, product, ord
 
 const demandService = createDemandService();
 const searchDemandService = createSearchDemandService();
+const searchOutcomeObserver = createSearchOutcomeObserver({
+  enabled:process.env.WINGA_SEARCH_OUTCOME_SHADOW_ENABLED === "true",
+  readEvidence:queries=>postgresStore.readSearchDemandClassificationEvidence(queries),
+  enqueue:event=>postgresStore.enqueueIntelligenceEvent(event)
+});
 const recentDemandDedupeKeys = new Map();
 const MAX_RECENT_DEMAND_DEDUPE_KEYS = 10000;
 const INTELLIGENCE_QUEUE_WORKER_ID = `winga-intelligence-${process.pid}`;
@@ -1416,6 +1422,12 @@ async function processIntelligenceQueueOnce(options = {}) {
     for (const job of jobs) {
       try {
         await postgresStore.appendIntelligenceEvent(job.event, job.scores);
+        if (isSearchObservation(job.event)) {
+          await postgresStore.completeIntelligenceQueueItem(job.queueId);
+          intelligenceQueueWorkerState.processed += 1;
+          intelligenceQueueWorkerState.lastSuccessAt = new Date().toISOString();
+          continue;
+        }
         try {
           if (Date.now() < intelligenceSignalCircuitOpenUntil) throw Object.assign(new Error("WIP signal circuit is open."), { code: "learner_circuit_open" });
           const learned = learnFromObservation(job.event);
@@ -9602,7 +9614,9 @@ const server = http.createServer(async (req, res) => {
       });
 
       if (postgresStore?.readProductsPage) {
-        const readProductPage = () => postgresStore.readProductsPage({
+        let freshPrimary = false;
+        const readProductPage = async () => {
+          const result = await postgresStore.readProductsPage({
           limit: pageLimit,
           page: safePage,
           cursor: requestedCursor,
@@ -9613,7 +9627,10 @@ const server = http.createServer(async (req, res) => {
           viewerUsername: viewer?.username || "",
           isStaffViewer,
           usePrimary: Boolean(viewer)
-        });
+          });
+          freshPrimary = Boolean(viewer);
+          return result;
+        };
         const publicCacheKey = `products:v1:${crypto.createHash("sha256").update(JSON.stringify({
           limit: pageLimit,
           page: safePage,
@@ -9649,6 +9666,11 @@ const server = http.createServer(async (req, res) => {
           hasMore: payload.hasMore
         });
         sendJson(res, 200, payload);
+        if (requestedQuery) searchOutcomeObserver.observe({
+          query:requestedQuery, total:payload.total, page:safePage, cursor:requestedCursor,
+          category:requestedCategory, seller:requestedSeller, staff:isStaffViewer, freshPrimary,
+          audience:getCommerceAudience(session), appVersion:APP_BUILD_VERSION
+        });
         return;
       }
 
@@ -12330,6 +12352,7 @@ const server = http.createServer(async (req, res) => {
           ? await postgresStore.readSearchDemandSummary(10)
           : (store.searchDemandSummary || summarizeSearchDemandEvents(store.searchDemandEvents || [], { limit: 10 }));
         analytics.searchDemand = searchDemandSummary;
+        analytics.searchOutcomeCapture = searchOutcomeObserver.snapshot();
         if (isAdminAnalytics && postgresStore?.readSearchDemandShadowReport) {
           try {
             analytics.searchDemandShadow = await postgresStore.readSearchDemandShadowReport();
