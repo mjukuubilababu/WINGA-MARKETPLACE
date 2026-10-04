@@ -29,7 +29,7 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
     const controller=window.WingaModules.chat.createChatControllerModule({
       ...deps,translate,getProfileDiv:()=>document.getElementById('profile-div'),getCurrentSession:()=>state.session,
       setConversationsView:value=>state.view=value,
-      setProfileMessagesMode:value=>{state.mode=value;if(value==='detail')state.view='chats';},
+      setProfileMessagesMode:value=>{state.mode=value;if(value==='detail'&&!['chats','private'].includes(state.view))state.view='chats';},
       setProfileMessagesFilter:value=>state.filter=value,setProfileHasSelection:()=>{},
       setActiveChatContext:value=>state.context=value,setActiveChatReplyMessageId:()=>{},
       setOpenChatMessageMenuId:()=>{},setOpenEmojiScope:()=>{},
@@ -55,21 +55,32 @@ test('mobile inbox navigation, search, real controller send and honest room empt
   await openChatUi(page);
   await expect(page.locator('.message-thread-item')).toHaveCount(3);
   const toolbarBottom=await page.locator('.conversations-heading [data-conversations-action="new"]').evaluate(node=>node.getBoundingClientRect().bottom);
-  expect(toolbarBottom).toBeLessThanOrEqual(await page.locator('.conversation-view-tabs').evaluate(node=>node.getBoundingClientRect().top));
+  expect(toolbarBottom).toBeLessThanOrEqual(await page.locator('.conversation-search-field').evaluate(node=>node.getBoundingClientRect().top));
+  expect(await page.locator('.conversation-search-field').evaluate(node=>node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(await page.locator('.conversation-view-tabs').evaluate(node=>node.getBoundingClientRect().top));
+  await expect(page.locator('.conversation-view-tabs button')).toHaveText(['Zote','Binafsi','Chatrooms']);
+  await expect(page.locator('.conversation-bottom-nav button')).toHaveText(['Chats','Chatrooms','Calls','Mimi']);
+  await expect(page.locator('[data-inbox-filter]')).toHaveCount(0);
+  await expect(page.locator('.inbox-product-finder')).toHaveCount(0);
   await page.locator('[data-inbox-search]').fill('Rey');
   await expect(page.locator('.message-thread-item:visible')).toHaveCount(1);
   await page.locator('[data-inbox-search]').fill('');
   await expect(page.locator('.message-thread-item:visible')).toHaveCount(3);
   await page.locator('.conversations-heading [data-conversations-action="home"]').click();
   expect(await page.evaluate(()=>chatUiFixture.state.home)).toBe(1);
-  await page.locator('.conversation-bottom-nav [data-conversations-action="alerts"]').click();
-  expect(await page.evaluate(()=>chatUiFixture.state.alerts)).toBe(1);
+  await page.locator('.conversation-bottom-nav [data-conversations-action="calls"]').click();
+  await expect(page.locator('.messages-list')).toContainText('Kupiga simu hakupatikani kwa sasa.');
+  await expect(page.locator('#message-compose-form')).toHaveCount(0);
+  await expect(page.locator('[data-chat-read-user]')).toHaveCount(0);
+  expect(await page.evaluate(()=>chatUiFixture.state.sends)).toBe(0);
   await page.locator('.conversation-bottom-nav [data-conversations-action="profile"]').click();
   expect(await page.evaluate(()=>chatUiFixture.state.profile)).toBe(1);
   await page.locator('.conversation-bottom-nav [data-conversations-action="rooms"]').click();
   await expect(page.locator('.messages-list')).toContainText('Hakuna chatroom bado.');
   await expect(page.locator('[data-chat-read-user]')).toHaveCount(0);
   await page.locator('.conversation-bottom-nav [data-conversations-action="chats"]').click();
+  await page.locator('.conversation-view-tabs [data-conversations-action="private"]').click();
+  await expect(page.locator('.conversation-view-tabs [data-conversations-action="private"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.message-thread-item')).toHaveCount(3);
   await page.locator('[data-conversation-user="rey"]').click();
   await expect(page.locator('.messages-thread-body')).toBeVisible();
   await expect(page.locator('.messages-list')).toBeHidden();
@@ -79,6 +90,8 @@ test('mobile inbox navigation, search, real controller send and honest room empt
   expect(await page.evaluate(()=>chatUiFixture.state.lastPayload)).toMatchObject({receiverId:'rey',message:'Ujumbe wa majaribio',productId:'',productName:''});
   await page.locator('[data-message-list-back]').click();
   await expect(page.locator('.messages-list')).toBeVisible();
+  await expect(page.locator('.conversation-view-tabs [data-conversations-action="private"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('.conversation-view-tabs [data-conversations-action="chats"]').click();
   await page.screenshot({path:path.join(root,'.tmp-chat-ui/conversations-mobile.png')});
 });
 
@@ -103,7 +116,7 @@ for(const action of ['close','account','session'])test(`late new-chat lookup is 
   await dialog.getByRole('textbox',{name:'Jina la mtumiaji'}).fill('pending');
   await dialog.getByRole('button',{name:'Fungua chat'}).click();
   await expect.poll(()=>page.evaluate(()=>typeof chatUiFixture.state.resolveLookup)).toBe('function');
-  if(action==='close')await dialog.locator('button[type="button"]').click();
+  if(action==='close')await dialog.locator('form > button[type="button"]').click();
   else await page.evaluate(action=>{if(action==='account')chatUiFixture.state.owner='other';else chatUiFixture.state.session={id:'different'};},action);
   await page.evaluate(()=>chatUiFixture.state.resolveLookup());
   await expect(dialog).toHaveCount(0);

@@ -7952,17 +7952,17 @@ body.conversations-open :is(#top-bar,#bottom-nav,#view-home-back,#post-product-f
 .conversation-workspace .conversation-icon-button:hover{background:#f0f5f2;}
 .conversation-workspace .messages-shell,.conversation-workspace .messages-shell.compact-detail{grid-template-columns:340px minmax(0,1fr);gap:0;align-items:stretch;min-height:0;margin:0;}
 .conversation-workspace .messages-list{display:flex;flex-direction:column;gap:0;min-height:0;overflow:auto;padding:16px;border-inline-end:1px solid var(--chat-line);}
-.conversation-view-tabs{display:flex;gap:4px;margin-bottom:14px;}
-.conversation-view-tabs button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;flex:1;padding:8px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--chat-muted);font:inherit;font-size:14px;cursor:pointer;}
-.conversation-view-tabs button[aria-pressed="true"]{border-color:var(--chat-green);color:var(--chat-green);font-weight:650;}
-.conversation-search-field{display:flex;align-items:center;gap:8px;flex-shrink:0;background:#f1f3f5;border:1px solid transparent;border-radius:8px;padding-inline:12px;margin-bottom:12px;}
+.conversation-view-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;flex-shrink:0;}
+.conversation-view-tabs button{display:flex;align-items:center;justify-content:center;min-height:36px;min-width:0;padding:6px 4px;border:0;border-radius:18px;background:#f1f3f5;color:var(--chat-muted);font:inherit;font-size:13px;overflow-wrap:anywhere;cursor:pointer;}
+.conversation-view-tabs button[aria-pressed="true"]{background:var(--chat-green);color:#fff;font-weight:650;}
+.conversation-search-field{display:flex;align-items:center;gap:8px;flex-shrink:0;min-height:40px;background:#f1f3f5;border:1px solid transparent;border-radius:20px;padding-inline:12px;margin-bottom:8px;}
 .conversation-search-field:focus-within{border-color:var(--chat-green);}
-.conversation-workspace .conversation-search-field .inbox-search{border:0;background:transparent;min-width:0;padding-inline:0;outline:none;}
+.conversation-workspace .conversation-search-field .inbox-search{border:0;background:transparent;min-width:0;min-height:38px;padding:6px 0;outline:none;font-size:13px;}
 .conversation-workspace .inbox-filters{margin-bottom:8px;gap:8px;}
 .conversation-workspace .inbox-filters button{min-height:36px;border:0;background:#f1f3f5;color:var(--chat-muted);font-size:13px;}
 .conversation-workspace .inbox-filters button[aria-pressed="true"]{background:var(--chat-green);color:#fff;}
 .conversation-workspace .inbox-product-finder{border-bottom:1px solid var(--chat-line);font-size:13px;}
-.conversation-workspace .message-thread-item{padding:16px 4px;border-color:var(--chat-line);grid-template-columns:48px minmax(0,1fr);gap:12px;flex-shrink:0;}
+.conversation-workspace .message-thread-item{padding:12px 4px;border-color:var(--chat-line);grid-template-columns:48px minmax(0,1fr);gap:12px;flex-shrink:0;border-radius:0;}
 .conversation-workspace .message-thread-item:hover,.conversation-workspace .message-thread-item.active{background:#f2f8f4;}
 .conversation-workspace .message-thread-avatar{width:48px;height:48px;border-radius:50%;background:#e5f2ea;color:var(--chat-green);overflow:hidden;font-weight:700;}
 .conversation-workspace .message-thread-avatar > *, .conversation-workspace .message-thread-avatar img{width:100%!important;height:100%!important;object-fit:cover;}
@@ -8008,6 +8008,7 @@ body.conversations-open :is(#top-bar,#bottom-nav,#view-home-back,#post-product-f
 .conversation-new-dialog form{display:grid;gap:14px;}
 .conversation-new-dialog label{display:grid;gap:8px;}
 .conversation-new-dialog input{width:100%;box-sizing:border-box;min-height:44px;padding:8px 12px;border:1px solid #c8d8ce;border-radius:8px;font:inherit;}
+.conversation-new-dialog > button{margin-top:14px;width:100%;}
 .conversation-workspace .chatroom-layout .message-thread-avatar{flex:0 0 40px;width:40px;height:40px;}
 .conversation-workspace .chatroom-layout .message-thread-avatar > img[src^="/icons/"]{width:22px!important;height:22px!important;object-fit:contain;}
 .chatroom-pinned-message{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 16px;background:#f1f3f5;font-size:13px;color:var(--chat-ink);text-decoration:none;}

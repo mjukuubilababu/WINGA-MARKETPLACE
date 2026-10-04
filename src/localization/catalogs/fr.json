@@ -3,6 +3,9 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "inbox.private": "Privé",
+        "inbox.calls": "Appels",
+        "inbox.callsUnavailable": "Les appels ne sont pas disponibles.",
         "chat.roomMembers": "Membres du salon",
         "chat.roomMemberCount": "{count} membres",
         "chat.roomAdmin": "Admin",

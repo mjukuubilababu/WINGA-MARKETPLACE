@@ -3,6 +3,9 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "inbox.private": "Binafsi",
+        "inbox.calls": "Calls",
+        "inbox.callsUnavailable": "Kupiga simu hakupatikani kwa sasa.",
         "chat.roomMembers": "Washiriki wa chatroom",
         "chat.roomMemberCount": "Wanachama {count}",
         "chat.roomAdmin": "Admin",
@@ -101,7 +104,7 @@
         "inbox.back": "Rudi",
         "inbox.count": "Mazungumzo {count}",
         "inbox.filters": "Chuja mazungumzo",
-        "inbox.all": "Yote",
+        "inbox.all": "Zote",
         "inbox.search": "Tafuta mazungumzo",
         "inbox.unreadCount": "{count} hayajasomwa",
         "inbox.caughtUp": "Umesoma ujumbe wote.",

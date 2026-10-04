@@ -3,6 +3,9 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "inbox.private": "خاص",
+        "inbox.calls": "المكالمات",
+        "inbox.callsUnavailable": "المكالمات غير متاحة حاليا.",
         "chat.roomMembers": "أعضاء الغرفة",
         "chat.roomMemberCount": "{count} أعضاء",
         "chat.roomAdmin": "مشرف",

@@ -976,8 +976,9 @@
           if (action === "alerts") return deps.openConversationAlerts?.();
           if (action === "profile") return deps.openConversationProfile?.();
           if (action === "new") return openNewConversation();
-          if (!["chats", "rooms", "search"].includes(action)) return;
-          deps.setConversationsView?.(action === "rooms" ? "rooms" : "chats");
+          if (!["chats", "private", "rooms", "calls", "search"].includes(action)) return;
+          deps.setConversationsView?.(action === "search" ? "chats" : action);
+          if (action !== "search") deps.setProfileMessagesFilter?.("all");
           deps.setProfileMessagesMode?.("list");
           deps.setProfileHasSelection?.(false);
           deps.replaceMessagesPanel(scope);
@@ -1449,7 +1450,19 @@
             if(dialog.open)status.textContent = t("inbox.contactUnavailable", "Contact unavailable");
           } finally {open.disabled = false;}
         };
-        form.append(title,label,status,open,close);dialog.append(form);document.body.append(dialog);dialog.showModal();input.focus();
+        const tools = document.createElement("button");
+        tools.type = "button";tools.className = "action-btn action-btn-secondary";
+        tools.textContent = t("chat.productFinder", "Find a product");
+        tools.onclick = () => {
+          if (!buttonIsAvailable()) return dialog.close();
+          dialog.close();
+          deps.setConversationsView?.("tools");
+          deps.setProfileMessagesMode?.("list");
+          deps.setProfileHasSelection?.(false);
+          deps.replaceMessagesPanel(scope);
+          document.querySelector("#profile-messages-panel [data-assistant-search-form] input[name='query']")?.focus();
+        };
+        form.append(title,label,status,open,close);dialog.append(form,tools);document.body.append(dialog);dialog.showModal();input.focus();
       }
 
       bindClickOnce("[data-conversation-user]", "ConversationUser", async (button) => {

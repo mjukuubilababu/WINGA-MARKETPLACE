@@ -12792,7 +12792,7 @@ const {
   openConversationAlerts: () => openProfileSection("profile-notifications-panel"),
   openConversationProfile: () => openProfileSection("profile-products-panel"),
   setConversationsView: (value) => {
-    chatUiState.conversationsView = value === "rooms" ? "rooms" : "chats";
+    chatUiState.conversationsView = ["private", "rooms", "calls", "tools"].includes(value) ? value : "chats";
   },
   renderProfile,
   refreshProductsFromStore,
@@ -12816,7 +12816,7 @@ const {
   getActiveChatContext: () => chatUiState.activeContext,
   setProfileMessagesMode: (value) => {
     chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";
-    if (value === "detail") chatUiState.conversationsView = "chats";
+    if (value === "detail" && !["chats", "private"].includes(chatUiState.conversationsView)) chatUiState.conversationsView = "chats";
   },
   setProfileMessagesFilter: (value) => {
     chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
@@ -12993,6 +12993,7 @@ const {
   maybePromptNotificationPermission,
   beginPurchaseFlow,
   openProfileMessageFinder: () => {
+    chatUiState.conversationsView = "tools";
     openProfileSection("profile-messages-panel");
   },
   getCurrentUser: () => currentUser

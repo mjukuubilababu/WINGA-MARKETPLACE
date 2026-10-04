@@ -3,6 +3,9 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "inbox.private": "Private",
+        "inbox.calls": "Calls",
+        "inbox.callsUnavailable": "Calling is unavailable.",
         "chat.roomMembers": "Room members",
         "chat.roomMemberCount": "{count} members",
         "chat.roomAdmin": "Admin",

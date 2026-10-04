@@ -1728,9 +1728,12 @@ test("modern inbox keeps person grouping, search, unread and compact responsive 
   await panel.locator("[data-inbox-search]").fill("Latest reply");
   await expect(panel.locator(".message-thread-item:visible")).toHaveCount(1);
   await panel.locator("[data-inbox-search]").fill("");
+  await panel.locator("[data-conversations-action='new']").click();
+  await page.locator(".conversation-new-dialog > button").click();
   await panel.locator("[data-inbox-filter='unread']").click();
   await expect(panel.locator(".message-thread-item")).toHaveCount(1);
   await panel.locator("[data-inbox-filter='all']").click();
+  await panel.locator(".conversation-bottom-nav [data-conversations-action='chats']").click();
   for (const width of [320, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1902,7 +1905,8 @@ test("conversation product finder searches canonical supply and opens the seller
   await page.locator("[data-profile-action='messages']").click();
 
   const finder = page.locator("#profile-messages-panel [data-assistant-search-form]");
-  await page.locator(".inbox-product-finder > summary").click();
+  await page.locator("#profile-messages-panel [data-conversations-action='new']").click();
+  await page.locator(".conversation-new-dialog > button").click();
   await expect(finder).toBeVisible();
   await expect(finder).toHaveAttribute("data-winga-bound-assistant-search", "true");
   await finder.locator("input[name='query']").fill("Sneaker Classic");

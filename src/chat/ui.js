@@ -503,7 +503,11 @@
     }
 
     function renderMessagesSection() {
-      const conversationsView = deps.getConversationsView?.() === "rooms" ? "rooms" : "chats";
+      const requestedView = deps.getConversationsView?.();
+      const conversationsView = ["private", "rooms", "calls", "tools"].includes(requestedView) ? requestedView : "chats";
+      const directView = conversationsView === "chats" || conversationsView === "private";
+      const emptyTitle = conversationsView === "calls" ? t("inbox.calls", "Calls") : t("inbox.rooms", "Chatrooms");
+      const emptyCopy = conversationsView === "calls" ? t("inbox.callsUnavailable", "Calling is unavailable.") : t("inbox.roomsEmpty", "No chatrooms yet.");
       const profileFilter = deps.getProfileMessagesFilter?.() || "all";
       const summaries = deps.getConversationSummariesFiltered
         ? deps.getConversationSummariesFiltered(profileFilter)
@@ -540,7 +544,7 @@
       const activeWhatsApp = contactState.whatsapp;
       const profileMessagesMode = deps.getProfileMessagesMode?.() || "list";
       const showConversationList = true;
-      const showConversationDetail = conversationsView === "chats" && profileMessagesMode === "detail";
+      const showConversationDetail = directView && profileMessagesMode === "detail";
       const panelTitle = t("nav.inbox", "Inbox");
       const panelSubtitle = t("inbox.subtitle", "Your conversations");
       const lastActiveLabel = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
@@ -550,7 +554,7 @@
           <div class="section-heading conversations-heading">
             <div>
               <p class="eyebrow">Winga</p>
-              <h3>${deps.escapeHtml(t("inbox.chats", "Chats"))}</h3>
+              <h3>${deps.escapeHtml(conversationsView === "calls" ? t("inbox.calls", "Calls") : t("inbox.chats", "Chats"))}</h3>
             </div>
             <div class="messages-panel-actions">
               <button class="conversation-icon-button" type="button" data-conversations-action="home" title="${deps.escapeHtml(t("nav.home", "Home"))}" aria-label="${deps.escapeHtml(t("nav.home", "Home"))}">${icon("house")}</button>
@@ -560,22 +564,27 @@
           <div class="messages-shell ${showConversationDetail ? "compact-detail" : ""}">
             ${showConversationList ? `
             <div class="messages-list">
-              <div class="conversation-view-tabs" role="group" aria-label="${deps.escapeHtml(panelTitle)}">
-                <button type="button" data-conversations-action="chats" aria-pressed="${conversationsView === "chats"}">${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
-                <button type="button" data-conversations-action="rooms" aria-pressed="${conversationsView === "rooms"}">${icon("users")}<span>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</span></button>
-              </div>
-              ${conversationsView === "chats" ? `
+              ${!["calls", "tools"].includes(conversationsView) ? `
               <label class="conversation-search-field">${icon("search")}
                 <input type="search" class="inbox-search" data-inbox-search aria-label="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" placeholder="${deps.escapeHtml(t("inbox.search", "Search conversations"))}" />
               </label>
+              <div class="conversation-view-tabs" role="group" aria-label="${deps.escapeHtml(panelTitle)}">
+                <button type="button" data-conversations-action="chats" aria-pressed="${conversationsView === "chats"}">${deps.escapeHtml(t("inbox.all", "All"))}</button>
+                <button type="button" data-conversations-action="private" aria-pressed="${conversationsView === "private"}">${deps.escapeHtml(t("inbox.private", "Private"))}</button>
+                <button type="button" data-conversations-action="rooms" aria-pressed="${conversationsView === "rooms"}">${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</button>
+              </div>` : ""}
+              ${conversationsView === "tools" ? `
+              <button type="button" class="conversation-icon-button" data-conversations-action="chats" aria-label="${deps.escapeHtml(t("inbox.back", "Back"))}" title="${deps.escapeHtml(t("inbox.back", "Back"))}">${icon("arrow-left")}</button>
               <div class="inbox-filters" role="group" aria-label="${deps.escapeHtml(t("inbox.filters", "Conversation filters"))}">
                 <button type="button" data-inbox-filter="all" aria-pressed="${profileFilter === "all"}">${deps.escapeHtml(t("inbox.all", "All"))}</button>
                 <button type="button" data-inbox-filter="unread" aria-pressed="${profileFilter === "unread"}">${deps.escapeHtml(t("profile.unreadStat", "Unread"))}</button>
               </div>
-              <details class="inbox-product-finder"${deps.getAssistantSearchState?.()?.query ? " open" : ""}>
+              <details class="inbox-product-finder" open>
                 <summary>${deps.escapeHtml(t("chat.productFinder", "Find a product"))}</summary>
                 ${renderAssistantProductFinder()}
               </details>
+              ` : ""}
+              ${directView || conversationsView === "tools" ? `
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
@@ -591,7 +600,7 @@
               `).join("") : `<p class="empty-copy">${deps.escapeHtml(profileFilter === "unread" ? t("inbox.caughtUp", "You're all caught up.") : t("inbox.empty", "Your conversations will appear here."))}</p>`}
               <p class="empty-copy" data-inbox-no-results hidden>${deps.escapeHtml(t("inbox.noResults", "No conversations found."))}</p>
               ${renderMessagePageControl("inbox")}
-              ` : `<div class="conversation-empty-state">${icon("users")}<h4>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</h4><p>${deps.escapeHtml(t("inbox.roomsEmpty", "No chatrooms yet."))}</p></div>`}
+              ` : `<div class="conversation-empty-state">${icon(conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(emptyTitle)}</h4><p>${deps.escapeHtml(emptyCopy)}</p></div>`}
             </div>
             ` : ""}
             ${showConversationDetail ? `
@@ -650,12 +659,12 @@
                 </form>
               ` : `<p class="empty-copy">Chagua conversation au tumia Message Muuzaji kutoka kwenye bidhaa.</p>`}
             </div>
-            ` : `<div class="messages-thread-card conversation-idle"><div class="conversation-empty-state">${icon(conversationsView === "rooms" ? "users" : "message-circle")}<h4>${deps.escapeHtml(conversationsView === "rooms" ? t("inbox.rooms", "Chatrooms") : panelSubtitle)}</h4><p>${deps.escapeHtml(conversationsView === "rooms" ? t("inbox.roomsEmpty", "No chatrooms yet.") : t("inbox.selectChat", "Select a conversation"))}</p></div></div>`}
+            ` : `<div class="messages-thread-card conversation-idle"><div class="conversation-empty-state">${icon(directView || conversationsView === "tools" ? "message-circle" : conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(directView || conversationsView === "tools" ? panelSubtitle : emptyTitle)}</h4><p>${deps.escapeHtml(directView || conversationsView === "tools" ? t("inbox.selectChat", "Select a conversation") : emptyCopy)}</p></div></div>`}
           </div>
           <nav class="conversation-bottom-nav" aria-label="${deps.escapeHtml(t("inbox.navigation", "Conversation navigation"))}">
-            <button type="button" data-conversations-action="chats" ${conversationsView === "chats" ? 'aria-current="page"' : ''}>${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
+            <button type="button" data-conversations-action="chats" ${directView || conversationsView === "tools" ? 'aria-current="page"' : ''}>${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
             <button type="button" data-conversations-action="rooms" ${conversationsView === "rooms" ? 'aria-current="page"' : ''}>${icon("users")}<span>${deps.escapeHtml(t("inbox.rooms", "Chatrooms"))}</span></button>
-            <button type="button" data-conversations-action="alerts">${icon("bell")}<span>${deps.escapeHtml(t("notification.eyebrow", "Notifications"))}</span></button>
+            <button type="button" data-conversations-action="calls" ${conversationsView === "calls" ? 'aria-current="page"' : ''}>${icon("phone")}<span>${deps.escapeHtml(t("inbox.calls", "Calls"))}</span></button>
             <button type="button" data-conversations-action="profile">${icon("user-round")}<span>${deps.escapeHtml(t("inbox.me", "Me"))}</span></button>
           </nav>
         </section>
