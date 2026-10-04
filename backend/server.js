@@ -13,6 +13,7 @@ const { createIntelligencePlatform } = require("./intelligence-platform");
 const { learnFromObservation } = require("./wip-mind");
 const { createDemandService, summarizeDemandEvents } = require("./demand-service");
 const { createSearchDemandService, summarizeSearchDemandEvents } = require("./search-demand-service");
+const { evaluateSearchDemand } = require("./search-demand-contract");
 const { buildRequestGlobalContext, normalizeUserPreference, validateUserPreference, formatPrice } = require("./global-context");
 const { isR2StorageEnabled, uploadImageToR2 } = require("./storage-r2");
 const { readMediaStoragePolicy } = require("./media-storage-policy");
@@ -10604,27 +10605,61 @@ const server = http.createServer(async (req, res) => {
       const session = token ? findSession(store, token) : null;
       const payload = await collectBody(req);
       let events = [];
+      let normalizedEntries = [];
+      let excluded = 0;
       try {
-        events = searchDemandService.normalizeBatch(payload, {
+        const normalized = searchDemandService.normalizeBatchWithReport(payload, {
           req,
           headers: req.headers,
           clientIp,
           audienceReference: session?.username || "",
           timestamp: new Date().toISOString()
         });
+        normalizedEntries = normalized.entries;
+        excluded = normalized.invalid;
+        events = normalizedEntries.map(entry => entry.event);
       } catch (error) {
         sendJson(res, 400, { error: error.message || "Search demand payload si sahihi." });
         return;
       }
       if (!events.length) {
-        sendJson(res, 202, { ok: true, accepted: 0, inserted: 0 });
+        sendJson(res, 202, { ok: true, accepted: 0, inserted: 0, excluded });
         return;
       }
       const rawEvents = Array.isArray(payload?.events) ? payload.events : [];
       events = events.map((event, index) => ({
         ...event,
-        ...getCommerceAudience(session, rawEvents[index]?.anonymousId || payload?.anonymousId || "")
+        ...getCommerceAudience(session, rawEvents[normalizedEntries[index].index]?.anonymousId || payload?.anonymousId || "")
       }));
+
+      // Shadow contract: no seller cutover until authoritative result integrity,
+      // classification quality and N=1 privacy have passed acceptance.
+      let classificationEvidence = new Map();
+      let evidenceAvailable = true;
+      try {
+        if (postgresStore?.readSearchDemandClassificationEvidence) {
+          const rows = await postgresStore.readSearchDemandClassificationEvidence(events.map(event => event.query));
+          classificationEvidence = new Map(rows.map(row => [row.query, row]));
+        } else {
+          const products = Array.isArray(store.products) ? store.products : [];
+          const users = Array.isArray(store.users) ? store.users : [];
+          const evidence = {
+            productNames: products.filter(product => product.status === "approved").map(product => product.name),
+            shopNames: products.map(product => product.shop),
+            personNames: users.flatMap(user => [user.username, user.fullName]),
+            categoryNames: products.map(product => product.category)
+          };
+          classificationEvidence = new Map(events.map(event => [event.query, evidence]));
+        }
+      } catch {
+        evidenceAvailable = false;
+      }
+      events = events.map(event => ({...event, metadata: {...event.metadata,
+        demandContract: {...event.metadata.demandContract, ...evaluateSearchDemand(event.query, {
+          evidence:classificationEvidence.get(event.query), evidenceAvailable
+          // Client resultCount/zeroResult are intentionally not authoritative.
+        }), mode:"shadow"}
+      }}));
 
       let inserted = events.length;
       let updated = 0;
@@ -10678,6 +10713,7 @@ const server = http.createServer(async (req, res) => {
         path: url.pathname,
         event: "search_demand_batch_recorded",
         accepted: events.length,
+        excluded,
         inserted,
         updated
       });
@@ -10707,6 +10743,7 @@ const server = http.createServer(async (req, res) => {
         accepted: events.length,
         inserted,
         updated,
+        excluded,
         summary
       });
       return;
@@ -12293,6 +12330,13 @@ const server = http.createServer(async (req, res) => {
           ? await postgresStore.readSearchDemandSummary(10)
           : (store.searchDemandSummary || summarizeSearchDemandEvents(store.searchDemandEvents || [], { limit: 10 }));
         analytics.searchDemand = searchDemandSummary;
+        if (isAdminAnalytics && postgresStore?.readSearchDemandShadowReport) {
+          try {
+            analytics.searchDemandShadow = await postgresStore.readSearchDemandShadowReport();
+          } catch {
+            analytics.searchDemandShadow = {mode:"shadow", error:"unavailable", sellerCutover:false};
+          }
+        }
         analytics.market = {
           ...(analytics.market || {}),
           searchDemand: searchDemandSummary,
