@@ -9242,8 +9242,13 @@ function visibleIncomingMessageIds() {
     ? "#context-chat-modal [data-chat-read-user]" : "#profile-messages-panel [data-chat-read-user]";
   const surface = document.querySelector(selector);
   const bounds = surface.getBoundingClientRect();
-  let top = Math.max(0, bounds.top), bottom = Math.min(window.innerHeight, bounds.bottom);
-  let left = Math.max(0, bounds.left), right = Math.min(window.innerWidth, bounds.right);
+  const viewport = window.visualViewport;
+  const viewportTop = viewport?.offsetTop ?? 0, viewportLeft = viewport?.offsetLeft ?? 0;
+  const viewportHeight = viewport?.height ?? window.innerHeight, viewportWidth = viewport?.width ?? window.innerWidth;
+  if (![viewportTop, viewportLeft, viewportHeight, viewportWidth].every(Number.isFinite)
+    || viewportHeight <= 0 || viewportWidth <= 0) return new Set();
+  let top = Math.max(0, viewportTop, bounds.top), bottom = Math.min(window.innerHeight, viewportTop + viewportHeight, bounds.bottom);
+  let left = Math.max(0, viewportLeft, bounds.left), right = Math.min(window.innerWidth, viewportLeft + viewportWidth, bounds.right);
   for (let parent = surface.parentElement; parent; parent = parent.parentElement) {
     const style = window.getComputedStyle(parent), rect = parent.getBoundingClientRect();
     if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) { top = Math.max(top, rect.top); bottom = Math.min(bottom, rect.bottom); }
@@ -18289,13 +18294,18 @@ registerAppEvent(window, "focus", () => {
   markActiveConversationRead().catch(() => {});
 }, undefined, "window:focus:conversation-read");
 let conversationReadTimer = 0;
-registerAppEvent(document, "scroll", () => {
+function scheduleConversationRead() {
   if (conversationReadTimer) return;
   conversationReadTimer = window.setTimeout(() => {
     conversationReadTimer = 0;
     markActiveConversationRead().catch(() => {});
   }, 160);
-}, { capture: true, passive: true }, "document:scroll:conversation-read");
+}
+registerAppEvent(document, "scroll", scheduleConversationRead, { capture: true, passive: true }, "document:scroll:conversation-read");
+if (window.visualViewport?.addEventListener) {
+  registerAppEvent(window.visualViewport, "resize", scheduleConversationRead, { passive: true }, "visualViewport:resize:conversation-read");
+  registerAppEvent(window.visualViewport, "scroll", scheduleConversationRead, { passive: true }, "visualViewport:scroll:conversation-read");
+}
 registerAppEvent(window, "pagehide", () => {
   markActiveSearchDemandNoClick();
   if (currentView === "home") {

@@ -3,7 +3,9 @@
 The operator asked to finish the agreed green-and-white chat experience before
 continuing the product specification from section 110 onward. The supplied
 reference has an isolated inbox, direct chats, a room thread and a Home entry
-back into the marketplace. The existing spec still has only a heading at 110.
+back into the marketplace. At this UI checkpoint the supplied spec had only a
+heading at 110. The operator supplied the full 110-238 continuation on 2026-10-05;
+see `conversations-product-roadmap.md` for its direct-first implementation order.
 
 ## Connected UI
 
@@ -68,4 +70,5 @@ come only from the existing authenticated inbox and history APIs.
 
 No production flags, secrets, schemas or server authorization policies change
 in this UI increment. Preview and operator design approval precede publishing
-this layout; section 110 requirements and independent crypto audit remain open.
+this layout. The 110-238 source is now supplied; independent crypto audit and
+the applicable foundation/product acceptance gates remain open.

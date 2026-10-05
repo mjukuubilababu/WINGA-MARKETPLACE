@@ -114,6 +114,73 @@ test('returning to foreground resumes read but a changed account cannot refresh 
   assert.equal(f.refreshes, 0);
 });
 
+test('read receipts use the mobile visual viewport, not the keyboard-covered layout viewport', async () => {
+  const f = receiptFixture();
+  f.context.window.visualViewport = { offsetTop: 200, offsetLeft: 30, height: 150, width: 200 };
+  const reached = [];
+  const bounds = [
+    ['visible', 230, 290, 50, 180],
+    ['above', 100, 180, 50, 180],
+    ['keyboard', 400, 480, 50, 180],
+    ['side', 230, 290, 250, 320],
+    ['sliver', 330, 410, 50, 180]
+  ];
+  f.surface.querySelectorAll = () => bounds.map(([id, top, bottom, left, right]) => ({
+    dataset: { messageBubbleId: id },
+    getBoundingClientRect: () => ({ top, bottom, left, right, height: bottom - top })
+  }));
+  f.context.currentMessages = bounds.map(([id]) => ({ id, receiverId: 'alice', senderId: 'bob', isRead: false }));
+  f.context.getMessageDeviceReceipts = () => ({ markRead: async (rows, visible) => {
+    reached.push(...rows.filter(row => visible(row.id)).map(row => row.id)); return true;
+  } });
+  await f.context.markActiveConversationRead();
+  assert.deepEqual(reached, ['visible']);
+});
+
+test('collapsed mobile visual viewport cannot acknowledge messages as read', async () => {
+  for (const dimension of ['width', 'height']) {
+    const f = receiptFixture();
+    f.context.window.visualViewport = { offsetTop: 0, offsetLeft: 0, width: 400, height: 600, [dimension]: 0 };
+    await f.context.markActiveConversationRead();
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('invalid visual viewport measurements fail closed', async () => {
+  for (const invalid of [NaN, Infinity, -1]) {
+    const f = receiptFixture();
+    f.context.window.visualViewport = { offsetTop: 0, offsetLeft: 0, width: 400, height: invalid };
+    await f.context.markActiveConversationRead();
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('mobile viewport events recheck Read after layout changes using one throttled timer', async () => {
+  const f = receiptFixture();
+  const listeners = new Map(), timers = [];
+  f.context.window.visualViewport = { offsetTop: 0, offsetLeft: 0, width: 400, height: 80, addEventListener() {} };
+  f.context.window.setTimeout = callback => { timers.push(callback); return timers.length; };
+  f.context.registerAppEvent = (target, type, listener) => listeners.set(`${target === f.context.document ? 'document' : 'viewport'}:${type}`, listener);
+  vm.runInContext(appSource.slice(appSource.indexOf('let conversationReadTimer = 0;'),
+    appSource.indexOf('registerAppEvent(window, "pagehide"')), f.context);
+  assert.deepEqual([...listeners.keys()], ['document:scroll', 'viewport:resize', 'viewport:scroll']);
+  await f.context.markActiveConversationRead();
+  assert.deepEqual(f.calls, []);
+  f.context.window.visualViewport.height = 600;
+  for (const listener of listeners.values()) listener();
+  assert.equal(timers.length, 1);
+  assert.deepEqual(f.calls, []);
+  timers.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.calls, ['bob']);
+  f.context.window.visualViewport.height = 80;
+  listeners.get('viewport:scroll')();
+  assert.equal(timers.length, 1);
+  timers.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(f.calls, ['bob']);
+});
+
 test('read sync clears only the acknowledged unread badge without replacing the conversation', async () => {
   for (const modal of [false, true]) {
     const f = receiptFixture();

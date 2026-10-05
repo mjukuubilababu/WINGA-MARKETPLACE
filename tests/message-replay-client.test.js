@@ -7,8 +7,14 @@ const vm = require("node:vm");
 function setup(fetchJson, reconcile = async () => {}) {
   const listeners = {};
   const timers = new Map();
+  const intervals = new Map();
   let current = true;
-  const context = { window: {}, URLSearchParams, setTimeout(fn) { const id = {}; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); } };
+  const context = { window: {}, URLSearchParams,
+    setTimeout(fn) { const id = {}; timers.set(id, fn); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    setInterval(fn) { const id = {}; intervals.set(id, fn); return id; },
+    clearInterval(id) { intervals.delete(id); }
+  };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/api/communications-client.js"), "utf8"), context);
   const client = context.window.WingaModules.api.communications.createCommunicationsApiClient({
     baseUrl: "/api", fetchJson,
@@ -16,9 +22,22 @@ function setup(fetchJson, reconcile = async () => {}) {
   });
   const state = { owner: "a", cursor: "old" };
   const channel = client.openRealtimeChannel({ replayState: state, reconcile, isCurrent: () => current });
-  return { state, channel, open: () => listeners.open(), changed: () => listeners.message_state_changed(), replayRequired: () => listeners.replay_required(), timers, switchUser() { current = false; } };
+  return { state, channel, open: () => listeners.open(), changed: () => listeners.message_state_changed(), replayRequired: () => listeners.replay_required(), timers, intervals, switchUser() { current = false; } };
 }
 const page = (cursor, extra = {}) => ({ version: 1, events: [], cursor, hasMore: false, ...extra });
+
+test("closing the SSE channel clears encrypted sync interval and refuses late timer work", async () => {
+  let requests = 0;
+  const app = setup(async () => { requests++; return page('head'); });
+  assert.equal(app.intervals.size, 1);
+  const lateTick = [...app.intervals.values()][0];
+  app.channel.close();
+  assert.equal(app.intervals.size, 0);
+  assert.equal(app.timers.size, 0);
+  await lateTick();
+  assert.equal(requests, 0);
+  assert.equal(app.state.cursor, 'old');
+});
 
 test("SSE open and reconnect checkpoint only after canonical reconciliation", async () => {
   let finish;

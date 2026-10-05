@@ -1,0 +1,2604 @@
+====================================================================
+110. AFTER FOUNDATION — FEATURE ROAD
+====================================================================
+
+Only after the Architecture & Security Foundation passes acceptance may
+Winga begin implementing the complete Conversations product.
+
+Recommended feature order:
+
+FOUNDATION ACCEPTED
+        ↓
+DIRECT CONVERSATIONS
+        ↓
+UNIVERSAL INBOX
+        ↓
+RICH MESSAGE TYPES
+        ↓
+VOICE / MEDIA
+        ↓
+COMMERCE CARDS
+        ↓
+MESSAGE REQUESTS / SAFETY
+        ↓
+SHOPPING ROOMS
+        ↓
+COLLABORATIVE COMMERCE
+        ↓
+PRIVACY-COMPATIBLE INTELLIGENCE
+        ↓
+GLOBAL / MULTI-REGION EVOLUTION
+
+Do not implement all stages as one giant change.
+
+Each stage must become stable before the next major layer depends on it.
+
+====================================================================
+111. DIRECT CONVERSATIONS FIRST
+====================================================================
+
+The first user-facing messaging capability should be reliable direct
+Person-to-Person conversation.
+
+Do NOT begin with Shopping Rooms.
+
+Direct Conversations validate:
+
+- message transport
+- durable persistence
+- E2EE
+- message ordering
+- retries
+- reconnect/resume
+- multi-device
+- unread state
+- delivery/read semantics
+- media
+- notification behavior
+
+before group complexity is introduced.
+
+====================================================================
+112. PERSON → PERSON MODEL
+====================================================================
+
+Winga Conversations must not permanently model communication as:
+
+Buyer → Seller
+
+Use:
+
+Person/User → Person/User
+
+A Winga account may simultaneously be:
+
+- buyer
+- seller
+- creator
+- curator
+- business operator
+- room participant
+
+Conversation identity should remain independent of commerce role.
+
+Commerce context explains WHY people are talking.
+
+====================================================================
+113. CANONICAL DIRECT CONVERSATION
+====================================================================
+
+Direct conversation should have one stable canonical identity.
+
+Conceptual:
+
+DirectConversation
+
+- conversationId
+- participantUserA
+- participantUserB
+- createdAt
+- lastActivityAt
+- status
+
+Avoid duplicate direct threads between the same canonical participants
+unless explicit business requirements justify separate contexts.
+
+If existing Winga messaging already permits multiple threads per product,
+audit that behavior before migration.
+
+Do not silently destroy historical semantics.
+
+====================================================================
+114. UNIVERSAL INBOX
+====================================================================
+
+The messaging destination should become:
+
+INBOX
+
+not:
+
+"Buyer/Seller Chat"
+
+The Inbox should eventually contain:
+
+- direct conversations
+- Shopping Rooms
+- message requests
+- order-related conversations
+- business conversations
+
+using one coherent navigation model.
+
+====================================================================
+115. INBOX SUMMARY CONTRACT
+====================================================================
+
+Inbox should load conversation summaries, NOT entire message histories.
+
+Conceptual:
+
+ConversationSummary
+
+- conversationId
+- conversationType
+- participant/room identity
+- lastMessagePreview
+- lastActivityAt
+- unreadCount
+- contextPreview
+- muted
+- archived
+- requestState
+
+This allows Inbox to scale independently from full conversation history.
+
+====================================================================
+116. INBOX ORDERING
+====================================================================
+
+Default:
+
+lastActivityAt DESC
+
+New valid message/activity should move the conversation toward the top.
+
+Do not order active conversations only by creation date.
+
+System events that should NOT bump a conversation must be explicitly
+classified.
+
+====================================================================
+117. INBOX PAGINATION
+====================================================================
+
+Do not load every conversation at once.
+
+Use cursor-based pagination.
+
+Requirements:
+
+- stable ordering
+- no duplicates
+- no skipped conversations
+- refresh-safe
+- new-message-safe
+
+Large accounts must remain usable with:
+
+10
+100
+1,000
+10,000+
+
+conversations.
+
+====================================================================
+118. CONVERSATION HISTORY PAGINATION
+====================================================================
+
+Opening a conversation should load a recent window.
+
+Older messages load progressively when the user scrolls upward.
+
+Do not fetch complete conversation history by default.
+
+Cursor/history semantics must remain compatible with:
+
+- E2EE
+- multi-device
+- deleted/edited events
+- replies
+- reactions
+
+====================================================================
+119. UNREAD MODEL
+====================================================================
+
+Unread state must be canonical and multi-device aware.
+
+Do not define unread only as:
+
+"UI badge stored locally."
+
+Track per-user/read position as appropriate.
+
+Example conceptual model:
+
+lastReadSequence
+
+Conversation sequence:
+1 ... 800
+
+User read through:
+762
+
+Messages after:
+763–800
+
+become unread according to message/event type rules.
+
+====================================================================
+120. DO NOT CLEAR UNREAD ON RENDER
+====================================================================
+
+Opening/rendering Inbox does not automatically mean messages were read.
+
+READ state should occur only when conversation/message visibility satisfies
+the defined product rule.
+
+Define this carefully.
+
+Do not create false read receipts.
+
+====================================================================
+121. MESSAGE REQUESTS
+====================================================================
+
+As Person-to-Person social messaging grows, unsolicited communication must
+be controlled.
+
+Support:
+
+REQUESTED
+ACCEPTED
+DECLINED
+BLOCKED
+
+A new/untrusted person may enter:
+
+Message Requests
+
+instead of the primary Inbox.
+
+Existing commerce interactions may have separate trusted-entry rules.
+
+Example:
+
+Buyer explicitly taps "Message Seller"
+
+may create an accepted commerce conversation according to policy.
+
+====================================================================
+122. REQUEST ANTI-SPAM
+====================================================================
+
+Limit abuse from:
+
+- mass unsolicited messages
+- bots
+- new accounts
+- repeated declined requests
+- blocked users
+- automation
+
+Use:
+
+rate limits
+reputation
+request quotas
+block/report signals
+
+without requiring plaintext surveillance.
+
+====================================================================
+123. BASIC MESSAGE TYPES
+====================================================================
+
+After reliable text messaging, progressively implement typed messages.
+
+Initial supported types may include:
+
+TEXT
+IMAGE
+VOICE
+VIDEO
+PRODUCT
+REEL
+SHORT
+COLLECTION
+LOCATION
+CONTACT
+SYSTEM_EVENT
+
+Future:
+
+ORDER
+PAYMENT_REQUEST
+DELIVERY
+POLL
+DOCUMENT
+
+Message schema must remain versioned.
+
+====================================================================
+124. TEXT MESSAGE CONTRACT
+====================================================================
+
+Text remains the simplest message type.
+
+Requirements:
+
+- UTF-8 / Unicode
+- multilingual text
+- emoji
+- line breaks
+- reasonable size limit
+- E2EE
+- reply support
+- edit/delete preparation
+- accessibility
+
+Do not allow unlimited message size.
+
+====================================================================
+125. LINKS
+====================================================================
+
+Links in private messages should be treated safely.
+
+Consider:
+
+- URL validation
+- malicious link warning
+- phishing controls
+- safe rendering
+
+Do not send private message plaintext to external preview providers without
+explicit privacy design.
+
+Server-side unfurling may conflict with E2EE.
+
+====================================================================
+126. REPLIES
+====================================================================
+
+Implement structured reply relationship:
+
+replyToMessageId
+
+The encrypted payload may include user-visible quoted context.
+
+Server does not need plaintext quote.
+
+If referenced message is unavailable:
+
+show graceful fallback.
+
+Do not break conversation rendering.
+
+====================================================================
+127. REACTIONS
+====================================================================
+
+Implement reactions as structured events related to a message.
+
+Examples:
+
+❤️
+👍
+😂
+🔥
+
+Do not create a normal text message for every reaction.
+
+Reaction state must reconcile across devices.
+
+====================================================================
+128. MESSAGE EDITING
+====================================================================
+
+If editing is enabled:
+
+represent edit as an explicit versioned event.
+
+Requirements:
+
+- original message identity remains stable
+- authorized sender only
+- devices reconcile same final version
+- edit indicator shown
+- server cannot require plaintext
+
+Define editing window/policy separately.
+
+====================================================================
+129. MESSAGE DELETION
+====================================================================
+
+Support semantics such as:
+
+DELETE FOR ME
+
+and optionally:
+
+DELETE FOR EVERYONE
+
+Understand limitations:
+
+a recipient device may already have decrypted/read/copied content.
+
+Do not promise cryptographic erasure from another person's device.
+
+Deletion is an application-level synchronization request.
+
+====================================================================
+130. VOICE MESSAGES
+====================================================================
+
+Voice should become a first-class Winga Conversations feature.
+
+Reasons:
+
+- mobile-first usage
+- accessibility
+- multilingual markets
+- low typing comfort
+- natural commerce conversation
+
+Required UX:
+
+Record
+↓
+Preview / Cancel
+↓
+Encrypt
+↓
+Upload
+↓
+Send reference
+↓
+Reliable playback
+
+====================================================================
+131. VOICE RELIABILITY
+====================================================================
+
+Recorded voice must not disappear because upload temporarily fails.
+
+Support:
+
+- local temporary persistence
+- upload progress
+- retry
+- resume where feasible
+- FAILED state
+- manual retry
+
+Only clear local source when safe under product policy.
+
+====================================================================
+132. VOICE PLAYBACK
+====================================================================
+
+Support efficient:
+
+- duration
+- play/pause
+- progress
+- playback speed future
+- waveform optional
+
+Do not download enormous files unnecessarily.
+
+Encrypted media should remain compatible with streaming/chunked playback
+where protocol/storage design permits.
+
+====================================================================
+133. VOICE TRANSCRIPTION
+====================================================================
+
+Transcription is OPTIONAL intelligence.
+
+Messaging must work without it.
+
+Future options:
+
+- on-device transcription
+- user-triggered privacy-aware processing
+
+Do not silently send private voice to external AI services.
+
+====================================================================
+134. IMAGES
+====================================================================
+
+Private image messaging must reuse encrypted-media foundation.
+
+Support:
+
+- encrypted upload
+- optimized local preview
+- retry
+- download
+- full view
+- integrity verification
+
+Do not send private conversation images through public product-media
+processing paths accidentally.
+
+====================================================================
+135. PRIVATE VIDEO
+====================================================================
+
+Private video messages should remain encrypted end-to-end.
+
+Do not confuse:
+
+Winga public Reels/Shorts streaming
+
+with:
+
+private encrypted conversation video.
+
+The public video pipeline may use server-side transcoding.
+
+Private E2EE video requires separate security-compatible design.
+
+====================================================================
+136. PUBLIC VIDEO SHARING
+====================================================================
+
+A public Reel/Short may be shared inside a private conversation using a
+typed reference.
+
+Example:
+
+encrypted payload:
+reelId = ABC
+
+Client retrieves the public Reel through canonical Winga video service.
+
+Do not duplicate video asset inside chat unless user explicitly sends a
+private copy.
+
+====================================================================
+137. PRODUCT CARDS — CORE COMMERCE FEATURE
+====================================================================
+
+Product sharing should be native.
+
+Do not rely only on plain URLs.
+
+A shared product appears as a structured card:
+
+┌──────────────────────────────┐
+│ Product Image                │
+│                              │
+│ Black Dress                  │
+│ TSh 45,000                   │
+│                              │
+│ [View] [Save] [Add to Order] │
+└──────────────────────────────┘
+
+Message securely references:
+
+productId
+
+Canonical Product service remains authoritative.
+
+====================================================================
+138. LIVE PRODUCT STATE
+====================================================================
+
+Product Card should reflect current relevant commerce state.
+
+Examples:
+
+AVAILABLE
+LOW STOCK
+SOLD OUT
+RESTOCKED
+PRICE CHANGED
+REMOVED
+
+Do not preserve misleading stale availability forever.
+
+Where historical context matters, separately preserve:
+
+state/price at share time
+
+from:
+
+current state.
+
+====================================================================
+139. ORDER CARDS
+====================================================================
+
+Conversation may reference canonical Order.
+
+Example:
+
+ORDER #1234
+
+Black Dress
+Size M
+Qty 1
+
+TSh 45,000
+
+Status:
+Pending Payment
+
+[View Order]
+
+Order state remains owned by Order Service.
+
+Conversation only renders/references it.
+
+====================================================================
+140. PAYMENT REQUEST CARDS
+====================================================================
+
+Payment Request must reference canonical Payment infrastructure.
+
+Never trust client-rendered amount.
+
+Conceptual:
+
+paymentRequestId
+↓
+Payment Service
+↓
+authorized current state
+
+Conversation may display:
+
+amount
+currency
+purpose
+status
+Pay action
+
+but cannot independently create financial truth.
+
+====================================================================
+141. DELIVERY CARDS
+====================================================================
+
+Delivery state may appear in conversation:
+
+Preparing
+Dispatched
+Out for Delivery
+Delivered
+
+Use canonical Delivery system.
+
+Do not duplicate delivery lifecycle inside Conversations database.
+
+====================================================================
+142. CONVERSATION → ACTION
+====================================================================
+
+Winga Conversations should solve problems, not merely transport text.
+
+Possible contextual actions:
+
+- View Product
+- Save Product
+- Add to Order
+- Create Order
+- Make Offer future
+- Request Payment
+- Reserve Product
+- Request Restock
+- Share Location
+- Schedule Delivery
+- Compare Products
+- Start Shopping Room
+
+Actions must call canonical Winga services.
+
+====================================================================
+143. NATURAL CHAT FIRST
+====================================================================
+
+Commerce tools must not make conversation feel like a form.
+
+Users must still be able to:
+
+- talk naturally
+- joke
+- react
+- send voice
+- send media
+- discuss products
+
+Structured actions appear when useful.
+
+Conversation remains human.
+
+====================================================================
+144. CONVERSATION CONTEXT
+====================================================================
+
+A conversation may have contextual origin:
+
+PRODUCT
+REEL
+SHORT
+COLLECTION
+ORDER
+GENERAL
+OTHER
+
+Context is not necessarily the same as conversation identity.
+
+Do not create a brand-new conversation every time the same two people share
+another product unless product requirements explicitly require it.
+
+====================================================================
+145. SMART CONTEXT — FUTURE
+====================================================================
+
+Future Conversations may maintain structured problem-solving context.
+
+Example:
+
+Product: Dress
+Color: Black
+Size: XL
+Budget: ≤ 80,000
+Location Preference: Dar
+Status: Looking
+
+But this intelligence must respect E2EE.
+
+Do not implement server plaintext extraction as a shortcut.
+
+====================================================================
+146. SMART CONTEXT PROVENANCE
+====================================================================
+
+Future structured context should track:
+
+field
+value
+sourceMessageId
+confidence
+confirmed
+updatedAt
+
+Example:
+
+size = XL
+source = message ABC
+confirmed = true
+
+Do not treat AI-inferred data as confirmed transaction truth.
+
+====================================================================
+147. USER CORRECTION
+====================================================================
+
+If smart context is shown:
+
+user must be able to correct it.
+
+Example:
+
+Size:
+XL  [Edit]
+
+AI/system memory must not trap users inside an incorrect inference.
+
+====================================================================
+148. TRANSLATION
+====================================================================
+
+Future Winga Conversations should support language translation.
+
+Example:
+
+Sender:
+Swahili
+
+Recipient:
+French
+
+Recipient may tap:
+
+Translate
+
+Original remains canonical.
+
+Show:
+
+See Original
+
+Translation is derived representation.
+
+====================================================================
+149. AUTO-TRANSLATION FUTURE
+====================================================================
+
+User may later enable:
+
+Automatically translate incoming messages.
+
+This must remain privacy-compatible.
+
+Do not silently weaken E2EE.
+
+====================================================================
+150. UNIVERSAL COMPOSER
+====================================================================
+
+Keep composer simple.
+
+Example:
+
+[ + ] [ Write a message... ] [camera] [send]
+
+The + menu may expose:
+
+Photo
+Voice
+Product
+Reel/Short
+Location
+Contact
+Document future
+
+Do not place ten permanent buttons around the text input.
+
+====================================================================
+151. CONVERSATION HEADER
+====================================================================
+
+Direct conversation header may show:
+
+Back
+Avatar
+Display Name
+Verified indicator where applicable
+Status/presence if permitted
+Menu
+
+Avoid exposing internal user IDs.
+
+====================================================================
+152. IDENTITY FALLBACK
+====================================================================
+
+If a user lacks a display name:
+
+use a human-safe fallback.
+
+Do not expose:
+
+buyer-1782938472398-abcd
+
+as primary consumer identity.
+
+Internal identifiers must remain internal.
+
+====================================================================
+153. VERIFIED IDENTITY
+====================================================================
+
+Verification badge must reflect canonical Winga verification/business trust
+system.
+
+Do not derive verification from messaging activity.
+
+Server-side verification truth is authoritative.
+
+====================================================================
+154. CONVERSATION MENU
+====================================================================
+
+Possible actions:
+
+View Profile
+Mute
+Archive
+Mark Unread
+Block
+Report
+
+Future:
+
+Search Conversation
+Export where applicable
+
+Permissions and state are server-enforced.
+
+====================================================================
+155. ARCHIVE
+====================================================================
+
+Archive removes conversation from primary Inbox presentation.
+
+It does NOT delete history.
+
+If a new accepted message arrives, policy may return the conversation to
+Inbox.
+
+Define behavior explicitly.
+
+====================================================================
+156. MUTE
+====================================================================
+
+Mute controls notifications.
+
+It does NOT stop message delivery.
+
+Possible durations:
+
+1 hour
+8 hours
+1 week
+Until changed
+
+Do not make muted conversations invisible.
+
+====================================================================
+157. BLOCK
+====================================================================
+
+Blocking must be authoritative.
+
+Blocked person must not bypass block through:
+
+- reconnect
+- stale device session
+- alternate messaging endpoint
+- direct API invocation
+
+Define separate group-room behavior.
+
+====================================================================
+158. REPORT
+====================================================================
+
+User may report:
+
+- user
+- message
+- media
+- conversation
+
+With E2EE, report is explicit selective disclosure.
+
+Explain what will be shared for moderation.
+
+====================================================================
+159. SAFETY WITHOUT UNIVERSAL DECRYPTION
+====================================================================
+
+Moderation architecture must not depend on Winga possessing a master
+decryption key.
+
+Use:
+
+- user reports
+- metadata abuse detection
+- rate limits
+- reputation
+- block signals
+- device/account abuse indicators
+
+while preserving the E2EE contract.
+
+====================================================================
+160. NOTIFICATION STRATEGY
+====================================================================
+
+Notifications should be useful but privacy-safe.
+
+Possible default:
+
+Asha
+New message
+
+rather than full plaintext.
+
+User settings may control previews.
+
+Notification provider failure cannot invalidate message delivery.
+
+====================================================================
+161. NOTIFICATION DEDUPLICATION
+====================================================================
+
+A message delivered to multiple devices must not necessarily generate
+confusing duplicate push alerts.
+
+Define:
+
+active-device behavior
+foreground suppression
+multi-device dedupe
+notification replacement/grouping
+
+carefully.
+
+====================================================================
+162. MULTI-DEVICE EXPERIENCE
+====================================================================
+
+When user has:
+
+Phone
+Desktop
+Tablet
+
+actions should reconcile:
+
+- sent messages
+- received messages
+- reads
+- edits
+- deletes
+- reactions
+- archived state
+- mute state where account-level
+- room membership
+
+Avoid device-specific conversation divergence.
+
+====================================================================
+163. DEVICE HISTORY LIMITS
+====================================================================
+
+New device history access depends on the selected E2EE/recovery model.
+
+Do not promise:
+
+"Every new device always sees every historical message"
+
+unless cryptographic architecture safely supports it.
+
+Document exact behavior.
+
+====================================================================
+164. LOCAL CACHE
+====================================================================
+
+Client may retain local encrypted/decrypted cache for performance.
+
+Define:
+
+- encryption
+- eviction
+- storage limits
+- logout behavior
+- account switch behavior
+- OS backup implications
+
+Do not leave plaintext conversation history indefinitely in insecure storage.
+
+====================================================================
+165. MESSAGE SEARCH
+====================================================================
+
+Because server does not possess plaintext, message search should primarily be
+privacy-compatible.
+
+Preferred future direction:
+
+local/on-device index.
+
+Search may include:
+
+message text
+product references
+participants
+dates
+
+subject to local device data availability.
+
+====================================================================
+166. BUSINESS INBOX FUTURE
+====================================================================
+
+Seller/business accounts may eventually need:
+
+- shared Inbox
+- multiple staff
+- assignment
+- labels
+- business hours
+- canned replies
+- response analytics
+
+Do NOT build this during direct Conversations foundation unless required.
+
+Keep participant/endpoint architecture extensible.
+
+====================================================================
+167. STAFF ACCESS SECURITY
+====================================================================
+
+Future business staff must not automatically receive business-owner private
+history without explicit authorization model.
+
+Define roles/permissions.
+
+Do not share E2EE keys merely because a person is listed as staff.
+
+====================================================================
+168. CONVERSATION ANALYTICS
+====================================================================
+
+Operational analytics may track:
+
+conversation_started
+message_send_success
+message_send_failure
+conversation_open
+product_card_open
+order_action_started
+
+Do NOT include plaintext private message body in analytics.
+
+====================================================================
+169. PRIVACY-PRESERVING PRODUCT METRICS
+====================================================================
+
+Winga may measure aggregate product usage such as:
+
+message reliability
+feature adoption
+response latency
+
+without reading private content.
+
+Separate:
+
+product telemetry
+
+from:
+
+conversation content.
+
+====================================================================
+170. DIRECT CONVERSATION ACCEPTANCE GATE
+====================================================================
+
+Direct Conversations must NOT be declared complete until:
+
+- reliable send works
+- durable SENT semantics verified
+- duplicate retry suppressed
+- ordering correct
+- reconnect/resume works
+- offline queue works
+- E2EE works
+- device identity works
+- basic unread works
+- notification behavior works
+- block/report works
+- load tests pass
+- failure recovery passes
+
+Only then proceed to large group complexity.
+
+====================================================================
+171. SHOPPING ROOM IMPLEMENTATION GATE
+====================================================================
+
+Shopping Rooms begin only after Direct Conversations foundation is stable.
+
+Shopping Rooms must EXTEND:
+
+canonical Conversations
+
+not create:
+
+GroupChatV2
+or
+ShoppingMessaging2.
+
+Reuse:
+
+- messages
+- E2EE foundation
+- realtime plane
+- device model
+- media
+- notifications
+- blocking/reporting
+- event architecture
+
+====================================================================
+172. SHOPPING ROOM PURPOSE
+====================================================================
+
+Shopping Room is:
+
+a private shared decision space.
+
+It combines:
+
+NATURAL CONVERSATION
++
+STRUCTURED COMMERCE STATE
+
+People can:
+
+talk
+share products
+vote
+compare
+shortlist
+ask sellers
+make decisions
+order
+
+together.
+
+====================================================================
+173. SHOPPING ROOM STRUCTURE
+====================================================================
+
+Conceptual surfaces:
+
+CHAT
+PRODUCTS
+POLLS
+SHORTLIST
+ORDERS
+
+Messages remain chronological.
+
+Products/polls/shortlist must not become buried forever in message history.
+
+Structured room state remains separately queryable.
+
+====================================================================
+174. ROOM PRIVACY
+====================================================================
+
+Shopping Room is private by default.
+
+A seller whose product is shared:
+
+does NOT automatically gain room access.
+
+Seller may receive a structured request through:
+
+ASK SELLER
+
+without access to unrelated private room history.
+
+====================================================================
+175. ROOM MEMBERSHIP SECURITY
+====================================================================
+
+Membership changes must update:
+
+authorization
+realtime routing
+notifications
+E2EE group state
+
+Removed member must not receive future protected room content.
+
+Use the chosen group encryption protocol.
+
+====================================================================
+176. PERSISTENT PRODUCT BOARD
+====================================================================
+
+Every product intentionally shared to Room may also appear in the Room's
+Products surface.
+
+Do not force users to search old messages for products.
+
+Room Product references canonical:
+
+productId.
+
+====================================================================
+177. LIVE ROOM PRODUCT STATE
+====================================================================
+
+Room product may show:
+
+current price
+availability
+sold out
+restocked
+low stock
+
+while preserving historical share context where useful.
+
+Canonical Product service remains authoritative.
+
+====================================================================
+178. SHORTLIST
+====================================================================
+
+Room can maintain structured shortlist.
+
+Example:
+
+20 products shared
+↓
+8 shortlisted
+↓
+3 finalists
+↓
+1 selected
+
+Do not force every Room to use a formal funnel.
+
+It is assistance, not bureaucracy.
+
+====================================================================
+179. POLLS
+====================================================================
+
+Room members can create polls.
+
+Potential:
+
+Which dress?
+Which color?
+Which sofa?
+Which gift?
+
+Votes require server consistency.
+
+Poll state must integrate with group privacy/E2EE design.
+
+====================================================================
+180. PRODUCT COMPARISON
+====================================================================
+
+Allow comparison using canonical product attributes.
+
+Example:
+
+             Product A   Product B
+Price           65k         80k
+Votes            6           3
+Size            M/L         S/M/L
+Available        Yes         Low
+
+Do not invent missing data.
+
+====================================================================
+181. ASK SELLER
+====================================================================
+
+A Room may send structured question to seller.
+
+Example:
+
+"Can this sofa be made in cream?"
+
+Seller sees:
+
+necessary product/request context
+
+NOT:
+
+entire private Room.
+
+Response returns as structured Seller Response Card.
+
+====================================================================
+182. GROUP ORDER
+====================================================================
+
+Future Shopping Room may produce Group Order.
+
+Example:
+
+Black T-Shirt
+
+S   2
+M   5
+L   7
+XL  6
+
+Total 20
+
+Group Order must reference canonical Product/Order systems.
+
+Do not store order truth only in chat.
+
+====================================================================
+183. SHOPPING ROOM INTELLIGENCE
+====================================================================
+
+Future privacy-compatible intelligence may provide:
+
+Most liked
+Most voted
+Price dropped
+Low stock
+Restocked
+Common favorite
+Similar options
+
+Core Room must work without AI.
+
+====================================================================
+184. DECISION ASSISTANT
+====================================================================
+
+Future optional assistant may help answer:
+
+"What are our best three options?"
+
+based on structured/confirmed Room data.
+
+Do not make AI the authoritative buyer decision maker.
+
+Do not silently invent preferences.
+
+====================================================================
+185. ROOM SUMMARY
+====================================================================
+
+Future:
+
+Catch me up
+
+may summarize:
+
+- products added
+- polls
+- seller response
+- price changes
+- decisions
+
+This must follow E2EE privacy architecture.
+
+Messaging remains functional without summaries.
+
+====================================================================
+186. INVITATION LOOP
+====================================================================
+
+Shopping Room may become a healthy acquisition loop:
+
+Product
+↓
+Room
+↓
+Invite
+↓
+Friend participates
+↓
+Discovers Winga
+↓
+May create another Room
+
+Avoid spam/manipulative invitations.
+
+Utility drives growth.
+
+====================================================================
+187. NON-USER INVITATIONS
+====================================================================
+
+Future invite links may allow non-users to reach an onboarding boundary.
+
+Do not expose Room private content before authentication/authorization.
+
+Invite tokens must support:
+
+- expiry
+- revocation
+- limited scope
+- abuse protection
+
+====================================================================
+188. LARGE ROOM POLICY
+====================================================================
+
+Shopping Rooms should initially target small collaborative groups.
+
+Do not immediately optimize for public communities with millions of members.
+
+However:
+
+room size limits must be configuration-driven.
+
+Large-community messaging should be evaluated separately if product evolves.
+
+====================================================================
+189. PUBLIC COMMUNITY BOUNDARY
+====================================================================
+
+Do not automatically turn private Shopping Room architecture into:
+
+public Discord/Telegram-scale community architecture.
+
+Private collaborative commerce and massive broadcast communities have
+different:
+
+fan-out
+moderation
+privacy
+ranking
+storage
+
+requirements.
+
+Create a separate contract if Winga later enters that domain.
+
+====================================================================
+190. AI / INTELLIGENCE PRIVACY GATE
+====================================================================
+
+Before adding any Conversation AI feature, answer:
+
+Where does plaintext processing occur?
+
+Possible accepted models may include:
+
+ON_DEVICE
+
+USER_TRIGGERED EXPLICIT PROCESSING
+
+OTHER DOCUMENTED PRIVACY-PRESERVING MODEL
+
+Do not quietly send all conversations to central AI.
+
+====================================================================
+191. INTELLIGENCE FEATURE INVENTORY
+====================================================================
+
+Potential future features:
+
+- translation
+- transcription
+- conversation summary
+- suggested reply
+- structured commerce context
+- unresolved question detection
+- product comparison
+- seller response assistance
+- Shopping Room decision assistant
+
+Every feature must have its own privacy/data-flow review.
+
+====================================================================
+192. INTELLIGENCE FAILURE ISOLATION
+====================================================================
+
+If AI/translation/transcription fails:
+
+Messages still send.
+
+Messages still deliver.
+
+Conversation still opens.
+
+Shopping Rooms still work.
+
+AI is never part of durable message critical path.
+
+====================================================================
+193. GLOBALIZATION
+====================================================================
+
+Conversations must support:
+
+- Unicode
+- multilingual UI
+- RTL
+- locale-aware time
+- regional notification rules
+- multiple languages in one conversation
+
+Language does not change canonical user/message identity.
+
+====================================================================
+194. LOW-BANDWIDTH MODE
+====================================================================
+
+Prepare a data-conscious experience.
+
+Possible behaviors:
+
+- defer video download
+- lower media preview quality
+- manual media download
+- efficient voice
+- smaller image preview
+- reduced prefetch
+
+Text messaging must remain highly reliable on constrained networks.
+
+====================================================================
+195. ACCESSIBILITY
+====================================================================
+
+Support:
+
+- screen readers
+- keyboard navigation
+- adequate touch targets
+- voice-message accessibility
+- semantic message status
+- readable contrast
+- reduced-motion preferences
+
+Do not communicate state only by color.
+
+====================================================================
+196. PERFORMANCE PRIORITIES
+====================================================================
+
+Optimize in this order:
+
+1. message creation feels immediate
+2. durable SENT acknowledgement
+3. online delivery
+4. reconnect/resume
+5. conversation open
+6. media loading
+7. optional intelligence
+
+Do not make sending slower because optional UI metadata is expensive.
+
+====================================================================
+197. CONVERSATION OPEN SLO
+====================================================================
+
+Measure:
+
+Inbox Tap
+→ Conversation Shell Visible
+
+and:
+
+Conversation Open
+→ Recent Messages Usable
+
+Set SLOs from real production testing.
+
+Do not hide slow data behind large blocking spinners.
+
+====================================================================
+198. LOCAL-FIRST UX
+====================================================================
+
+Use local known state to render quickly where safe.
+
+Then reconcile with server.
+
+Example:
+
+open recent conversation
+↓
+show locally cached recent messages
+↓
+sync from last cursor
+↓
+reconcile
+
+Do not sacrifice correctness for speed.
+
+====================================================================
+199. CONFLICT RECONCILIATION
+====================================================================
+
+Multi-device/local-first architecture must define how to reconcile:
+
+- duplicate sends
+- edits
+- deletes
+- reactions
+- read positions
+- archive state
+
+Use deterministic server/event ordering.
+
+Do not use "last browser write wins" blindly.
+
+====================================================================
+200. PRODUCTION ROLLOUT
+====================================================================
+
+Roll Conversations out progressively.
+
+Recommended:
+
+Internal testing
+↓
+small test accounts
+↓
+controlled users
+↓
+small production percentage
+↓
+larger cohort
+↓
+full rollout
+
+Monitor:
+
+reliability
+latency
+duplicates
+message loss
+reconnect
+encryption errors
+crashes
+support reports
+
+====================================================================
+201. FEATURE FLAGS
+====================================================================
+
+Major Conversations capabilities should be independently controllable.
+
+Examples:
+
+conversationsEnabled
+e2eeEnabled only after security acceptance
+voiceEnabled
+mediaEnabled
+productCardsEnabled
+messageRequestsEnabled
+shoppingRoomsEnabled
+translationEnabled
+
+Do not expose insecure fallback to plaintext merely because E2EE fails.
+
+====================================================================
+202. SECURITY KILL SWITCHES
+====================================================================
+
+If a serious security defect is discovered:
+
+Winga must be able to:
+
+- block affected protocol version
+- disable compromised capability
+- require client upgrade
+- revoke affected device/session
+- suspend risky media/action type
+
+without disabling unrelated marketplace systems.
+
+====================================================================
+203. NO PLAINTEXT FALLBACK
+====================================================================
+
+If secure messaging initialization fails:
+
+do NOT silently send the message unencrypted.
+
+Fail visibly and safely.
+
+Example:
+
+"Secure messaging unavailable. Retry."
+
+Security downgrade must never be invisible.
+
+====================================================================
+204. MIGRATION FROM LEGACY MESSAGING
+====================================================================
+
+If Winga currently contains legacy messaging data:
+
+audit it.
+
+Classify:
+
+- active conversation
+- historical message
+- duplicate conversation
+- malformed/incomplete state
+- obsolete implementation
+
+Do not automatically rewrite/delete old history.
+
+Create an explicit migration/compatibility plan.
+
+====================================================================
+205. LEGACY PLAINTEXT HISTORY
+====================================================================
+
+If historical Winga messages were not E2EE:
+
+do not relabel them as end-to-end encrypted retroactively.
+
+UI/security documentation must distinguish historical security state if
+necessary.
+
+New secure conversations/messages follow the new contract.
+
+====================================================================
+206. LEGACY → SECURE TRANSITION
+====================================================================
+
+Potential transition:
+
+Legacy Conversation
+↓
+Secure Messaging Upgrade
+↓
+Security Event
+↓
+New messages use E2EE
+
+Exact UX depends on repository reality and selected protocol.
+
+Do not invent migration before auditing actual legacy implementation.
+
+====================================================================
+207. DATABASE MIGRATION SAFETY
+====================================================================
+
+Use staged migrations:
+
+expand
+↓
+dual-compatible release where needed
+↓
+backfill
+↓
+switch canonical reads/writes
+↓
+validate
+↓
+remove legacy path later
+
+Avoid giant destructive migration.
+
+====================================================================
+208. OBSERVABILITY DASHBOARD
+====================================================================
+
+Create a dedicated Winga Conversations operational dashboard.
+
+At minimum:
+
+Connections
+Message Accept Rate
+Persistence Latency
+Delivery Latency
+Reconnect Rate
+Resume Success
+Duplicate Suppression
+Encryption/Protocol Errors
+Queue Pressure
+BEAM Memory
+Scheduler Utilization
+Database Pool
+Media Failures
+
+Operators must know messaging health without reading message content.
+
+====================================================================
+209. USER-CENTRIC RELIABILITY METRICS
+====================================================================
+
+Also measure:
+
+percentage of sends reaching SENT
+
+percentage reaching DELIVERED
+
+message send retry success
+
+conversation sync success
+
+offline send success
+
+multi-device sync delay
+
+Do not only monitor server CPU.
+
+====================================================================
+210. MESSAGE LOSS INVARIANT
+====================================================================
+
+After durable SENT acknowledgement:
+
+Winga must treat silent message loss as a critical correctness failure.
+
+Any scenario where:
+
+SENT
+but
+canonical durable message disappears
+
+must trigger investigation.
+
+====================================================================
+211. DUPLICATE INVARIANT
+====================================================================
+
+One logical clientMessageId:
+
+must map to one canonical message.
+
+Retries, reconnects and mobile network changes must not produce duplicate
+messages.
+
+====================================================================
+212. ORDERING INVARIANT
+====================================================================
+
+All authorized devices must eventually converge on the same canonical
+conversation ordering.
+
+Temporary optimistic differences may exist.
+
+Permanent divergent ordering is not acceptable.
+
+====================================================================
+213. AUTHORIZATION INVARIANT
+====================================================================
+
+No unauthorized user/device may fetch:
+
+conversation ciphertext
+attachment ciphertext/reference
+room state
+delivery state
+
+merely by guessing identifiers.
+
+Every fetch/action requires authorization.
+
+====================================================================
+214. ENCRYPTION INVARIANT
+====================================================================
+
+For content classified as private E2EE conversation content:
+
+Winga backend must not require plaintext in normal operation.
+
+Exceptions require:
+
+explicit documented user action
+
+or separately defined safety/legal mechanism consistent with the security
+contract.
+
+====================================================================
+215. DEVICE INVARIANT
+====================================================================
+
+A revoked device must not receive future protected conversation content.
+
+Revocation must affect:
+
+authentication
+routing
+cryptographic membership
+
+as required by the chosen protocol.
+
+====================================================================
+216. ROOM MEMBERSHIP INVARIANT
+====================================================================
+
+Only authorized current members may receive new Shopping Room protected
+content.
+
+Removed members retain only what they legitimately possessed before removal.
+
+Do not promise erasure from their existing devices.
+
+====================================================================
+217. COMMERCE AUTHORITY INVARIANT
+====================================================================
+
+Conversations never become canonical truth for:
+
+product
+inventory
+order
+payment
+delivery
+
+Conversation cards reference those systems.
+
+====================================================================
+218. OPTIONAL-SERVICE INVARIANT
+====================================================================
+
+Failure of:
+
+AI
+translation
+transcription
+notifications
+presence
+typing
+analytics
+
+must not invalidate durable message sending.
+
+====================================================================
+219. PRIVACY INVARIANT
+====================================================================
+
+Private message content must not appear in:
+
+ordinary logs
+analytics payloads
+traces
+push provider payloads by default
+advertising systems
+marketplace intelligence
+
+without explicit privacy-compatible design.
+
+====================================================================
+220. PERFORMANCE INVARIANT
+====================================================================
+
+Optional enrichment must not sit before durable message acceptance.
+
+Correct critical path:
+
+create
+↓
+encrypt
+↓
+authenticate/authorize
+↓
+persist
+↓
+SENT
+↓
+fan-out
+
+not:
+
+create
+↓
+AI
+↓
+translation
+↓
+analytics
+↓
+recommendation
+↓
+finally persist.
+
+====================================================================
+221. FAILURE INVARIANT
+====================================================================
+
+Process/node/network failure must be expected.
+
+Recovery must be automatic where practical.
+
+A routine transient failure should not require user to manually reconstruct
+conversation state.
+
+====================================================================
+222. TEST SUITE — DIRECT MESSAGING
+====================================================================
+
+Required tests include:
+
+send text
+
+offline send
+
+retry
+
+duplicate retry
+
+recipient offline
+
+recipient online
+
+reconnect
+
+resume after missed messages
+
+multi-device sender
+
+multi-device recipient
+
+read receipt
+
+device revoke
+
+block
+
+message request
+
+media failure
+
+database temporary failure
+
+BEAM node failure.
+
+====================================================================
+223. TEST SUITE — E2EE
+====================================================================
+
+Test:
+
+unauthorized server cannot read plaintext
+
+recipient device can decrypt
+
+wrong device cannot decrypt
+
+revoked device cannot receive future content
+
+key change behavior
+
+replay handling
+
+protocol version mismatch
+
+attachment encryption
+
+attachment tamper detection
+
+multi-device key handling
+
+group membership changes.
+
+====================================================================
+224. TEST SUITE — SHOPPING ROOMS
+====================================================================
+
+Later, verify:
+
+room creation
+
+member add
+
+member removal
+
+group key/state transition
+
+message fan-out
+
+product board
+
+poll consistency
+
+shortlist
+
+Ask Seller privacy boundary
+
+seller response
+
+group order references
+
+room mute
+
+leave room
+
+blocked-member edge cases.
+
+====================================================================
+225. SECURITY TESTING
+====================================================================
+
+Run:
+
+static analysis
+dependency scanning
+fuzzing where applicable
+C/C++ sanitizers
+API authorization tests
+WebSocket abuse tests
+malformed payload tests
+replay tests
+rate-limit tests
+attachment tampering tests
+
+before production approval.
+
+====================================================================
+226. LOAD TEST ACCEPTANCE
+====================================================================
+
+Do not claim:
+
+"supports millions"
+
+from architecture diagrams.
+
+Establish:
+
+connections per node
+
+RAM per connection
+
+messages/sec per node
+
+DB persistence throughput
+
+fan-out capacity
+
+reconnect storm behavior
+
+through measured tests.
+
+Scale targets come from evidence.
+
+====================================================================
+227. SECURITY AUDIT GATE
+====================================================================
+
+Before public E2EE claim:
+
+complete dedicated security review.
+
+For high-confidence launch:
+
+plan independent external review of:
+
+protocol integration
+native crypto core
+device lifecycle
+recovery
+attachments
+multi-device
+group security.
+
+====================================================================
+228. PRODUCT ACCEPTANCE GATE
+====================================================================
+
+Winga Conversations V1 is acceptable only when:
+
+- send feels immediate
+- SENT means durable
+- no known message-loss path
+- retries do not duplicate
+- ordering converges
+- reconnect works
+- offline send works
+- E2EE path is valid
+- attachments preserve privacy
+- Inbox is usable
+- unread works
+- Product Cards work
+- notifications are privacy-safe
+- block/report works
+- monitoring exists
+- failure tests pass.
+
+====================================================================
+229. FOUNDATION → PRODUCT HANDOFF
+====================================================================
+
+When #228 passes:
+
+mark:
+
+WINGA CONVERSATIONS FOUNDATION
+=
+PRODUCTION ACCEPTED
+
+Then feature development may accelerate.
+
+Do NOT reopen foundational invariants casually.
+
+Any proposed change to:
+
+ACK semantics
+message identity
+E2EE
+device model
+ordering
+storage boundary
+authorization
+protocol
+
+requires architecture review.
+
+====================================================================
+230. FINAL PRODUCT PRINCIPLE
+====================================================================
+
+Winga Conversations is not intended to become:
+
+"just another chat box."
+
+It should become a reliable communication layer that helps people:
+
+TALK
+↓
+UNDERSTAND
+↓
+DECIDE
+↓
+ACT
+
+and allows communication to naturally connect with commerce.
+
+But reliability and privacy come before novelty.
+
+====================================================================
+231. FINAL SECURITY PRINCIPLE
+====================================================================
+
+Winga should earn trust through architecture, not slogans.
+
+Never claim:
+
+secure
+private
+end-to-end encrypted
+reliable
+
+unless the production implementation and tests support those claims.
+
+====================================================================
+232. FINAL SCALABILITY PRINCIPLE
+====================================================================
+
+Design for millions.
+
+Deploy for current reality.
+
+Measure.
+
+Scale horizontally as evidence requires.
+
+Do not spend for hypothetical global load today.
+
+Do not make architectural decisions today that prevent global scale
+tomorrow.
+
+====================================================================
+233. FINAL COMMERCE PRINCIPLE
+====================================================================
+
+Conversation should remove friction between:
+
+interest
+question
+decision
+order
+payment
+delivery
+
+without duplicating canonical commerce systems.
+
+Winga Conversations becomes the communication layer through which those
+systems can be reached.
+
+====================================================================
+234. FINAL SHOPPING ROOM PRINCIPLE
+====================================================================
+
+Shopping Room is not:
+
+"group chat with product links."
+
+It is:
+
+a private collaborative decision environment combining:
+
+conversation
+products
+people
+polls
+shortlists
+seller interaction
+commerce actions.
+
+It must remain natural to use even when nobody buys anything.
+
+====================================================================
+235. FINAL AI PRINCIPLE
+====================================================================
+
+AI assists.
+
+AI does not own communication.
+
+AI does not become transactional truth.
+
+AI does not require silently reading every private conversation.
+
+Winga Conversations must remain useful when AI is unavailable.
+
+====================================================================
+236. FINAL INVARIANTS
+====================================================================
+
+The following are frozen:
+
+INVARIANT 1:
+SENT means durable acceptance.
+
+INVARIANT 2:
+Same clientMessageId cannot create multiple canonical messages.
+
+INVARIANT 3:
+Canonical ordering is server-controlled and deterministic.
+
+INVARIANT 4:
+Reconnect/resume must recover missed events.
+
+INVARIANT 5:
+Private message content follows the selected E2EE protocol.
+
+INVARIANT 6:
+Server does not hold a universal plaintext decryption capability.
+
+INVARIANT 7:
+BEAM owns realtime coordination, not unrelated Winga business logic.
+
+INVARIANT 8:
+Durable communication state survives BEAM process/node failure.
+
+INVARIANT 9:
+Commerce services remain canonical for commerce truth.
+
+INVARIANT 10:
+Shopping Rooms extend Conversations; they do not create a second chat
+architecture.
+
+INVARIANT 11:
+Optional intelligence cannot block durable messaging.
+
+INVARIANT 12:
+Private conversation data cannot silently become Ads/Marketplace
+Intelligence input.
+
+INVARIANT 13:
+Device revocation prevents future protected delivery to that device.
+
+INVARIANT 14:
+No plaintext security downgrade occurs silently.
+
+INVARIANT 15:
+Accepted messages must never be silently lost.
+
+====================================================================
+237. DEFINITION OF DONE — CONTRACT v1.0
+====================================================================
+
+This Architecture & Security Contract is considered implemented only when:
+
+A. BOUNDARY
+- Conversations exists as a bounded Winga subsystem
+- unrelated Winga systems remain outside BEAM
+
+B. REALTIME
+- authenticated realtime connection exists
+- reconnect/resume works
+- horizontal scaling boundary is defined/tested
+- backpressure exists
+- observability exists
+
+C. RELIABILITY
+- durable ACK implemented
+- idempotency implemented
+- deterministic ordering implemented
+- offline send implemented
+- duplicate suppression verified
+- failure recovery verified
+
+D. SECURITY
+- established E2EE protocol selected
+- no custom cryptographic primitives
+- device identity implemented
+- key lifecycle implemented
+- protocol downgrade protection implemented
+- secure local storage reviewed
+
+E. MEDIA
+- private attachments encrypted
+- integrity checked
+- storage boundary defined
+- retry behavior implemented
+
+F. MULTI-DEVICE
+- device registration
+- device revocation
+- synchronization
+- security notification
+- recovery semantics
+
+G. SAFETY
+- block
+- report
+- rate limiting
+- abuse controls
+- privacy-safe logging
+
+H. OPERATIONS
+- metrics
+- alerts
+- load testing
+- soak testing
+- failure/chaos testing
+- backup/recovery of durable server state
+- deployment/runbook
+
+I. SECURITY ACCEPTANCE
+- threat model completed
+- implementation reviewed
+- no false E2EE claim
+- external audit plan defined where appropriate
+
+J. HANDOFF
+- Winga Conversations Product Spec may begin
+- Shopping Room implementation remains a later dependent phase
+
+====================================================================
+238. CONTRACT STATUS AFTER ACCEPTANCE
+====================================================================
+
+Once all applicable Definition of Done gates pass:
+
+STATUS:
+
+WINGA CONVERSATIONS
+ARCHITECTURE & SECURITY CONTRACT v1.0
+
+FOUNDATION:
+IMPLEMENTED
+
+REALTIME:
+VERIFIED
+
+DURABILITY:
+VERIFIED
+
+E2EE:
+VERIFIED
+
+MULTI-DEVICE:
+VERIFIED
+
+FAILURE RECOVERY:
+VERIFIED
+
+SCALABILITY BASELINE:
+MEASURED
+
+SECURITY REVIEW:
+COMPLETED / DOCUMENTED
+
+READY FOR:
+WINGA CONVERSATIONS PRODUCT IMPLEMENTATION
+
+====================================================================
+END OF CONTRACT
+====================================================================
+
+NEXT DOCUMENT:
+
+WINGA CONVERSATIONS
+PRODUCT & EXPERIENCE SPECIFICATION v1
+
+followed by:
+
+WINGA SHOPPING ROOMS
+COLLABORATIVE COMMERCE SPECIFICATION v1

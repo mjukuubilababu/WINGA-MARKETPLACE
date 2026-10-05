@@ -5,7 +5,17 @@ Date: 2026-10-02. Original contract: ARCHITECTURE & SECURITY CONTRACT v1.0.
 The original supplied specification is [spec 0-109](winga-conversations-spec-0-109.txt).
 It contains every section from 0 through 109 exactly once, followed by the
 original heading `110. AFTER FOUNDATION - FEATURE ROAD` (an em dash in the source).
-Section 110 has no supplied body. Requirements for 110 onward have not been invented.
+That original attachment has only the heading at 110. On 2026-10-05 the operator
+supplied [sections 110-238](winga-conversations-spec-110-238.txt), including the
+complete section 110 body and the end of the contract. The new text matches the
+attachment after newline normalization; its 129 section headings are contiguous.
+The original 0-109 source has not been rewritten.
+
+The [current execution plan](conversations-product-roadmap.md) follows that
+contract's direct-first order. Evidence below is the historical 2026-10-02
+checkpoint, not a current claim that the subsequently integrated E2EE runtime
+is absent or disabled. See [encrypted chat acceptance](encrypted-chat-acceptance-20261004.md)
+and [the deployed UI record](conversations-ui-20261004.md) for later evidence.
 
 This handoff completes the source restoration and current evidence update. It
 does **not** declare the full foundation accepted. Transport tests passing does

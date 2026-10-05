@@ -136,6 +136,27 @@ test('mobile composer stays in the reduced keyboard viewport',async({page})=>{
   expect(await page.locator('.messages-thread-head').evaluate(node=>node.getBoundingClientRect().top)).toBeGreaterThanOrEqual(20);
 });
 
+test('actual Read visibility guard excludes keyboard-covered messages without changing the approved UI',async({page})=>{
+  await openChatUi(page);
+  await page.locator('[data-conversation-user="rey"]').click();
+  await page.bringToFront();
+  const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
+  await page.addScriptTag({content:'var currentUser="alice",currentView="profile",chatUiState={activeContext:{withUser:"rey"},isContextOpen:false};\n'+source.slice(source.indexOf('function isActiveConversationVisible()'),source.indexOf('async function markActiveConversationRead()'))});
+  const before=await page.evaluate(()=>[...visibleIncomingMessageIds()]);
+  expect(before.length).toBeGreaterThan(0);
+  const layout=await page.locator('.messages-thread-body').boundingBox();
+  await page.evaluate(()=>{
+    const first=document.querySelector('.message-bubble.incoming[data-message-bubble-id]').getBoundingClientRect();
+    Object.defineProperty(window.visualViewport,'height',{configurable:true,value:first.top+Math.min(10,first.height)});
+  });
+  expect(await page.evaluate(()=>[...visibleIncomingMessageIds()])).toEqual([]);
+  expect(await page.locator('.messages-thread-body').boundingBox()).toEqual(layout);
+  await page.evaluate(()=>Object.defineProperty(window.visualViewport,'height',{configurable:true,value:innerHeight}));
+  expect(await page.evaluate(()=>[...visibleIncomingMessageIds()])).toEqual(before);
+  await page.evaluate(()=>Object.defineProperty(window.visualViewport,'width',{configurable:true,value:0}));
+  expect(await page.evaluate(()=>[...visibleIncomingMessageIds()])).toEqual([]);
+});
+
 test('chatroom layout has members and pinned messages but cannot use private-chat send or ACK',async({page})=>{
   await openChatUi(page);
   await page.evaluate(()=>{
