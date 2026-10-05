@@ -7904,7 +7904,8 @@ button.conversation-commerce-product{
   height:var(--conversation-viewport-height,100dvh);
   top:var(--conversation-viewport-top,0px);
   padding:env(safe-area-inset-top) 0 0;
-  overflow:hidden;
+  overflow:auto;
+  overscroll-behavior:contain;
   background:#fff;
   border:0;
   border-radius:0;

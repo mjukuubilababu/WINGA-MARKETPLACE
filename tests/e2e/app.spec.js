@@ -1726,6 +1726,10 @@ test("modern inbox keeps person grouping, search, unread and compact responsive 
   await expect(panel.locator(".message-thread-item:visible")).toHaveCount(0);
   await expect(panel.locator("[data-inbox-no-results]")).toBeVisible();
   await panel.locator("[data-inbox-search]").fill("Latest reply");
+  await page.locator("[data-inbox-search]").evaluate(field => field.setSelectionRange(2, 6));
+  await page.evaluate(() => replaceMessagesPanel());
+  await expect(panel.locator("[data-inbox-search]")).toBeFocused();
+  expect(await panel.locator("[data-inbox-search]").evaluate(field => [field.selectionStart, field.selectionEnd])).toEqual([2, 6]);
   await expect(panel.locator(".message-thread-item:visible")).toHaveCount(1);
   await panel.locator("[data-inbox-search]").fill("");
   await panel.locator("[data-conversations-action='new']").click();
@@ -1834,6 +1838,60 @@ test("mobile profile messages use a clear conversation list and detail flow", as
 
   await context.close();
 });
+
+for (const { surface, width } of ["inbox", "context"].flatMap(surface => [390, 1280].map(width => ({ surface, width })))) {
+  test(`${surface} chat refresh preserves the reading position and composer selection at ${width}px`, async ({ browser }, testInfo) => {
+    const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", { viewport: { width, height: 844 } });
+    try {
+      const messages = Array.from({ length: 45 }, (_, index) => ({
+        id: `refresh-${index}`, senderId: "market_seller", receiverId: "buyer_seller",
+        message: `History message ${index}: keep my place while reading this conversation.`,
+        productId: "e2e-prod-1", productName: "Sneaker Classic",
+        timestamp: new Date(Date.UTC(2026, 0, 1, 10, index)).toISOString(), isRead: true
+      }));
+      await context.route("**/api/messages/stream", route => route.fulfill({ status: 204 }));
+      await context.route("**/api/messages", async route => {
+        if (route.request().method() !== "GET") return route.continue();
+        await route.fulfill({ json: messages });
+      });
+      await page.goto("/");
+      if (surface === "inbox") {
+        await openHeaderMenuAction(page, "profile");
+        await page.locator("[data-profile-action='messages']").click();
+        await page.locator("#profile-messages-panel .message-thread-item", { hasText: "Market Seller" }).click();
+      } else {
+        await page.locator("#products-container .product-card", { hasText: "Sneaker Classic" }).first().click();
+        await page.locator("#product-detail-modal [data-chat-product]").first().click();
+      }
+      const root = surface === "inbox" ? "#profile-messages-panel" : "#context-chat-modal";
+      const input = surface === "inbox" ? "#message-compose-input" : "#context-chat-compose-input";
+      const thread = surface === "inbox" ? ".messages-thread-body" : ".context-chat-dialog";
+      await expect(page.locator(`${root} .message-bubble`)).toHaveCount(45);
+      await page.locator(input).fill("Keep this draft and selection");
+      const before = await page.evaluate(({ root, input, thread }) => {
+        const field = document.querySelector(input), history = document.querySelector(`${root} ${thread}`);
+        field.focus(); field.setSelectionRange(5, 15, "backward");
+        history.scrollTop = 100;
+        return { top: history.scrollTop, overflow: history.scrollHeight - history.clientHeight };
+      }, { root, input, thread });
+      expect(before.overflow).toBeGreaterThan(300);
+      await page.evaluate(message => appendLocalMessage(message), { ...messages[44], id: "refresh-arrival", message: "Incoming while composing", timestamp: new Date().toISOString() });
+      await expect(page.locator(`${root} .message-bubble`)).toHaveCount(46);
+      await expect(page.locator(input)).toBeFocused();
+      await expect(page.locator(input)).toHaveValue("Keep this draft and selection");
+      expect(await page.locator(input).evaluate(field => [field.selectionStart, field.selectionEnd, field.selectionDirection])).toEqual([5, 15, "backward"]);
+      expect(await page.locator(`${root} ${thread}`).evaluate(history => history.scrollTop)).toBeCloseTo(before.top, 0);
+      await page.evaluate(({ root, thread }) => {
+        const history = document.querySelector(`${root} ${thread}`);
+        history.scrollTop = history.scrollHeight;
+      }, { root, thread });
+      await page.evaluate(message => appendLocalMessage(message), { ...messages[44], id: "refresh-next-arrival", message: "Follow new messages only at the end", timestamp: new Date().toISOString() });
+      await expect(page.locator(`${root} .message-bubble`)).toHaveCount(47);
+      expect(await page.locator(`${root} ${thread}`).evaluate(history => history.scrollHeight - history.clientHeight - history.scrollTop)).toBeLessThan(2);
+      await page.screenshot({ path: testInfo.outputPath(`${surface}-${width}-refresh.png`) });
+    } finally { await context.close(); }
+  });
+}
 
 test("checkout reserves stock before exposing payment and submits reference to the same order", async ({ browser }, testInfo) => {
   const { context, page } = await createLoggedInPage(browser, "buyer_seller", "Pass1234!Secure", {

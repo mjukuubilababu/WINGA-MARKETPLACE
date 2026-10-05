@@ -623,6 +623,10 @@
 
       const activeElement = document.activeElement;
       const wasTyping = activeElement?.id === "context-chat-compose-input";
+      const selection = wasTyping ? { start: activeElement.selectionStart, end: activeElement.selectionEnd, direction: activeElement.selectionDirection, top: activeElement.scrollTop } : null;
+      const dialog = modal.querySelector(".context-chat-dialog");
+      const partner = modal.querySelector("[data-chat-read-user]")?.dataset.chatReadUser;
+      const position = dialog ? { top: dialog.scrollTop, atEnd: dialog.scrollHeight - dialog.clientHeight - dialog.scrollTop < 64 } : null;
       const previousDraft = modal.querySelector("#context-chat-compose-input")?.value ?? deps.getCurrentMessageDraft();
       deps.setCurrentMessageDraft(previousDraft);
 
@@ -634,14 +638,16 @@
       content.replaceChildren(deps.createElementFromMarkup(deps.renderContextChatModal()));
       bindContextChatModalActions();
 
-      if (wasTyping) {
+      const samePartner = Boolean(partner && partner === modal.querySelector("[data-chat-read-user]")?.dataset.chatReadUser);
+      if (wasTyping && samePartner) {
         const nextInput = modal.querySelector("#context-chat-compose-input");
         if (nextInput) {
-          nextInput.focus();
-          nextInput.selectionStart = nextInput.value.length;
-          nextInput.selectionEnd = nextInput.value.length;
+          nextInput.focus({ preventScroll: true });
+          nextInput.setSelectionRange(selection.start, selection.end, selection.direction);
+          nextInput.scrollTop = selection.top;
         }
       }
+      if (dialog && position && samePartner) dialog.scrollTop = position.atEnd ? dialog.scrollHeight : position.top;
     }
 
     async function openContextChatModal() {

@@ -123,8 +123,60 @@ three new identity tests now in the CI command), 14 chat-UI browser scenarios,
 five full-app inbox/navigation/product-finder regressions and the cookie-only
 encrypted HTTP workflow. Four catalogs still have 1,404 matching keys with zero
 hard-coded UI debt; 81 modules match local build `20261005123530`.
-This follow-on increment is prepared locally, not part of the published
-`20261005121213` release. Production/audit acceptance gates below remain open.
+This follow-on increment was subsequently pushed as `26fb703` and deployed as
+version `20261005123530`. Cloudflare version ID:
+`8ecd3373-a68a-47f3-aecd-bcc949e898f9`. The production shell verifier passed and
+live `app.js` matched the prepared asset byte-for-byte. Backend `/api/health`
+reported ready and Phoenix `/health` returned `ok=true`, both HTTP 200. These
+public endpoints still do not establish an exact Render SHA. Production/audit
+acceptance gates below remain open.
+
+## Next Increment: Refresh Without Interrupting Work
+
+Full-app browser regressions reproduced loss of composer focus on inbox refresh.
+Product-context refresh moved the caret to the end instead of preserving the
+selected range. The product dialog also clipped long content with hidden
+overflow, rather than providing a usable scroll surface.
+
+Inbox refresh now retains focus, selection direction and textarea scroll for
+the composer in the same canonical thread. Inbox search retains focus and
+selection in the same view. It does not focus a field that was not active before
+replacement or carry composer focus into a different participant's thread.
+Product chat retains the corresponding selection and dialog reading position
+for the same participant. Long product dialogs scroll within their existing
+viewport constraints; scroll does not propagate into the marketplace behind.
+Readers away from the end stay at their reading position; those already at the
+end continue following new content. No server receipt, ciphertext, key,
+authorization, schema or feature flag changes are included.
+
+Verification: 145 frontend core checks, 75 frontend behavior cases, 59 message
+page/receipt/replay cases and seven real-app browser scenarios passed. Four new
+browser cases cover incoming messages while composing and reading at mobile
+390px and desktop 1280px, with screenshots. Existing inbox search now tests
+selection retention during refresh; pagination retry and mobile navigation also
+pass. Localization remains four catalogs of 1,404 keys and zero new UI debt.
+The 14 approved-layout browser cases also passed, including small mobile and
+RTL. The cookie-only authenticated encrypted browser workflow passed, covering
+server membership, ciphertext-only HTTP, chat, receipts, reload and exact retry.
+Build `20261005130440` contains 81 synchronized modules. This verification uses
+local synthetic data, not a new physical-device production acceptance result.
+
+## Direct Audit Checkpoint: 111-120
+
+| Contract | Evidence and remaining boundary |
+| --- | --- |
+| 111, direct first | No group service is introduced. Foundation acceptance stays open before Shopping Rooms depend on it. |
+| 112-113, people and stable identity | Existing pair-based grouping spans product contexts; immutable sequence bindings and duplicate-group rejection are covered locally. Generated account identifiers are hidden in human presentation only. Canonical identities and old history are not rewritten. |
+| 114, universal inbox | Approved navigation is present. Production rooms, requests and calling are not supplied by placeholder tabs. |
+| 115, summaries | Paged inbox reads bounded summaries without requesting histories. Future request, archive and mute fields are not presumed implemented. |
+| 116-117, ordering and pagination | Timestamp-based inbox order, sequence-based pair preview selection, scoped cursors, ID deduplication and refresh races pass existing tests. This is not evidence of capacity at 10,000 conversations. |
+| 118, bounded history | Initial recent-window and older-page routes are covered; older-page retry retains messages. Product dialog overflow and same-thread refresh selection are corrected. Edited/reaction event policy is still a later reviewed stage. |
+| 119-120, unread and visibility | Server unread totals, durable device receipt/ACK isolation and non-read paging pass. Rendering the inbox does not mark history read. Visual viewport guards were released separately. Physical multi-device media/recovery acceptance remains open. |
+
+These are scoped evidence checkpoints, not full section acceptance. The legacy
+fallback is not a claim that every encrypted room or multi-device lifecycle has
+the same protocol contract. Security, capacity and product policy gates below
+are retained rather than bypassed with UI-only completion.
 
 ## Gates Still Open
 

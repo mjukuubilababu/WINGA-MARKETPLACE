@@ -9829,6 +9829,9 @@ function replaceMessagesPanel(scope = profileDiv) {
   const previous = document.getElementById("profile-messages-panel");
   const thread = previous?.querySelector(".messages-thread-body");
   const list = previous?.querySelector(".messages-list");
+  const active = document.activeElement;
+  const focusedInput = previous?.contains(active) && active.matches?.("#message-compose-input, [data-inbox-search]")
+    ? { search: active.matches("[data-inbox-search]"), start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection, top: active.scrollTop } : null;
   const position = thread ? {
     key: thread.dataset.chatContextKey,
     top: thread.scrollTop,
@@ -9840,7 +9843,16 @@ function replaceMessagesPanel(scope = profileDiv) {
   bindMessageActions(scope);
   const next = document.getElementById("profile-messages-panel");
   const nextThread = next?.querySelector(".messages-thread-body");
-  if (nextThread && position?.key === nextThread.dataset.chatContextKey && !position.atEnd) {
+  const sameThread = Boolean(position?.key && position.key === nextThread?.dataset.chatContextKey);
+  if (focusedInput && (focusedInput.search ? view === next?.dataset.conversationsView : sameThread)) {
+    const field = focusedInput.search ? next?.querySelector("[data-inbox-search]") : next?.querySelector("#message-compose-input");
+    if (field) {
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(focusedInput.start, focusedInput.end, focusedInput.direction);
+      field.scrollTop = focusedInput.top;
+    }
+  }
+  if (sameThread && !position.atEnd) {
     nextThread.scrollTop = position.top;
   }
   if (view === next?.dataset.conversationsView) {
