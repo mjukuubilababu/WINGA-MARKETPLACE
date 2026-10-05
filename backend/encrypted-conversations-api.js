@@ -17,7 +17,11 @@ function createEncryptedConversationsApi({collectBody,sendJson,findSession,readA
         const store=getPostgresStore();if(!store?.encryptedOperation)throw Object.assign(new Error(),{status:503,code:'encrypted_store_unavailable'});
         sendJson(res,200,await store.encryptedOperation({owner:user.username,token:session.token,deviceId:session.sessionId},await collectBody(req,{maxBytes:262144})),headers);
       } else sendJson(res,405,{code:'method_not_allowed'},headers);
-    }catch(error){sendJson(res,error.status||503,{code:error.status?error.code:'encrypted_transport_unavailable'},headers);}
+    }catch(error){
+      if(error.status===429 && Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds>0 && error.retryAfterSeconds<=3600)
+        headers['Retry-After']=String(error.retryAfterSeconds);
+      sendJson(res,error.status||503,{code:error.status?error.code:'encrypted_transport_unavailable'},headers);
+    }
     return true;
   }
   return {handle};

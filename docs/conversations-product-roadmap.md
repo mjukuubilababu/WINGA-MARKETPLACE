@@ -178,6 +178,47 @@ fallback is not a claim that every encrypted room or multi-device lifecycle has
 the same protocol contract. Security, capacity and product policy gates below
 are retained rather than bypassed with UI-only completion.
 
+## Request Safety Increment: New Encrypted Chats
+
+The 121-122 audit found that cryptographic membership acceptance is not product
+consent to an unsolicited conversation. The operator has been asked whether
+explicit Message Seller entry should bypass requests. That choice is not yet
+recorded, so no REQUESTED/ACCEPTED/DECLINED product policy or inbox migration is
+introduced by this increment.
+
+Independent of that policy, new encrypted-group reservation now has an atomic
+owner-wide creation quota in the existing PostgreSQL `api_rate_limit_buckets`
+table. Default: 20 newly committed encrypted direct groups per fixed UTC hour.
+Optional backend configuration: `WINGA_ENCRYPTED_NEW_CONVERSATIONS_PER_HOUR`, an
+integer from 1 to 1,000; invalid configuration fails startup rather than silently
+disabling enforcement. This is an anti-abuse resource limit, not a reputation
+score or plaintext surveillance system. Fixed windows may allow bursts on either
+side of an hour boundary; this is not a rolling-window claim.
+
+The hash binds the quota to the account, not a device, session or server process.
+The database counter and group/key-package mutations share the same transaction.
+Exact retries of an existing reservation bypass new-creation charging. Failed
+reservations roll back the charge; blocked pairs fail before consuming it. Existing
+messages, receipts, polling, media and device replacement do not use this quota.
+An exhausted quota returns HTTP 429 and bounded `Retry-After`, with no provider
+details. Chat security shows the localized new-chat limit message and retains
+explicit retry without sending plaintext. No new production schema migration,
+CSP change, secret or encryption flag is required.
+
+Local verification: 106 encrypted-content checks passed, including the three new
+quota cases and rollback, owner/device isolation, block priority and hour renewal.
+The 15 UI cases passed; the quota dialog also passed a targeted recheck with the
+final dedicated translation. The cookie-only authenticated encrypted browser
+workflow passed, retaining native membership, ciphertext-only chat, receipts,
+reload and exact retry. Four catalogs now have 1,405 matching keys and zero
+hard-coded UI debt. Build: `20261005134108`; 81 modules are synchronized.
+The independent-connection PostgreSQL regression has also been added, but cannot
+be executed here: no explicit disposable `WINGA_TEST_POSTGRES_URL` or PostgreSQL
+launcher is available. Shared-store PGlite SQL tests are not reported as that
+missing cross-connection result. This increment is prepared for the requested
+push/deploy; live release confirmation is separate. It does not implement Message
+Requests or establish acceptance of the overall anti-spam product.
+
 ## Gates Still Open
 
 - Independent crypto review/approval; passing local tests do not certify ts-mls.

@@ -50,6 +50,58 @@ async function newMember(f,label,owner) {
   f.members[label]=member;return member;
 }
 
+test('new encrypted chat quota is durable, owner-wide, transactional and does not charge exact retries',async t=>{
+  const f=await fixture(t),withTransaction=work=>f.db.transaction(work);
+  const limited=createEncryptedConversationStore({withTransaction,newConversationLimitPerHour:1});
+  const invoke=(member,payload)=>limited.encryptedOperation(member.context,member.sign('reserve',payload));
+  await assert.rejects(invoke(f.members.alice,{...f.reserve,targetHash:'missing'}),{code:'encrypted_package_unavailable'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM api_rate_limit_buckets')).rows[0].n,0);
+  await invoke(f.members.alice,f.reserve);
+  const anotherNode=createEncryptedConversationStore({withTransaction,newConversationLimitPerHour:1});
+  await anotherNode.encryptedOperation(f.members.alice.context,f.members.alice.sign('reserve',f.reserve));
+  assert.equal((await f.db.query('SELECT count FROM api_rate_limit_buckets')).rows[0].count,1);
+  const fresh=await newMember(f,'freshAlice','alice');
+  const second={conversationId:crypto.randomUUID(),peer:'eve',sourceHash:fresh.hash,targetHash:f.members.eve.hash};
+  await assert.rejects(invoke(fresh,second),error=>error.status===429 && error.code==='encrypted_new_conversation_limit'
+    && Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds>0 && error.retryAfterSeconds<=3600);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversations')).rows[0].n,1);
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM conversation_event_streams WHERE participant_high='eve'")).rows[0].n,0);
+  assert.equal((await f.db.query('SELECT consumed_at FROM conversation_crypto_key_packages WHERE hash=$1',[fresh.hash])).rows[0].consumed_at,null);
+  assert.equal((await f.db.query('SELECT count FROM api_rate_limit_buckets')).rows[0].count,1);
+  const rollbackProbe=createEncryptedConversationStore({withTransaction,newConversationLimitPerHour:2});
+  await assert.rejects(rollbackProbe.encryptedOperation(fresh.context,fresh.sign('reserve',{...second,conversationId:f.id})),{code:'23505'});
+  assert.equal((await f.db.query('SELECT count FROM api_rate_limit_buckets')).rows[0].count,1);
+  await f.db.query("INSERT INTO user_blocks VALUES('eve','alice')");
+  await assert.rejects(invoke(fresh,second),{code:'encrypted_access_denied'});
+  await f.db.query('DELETE FROM user_blocks');
+  const bob=await newMember(f,'freshBob','bob');
+  await invoke(bob,{...second,conversationId:crypto.randomUUID(),sourceHash:bob.hash});
+  const buckets=(await f.db.query('SELECT key_hash,scope,count FROM api_rate_limit_buckets')).rows;
+  assert.equal(buckets.length,2);assert(buckets.every(row=>/^[a-f0-9]{64}$/.test(row.key_hash) && row.count===1 && row.scope==='encrypted-new-conversations'));
+  const eve=await newMember(f,'freshEve','eve'),later=Date.now()+3600000;
+  const nextWindow=createEncryptedConversationStore({withTransaction,newConversationLimitPerHour:1,now:()=>later});
+  const operation=fresh.sign('reserve',{...second,targetHash:eve.hash});operation.issuedAt=later;
+  operation.signature=crypto.sign(null,operationBytes(fresh.context,operation),fresh.keys.privateKey).toString('base64url');
+  await nextWindow.encryptedOperation(fresh.context,operation);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversations')).rows[0].n,3);
+});
+
+test('invalid new-conversation quota configuration cannot silently disable enforcement',()=>{
+  for(const value of [0,-1,1.5,'invalid',Infinity,1001])
+    assert.throws(()=>createEncryptedConversationStore({withTransaction:()=>{},newConversationLimitPerHour:value}),/quota/i);
+});
+
+test('encrypted quota response retains private headers and exposes only bounded retry timing',async()=>{
+  let response;
+  const api=createEncryptedConversationsApi({enabled:true,collectBody:async()=>({}),findSession:()=>({username:'alice',token:'a',sessionId:'a'}),
+    readAuthToken:()=>'',ensureMarketplaceUser:session=>session,getPostgresStore:()=>({encryptedOperation:async()=>{
+      throw Object.assign(new Error('internal details'),{status:429,code:'encrypted_new_conversation_limit',retryAfterSeconds:17});
+    }}),sendJson:(_,status,body,headers)=>response={status,body,headers}});
+  await api.handle({method:'POST'},{},new URL('https://localhost/api/conversations/encrypted/operations'));
+  assert.equal(response.status,429);assert.deepEqual(response.body,{code:'encrypted_new_conversation_limit'});
+  assert.equal(response.headers['Retry-After'],'17');assert.equal(response.headers['Cache-Control'],'private, no-store');
+});
+
 test('definitively refused reservation can be retired, exact delayed requests cannot resurrect it, and a fresh intent succeeds',async t=>{
   const f=await fixture(t);await f.active();const next=await newMember(f,'next','bob'),r=await replacementPacket(f,next);
   await f.db.query("UPDATE conversation_crypto_key_packages SET expires_at=NOW()-interval '1 second' WHERE hash=$1",[next.hash]);

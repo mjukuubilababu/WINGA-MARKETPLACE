@@ -83,6 +83,7 @@
         "chat.expectedFingerprint": "Fingerprint received from your contact",
         "chat.verifyAndAccept": "Verify and accept",
         "chat.encryptionPending": "Waiting for your contact to verify and accept",
+        "chat.newConversationLimit": "New chat limit reached. Try again later.",
         "chat.encryptionFailed": "Verification failed. No plaintext message was sent.",
         "chat.encryptionNoDevice": "Your contact has no available encryption device yet.",
         "chat.encryptionUnavailable": "Chat encryption is unavailable",

@@ -83,6 +83,7 @@
         "chat.expectedFingerprint": "Alama uliyopokea kutoka kwa mwenzako",
         "chat.verifyAndAccept": "Thibitisha na ukubali",
         "chat.encryptionPending": "Tunasubiri mwenzako athibitishe na akubali",
+        "chat.newConversationLimit": "Umefikia kikomo cha chats mpya. Jaribu tena baadaye.",
         "chat.encryptionFailed": "Uthibitisho umeshindwa. Hakuna ujumbe wa wazi uliotumwa.",
         "chat.encryptionNoDevice": "Mwenzako hana kifaa cha encryption kinachopatikana bado.",
         "chat.encryptionUnavailable": "Encryption ya chat haipatikani",

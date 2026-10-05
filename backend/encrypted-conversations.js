@@ -8,9 +8,21 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, newConversationLimitPerHour=20 }) {
+  const newConversationLimit=Number(newConversationLimitPerHour);
+  if(!Number.isInteger(newConversationLimit) || newConversationLimit<1 || newConversationLimit>1000)throw new RangeError('Invalid encrypted new-conversation quota');
   const replacement=require('./encrypted-membership-replacement').createMembershipReplacement({access});
   const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access,membershipFrozen:replacement.frozen});
+  async function consumeNewConversationQuota(client, owner) {
+    const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
+    const key=digest(JSON.stringify(['winga-encrypted-new-conversations',1,owner]));
+    // Charge only committed new groups; the same transaction rolls back failed reservations.
+    const result=await client.query(`INSERT INTO api_rate_limit_buckets(key_hash,bucket_id,scope,count,window_started_at,expires_at)
+      VALUES($1,$2,'encrypted-new-conversations',1,$3,$4)
+      ON CONFLICT(key_hash,bucket_id) DO UPDATE SET count=api_rate_limit_buckets.count+1,updated_at=NOW()
+      WHERE api_rate_limit_buckets.count<$5 RETURNING count`,[key,bucket,new Date(start).toISOString(),new Date(end).toISOString(),newConversationLimit]);
+    if(!result.rows.length)throw Object.assign(failure(429,'encrypted_new_conversation_limit'),{retryAfterSeconds:Math.max(1,Math.ceil((end-timestamp)/1000))});
+  }
   async function authorize(client, context, operation) {
     await authenticateCryptoSession(client, context, now());
     assert(operation && uuid(operation.actorId) && uuid(operation.requestId) && Number.isSafeInteger(operation.issuedAt)
@@ -82,6 +94,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(source?.device_id===op.actorId && source.owner_id===context.owner && target?.owner_id===p.peer,409,'encrypted_package_unavailable');
         const group={ id:p.conversationId,creator:context.owner,recipient:p.peer,creator_device:source.device_id,recipient_device:target.device_id };
         await access(client,group,op.actorId,context.owner);
+        await consumeNewConversationQuota(client,context.owner);
         await client.query(`INSERT INTO encrypted_conversations(id,canonical_id,creator,recipient,creator_device,recipient_device,source_hash,target_hash,status)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,'reserved')`,[group.id,cid,group.creator,group.recipient,group.creator_device,group.recipient_device,p.sourceHash,p.targetHash]);
         await client.query('UPDATE conversation_crypto_key_packages SET consumed_by=$1,consumed_at=NOW() WHERE hash=ANY($2::text[])',[cid,[p.sourceHash,p.targetHash]]);

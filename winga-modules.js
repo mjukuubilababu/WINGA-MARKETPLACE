@@ -19247,7 +19247,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 const result=await command(peer,select.value,input.value.replace(/\s/g,'').toLowerCase());
                 state.textContent=result.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.encryptionPending','Waiting for your contact to verify and accept');
                 form.remove();await refresh();await update();
-              }catch{state.textContent=t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;}
+              }catch(error){
+                state.textContent=error.code==='encrypted_new_conversation_limit'
+                  ?t('chat.newConversationLimit','New chat limit reached. Try again later.')
+                  :t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;
+              }
             });dialog.append(form);
           } else if(!options.length && !['active','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
             state.textContent=t('chat.encryptionNoDevice','Your contact has no available encryption device yet.');

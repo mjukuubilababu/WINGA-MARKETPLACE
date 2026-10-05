@@ -28,6 +28,28 @@ async function fixture(t){
   const id=crypto.randomUUID(),reserve={conversationId:id,peer:'bob',sourceHash:members.alice.hash,targetHash:members.bob.hash};
   return {pool,admin,members,store,id,reserve};
 }
+test('independent encrypted stores share one owner creation quota without charging reservation retries',async t=>{
+  const f=await fixture(t),a=f.members.alice,eve=crypto.randomUUID();
+  await f.pool.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status)
+    SELECT $1,'eve',public_key,fingerprint,'active' FROM conversation_crypto_devices WHERE id=$2`,[eve,f.members.bob.id]);
+  const sourceHash=crypto.createHash('sha256').update('alice-another-package').digest('hex');
+  const targetHash=crypto.createHash('sha256').update('eve-package').digest('hex');
+  for(const [hash,device] of [[sourceHash,a.id],[targetHash,eve]])
+    await f.pool.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at)
+      VALUES($1,$2,'public-fixture','public-fixture','{}',NOW()+interval '1 day')`,[hash,device]);
+  const withTransaction=async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}};
+  const nodes=[0,1].map(()=>createEncryptedConversationStore({withTransaction,newConversationLimitPerHour:1}));
+  const intents=[f.reserve,{conversationId:crypto.randomUUID(),peer:'eve',sourceHash,targetHash}];
+  const results=await Promise.allSettled(nodes.map((node,index)=>node.encryptedOperation(a.context,a.sign('reserve',intents[index]))));
+  assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+  assert.equal(results.find(result=>result.status==='rejected').reason.code,'encrypted_new_conversation_limit');
+  const winner=results.findIndex(result=>result.status==='fulfilled');
+  await Promise.all(Array.from({length:8},(_,index)=>nodes[index%2].encryptedOperation(a.context,a.sign('reserve',intents[winner]))));
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversations')).rows[0].n,1);
+  assert.equal((await f.pool.query("SELECT count FROM api_rate_limit_buckets WHERE scope='encrypted-new-conversations'")).rows[0].count,1);
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_key_packages WHERE consumed_at IS NOT NULL')).rows[0].n,2);
+});
+
 test('independent connections retry one reservation and racing opposite initiators consume one package pair',async t=>{
   const f=await fixture(t),a=f.members.alice,b=f.members.bob;
   const results=await Promise.allSettled([

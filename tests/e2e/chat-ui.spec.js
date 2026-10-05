@@ -55,6 +55,31 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
   },{catalog,rtl});
 }
 
+test('encrypted new-chat quota refusal is localized and leaves verification retryable without sending plaintext',async({page})=>{
+  await openChatUi(page);
+  const messages=JSON.parse(fs.readFileSync(path.join(root,'src/localization/catalogs/sw.json'),'utf8')).messages;
+  await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/chat/encryption-ui.js'),'utf8')});
+  await page.evaluate(messages=>{
+    const scope=document.createElement('section'),button=document.createElement('button');
+    document.getElementById('profile-div').remove();
+    button.textContent=messages['chat.security'];
+    button.dataset.chatSecurity='rey';button.dataset.quotaProbe='true';scope.append(button);document.body.append(scope);
+    window.quotaProbe={attempts:0,plaintext:0,refreshes:0};
+    WingaEncryptedChatUi.bind(scope,{translate:(key,fallback)=>messages[key]||fallback,refresh:()=>window.quotaProbe.refreshes++,dataLayer:{
+      inspectEncryptedConversation:async()=>({status:'inactive',packages:[{deviceId:'fixture-device',fingerprint:'a'.repeat(64)}]}),
+      enableEncryptedConversation:async()=>{window.quotaProbe.attempts++;throw Object.assign(new Error('internal quota details'),{code:'encrypted_new_conversation_limit'});},
+      sendMessage:()=>window.quotaProbe.plaintext++
+    }});
+  },messages);
+  await page.locator('[data-quota-probe]').click();
+  const dialog=page.locator('.chat-security-dialog');
+  await dialog.locator('input[name="fingerprint"]').fill('a'.repeat(64));
+  await dialog.locator('button[type="submit"]').click();
+  await expect(dialog.locator('[role="status"]')).toHaveText(messages['chat.newConversationLimit']);
+  await expect(dialog.locator('button[type="submit"]')).toBeEnabled();
+  expect(await page.evaluate(()=>window.quotaProbe)).toEqual({attempts:1,plaintext:0,refreshes:0});
+});
+
 test('mobile inbox navigation, search, real controller send and honest room empty state',async({page})=>{
   await openChatUi(page);
   await expect(page.locator('.message-thread-item')).toHaveCount(3);

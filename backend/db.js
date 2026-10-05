@@ -10032,7 +10032,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createEncryptedConversationBackupStore({ withTransaction }),
     ...createConversationCryptoDeviceStore({ withTransaction }),
     ...createCryptoKeyPackageStore({ withTransaction }),
-    ...createEncryptedConversationStore({ withTransaction, enqueuePush: enqueueMessagePush,mediaEnabled:process.env.WINGA_ENCRYPTED_MEDIA_ENABLED==='true' }),
+    ...createEncryptedConversationStore({ withTransaction, enqueuePush: enqueueMessagePush,mediaEnabled:process.env.WINGA_ENCRYPTED_MEDIA_ENABLED==='true',
+      newConversationLimitPerHour:process.env.WINGA_ENCRYPTED_NEW_CONVERSATIONS_PER_HOUR || 20 }),
     close
   };
 }

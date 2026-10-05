@@ -83,6 +83,7 @@
         "chat.expectedFingerprint": "البصمة التي تلقيتها من جهة الاتصال",
         "chat.verifyAndAccept": "تحقق واقبل",
         "chat.encryptionPending": "في انتظار تحقق جهة الاتصال وقبولها",
+        "chat.newConversationLimit": "تم بلوغ الحد الأقصى للمحادثات الجديدة. حاول مرة أخرى لاحقًا.",
         "chat.encryptionFailed": "فشل التحقق. لم تُرسل رسالة غير مشفرة.",
         "chat.encryptionNoDevice": "ليس لدى جهة الاتصال جهاز تشفير متاح حتى الآن.",
         "chat.encryptionUnavailable": "تشفير المحادثة غير متاح",
