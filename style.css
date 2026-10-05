@@ -7177,7 +7177,12 @@ button.conversation-commerce-product{
 
 .message-bubble p{
   margin:0 0 6px;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
 }
+
+.chat-message-link{display:inline;padding:0;border:0;background:none;color:#006c43;font:inherit;letter-spacing:0;text-align:start;text-decoration:underline;overflow-wrap:anywhere;white-space:inherit;cursor:pointer;}
+.chat-message-link:focus-visible{outline:2px solid #006c43;outline-offset:2px;}
 
 .message-bubble small{
   color:var(--text-muted);
@@ -12935,6 +12940,9 @@ body.visual-categories-view #quick-discovery-rail{
 .chat-security-dialog label { display: grid; gap: 8px; margin: 16px 0; font-size: 14px; }
 .chat-security-dialog input, .chat-security-dialog select { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border: 1px solid #9da7ad; border-radius: 4px; font: inherit; }
 .chat-fingerprint { display: block; overflow-wrap: anywhere; line-height: 1.6; user-select: all; }
+.chat-link-address{display:block;overflow-wrap:anywhere;margin:16px 0 8px;}
+.chat-link-dialog .chat-fingerprint{max-height:160px;overflow:auto;font-size:13px;}
+.chat-link-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;}
 .chat-security-dialog .action-btn { margin: 8px 8px 0 0; }
 .chat-encrypted-file{display:flex;align-items:center;gap:8px;max-width:100%;padding:8px;border:1px solid #d5ded8;border-radius:6px;background:#f4f8f5;color:#19462c;text-align:start;cursor:pointer}
 .chat-encrypted-file span{min-width:0;overflow-wrap:anywhere}.chat-encrypted-file img{flex:none}.chat-encrypted-file:disabled{opacity:.55;cursor:default}

@@ -25,7 +25,7 @@ not substituted for an approved policy.
 | Foundation acceptance | 110, 170, 227-238; existing 0-109 | Close applicable reliability, device/media/recovery, security review and measured acceptance gaps. Existing enabled features are not evidence of full acceptance. |
 | Direct and universal inbox | 111-120, 151-169 | Audit existing pairwise identity, summaries, cursor history, read visibility, contact presentation, safety, notification isolation and multi-device reconciliation. Preserve historical semantics; do not reset identities or rewrite history. |
 | Rich messages and commerce | 123-150 | Incrementally extend the reviewed encrypted versioned payload, replies/reactions, policy-defined edits/deletes, voice, private media and canonical product/order references. Do not implement fields marked future as mandatory now. |
-| Requests and safety | 121-122, 157-159 | Define trusted commerce entry versus unsolicited requests, server-enforced transitions, quotas, blocks and consented report disclosure. Do not turn an untrusted request into an accepted conversation implicitly. |
+| Direct delivery and safety | 121-122, 157-159 | Operator override of 121: no Message Requests or recipient-acceptance gate for any new direct chat, including customer, seller and person-to-person entry. Preserve server authorization, quotas, blocks and consented report disclosure. |
 | Private Shopping Rooms | 171-189, 216, 224, 234 | Only after stable direct acceptance. Extend canonical conversations with membership authorization, routing, notifications and MLS epoch transitions. Then add products, shortlist, polls and bounded seller interactions. Never expose room history to a seller merely because a product is shared. |
 | Optional intelligence | 145-149, 183-185, 190-192, 235 | Future, separately reviewed and privacy-compatible. No server plaintext extraction, silent external AI processing or transactional authority. |
 | Experience and rollout | 193-201 | Preserve multilingual/RTL accessibility, bandwidth controls, local-first reconciliation, measured latency and staged feature flags. No invented production SLO result. |
@@ -167,8 +167,8 @@ local synthetic data, not a new physical-device production acceptance result.
 | --- | --- |
 | 111, direct first | No group service is introduced. Foundation acceptance stays open before Shopping Rooms depend on it. |
 | 112-113, people and stable identity | Existing pair-based grouping spans product contexts; immutable sequence bindings and duplicate-group rejection are covered locally. Generated account identifiers are hidden in human presentation only. Canonical identities and old history are not rewritten. |
-| 114, universal inbox | Approved navigation is present. Production rooms, requests and calling are not supplied by placeholder tabs. |
-| 115, summaries | Paged inbox reads bounded summaries without requesting histories. Future request, archive and mute fields are not presumed implemented. |
+| 114, universal inbox | Approved navigation is present. Production rooms and calling are not supplied by placeholder tabs. Message Requests are excluded by the latest operator policy. |
+| 115, summaries | Paged inbox reads bounded summaries without requesting histories. Future archive and mute fields are not presumed implemented. No request-state partition is required under the current policy. |
 | 116-117, ordering and pagination | Timestamp-based inbox order, sequence-based pair preview selection, scoped cursors, ID deduplication and refresh races pass existing tests. This is not evidence of capacity at 10,000 conversations. |
 | 118, bounded history | Initial recent-window and older-page routes are covered; older-page retry retains messages. Product dialog overflow and same-thread refresh selection are corrected. Edited/reaction event policy is still a later reviewed stage. |
 | 119-120, unread and visibility | Server unread totals, durable device receipt/ACK isolation and non-read paging pass. Rendering the inbox does not mark history read. Visual viewport guards were released separately. Physical multi-device media/recovery acceptance remains open. |
@@ -180,11 +180,12 @@ are retained rather than bypassed with UI-only completion.
 
 ## Request Safety Increment: New Encrypted Chats
 
-The 121-122 audit found that cryptographic membership acceptance is not product
-consent to an unsolicited conversation. The operator has been asked whether
-explicit Message Seller entry should bypass requests. That choice is not yet
-recorded, so no REQUESTED/ACCEPTED/DECLINED product policy or inbox migration is
-introduced by this increment.
+The 121-122 audit found that cryptographic membership acceptance is distinct from
+product consent to a conversation. The operator initially selected direct entry
+for Message Seller, then explicitly superseded that distinction with direct entry
+for every direct chat: no Message Requests or recipient-acceptance queue. Existing
+conversations remain unchanged. The current override is recorded below; the
+creation quota is an anti-abuse control, not a request-acceptance policy.
 
 Independent of that policy, new encrypted-group reservation now has an atomic
 owner-wide creation quota in the existing PostgreSQL `api_rate_limit_buckets`
@@ -216,8 +217,93 @@ The independent-connection PostgreSQL regression has also been added, but cannot
 be executed here: no explicit disposable `WINGA_TEST_POSTGRES_URL` or PostgreSQL
 launcher is available. Shared-store PGlite SQL tests are not reported as that
 missing cross-connection result. This increment is prepared for the requested
-push/deploy; live release confirmation is separate. It does not implement Message
-Requests or establish acceptance of the overall anti-spam product.
+push/deploy. Release commit `8b3a358` was pushed and frontend build `20261005134108`
+was deployed with dashboard variables preserved. All eight checked live assets
+matched the prepared release and the production shell verifier passed. Cloudflare
+version ID: `5568f541-efab-4b7d-8a4d-69f6246ddf0a`. Backend and Phoenix health
+returned HTTP 200; the operator subsequently confirmed the Render commit Live.
+This does not establish acceptance of the overall anti-spam product. Message
+Requests are not required under the subsequently revised operator policy.
+
+## Approved Direct Delivery Policy
+
+On 2026-10-05 the operator explicitly replaced the earlier Message Seller-only
+exception with direct delivery for every customer, seller and person-to-person
+chat. This overrides the Message Requests product requirement in section 121.
+Do not add REQUESTED/ACCEPTED/DECLINED routing, an accept/decline inbox, a trusted
+commerce-entry exception or a recipient-approval step before direct delivery.
+The source spec remains preserved; this ledger records the operator's revision.
+
+The existing implementation has no product-consent request queue to migrate or
+remove. Existing chats and identities remain unchanged. Account/session/device
+authorization, explicit user blocks, anti-spam quotas, encryption checks and
+durable retry remain enforced. Offline delivery and encryption-device setup are
+not product-approval queues: do not claim delivery while offline, remove crypto
+verification, auto-trust a replacement device or fall back to plaintext to bypass
+them. The revised policy removes recipient approval, not these safety boundaries.
+
+## Text And Link Safety Increment: 124-125
+
+The shared inbox/product-chat renderer now preserves line breaks and keeps
+Unicode text as text, including markup-looking content. Explicit HTTP(S) links
+are parsed locally with the browser URL parser. Credentials, unsupported schemes,
+ambiguous backslashes, controls/bidi markers and oversized destinations stay
+non-interactive. Balanced URL path punctuation is retained; surrounding sentence
+punctuation is not included in the destination.
+
+Links first open a localized confirmation dialog showing the parsed ASCII host
+and full destination, including punycode for international hostnames. Both HTTP
+and HTTPS destinations require this confirmation. Cancel makes no destination
+request and returns focus. No server-side unfurling, external preview service,
+image embed or automated plaintext disclosure is introduced. Explicit navigation
+uses `noopener noreferrer` and `referrerpolicy=no-referrer`; see the browser
+contracts for [noopener](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/noopener)
+and [noreferrer](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/noreferrer).
+The dialog closes when its owner, session, participant or visible source changes,
+and checks again synchronously before ordinary navigation. This is not a malware
+scanner or proof that a destination is trustworthy.
+
+Local verification: five dedicated URL/rendering cases, 25 chat UI browser cases
+(ten new link scenarios), 145 frontend core checks and 80 behavior cases passed.
+Browser checks covered no destination request before confirmation, cancellation,
+keyboard activation, empty referrer/null opener in an intercepted destination,
+immediate stale-account refusal and small mobile/desktop/RTL geometry. Screenshots
+were visually reviewed. The cookie-only authenticated encrypted HTTP workflow
+also passed, retaining membership, ciphertext-only send, receipts, reload and exact
+retry. Four catalogs contain 1,408 matching keys with zero hard-coded UI debt;
+local build `20261005142132` contains 81 synchronized modules. No production
+deployment, encryption/schema change or whole-section acceptance is claimed by
+this increment. Message Requests are excluded by the subsequent operator policy;
+continue with the remaining rich-message contract instead of adding an approval
+queue.
+
+## Conversations Inbox Failure Isolation
+
+The operator reported "Try again" on the Conversations list. Local regression
+tests reproduced a failure mode where crypto startup or group synchronization
+rejected the entire healthy inbox. This is a verified code defect, not a claim
+that an authenticated production trace established the exact phone-side cause.
+
+Canonical inbox reads now run independently of encrypted synchronization. A
+non-authentication crypto refresh failure preserves the canonical list and
+previously verified local encrypted history, with a scoped localized refresh
+warning. The refresh action reloads the inbox head rather than attempting an
+exhausted older-page cursor. Successful recovery clears the warning. Canonical
+HTTP failures are not disguised as a successful empty list; authentication and
+session changes still fail closed. Partial refresh retains cached encrypted rows
+without resurrecting removed legacy rows. Deferred runtime startup checks server
+membership before selecting send transport, so a pending encrypted membership
+cannot become a plaintext send. No Message Requests or recipient-consent queue
+is introduced for new customer, seller or person-to-person messages.
+
+Local verification: 66 message-page/receipt/replay cases, 26 chat UI browser
+cases, 145 frontend core checks and 80 behavior cases passed. The authenticated
+cookie-only encrypted browser workflow passed, including the deferred-startup
+no-plaintext regression, send, delivery/read, retry, media and recovery. The
+recovered inbox screenshot was visually reviewed. Four catalogs contain 1,410
+matching keys with zero hard-coded UI debt. Build `20261005145432` contains 81
+synchronized modules. This increment is not published yet; production phone
+acceptance and independent cryptographic approval are not claimed.
 
 ## Gates Still Open
 
@@ -229,8 +315,9 @@ Requests or establish acceptance of the overall anti-spam product.
   increase instance count automatically or relabel REST/SSE evidence as Phoenix.
 - Server-backed room lists, multi-member authorization, epoch changes and group
   ciphertext transport. The existing read-only room presentation is not a service.
-- Product policy for requested/accepted conversations, edit/delete windows and
-  future collaborative commerce. No payment truth or wallet is created in chat.
+- Remaining anti-abuse evidence, rich-message functionality, policy for edit/delete
+  windows and future collaborative commerce. Direct chats do not require recipient
+  approval; no payment truth or wallet is created in chat.
 
 Continue by auditing the existing direct routes against 111-120 and 170, and
 recording concrete defects/evidence. New product stages must not depend on an

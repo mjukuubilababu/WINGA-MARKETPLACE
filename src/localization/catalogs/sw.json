@@ -3,6 +3,11 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "chat.encryptedRefreshFailed": "Chats zilizosimbwa hazijasasishwa. Ujumbe uliohifadhiwa haujabadilishwa.",
+        "inbox.refresh": "Sasisha mazungumzo",
+        "chat.linkTitle": "Fungua link?",
+        "chat.linkWarning": "Hakiki anwani kabla ya kuendelea. Tovuti hii inaweza kuomba taarifa binafsi.",
+        "chat.linkOpen": "Fungua link",
         "inbox.private": "Binafsi",
         "inbox.calls": "Calls",
         "inbox.callsUnavailable": "Kupiga simu hakupatikani kwa sasa.",

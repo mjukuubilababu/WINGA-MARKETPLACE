@@ -1,4 +1,14 @@
 (() => {
+  function normalizeConversationLink(value) {
+    if (typeof value !== 'string' || value.length > 2048 || !/^https?:\/\//i.test(value)
+      || /[\s\\\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)
+      || /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value) || value.split('/')[2]?.includes('@')) return null;
+    try {
+      const url = new URL(value);
+      return ['https:', 'http:'].includes(url.protocol) && url.hostname && !url.username && !url.password ? url : null;
+    } catch (_error) { return null; }
+  }
+
   function createChatUiModule(deps) {
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const icon = (name) => `<img src="/icons/navigation/${name}.svg" width="20" height="20" alt="" />`;
@@ -49,7 +59,9 @@
       const state = deps.getMessagePageState?.();
       if (!state?.enabled) return "";
       const page = state[kind];
-      if (!page || (!page.hasMore && !page.error && page.loaded)) return "";
+      const encryptedRefresh = kind === 'inbox' && page?.encryptedSyncError;
+      if (!page || (!page.hasMore && !page.error && page.loaded && !encryptedRefresh)) return "";
+      if (encryptedRefresh && !page.error) return `<div class="message-page-control message-sync-warning" role="status"><p>${deps.escapeHtml(t('chat.encryptedRefreshFailed', 'Encrypted chats could not refresh. Saved messages are unchanged.'))}</p><button type="button" data-message-page="inbox"${page.loading ? ' disabled aria-busy="true"' : ''}>${deps.escapeHtml(page.loading ? t('inbox.loading', 'Loading...') : t('inbox.refresh', 'Refresh conversations'))}</button></div>`;
       const label = page.loading ? t("inbox.loading", "Loading...") : page.error ? t("inbox.retry", "Try again") : kind === "inbox" ? t("inbox.loadMore", "Load more conversations") : t("inbox.loadOlder", "Load older messages");
       return `<div class="message-page-control"><button type="button" data-message-page="${kind}"${page.loading ? ' disabled aria-busy="true"' : ""}>${deps.escapeHtml(label)}</button></div>`;
     }
@@ -419,6 +431,28 @@
       `;
     }
 
+    function renderMessageText(value) {
+      const text = String(value ?? '');
+      const parts = [];
+      let end = 0;
+      for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+        if (match.index && /[\p{L}\p{N}_:/@.%+-]/u.test(text[match.index - 1])) continue;
+        let token = match[0].replace(/[.,!?;:]+$/, '');
+        // Keep balanced path punctuation; sentence wrappers are not part of a URL.
+        while (/[)\]}]$/.test(token)) {
+          const close = token.at(-1), open = { ')': '(', ']': '[', '}': '{' }[close];
+          if (token.split(close).length <= token.split(open).length) break;
+          token = token.slice(0, -1).replace(/[.,!?;:]+$/, '');
+        }
+        const url = normalizeConversationLink(token);
+        if (!url) continue;
+        parts.push(deps.escapeHtml(text.slice(end, match.index)),
+          `<button type="button" class="chat-message-link" data-chat-link="${deps.escapeHtml(url.href)}" aria-haspopup="dialog" dir="ltr">${deps.escapeHtml(token)}</button>`);
+        end = match.index + token.length;
+      }
+      return parts.join('') + deps.escapeHtml(text.slice(end));
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       let pending = [];
@@ -445,7 +479,7 @@
         const canDelete = message.senderId === deps.getCurrentUser();
         const hasDownload = productItems.some((item) => item.productImage);
         const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
-        const safeMessageText = message.message ? deps.escapeHtml(message.message) : "";
+        const safeMessageText = message.message ? renderMessageText(message.message) : "";
         return `
           ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
@@ -865,6 +899,7 @@
     }
 
     return {
+      renderMessageText,
       renderNotificationsSection,
       renderMessagesSection,
       renderChatroomLayout,
@@ -877,5 +912,6 @@
     };
   }
 
+  window.WingaModules.chat.normalizeConversationLink = normalizeConversationLink;
   window.WingaModules.chat.createChatUiModule = createChatUiModule;
 })();

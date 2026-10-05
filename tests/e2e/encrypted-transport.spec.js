@@ -58,7 +58,7 @@ test.beforeAll(async()=>{
     if(url.pathname==='/fixture.js'){
       res.setHeader('Content-Type','text/javascript');res.end(`
         window.WingaModules.chat=window.WingaModules.chat||{};
-        window.start=async function(owner){
+        window.start=async function(owner,{inspect=true}={}){
           window.owner=owner;window.peer=owner==='alice'?'bob':'alice';
           window.browserSession=await (await fetch('/test-session?owner='+encodeURIComponent(owner))).json();
           window.client=WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>window.browserSession,
@@ -71,7 +71,7 @@ test.beforeAll(async()=>{
           };
           document.querySelector('[data-chat-security]').dataset.chatSecurity=peer;
           WingaEncryptedChatUi.bind(document,{dataLayer:client,refresh:render});
-          return client.inspectEncryptedConversation(peer);
+          return inspect?client.inspectEncryptedConversation(peer):null;
         };
       `);return;
     }
@@ -141,6 +141,13 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
     await alice.locator('dialog input[name=fingerprint]').fill(bi.ownFingerprint);await alice.getByRole('button',{name:'Verify and accept'}).click();
     await test.step('publish real membership invitation',()=>expect(alice.locator('dialog [role=status]')).toContainText('Waiting'));await alice.getByRole('button',{name:'Close',exact:true}).click();
     expect((await db.query('SELECT security_mode FROM conversation_event_streams')).rows[0].security_mode).toBe('legacy-plaintext');
+    await test.step('deferred inbox startup cannot downgrade pending encrypted membership to plaintext',async()=>{
+      const legacyBefore=(await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n;
+      await bob.reload();await bob.evaluate(()=>start('bob',{inspect:false}));
+      await expect(bob.evaluate(()=>client.sendMessage({receiverId:'alice',message:'Pending encrypted chat must not use plaintext'}))).rejects.toThrow('encrypted_membership_required');
+      expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
+      expect((await db.query('SELECT COUNT(*)::int AS n FROM messages WHERE message=$1',['Pending encrypted chat must not use plaintext'])).rows[0].n).toBe(0);
+    });
     await bob.locator('[data-chat-security]').click();await bob.locator('dialog input[name=fingerprint]').fill(ai.ownFingerprint);
     await bob.getByRole('button',{name:'Verify and accept'}).click();await expect(bob.locator('dialog [role=status]')).toContainText('End-to-end encrypted');await bob.getByRole('button',{name:'Close',exact:true}).click();
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));

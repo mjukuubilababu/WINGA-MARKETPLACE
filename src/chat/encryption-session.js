@@ -13,7 +13,7 @@
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -304,7 +304,11 @@
       }
       const service={
         inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
-        isEncrypted:async peer=>Boolean(groups.find(g=>g.creator===peer || g.recipient===peer)) || runtime.isEncrypted(peer),
+        isEncrypted:async peer=>{
+          if(await runtime.isEncrypted(peer))return true;
+          await serialize(syncInternal);
+          return Boolean(groups.find(g=>g.creator===peer || g.recipient===peer));
+        },
         history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
         sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
@@ -329,7 +333,7 @@
         }),
         close(){closed=true;runtime.close();vault.close();identity.close();}
       };
-      await service.sync();return service;
+      if(initialSync!==false)await service.sync();return service;
     }catch(error){runtime?.close();vault.close();identity.close();throw error;}
   }
   globalThis.WingaEncryptionSession={createEncryptionSession};

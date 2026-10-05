@@ -61,6 +61,22 @@ test("summary load is bounded and does not request conversation history", async 
   assert.equal(pager.snapshot().inbox.hasMore, true);
 });
 
+test("encrypted-only refresh failure retains saved encrypted conversations without retaining removed legacy rows",async()=>{
+  let count=0;
+  const encrypted={...summary('encrypted-peer','saved',message('saved').timestamp),encrypted:true};
+  const {pager}=setup({loadInboxPage:async()=>++count===1?page([encrypted,summary('removed-legacy','old',message('old').timestamp)]):
+    { ...page([]),encryptedSyncError:count===2 }});
+  await pager.refreshInbox();
+  pager.requestResync();
+  await pager.refreshInbox();
+  assert.equal(pager.snapshot().inbox.error,false);
+  assert.equal(pager.snapshot().inbox.encryptedSyncError,true);
+  assert.deepEqual(Array.from(pager.snapshot().inbox.items,item=>item.withUser),['encrypted-peer']);
+  await pager.refreshInbox();
+  assert.equal(pager.snapshot().inbox.encryptedSyncError,false);
+  assert.equal(pager.snapshot().inbox.items.length,0);
+});
+
 test("unsupported backend falls back but transient failure retains retry state", async () => {
   const { pager } = setup({ loadInboxPage: async () => { throw Object.assign(new Error(), { code: "message_pagination_unavailable" }); } });
   assert.equal(await pager.refreshInbox(), false);

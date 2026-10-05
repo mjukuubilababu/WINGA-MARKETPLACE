@@ -29,6 +29,7 @@
         if(capabilities?.enabled !== true || capabilities.version !== 1) return null;
         const service = await globalThis.WingaEncryptionSession.createEncryptionSession({
           getSession:deps.getSession,deviceRequest:api.cryptoDeviceRequest,
+          initialSync:false,
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
@@ -117,6 +118,51 @@
       return [...(Array.isArray(data) ? data : []), ...(encrypted ? await encrypted.history() : [])];
     }
 
+    async function loadInboxSnapshot(params) {
+      const sessionKey = () => JSON.stringify([deps.getSession?.()?.username, deps.getSession?.()?.sessionId, deps.getSession?.()?.token]);
+      const ownerKey = sessionKey(), owner = deps.getSession?.()?.username;
+      const current = () => {
+        if (sessionKey() !== ownerKey) throw Object.assign(new Error('mls_session_changed'), {code:'mls_session_changed'});
+      };
+      // A failed encrypted refresh must not disable an otherwise healthy inbox.
+      const page = await fetchJson(`${baseUrl}/messages/inbox?${params}`, {headers:authHeaders()});
+      current();
+      if (!page || !Array.isArray(page.items)) throw new Error('INVALID_INBOX_PAGE');
+      let encrypted, history = [], encryptedSyncError = false;
+      const unavailable = error => {
+        current();
+        if (error.status === 401 || error.status === 403 || error.code === 'mls_session_changed' || error.message === 'mls_session_changed') throw error;
+        encryptedSyncError = true;
+      };
+      try {encrypted = await ensureEncryption();current();} catch (error) {unavailable(error);}
+      if (encrypted) {
+        try {await encrypted.sync();current();} catch (error) {unavailable(error);}
+        try {
+          history = await encrypted.history();current();
+          if (!Array.isArray(history)) throw new Error('INVALID_ENCRYPTED_HISTORY');
+        } catch (error) {history = [];unavailable(error);}
+      }
+      const merged = new Map(page.items.map(item => [item.withUser, item]));
+      const unread = new Map();
+      for (const item of history) {
+        if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
+        const peer = item.senderId === owner ? item.receiverId : item.senderId;
+        if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
+        if (item.senderId === peer && !item.isRead) unread.set(peer, (unread.get(peer) || 0) + 1);
+        const prior = merged.get(peer);
+        if (!prior || Date.parse(item.timestamp) >= Date.parse(prior.timestamp)) merged.set(peer, {...prior,
+          withUser:peer,latestMessage:item.message,timestamp:item.timestamp,lastMessageId:item.id,
+          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true});
+      }
+      for (const [peer, count] of unread) {
+        const row = merged.get(peer);
+        if (row) merged.set(peer, {...row, unreadCount:(page.items.find(item => item.withUser === peer)?.unreadCount || 0) + count});
+      }
+      current();
+      return {...page,encryptedSyncError,totalUnread:(Number(page.totalUnread) || 0) + [...unread.values()].reduce((sum,count)=>sum+count,0),
+        items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
+    }
+
     async function loadMessagePage(path, options = {}) {
       requireFetcher();
       const params = new URLSearchParams();
@@ -124,6 +170,7 @@
       if (options.cursor) params.set("cursor", options.cursor);
       if (options.withUser) params.set("withUser", options.withUser);
       if (options.order === "sequence") params.set("order", "sequence");
+      if (path === 'inbox') return loadInboxSnapshot(params);
       const encrypted = ['inbox','history'].includes(path) ? await ensureEncryption() : null;
       if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
       let page;
@@ -132,16 +179,6 @@
       if(!encrypted) return page;
       const history = await encrypted.history(options.withUser);
       if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
-      if(path === 'inbox') {
-        const merged = new Map(page.items.map(item=>[item.withUser,item]));
-        for(const item of history) {
-          const own=deps.getSession().username,peer=item.senderId===own?item.receiverId:item.senderId;
-          const prior=merged.get(peer);
-          if(!prior || Date.parse(item.timestamp)>=Date.parse(prior.timestamp))merged.set(peer,{withUser:peer,latestMessage:item.message,timestamp:item.timestamp,
-            lastMessageId:item.id,productId:'',productName:'',unreadCount:history.filter(m=>m.senderId===peer && !m.isRead).length});
-        }
-        return {...page,items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
-      }
       return page;
     }
 

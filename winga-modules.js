@@ -1183,6 +1183,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(capabilities?.enabled !== true || capabilities.version !== 1) return null;
         const service = await globalThis.WingaEncryptionSession.createEncryptionSession({
           getSession:deps.getSession,deviceRequest:api.cryptoDeviceRequest,
+          initialSync:false,
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
@@ -1271,6 +1272,51 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return [...(Array.isArray(data) ? data : []), ...(encrypted ? await encrypted.history() : [])];
     }
 
+    async function loadInboxSnapshot(params) {
+      const sessionKey = () => JSON.stringify([deps.getSession?.()?.username, deps.getSession?.()?.sessionId, deps.getSession?.()?.token]);
+      const ownerKey = sessionKey(), owner = deps.getSession?.()?.username;
+      const current = () => {
+        if (sessionKey() !== ownerKey) throw Object.assign(new Error('mls_session_changed'), {code:'mls_session_changed'});
+      };
+      // A failed encrypted refresh must not disable an otherwise healthy inbox.
+      const page = await fetchJson(`${baseUrl}/messages/inbox?${params}`, {headers:authHeaders()});
+      current();
+      if (!page || !Array.isArray(page.items)) throw new Error('INVALID_INBOX_PAGE');
+      let encrypted, history = [], encryptedSyncError = false;
+      const unavailable = error => {
+        current();
+        if (error.status === 401 || error.status === 403 || error.code === 'mls_session_changed' || error.message === 'mls_session_changed') throw error;
+        encryptedSyncError = true;
+      };
+      try {encrypted = await ensureEncryption();current();} catch (error) {unavailable(error);}
+      if (encrypted) {
+        try {await encrypted.sync();current();} catch (error) {unavailable(error);}
+        try {
+          history = await encrypted.history();current();
+          if (!Array.isArray(history)) throw new Error('INVALID_ENCRYPTED_HISTORY');
+        } catch (error) {history = [];unavailable(error);}
+      }
+      const merged = new Map(page.items.map(item => [item.withUser, item]));
+      const unread = new Map();
+      for (const item of history) {
+        if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
+        const peer = item.senderId === owner ? item.receiverId : item.senderId;
+        if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
+        if (item.senderId === peer && !item.isRead) unread.set(peer, (unread.get(peer) || 0) + 1);
+        const prior = merged.get(peer);
+        if (!prior || Date.parse(item.timestamp) >= Date.parse(prior.timestamp)) merged.set(peer, {...prior,
+          withUser:peer,latestMessage:item.message,timestamp:item.timestamp,lastMessageId:item.id,
+          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true});
+      }
+      for (const [peer, count] of unread) {
+        const row = merged.get(peer);
+        if (row) merged.set(peer, {...row, unreadCount:(page.items.find(item => item.withUser === peer)?.unreadCount || 0) + count});
+      }
+      current();
+      return {...page,encryptedSyncError,totalUnread:(Number(page.totalUnread) || 0) + [...unread.values()].reduce((sum,count)=>sum+count,0),
+        items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
+    }
+
     async function loadMessagePage(path, options = {}) {
       requireFetcher();
       const params = new URLSearchParams();
@@ -1278,6 +1324,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (options.cursor) params.set("cursor", options.cursor);
       if (options.withUser) params.set("withUser", options.withUser);
       if (options.order === "sequence") params.set("order", "sequence");
+      if (path === 'inbox') return loadInboxSnapshot(params);
       const encrypted = ['inbox','history'].includes(path) ? await ensureEncryption() : null;
       if(encrypted)try{await encrypted.sync();}catch(error){if(!networkFailure(error))throw error;}
       let page;
@@ -1286,16 +1333,6 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(!encrypted) return page;
       const history = await encrypted.history(options.withUser);
       if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
-      if(path === 'inbox') {
-        const merged = new Map(page.items.map(item=>[item.withUser,item]));
-        for(const item of history) {
-          const own=deps.getSession().username,peer=item.senderId===own?item.receiverId:item.senderId;
-          const prior=merged.get(peer);
-          if(!prior || Date.parse(item.timestamp)>=Date.parse(prior.timestamp))merged.set(peer,{withUser:peer,latestMessage:item.message,timestamp:item.timestamp,
-            lastMessageId:item.id,productId:'',productName:'',unreadCount:history.filter(m=>m.senderId===peer && !m.isRead).length});
-        }
-        return {...page,items:[...merged.values()].sort((a,b)=>b.timestamp.localeCompare(a.timestamp))};
-      }
       return page;
     }
 
@@ -16877,6 +16914,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
 // src/chat/ui.js
 (() => {
+  function normalizeConversationLink(value) {
+    if (typeof value !== 'string' || value.length > 2048 || !/^https?:\/\//i.test(value)
+      || /[\s\\\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)
+      || /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(value) || value.split('/')[2]?.includes('@')) return null;
+    try {
+      const url = new URL(value);
+      return ['https:', 'http:'].includes(url.protocol) && url.hostname && !url.username && !url.password ? url : null;
+    } catch (_error) { return null; }
+  }
+
   function createChatUiModule(deps) {
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const icon = (name) => `<img src="/icons/navigation/${name}.svg" width="20" height="20" alt="" />`;
@@ -16927,7 +16974,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const state = deps.getMessagePageState?.();
       if (!state?.enabled) return "";
       const page = state[kind];
-      if (!page || (!page.hasMore && !page.error && page.loaded)) return "";
+      const encryptedRefresh = kind === 'inbox' && page?.encryptedSyncError;
+      if (!page || (!page.hasMore && !page.error && page.loaded && !encryptedRefresh)) return "";
+      if (encryptedRefresh && !page.error) return `<div class="message-page-control message-sync-warning" role="status"><p>${deps.escapeHtml(t('chat.encryptedRefreshFailed', 'Encrypted chats could not refresh. Saved messages are unchanged.'))}</p><button type="button" data-message-page="inbox"${page.loading ? ' disabled aria-busy="true"' : ''}>${deps.escapeHtml(page.loading ? t('inbox.loading', 'Loading...') : t('inbox.refresh', 'Refresh conversations'))}</button></div>`;
       const label = page.loading ? t("inbox.loading", "Loading...") : page.error ? t("inbox.retry", "Try again") : kind === "inbox" ? t("inbox.loadMore", "Load more conversations") : t("inbox.loadOlder", "Load older messages");
       return `<div class="message-page-control"><button type="button" data-message-page="${kind}"${page.loading ? ' disabled aria-busy="true"' : ""}>${deps.escapeHtml(label)}</button></div>`;
     }
@@ -17297,6 +17346,28 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       `;
     }
 
+    function renderMessageText(value) {
+      const text = String(value ?? '');
+      const parts = [];
+      let end = 0;
+      for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+        if (match.index && /[\p{L}\p{N}_:/@.%+-]/u.test(text[match.index - 1])) continue;
+        let token = match[0].replace(/[.,!?;:]+$/, '');
+        // Keep balanced path punctuation; sentence wrappers are not part of a URL.
+        while (/[)\]}]$/.test(token)) {
+          const close = token.at(-1), open = { ')': '(', ']': '[', '}': '{' }[close];
+          if (token.split(close).length <= token.split(open).length) break;
+          token = token.slice(0, -1).replace(/[.,!?;:]+$/, '');
+        }
+        const url = normalizeConversationLink(token);
+        if (!url) continue;
+        parts.push(deps.escapeHtml(text.slice(end, match.index)),
+          `<button type="button" class="chat-message-link" data-chat-link="${deps.escapeHtml(url.href)}" aria-haspopup="dialog" dir="ltr">${deps.escapeHtml(token)}</button>`);
+        end = match.index + token.length;
+      }
+      return parts.join('') + deps.escapeHtml(text.slice(end));
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       let pending = [];
@@ -17323,7 +17394,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const canDelete = message.senderId === deps.getCurrentUser();
         const hasDownload = productItems.some((item) => item.productImage);
         const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
-        const safeMessageText = message.message ? deps.escapeHtml(message.message) : "";
+        const safeMessageText = message.message ? renderMessageText(message.message) : "";
         return `
           ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
@@ -17743,6 +17814,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     return {
+      renderMessageText,
       renderNotificationsSection,
       renderMessagesSection,
       renderChatroomLayout,
@@ -17755,6 +17827,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     };
   }
 
+  window.WingaModules.chat.normalizeConversationLink = normalizeConversationLink;
   window.WingaModules.chat.createChatUiModule = createChatUiModule;
 })();
 
@@ -17828,7 +17901,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             return true;
           }
           const boundary = page.items[page.items.length - 1];
-          const retained = append ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          const retained = append ? target.items : target.items.filter(item =>
+            (page.encryptedSyncError === true && item.encrypted === true)
+            || (!resync && page.hasMore && boundary && compare(item, boundary) < 0));
           target.items = merge(retained, page.items, "withUser").sort((a,b) => compare(b,a));
           if (resync || !page.hasMore) target.extended = false;
           if (append || !target.extended || !page.items.length) {
@@ -17837,6 +17912,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           if (append) target.extended = true;
           target.loaded = true;
+          target.encryptedSyncError = page.encryptedSyncError === true;
           target.needsResync = false;
           s.totalUnread = Math.max(0, Number(page.totalUnread) || 0);
           target.totalConversations = Math.max(0, Number(page.totalConversations) || 0);
@@ -18685,7 +18761,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -18976,7 +19052,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const service={
         inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
-        isEncrypted:async peer=>Boolean(groups.find(g=>g.creator===peer || g.recipient===peer)) || runtime.isEncrypted(peer),
+        isEncrypted:async peer=>{
+          if(await runtime.isEncrypted(peer))return true;
+          await serialize(syncInternal);
+          return Boolean(groups.find(g=>g.creator===peer || g.recipient===peer));
+        },
         history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
         sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
@@ -19001,7 +19081,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }),
         close(){closed=true;runtime.close();vault.close();identity.close();}
       };
-      await service.sync();return service;
+      if(initialSync!==false)await service.sync();return service;
     }catch(error){runtime?.close();vault.close();identity.close();throw error;}
   }
   globalThis.WingaEncryptionSession={createEncryptionSession};
@@ -20695,6 +20775,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
+      scope.querySelectorAll('[data-chat-link]').forEach(button => {
+        button.onclick = () => {
+          const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);
+          const owner = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const session = deps.getCurrentSession?.();
+          if (!url || !owner || !partner || !button.isConnected || document.querySelector('.chat-link-dialog')) return;
+          const current = () => scope.isConnected && scope.getClientRects().length > 0 && owner === deps.getCurrentUser()
+            && partner === deps.getActiveChatContext()?.withUser && session === deps.getCurrentSession?.();
+          const dialog = document.createElement('dialog');
+          dialog.className = 'chat-security-dialog chat-link-dialog';
+          dialog.setAttribute('aria-labelledby', 'chat-link-dialog-title');
+          const heading = document.createElement('h3');
+          heading.id = 'chat-link-dialog-title';heading.textContent = t('chat.linkTitle', 'Open link?');
+          const note = document.createElement('p');
+          note.textContent = t('chat.linkWarning', 'Check the address before continuing. This website may ask for personal information.');
+          const host = document.createElement('strong');host.className = 'chat-link-address';host.dir = 'ltr';host.textContent = url.host;
+          const address = document.createElement('code');address.className = 'chat-fingerprint';address.dir = 'ltr';address.textContent = url.href;
+          const actions = document.createElement('div');actions.className = 'chat-link-actions';
+          const open = document.createElement('a');open.className = 'action-btn';open.textContent = t('chat.linkOpen', 'Open link');
+          open.href = url.href;open.target = '_blank';open.rel = 'noopener noreferrer';open.referrerPolicy = 'no-referrer';
+          const close = document.createElement('button');close.type = 'button';close.className = 'action-btn action-btn-secondary';close.textContent = t('common.cancel', 'Cancel');
+          close.onclick = () => dialog.close();
+          open.onclick = event => {if (!current()) event.preventDefault();dialog.close();};
+          open.addEventListener('auxclick', event => {if (!current()) event.preventDefault();});
+          const timer = setInterval(() => {if (!current()) dialog.close();}, 250);
+          dialog.addEventListener('close', () => {clearInterval(timer);dialog.remove();if (current() && button.isConnected) button.focus();}, {once:true});
+          actions.append(close, open);dialog.append(heading, note, host, address, actions);
+          document.body.append(dialog);dialog.showModal();close.focus();
+        };
+      });
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -20727,6 +20837,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const oldScroll = thread?.scrollTop || 0;
           try {
             if (isHistory) await deps.loadOlderConversationMessages?.();
+            else if (deps.getMessagePageState?.()?.inbox?.encryptedSyncError) await deps.refreshMessagesState();
             else await deps.loadMoreInboxMessages?.();
           } catch (_error) {
             // The retained page renders its retry action; never clear messages.

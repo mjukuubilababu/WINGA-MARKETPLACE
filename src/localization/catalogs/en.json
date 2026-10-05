@@ -3,6 +3,11 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "chat.encryptedRefreshFailed": "Encrypted chats could not refresh. Saved messages are unchanged.",
+        "inbox.refresh": "Refresh conversations",
+        "chat.linkTitle": "Open link?",
+        "chat.linkWarning": "Check the address before continuing. This website may ask for personal information.",
+        "chat.linkOpen": "Open link",
         "inbox.private": "Private",
         "inbox.calls": "Calls",
         "inbox.callsUnavailable": "Calling is unavailable.",

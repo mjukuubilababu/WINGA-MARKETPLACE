@@ -3,6 +3,11 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "chat.encryptedRefreshFailed": "Les conversations chiffrées n'ont pas pu être actualisées. Les messages enregistrés sont inchangés.",
+        "inbox.refresh": "Actualiser les conversations",
+        "chat.linkTitle": "Ouvrir le lien ?",
+        "chat.linkWarning": "Vérifiez l'adresse avant de continuer. Ce site peut demander des informations personnelles.",
+        "chat.linkOpen": "Ouvrir le lien",
         "inbox.private": "Privé",
         "inbox.calls": "Appels",
         "inbox.callsUnavailable": "Les appels ne sont pas disponibles.",

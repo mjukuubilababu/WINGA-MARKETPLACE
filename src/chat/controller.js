@@ -924,6 +924,36 @@
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
+      scope.querySelectorAll('[data-chat-link]').forEach(button => {
+        button.onclick = () => {
+          const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);
+          const owner = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const session = deps.getCurrentSession?.();
+          if (!url || !owner || !partner || !button.isConnected || document.querySelector('.chat-link-dialog')) return;
+          const current = () => scope.isConnected && scope.getClientRects().length > 0 && owner === deps.getCurrentUser()
+            && partner === deps.getActiveChatContext()?.withUser && session === deps.getCurrentSession?.();
+          const dialog = document.createElement('dialog');
+          dialog.className = 'chat-security-dialog chat-link-dialog';
+          dialog.setAttribute('aria-labelledby', 'chat-link-dialog-title');
+          const heading = document.createElement('h3');
+          heading.id = 'chat-link-dialog-title';heading.textContent = t('chat.linkTitle', 'Open link?');
+          const note = document.createElement('p');
+          note.textContent = t('chat.linkWarning', 'Check the address before continuing. This website may ask for personal information.');
+          const host = document.createElement('strong');host.className = 'chat-link-address';host.dir = 'ltr';host.textContent = url.host;
+          const address = document.createElement('code');address.className = 'chat-fingerprint';address.dir = 'ltr';address.textContent = url.href;
+          const actions = document.createElement('div');actions.className = 'chat-link-actions';
+          const open = document.createElement('a');open.className = 'action-btn';open.textContent = t('chat.linkOpen', 'Open link');
+          open.href = url.href;open.target = '_blank';open.rel = 'noopener noreferrer';open.referrerPolicy = 'no-referrer';
+          const close = document.createElement('button');close.type = 'button';close.className = 'action-btn action-btn-secondary';close.textContent = t('common.cancel', 'Cancel');
+          close.onclick = () => dialog.close();
+          open.onclick = event => {if (!current()) event.preventDefault();dialog.close();};
+          open.addEventListener('auxclick', event => {if (!current()) event.preventDefault();});
+          const timer = setInterval(() => {if (!current()) dialog.close();}, 250);
+          dialog.addEventListener('close', () => {clearInterval(timer);dialog.remove();if (current() && button.isConnected) button.focus();}, {once:true});
+          actions.append(close, open);dialog.append(heading, note, host, address, actions);
+          document.body.append(dialog);dialog.showModal();close.focus();
+        };
+      });
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
@@ -956,6 +986,7 @@
           const oldScroll = thread?.scrollTop || 0;
           try {
             if (isHistory) await deps.loadOlderConversationMessages?.();
+            else if (deps.getMessagePageState?.()?.inbox?.encryptedSyncError) await deps.refreshMessagesState();
             else await deps.loadMoreInboxMessages?.();
           } catch (_error) {
             // The retained page renders its retry action; never clear messages.

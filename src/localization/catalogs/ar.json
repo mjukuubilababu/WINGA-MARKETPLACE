@@ -3,6 +3,11 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "chat.encryptedRefreshFailed": "تعذر تحديث المحادثات المشفرة. الرسائل المحفوظة لم تتغير.",
+        "inbox.refresh": "تحديث المحادثات",
+        "chat.linkTitle": "فتح الرابط؟",
+        "chat.linkWarning": "تحقق من العنوان قبل المتابعة. قد يطلب هذا الموقع معلومات شخصية.",
+        "chat.linkOpen": "فتح الرابط",
         "inbox.private": "خاص",
         "inbox.calls": "المكالمات",
         "inbox.callsUnavailable": "المكالمات غير متاحة حاليا.",

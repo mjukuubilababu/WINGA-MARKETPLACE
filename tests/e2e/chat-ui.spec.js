@@ -51,8 +51,142 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
       },setChatComposeStatus:()=>{},replaceMessagesPanel:()=>render()
     });
     function render(){document.querySelector('.profile-shell').innerHTML=ui.renderMessagesSection();controller.bindMessageActions(document.getElementById('profile-messages-panel'));}
-    window.chatUiFixture={state,render,ui};render();
+    window.chatUiFixture={state,messages,render,ui,deps};render();
   },{catalog,rtl});
+}
+
+test('healthy Conversations remain visible when encrypted sync fails and explicit refresh recovers',async({page})=>{
+  await openChatUi(page);
+  for(const file of ['src/chat/pagination.js','src/api/communications-client.js'])await page.addScriptTag({content:fs.readFileSync(path.join(root,file),'utf8')});
+  await page.evaluate(async()=>{
+    const session={username:'alice',sessionId:'fixture-session'},now=new Date().toISOString();
+    const probe={syncs:0,pages:0};window.inboxFixProbe=probe;
+    WingaEncryptionSession={createEncryptionSession:async options=>{
+      if(options.initialSync!==false)throw new Error('Inbox must not require initial group sync');
+      return {close(){},sync:async()=>{if(++probe.syncs===1)throw Object.assign(new Error('private error details'),{code:'mls_membership_confirmation_rejected'});},
+        history:async()=>[{id:'saved-encrypted',senderId:'rey',receiverId:'alice',message:'Ujumbe uliohifadhiwa',timestamp:now,isRead:false,encrypted:true}]};
+    }};
+    const client=WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>session,fetchJson:async url=>{
+      if(url.includes('/messages/inbox?')){probe.pages++;return {items:[{withUser:'amina',latestMessage:'Habari',timestamp:now,unreadCount:0}],nextCursor:'',hasMore:false,totalUnread:0};}
+      if(url.endsWith('/encrypted/capabilities'))return {version:1,enabled:true};
+      throw new Error('Unexpected fixture route');
+    }});
+    const pager=WingaModules.chat.createMessagePagination({getUser:()=>session.username,dataLayer:client});
+    const pageState=()=>({enabled:true,inbox:pager.snapshot().inbox,history:null});
+    const summaries=()=>pager.snapshot().inbox.items.map(row=>({...row,key:row.withUser}));
+    const deps={...chatUiFixture.deps,getMessagePageState:pageState,getConversationSummaries:summaries,getConversationSummariesFiltered:summaries};
+    const ui=WingaModules.chat.createChatUiModule(deps);
+    let controller;
+    const render=()=>{document.querySelector('.profile-shell').innerHTML=ui.renderMessagesSection();controller.bindMessageActions(document.getElementById('profile-messages-panel'));};
+    controller=WingaModules.chat.createChatControllerModule({...deps,translate:(key,fallback,variables)=>deps.translate(key,variables,fallback),getProfileDiv:()=>document.getElementById('profile-div'),
+      refreshMessagesState:()=>pager.refreshInbox(),replaceMessagesPanel:render});
+    await pager.refreshInbox();render();
+  });
+  await expect(page.locator('.message-thread-item')).toHaveCount(2);
+  await expect(page.locator('[data-conversation-user="amina"] .inbox-preview')).toHaveText('Habari');
+  await expect(page.locator('[data-conversation-user="rey"] .inbox-preview')).toHaveText('Ujumbe uliohifadhiwa');
+  await expect(page.locator('.message-sync-warning')).toContainText('Chats zilizosimbwa hazijasasishwa.');
+  await expect(page.getByRole('button',{name:'Jaribu tena',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Sasisha mazungumzo',exact:true}).click();
+  await expect(page.locator('.message-sync-warning')).toHaveCount(0);
+  await expect(page.locator('.message-thread-item')).toHaveCount(2);
+  expect(await page.evaluate(()=>inboxFixProbe)).toEqual({syncs:2,pages:2});
+  await page.screenshot({path:path.join(root,'.tmp-chat-ui/inbox-sync-recovered.png')});
+});
+
+async function showLinkMessage(page, text) {
+  await page.evaluate(text => {
+    chatUiFixture.messages.splice(0, chatUiFixture.messages.length, {id:'link-message',senderId:'rey',message:text,encrypted:true,timestamp:new Date().toISOString()});
+    chatUiFixture.render();
+  }, text);
+  await page.locator('[data-conversation-user="rey"]').click();
+}
+
+test('encrypted message links require confirmation and open without referrer or opener', async ({page,context}) => {
+  await openChatUi(page);
+  let visits = 0;
+  await context.route('https://destination.test/**', route => {
+    if (route.request().isNavigationRequest()) visits++;
+    return route.fulfill({contentType:'text/html',body:'<!doctype html><html><title>Destination</title><body>Destination</body></html>'});
+  });
+  await showLinkMessage(page, 'Habari 👋\nAngalia https://destination.test/?x=1&y=2.\nAsante!');
+  const text = page.locator('[data-message-bubble-id="link-message"] > p');
+  await expect(text).toHaveText('Habari 👋\nAngalia https://destination.test/?x=1&y=2.\nAsante!');
+  expect(await text.evaluate(node => getComputedStyle(node).whiteSpace)).toBe('pre-wrap');
+  const button = page.locator('[data-chat-link]');
+  await button.click();
+  const dialog = page.getByRole('dialog',{name:'Fungua link?'});
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('.chat-link-address')).toHaveText('destination.test');
+  await expect(dialog.locator('code')).toHaveText('https://destination.test/?x=1&y=2');
+  expect(visits).toBe(0);
+  await dialog.getByRole('button',{name:'Ghairi',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(button).toBeFocused();
+  expect(visits).toBe(0);
+  await button.press('Enter');
+  const open = page.getByRole('dialog').getByRole('link',{name:'Fungua link',exact:true});
+  await expect(open).toHaveAttribute('rel','noopener noreferrer');
+  await expect(open).toHaveAttribute('referrerpolicy','no-referrer');
+  const popupPromise = context.waitForEvent('page');
+  await open.click();
+  const popup = await popupPromise;
+  await popup.waitForURL(url => url.hostname === 'destination.test', {waitUntil:'domcontentloaded'});
+  expect(await popup.evaluate(() => ({referrer:document.referrer,opener:window.opener}))).toEqual({referrer:'',opener:null});
+  expect(visits).toBe(1);
+  await popup.close();
+});
+
+test('unsafe message URLs and HTML stay literal with no active content', async ({page}) => {
+  await openChatUi(page);
+  await showLinkMessage(page, '<img src=x onerror="window.linkInjection=true">\njavascript:alert(1) https://user:password@example.com https://evil.test\\@example.com');
+  const bubble = page.locator('[data-message-bubble-id="link-message"]');
+  await expect(bubble.locator('[data-chat-link],a,iframe,script')).toHaveCount(0);
+  await expect(bubble.locator('p img')).toHaveCount(0);
+  expect(await page.evaluate(() => window.linkInjection)).toBeUndefined();
+});
+
+for (const change of ['owner','session','partner','hidden']) {
+  test(`link confirmation closes when its ${change} changes`, async ({page}) => {
+    await openChatUi(page);
+    await showLinkMessage(page, 'https://example.com/');
+    await page.locator('[data-chat-link]').click();
+    await page.evaluate(change => {
+      if(change==='owner')chatUiFixture.state.owner='other';
+      if(change==='session')chatUiFixture.state.session={id:'new-session'};
+      if(change==='partner')chatUiFixture.state.context={withUser:'amina'};
+      if(change==='hidden')document.getElementById('profile-div').style.display='none';
+    },change);
+    await expect(page.locator('.chat-link-dialog')).toHaveCount(0);
+  });
+}
+
+test('link confirmation rejects navigation immediately if the account changes before its timer', async ({page}) => {
+  await openChatUi(page);
+  await showLinkMessage(page, 'https://example.com/');
+  await page.locator('[data-chat-link]').click();
+  expect(await page.evaluate(() => {
+    chatUiFixture.state.owner='other';
+    const event = new MouseEvent('click',{bubbles:true,cancelable:true});
+    return document.querySelector('.chat-link-dialog a').dispatchEvent(event);
+  })).toBe(false);
+  await expect(page.locator('.chat-link-dialog')).toHaveCount(0);
+});
+
+for (const [name,width,rtl] of [['mobile',320,false],['desktop',1280,false],['rtl',320,true]]) {
+  test(`long international message link confirmation fits ${name}`, async ({page}) => {
+    await openChatUi(page,{width,rtl});
+    await showLinkMessage(page, 'https://münich.example/'+'a'.repeat(600));
+    await page.locator('[data-chat-link]').click();
+    const dialog = page.locator('.chat-link-dialog');
+    await expect(dialog.locator('.chat-link-address')).toHaveText('xn--mnich-kva.example');
+    await expect(dialog.locator('code')).toHaveAttribute('dir','ltr');
+    const geometry = await dialog.evaluate(node => ({left:node.getBoundingClientRect().left,right:node.getBoundingClientRect().right,client:node.clientWidth,scroll:node.scrollWidth}));
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(width);
+    expect(geometry.scroll).toBeLessThanOrEqual(geometry.client+1);
+    await page.screenshot({path:path.join(root,`.tmp-chat-ui/link-dialog-${name}.png`)});
+  });
 }
 
 test('encrypted new-chat quota refusal is localized and leaves verification retryable without sending plaintext',async({page})=>{

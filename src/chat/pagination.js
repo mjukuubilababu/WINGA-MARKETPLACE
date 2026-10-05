@@ -66,7 +66,9 @@
             return true;
           }
           const boundary = page.items[page.items.length - 1];
-          const retained = append ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compare(item, boundary) < 0) : [];
+          const retained = append ? target.items : target.items.filter(item =>
+            (page.encryptedSyncError === true && item.encrypted === true)
+            || (!resync && page.hasMore && boundary && compare(item, boundary) < 0));
           target.items = merge(retained, page.items, "withUser").sort((a,b) => compare(b,a));
           if (resync || !page.hasMore) target.extended = false;
           if (append || !target.extended || !page.items.length) {
@@ -75,6 +77,7 @@
           }
           if (append) target.extended = true;
           target.loaded = true;
+          target.encryptedSyncError = page.encryptedSyncError === true;
           target.needsResync = false;
           s.totalUnread = Math.max(0, Number(page.totalUnread) || 0);
           target.totalConversations = Math.max(0, Number(page.totalConversations) || 0);
