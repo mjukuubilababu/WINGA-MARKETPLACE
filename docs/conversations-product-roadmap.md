@@ -79,7 +79,52 @@ membership policy or marketplace navigation is changed in this increment.
   account, private R2 or independent crypto acceptance result.
 - Four localization catalogs: 1,404 matching keys each; zero hard-coded UI debt.
 - Static build: `20261005121213`; 81 source modules synchronized. No release,
-  production migration or feature activation was performed for this increment.
+  production migration or feature activation had been performed at that
+  verification checkpoint. The subsequent requested release is recorded below.
+
+## Requested Release: 2026-10-05
+
+The operator requested push/deploy before further implementation. The initial
+push found two newer remote moderation commits, `d8c451f` and `1256b6e`. The
+unpublished local change was rebased onto them without a force-push or dropping
+remote work; their focused adapter/dispatcher tests passed 40/40.
+
+Release commit `e6f937b7fad924651a9c981e67c089c241b5ab2b` was pushed to master.
+The frontend was deployed with `wrangler.toml --keep-vars`, preserving dashboard
+variables and secrets. Live version `20261005121213` matched the built `app.js`
+by SHA-256. Cloudflare deployment ID: `11590e9f-6e31-46a3-a53a-b6eb88f4d7e1`.
+The existing shell/security-header/route verifier passed. Node `/api/health`
+returned HTTP 200, `ok=true`, `readiness=ready`; Phoenix `/health` returned HTTP
+200, `ok=true`. Public health does not prove the exact Render commit SHA. No
+production schema, encryption flag, room policy or instance count was changed.
+
+## Next Increment: Human Identity Presentation
+
+The direct/inbox audit retains participant-based grouping across product
+contexts, bounded summaries/history and scoped cursors; existing tests cover
+these boundaries. No canonical identity or legacy-history migration is added.
+
+Requirements 151-152 and 193 exposed two presentation defects: new-contact lookup
+ignored canonical profile `fullName`, and generated identity suffixes bypassed
+the existing human-name filter. Tests reproduced both before the correction.
+New contacts now use the existing display-name resolver with profile `fullName`
+as fallback. The existing technical-identity predicate recognizes the reserved
+buyer/user/guest/seller timestamp form with optional alphanumeric suffixes.
+Chat headers and inbox rows receive that predicate instead of using a weaker
+separate rule. Phone-shaped names remain excluded by the existing predicate.
+Missing human names use the existing localized `inbox.person` label.
+
+Canonical `username`/`withUser`, read routing, receipt IDs, account validation,
+history, keys and transport are unchanged. Ordinary usernames remain usable;
+this filter is presentation-only, not proof of identity or verification status.
+
+Local verification passed: 145 frontend core checks, 75 behavior cases (including
+three new identity tests now in the CI command), 14 chat-UI browser scenarios,
+five full-app inbox/navigation/product-finder regressions and the cookie-only
+encrypted HTTP workflow. Four catalogs still have 1,404 matching keys with zero
+hard-coded UI debt; 81 modules match local build `20261005123530`.
+This follow-on increment is prepared locally, not part of the published
+`20261005121213` release. Production/audit acceptance gates below remain open.
 
 ## Gates Still Open
 

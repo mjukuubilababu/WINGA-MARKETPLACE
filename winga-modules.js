@@ -16881,9 +16881,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const icon = (name) => `<img src="/icons/navigation/${name}.svg" width="20" height="20" alt="" />`;
     function conversationName(context) {
-      const name = context?.displayName || deps.getUserDisplayName(context?.withUser) || "";
-      return /^(?:buyer|user|seller)-\d{10,}/i.test(name)
-        ? t("inbox.person", "Winga User") : name || t("inbox.person", "Winga User");
+      const name = String(context?.displayName || deps.getUserDisplayName(context?.withUser) || "").trim();
+      const presentable = deps.isPresentableDisplayName
+        ? deps.isPresentableDisplayName(name) : !/^(?:buyer|user|guest|seller)-\d{6,}(?:-[a-z0-9]+)*$/i.test(name);
+      return presentable && name ? name : t("inbox.person", "Winga User");
     }
 
     function conversationTime(value, dateOnly = false) {
@@ -21211,7 +21212,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             const profile = result?.profile;
             if(!profile || typeof profile.username !== "string" || profile.username.toLocaleLowerCase() !== username.toLocaleLowerCase()) throw new Error("contact_lookup_invalid"); // i18n-gate: allow -- internal diagnostic, translated below
             dialog.close();
-            await selectConversation({withUser:profile.username,displayName:profile.displayName || profile.username,productId:"",productName:""});
+            await selectConversation({withUser:profile.username,displayName:deps.getUserDisplayName(profile.username,{fallback:profile.fullName || profile.displayName || ""}),productId:"",productName:""});
           } catch (_error) {
             if(dialog.open)status.textContent = t("inbox.contactUnavailable", "Contact unavailable");
           } finally {open.disabled = false;}

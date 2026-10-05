@@ -5819,9 +5819,7 @@ function looksLikeTechnicalIdentity(value) {
   if (!normalized) {
     return false;
   }
-  return /^buyer-\d{6,}$/.test(normalized)
-    || /^user-\d{6,}$/.test(normalized)
-    || /^guest-\d{6,}$/.test(normalized);
+  return /^(?:buyer|user|guest|seller)-\d{6,}(?:-[a-z0-9]+)*$/.test(normalized);
 }
 
 function isPresentableDisplayName(value) {
@@ -5880,11 +5878,7 @@ function getUserDisplayName(username, options = {}) {
     return presentable;
   }
 
-  const normalizedRole = String(role || sessionMatchesCurrentUser?.role || marketplaceUser?.role || "").toLowerCase();
-  if (normalizedRole === "buyer" || normalizedRole === "seller") {
-    return "Mtumiaji wa Winga";
-  }
-  return "Mtumiaji wa Winga";
+  return translateUi("inbox.person", {}, "Mtumiaji wa Winga");
 }
 
 function getCurrentUserDisplayName() {
@@ -12774,6 +12768,7 @@ const {
     message: chatUiState.assistantSearchMessage
   }),
   getUserDisplayName,
+  isPresentableDisplayName,
   translate: translateUi
 });
 

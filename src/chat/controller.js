@@ -1445,7 +1445,7 @@
             const profile = result?.profile;
             if(!profile || typeof profile.username !== "string" || profile.username.toLocaleLowerCase() !== username.toLocaleLowerCase()) throw new Error("contact_lookup_invalid"); // i18n-gate: allow -- internal diagnostic, translated below
             dialog.close();
-            await selectConversation({withUser:profile.username,displayName:profile.displayName || profile.username,productId:"",productName:""});
+            await selectConversation({withUser:profile.username,displayName:deps.getUserDisplayName(profile.username,{fallback:profile.fullName || profile.displayName || ""}),productId:"",productName:""});
           } catch (_error) {
             if(dialog.open)status.textContent = t("inbox.contactUnavailable", "Contact unavailable");
           } finally {open.disabled = false;}

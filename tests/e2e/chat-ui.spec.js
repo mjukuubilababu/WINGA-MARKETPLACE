@@ -14,6 +14,8 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
     await route.fulfill({contentType:icon?'image/svg+xml':url.pathname.endsWith('.css')?'text/css':'application/javascript',body:fs.readFileSync(file)});
   });
   await page.goto('http://chat-ui.test/');
+  const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
+  await page.addScriptTag({content:app.slice(app.indexOf('function normalizeDisplayName('),app.indexOf('function getUserShopLabel('))});
   const catalog=JSON.parse(fs.readFileSync(path.join(root,'src/localization/catalogs',rtl?'ar.json':'sw.json'),'utf8')).messages;
   await page.evaluate(({catalog,rtl})=>{
     document.documentElement.lang=rtl?'ar':'sw';document.documentElement.dir=rtl?'rtl':'ltr';
@@ -24,6 +26,8 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
     const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
     const deps={translate:(key,variables,fallback)=>Object.entries(variables||{}).reduce((text,[name,value])=>text.replace('{'+name+'}',value),catalog[key]||fallback),escapeHtml,getCurrentUser:()=> 'alice',getUserDisplayName:name=>name==='rey'?'Rey':name,getMarketplaceUser:()=>null,getProductById:()=>null,getConversationSummaries:()=>summaries,getConversationSummariesFiltered:filter=>summaries.filter(row=>filter!=='unread'||row.unreadCount),getActiveChatContext:()=>state.context,getProfileMessagesMode:()=>state.mode,getProfileMessagesFilter:()=>state.filter,getConversationsView:()=>state.view,getActiveConversationMessages:()=>messages,getCurrentMessageDraft:()=>state.draft,getMessageProductItems:()=>[],getReplyPreviewMessage:()=>null,getActiveChatReplyMessageId:()=>'',getOpenChatMessageMenuId:()=>'',getChatContextKey:context=>context.withUser,getChatContactState:()=>({}),getMessagePreviewText:message=>message.message,getPendingMessages:()=>[],renderEmojiPicker:()=>'',getAssistantSearchState:()=>({}),sanitizeImageSource:value=>value,getImageFallbackDataUri:()=>'',createResponsiveImage:()=>document.createElement('img'),getUnreadNotifications:()=>[]};
     deps.getCurrentUser=()=>state.owner;
+    deps.isPresentableDisplayName=isPresentableDisplayName;
+    deps.getUserDisplayName=(username,options={})=>options.fallback || (username==='rey'?'Rey':username);
     const ui=window.WingaModules.chat.createChatUiModule(deps);
     const translate=(key,fallback,variables)=>deps.translate(key,variables,fallback);
     const controller=window.WingaModules.chat.createChatControllerModule({
@@ -41,7 +45,7 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
       dataLayer:{isEncryptedConversation:async()=>true,
         loadSocialProfile:async username=>{
           if(username==='pending')return new Promise(resolve=>{state.resolveLookup=()=>resolve({profile:{username:'pending'}});});
-          return {profile:{username:username==='invalid'?'different':username,displayName:username}};
+          return {profile:{username:username==='invalid'?'different':username,displayName:username,fullName:username==='named'?'Asha Mussa':''}};
         },
         sendMessage:async payload=>{state.sends++;state.lastPayload=payload;return {id:'sent-'+state.sends};}
       },setChatComposeStatus:()=>{},replaceMessagesPanel:()=>render()
@@ -107,6 +111,31 @@ test('new chat validates the public contact and never sends until explicit compo
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('[data-chat-read-user="rey"]')).toBeVisible();
   expect(await page.evaluate(()=>chatUiFixture.state.sends)).toBe(0);
+});
+
+test('new chat uses the canonical profile name while routing by the original username',async({page})=>{
+  await openChatUi(page);
+  await page.getByRole('button',{name:'Ujumbe mpya',exact:true}).click();
+  const dialog=page.locator('.conversation-new-dialog');
+  await dialog.getByRole('textbox',{name:'Jina la mtumiaji'}).fill('named');
+  await dialog.getByRole('button',{name:'Fungua chat'}).click();
+  await expect(page.locator('.messages-thread-head strong').first()).toHaveText('Asha Mussa');
+  expect(await page.evaluate(()=>chatUiFixture.state.context)).toMatchObject({withUser:'named',displayName:'Asha Mussa'});
+  await expect(page.locator('[data-chat-read-user="named"]')).toBeVisible();
+  expect(await page.evaluate(()=>chatUiFixture.state.sends)).toBe(0);
+});
+
+test('headers do not expose generated or phone identities when profile metadata is absent',async({page})=>{
+  await openChatUi(page);
+  const fallback=JSON.parse(fs.readFileSync(path.join(root,'src/localization/catalogs/sw.json'),'utf8')).messages['inbox.person'];
+  for(const name of ['guest-1782938472398-abcd','buyer-123456-abcd','255700123456']) {
+    await page.evaluate(name=>{
+      chatUiFixture.state.context={withUser:'rey',displayName:name,productId:'',productName:''};
+      chatUiFixture.state.mode='detail';chatUiFixture.render();
+    },name);
+    await expect(page.locator('.messages-thread-head strong').first()).toHaveText(fallback);
+    await expect(page.locator('[data-chat-read-user="rey"]')).toBeVisible();
+  }
 });
 
 for(const action of ['close','account','session'])test(`late new-chat lookup is discarded after ${action}`,async({page})=>{

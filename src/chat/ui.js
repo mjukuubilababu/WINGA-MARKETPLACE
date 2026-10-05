@@ -3,9 +3,10 @@
     const t = (key, fallback, variables = {}) => deps.translate?.(key, variables, fallback) || fallback;
     const icon = (name) => `<img src="/icons/navigation/${name}.svg" width="20" height="20" alt="" />`;
     function conversationName(context) {
-      const name = context?.displayName || deps.getUserDisplayName(context?.withUser) || "";
-      return /^(?:buyer|user|seller)-\d{10,}/i.test(name)
-        ? t("inbox.person", "Winga User") : name || t("inbox.person", "Winga User");
+      const name = String(context?.displayName || deps.getUserDisplayName(context?.withUser) || "").trim();
+      const presentable = deps.isPresentableDisplayName
+        ? deps.isPresentableDisplayName(name) : !/^(?:buyer|user|guest|seller)-\d{6,}(?:-[a-z0-9]+)*$/i.test(name);
+      return presentable && name ? name : t("inbox.person", "Winga User");
     }
 
     function conversationTime(value, dateOnly = false) {
