@@ -12794,6 +12794,11 @@ const {
   openOwnProductMessages: openOwnProductMessagesFromController
 } = window.WingaModules.chat.createChatControllerModule({
   resumeOrderPayment,
+  openConversationProduct:async id=>{await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();openProductDetailModal(id);},
+  saveConversationProduct:async id=>{await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();toggleSavedProduct(id);},
+  buyConversationProduct:async id=>{const product=await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();beginPurchaseFlow(product);},
+  openConversationOrder:()=>openProfileSection("profile-orders-panel"),
+  sanitizeImageSource,
   dataLayer: window.WingaDataLayer,
   getProfileDiv: () => profileDiv,
   getCurrentSession: () => currentSession,

@@ -4,7 +4,12 @@ const os = require("os");
 const path = require("path");
 
 const rootDir = path.resolve(__dirname, "..");
-const outputDir = path.join(rootDir, "public");
+const outputName = process.env.WINGA_BUILD_OUTPUT || "public";
+// Keep cleanup confined to known generated directories, including a preview-safe release.
+if (!["public", ".tmp-frontend-release"].includes(outputName)) {
+  throw new Error("WINGA_BUILD_OUTPUT must be public or .tmp-frontend-release");
+}
+const outputDir = path.join(rootDir, outputName);
 const assetVersion = process.env.WINGA_ASSET_VERSION || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const requiredRootFiles = [
   "_headers",
@@ -74,7 +79,7 @@ const fileCopies = [
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
-  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "eye", "monitor-smartphone", "search", "users", "bell", "send", "ellipsis", "arrow-left", "square-pen", "user-round", "info", "pin", "phone"]
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "eye", "monitor-smartphone", "search", "users", "bell", "send", "ellipsis", "arrow-left", "square-pen", "user-round", "info", "pin", "phone", "image", "mic", "video", "shopping-bag", "credit-card", "truck", "map-pin", "bookmark", "camera", "check", "trash-2", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 
@@ -139,6 +144,7 @@ const bundledModuleSources = [
   "src/products/actions.js",
   "src/products/creation.js",
   "src/commerce/payment-intent-ui.js",
+  "src/chat/rich-content.js",
   "src/chat/ui.js",
   "src/chat/pagination.js",
   "src/chat/device-receipts.js",
@@ -149,6 +155,8 @@ const bundledModuleSources = [
   "src/chat/encryption-session.js",
   "src/chat/encrypted-media-client.js",
   "src/chat/encrypted-media-ui.js",
+  "src/chat/voice-ui.js",
+  "src/chat/rich-ui.js",
   "src/chat/encryption-ui.js",
   "src/chat/encrypted-vault.js",
   "src/chat/recovery-client.js",
@@ -1021,7 +1029,7 @@ async function main() {
     cleanupGeneratedPublicAssetBackup(generatedAssetBackup);
   }
 
-  console.log(`Built Vercel static frontend into public/ (asset version ${assetVersion})`);
+  console.log(`Built static frontend into ${outputName}/ (asset version ${assetVersion})`);
 }
 
 main()

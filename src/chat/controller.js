@@ -7,6 +7,31 @@
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
     const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
+    function encryptedUiOptions(scope,refresh) {
+      return {
+        dataLayer:deps.dataLayer,translate:t,refresh,getSession:deps.getCurrentSession,
+        getPeer:()=>deps.getActiveChatContext()?.withUser,getMessages:deps.getActiveConversationMessages,
+        onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},
+        actions:{
+          getReplyId:deps.getActiveChatReplyMessageId,clearReply:()=>deps.setActiveChatReplyMessageId(''),
+          openProduct:deps.openConversationProduct||deps.openProductDetailModal,
+          saveProduct:deps.saveConversationProduct,buyProduct:deps.buyConversationProduct,
+          openOrder:deps.openConversationOrder,payOrder:deps.resumeOrderPayment,
+          sanitizeImage:deps.sanitizeImageSource,formatPrice:deps.formatProductPrice,
+          openContact:async username=>{
+            const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.();
+            const profile=await deps.dataLayer.readRichContact(username);
+            if(!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
+            if(profile.username===owner)return deps.openConversationProfile?.();
+            const context={withUser:profile.username,displayName:profile.fullName||profile.username,productId:'',productName:''};
+            await deps.dataLayer.loadConversationHistoryPage?.(context);
+            deps.setActiveChatContext(context);deps.setProfileMessagesMode('detail');deps.setProfileHasSelection?.(true);
+            await refresh();
+          }
+        }
+      };
+    }
+
     function syncChatViewport() {
       const profile = deps.getProfileDiv?.();
       if (profile?.dataset?.activeSection !== "profile-messages-panel") return;
@@ -528,7 +553,7 @@
 
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
-      globalThis.WingaEncryptedChatUi?.bind(modal,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},refresh:async()=>{await deps.refreshMessagesState();replaceContextChatModal();}});
+      globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -923,7 +948,7 @@
         scrollThread.dataset.scrollInitialized = "true";
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
-      globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
+      globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
       scope.querySelectorAll('[data-chat-link]').forEach(button => {
         button.onclick = () => {
           const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);

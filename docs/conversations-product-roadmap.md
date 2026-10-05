@@ -302,8 +302,18 @@ cookie-only encrypted browser workflow passed, including the deferred-startup
 no-plaintext regression, send, delivery/read, retry, media and recovery. The
 recovered inbox screenshot was visually reviewed. Four catalogs contain 1,410
 matching keys with zero hard-coded UI debt. Build `20261005145432` contains 81
-synchronized modules. This increment is not published yet; production phone
+synchronized modules. This increment was pushed as `d7e1350` and published as
+Cloudflare version `59be9975-e409-4b0b-83ca-c158ca8f28bc`. Production phone
 acceptance and independent cryptographic approval are not claimed.
+
+## Rich Messages: 123-150
+
+The implemented scope, explicit future exclusions, edit/delete policy and local
+release evidence are recorded in [Rich messages 123-150](conversations-rich-messages-123-150.md).
+Typed references and mutation events remain inside the existing signed MLS
+payload. Native voice/image/video use the private encrypted-media path, not the
+public product-video pipeline. No schema migration or feature-flag change is
+required by this increment.
 
 ## Gates Still Open
 
@@ -315,9 +325,10 @@ acceptance and independent cryptographic approval are not claimed.
   increase instance count automatically or relabel REST/SSE evidence as Phoenix.
 - Server-backed room lists, multi-member authorization, epoch changes and group
   ciphertext transport. The existing read-only room presentation is not a service.
-- Remaining anti-abuse evidence, rich-message functionality, policy for edit/delete
-  windows and future collaborative commerce. Direct chats do not require recipient
-  approval; no payment truth or wallet is created in chat.
+- Remaining anti-abuse evidence and future collaborative commerce. Sender-only
+  text edits have the operator-approved 15-minute window; deletion is for the
+  current owner only. Direct chats do not require recipient approval; no payment
+  truth or wallet is created in chat.
 
 Continue by auditing the existing direct routes against 111-120 and 170, and
 recording concrete defects/evidence. New product stages must not depend on an

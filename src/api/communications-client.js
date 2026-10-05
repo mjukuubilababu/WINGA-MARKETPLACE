@@ -145,6 +145,7 @@
       const merged = new Map(page.items.map(item => [item.withUser, item]));
       const unread = new Map();
       for (const item of history) {
+        if(item.eventRecord)continue;
         if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
         const peer = item.senderId === owner ? item.receiverId : item.senderId;
         if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
@@ -479,7 +480,46 @@
       resumeEncryptedConversationReplacement:async peer=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.resumeReplacement(peer);
       },
-      sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
+      sendEncryptedMedia:async(peer,file,text,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text,kind);},
+      stageEncryptedMediaDraft:async(peer,file,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.stageMediaDraft(peer,file,kind);},
+      readEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.readMediaDraft(peer);},
+      discardEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.discardMediaDraft(peer);},
+      sendEncryptedMediaDraft:async(peer,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendMediaDraft(peer,text);},
+      sendRichMessage:async(peer,content)=>sendMessage({clientMessageId:crypto.randomUUID(),receiverId:peer,message:'',richContent:content,encrypted:true}),
+      mutateEncryptedMessage:async(peer,type,id,value)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.mutateMessage(peer,type,id,value);},
+      readConversationReference:async(kind,id)=>{
+        requireFetcher();return fetchJson(baseUrl+'/conversations/references?kind='+encodeURIComponent(kind)+'&id='+encodeURIComponent(id),{headers:authHeaders()});
+      },
+      readRichCatalog:async(kind,query='')=>{
+        requireFetcher();const q=String(query).trim().slice(0,120);
+        let rows;
+        if(['order','payment','delivery'].includes(kind)) {
+          const value=await fetchJson(baseUrl+'/orders/mine',{headers:authHeaders()});
+          rows=[...new Map([...(value.purchases||[]),...(value.sales||[])].map(item=>[item.id,item])).values()];
+          if(kind==='payment')rows=rows.filter(item=>item.paymentIntentStatus);
+        }else if(kind==='collection') {
+          const value=await fetchJson(baseUrl+'/social/users/'+encodeURIComponent(deps.getSession?.()?.username||'')+'/collections?limit=12',{headers:authHeaders()});
+          rows=value.items||[];
+        }else {
+          const params=new URLSearchParams({limit:'12',q});
+          const value=await fetchJson(baseUrl+'/products?'+params,{headers:authHeaders()});
+          rows=value.items||value.products||[];
+          if(kind==='reel'||kind==='short')rows=rows.filter(p=>(p.mediaItems||[]).some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected'));
+        }
+        return rows.filter(item=>!q||String(item.name||item.title||item.productName||item.id).toLocaleLowerCase().includes(q.toLocaleLowerCase())).slice(0,12);
+      },
+      readConversationProduct:async id=>{
+        requireFetcher();const value=await fetchJson(baseUrl+'/products?limit=1&productId='+encodeURIComponent(id),{headers:authHeaders()});
+        const p=(value.items||value.products||[]).find(p=>p.id===id&&p.status==='approved');
+        if(!p)throw Object.assign(new Error('conversation_reference_unavailable'),{code:'conversation_reference_unavailable'});
+        return p;
+      },
+      readRichContact:async username=>{
+        requireFetcher();if(!/^[A-Za-z0-9._:-]{1,40}$/.test(username))throw new Error('contact_lookup_invalid');
+        const value=await fetchJson(baseUrl+'/social/users/'+encodeURIComponent(username),{headers:authHeaders()});
+        if(value.profile?.username?.toLocaleLowerCase()!==username.toLocaleLowerCase())throw new Error('contact_lookup_invalid');
+        return value.profile;
+      },
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
       createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),

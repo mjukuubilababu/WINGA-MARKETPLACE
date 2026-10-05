@@ -25,7 +25,13 @@
     const serialize=work=>{const result=tail.then(()=>navigator.locks.request(`winga-encryption-session:${owner}`,async()=>{current();return work();}));tail=result.catch(()=>{});return result;};
     function messageView(item) {
       const a=globalThis.WingaEncryptedMedia?.attachment(item);
-      return {...item,message:a?a.text:item.message,...(a?{attachmentId:a.attachment.object.id,attachmentName:a.attachment.name}:{}),senderId:item.owner,receiverId:item.peer,messageType:a?'file':'text',productId:'',productName:'',productItems:[],replyToMessageId:'',encrypted:true,
+      const c=item.richContent||globalThis.WingaRichContent?.parse(item.message);
+      const unknown=!c&&item.message?.startsWith('WINGA-CONTENT/');
+      const body=item.eventRecord?'':c?c.text:a?a.text:unknown?'':item.message;
+      return {...item,message:body,richContent:c,richUnavailable:unknown,
+        ...(a?{attachmentId:a.attachment.object.id,attachmentName:a.attachment.name,attachmentKind:a.attachment.kind||'file'}:{}),
+          senderId:item.owner,receiverId:item.peer,messageType:a?(a.attachment.kind||'file'):c?.type||'text',productId:'',productName:'',productItems:[],
+        replyToMessageId:c?.reply?.id||'',replyQuote:c?.reply?.quote||'',encrypted:true,
         isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
         sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
     }
@@ -302,6 +308,36 @@
         if(g.status!=='active' || saved.values[`mls:replacement:${peer}`])fail('encrypted_membership_pending');
         if(await runtime.conversationId(peer)!==id)fail('encrypted_membership_required');
       }
+      async function wirePayload(payload) {
+        const rich=globalThis.WingaRichContent;
+        if(!rich)return payload;
+        let value=payload.richContent;
+        if(value&&rich.event(value))fail('rich_event_requires_action');
+        const products=(payload.productItems||[]).map(item=>item.productId).filter(Boolean);
+        if(!value&&products.length)value=rich.create('product',payload.message||'',{ids:[...new Set(products)]});
+        if(!value&&payload.productId)value=rich.create('product',payload.message||'',{ids:[payload.productId]});
+        const reply=payload.replyToMessageId?{id:payload.replyToMessageId,quote:''}:null;
+        if(!value&&(reply||payload.message?.startsWith('WINGA-CONTENT/')))value=rich.create('text',payload.message,{},reply);
+        if(value&&reply)value={...value,reply};
+        return {clientMessageId:payload.clientMessageId,receiverId:payload.receiverId,messageType:'text',
+          message:value?rich.encode(value):payload.message};
+      }
+      async function mutation(peer,type,targetId,value='') {
+        await requireActiveMembership(peer);
+        const rich=globalThis.WingaRichContent;if(!rich)fail('rich_content_unavailable');
+        const history=await runtime.history(peer),target=history.find(item=>item.id===targetId);
+        if(!target||target.conversationId!==await runtime.conversationId(peer)||target.status==='pending')fail('rich_target_unavailable');
+        if(type==='edit'&&!rich.canEdit(target,owner))fail('rich_edit_window_closed');
+        const data=type==='reaction'?{targetId,emoji:value}:{targetId};
+        const content=rich.create(type,type==='edit'?value:'',data);
+        const id=crypto.randomUUID();let result;
+        try {result=await runtime.sendMessage({clientMessageId:id,receiverId:peer,messageType:'text',message:rich.encode(content)});}
+        catch(error) {
+          if(!(error instanceof TypeError)&&error.status!==503)throw error;
+          result=(await runtime.history(peer)).find(item=>item.id===id);if(!result)throw error;
+        }
+        queueMicrotask(onChange);return messageView(result);
+      }
       const service={
         inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
@@ -309,12 +345,21 @@
           await serialize(syncInternal);
           return Boolean(groups.find(g=>g.creator===peer || g.recipient===peer));
         },
-        history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
-        sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text));}),
+        history:async peer=>{
+          const history=[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])];
+          return (globalThis.WingaRichContent?WingaRichContent.project(history,owner):history).map(messageView);
+        },
+        mutateMessage:(peer,type,id,value)=>serialize(()=>mutation(peer,type,id,value)),
+        sendEncryptedMedia:(peer,file,text,kind)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text,kind));}),
+        stageMediaDraft:(peer,file,kind)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return media.stageDraft(peer,file,'',kind);}),
+        readMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.draft(peer);}),
+        discardMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.discardDraft(peer);}),
+        sendMediaDraft:(peer,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.sendDraft(peer,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
         sendMessage:payload=>serialize(async()=>{
           await requireActiveMembership(payload.receiverId);
-          try {const result=messageView(await runtime.sendMessage(payload));queueMicrotask(onChange);return result;}
+          const wire=await wirePayload(payload);
+          try {const result=messageView(await runtime.sendMessage(wire));queueMicrotask(onChange);return result;}
           catch(error) {
             const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
             if(!item || (!(error instanceof TypeError) && error.status!==503))throw error;

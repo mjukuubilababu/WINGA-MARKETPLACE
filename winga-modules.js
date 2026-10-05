@@ -1299,6 +1299,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const merged = new Map(page.items.map(item => [item.withUser, item]));
       const unread = new Map();
       for (const item of history) {
+        if(item.eventRecord)continue;
         if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
         const peer = item.senderId === owner ? item.receiverId : item.senderId;
         if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
@@ -1633,7 +1634,46 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       resumeEncryptedConversationReplacement:async peer=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.resumeReplacement(peer);
       },
-      sendEncryptedMedia:async(peer,file,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text);},
+      sendEncryptedMedia:async(peer,file,text,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text,kind);},
+      stageEncryptedMediaDraft:async(peer,file,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.stageMediaDraft(peer,file,kind);},
+      readEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.readMediaDraft(peer);},
+      discardEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.discardMediaDraft(peer);},
+      sendEncryptedMediaDraft:async(peer,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendMediaDraft(peer,text);},
+      sendRichMessage:async(peer,content)=>sendMessage({clientMessageId:crypto.randomUUID(),receiverId:peer,message:'',richContent:content,encrypted:true}),
+      mutateEncryptedMessage:async(peer,type,id,value)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.mutateMessage(peer,type,id,value);},
+      readConversationReference:async(kind,id)=>{
+        requireFetcher();return fetchJson(baseUrl+'/conversations/references?kind='+encodeURIComponent(kind)+'&id='+encodeURIComponent(id),{headers:authHeaders()});
+      },
+      readRichCatalog:async(kind,query='')=>{
+        requireFetcher();const q=String(query).trim().slice(0,120);
+        let rows;
+        if(['order','payment','delivery'].includes(kind)) {
+          const value=await fetchJson(baseUrl+'/orders/mine',{headers:authHeaders()});
+          rows=[...new Map([...(value.purchases||[]),...(value.sales||[])].map(item=>[item.id,item])).values()];
+          if(kind==='payment')rows=rows.filter(item=>item.paymentIntentStatus);
+        }else if(kind==='collection') {
+          const value=await fetchJson(baseUrl+'/social/users/'+encodeURIComponent(deps.getSession?.()?.username||'')+'/collections?limit=12',{headers:authHeaders()});
+          rows=value.items||[];
+        }else {
+          const params=new URLSearchParams({limit:'12',q});
+          const value=await fetchJson(baseUrl+'/products?'+params,{headers:authHeaders()});
+          rows=value.items||value.products||[];
+          if(kind==='reel'||kind==='short')rows=rows.filter(p=>(p.mediaItems||[]).some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected'));
+        }
+        return rows.filter(item=>!q||String(item.name||item.title||item.productName||item.id).toLocaleLowerCase().includes(q.toLocaleLowerCase())).slice(0,12);
+      },
+      readConversationProduct:async id=>{
+        requireFetcher();const value=await fetchJson(baseUrl+'/products?limit=1&productId='+encodeURIComponent(id),{headers:authHeaders()});
+        const p=(value.items||value.products||[]).find(p=>p.id===id&&p.status==='approved');
+        if(!p)throw Object.assign(new Error('conversation_reference_unavailable'),{code:'conversation_reference_unavailable'});
+        return p;
+      },
+      readRichContact:async username=>{
+        requireFetcher();if(!/^[A-Za-z0-9._:-]{1,40}$/.test(username))throw new Error('contact_lookup_invalid');
+        const value=await fetchJson(baseUrl+'/social/users/'+encodeURIComponent(username),{headers:authHeaders()});
+        if(value.profile?.username?.toLocaleLowerCase()!==username.toLocaleLowerCase())throw new Error('contact_lookup_invalid');
+        return value.profile;
+      },
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
       createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
@@ -16912,6 +16952,102 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/rich-content.js
+(function(root,factory) {
+  const api=factory();
+  if(typeof module==='object'&&module.exports)module.exports=api;
+  else root.WingaRichContent=api;
+})(globalThis,function() {
+  const PREFIX='WINGA-CONTENT/1\n',MAX_BYTES=12000,EDIT_WINDOW_MS=15*60*1000;
+  const REACTIONS=['\u2764\uFE0F','\uD83D\uDC4D','\uD83D\uDE02','\uD83D\uDD25'];
+  const TYPES=['text','product','reel','short','collection','order','payment','delivery','location','contact','reaction','edit','hide'];
+  const id=value=>typeof value==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value);
+  const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+  const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
+  const exact=(value,keys)=>record(value)&&Object.keys(value).sort().join(',')===keys.sort().join(',');
+  const text=(value,max=4096)=>typeof value==='string'&&value.length<=max&&!/[\u0000]/.test(value);
+  const fail=()=>{throw Object.assign(new Error('rich_content_invalid'),{code:'rich_content_invalid'});}; // i18n-gate: allow -- internal schema diagnostic, localized by callers
+  function validate(value) {
+    if(!exact(value,['version','type','text','reply','data'])||value.version!==1||!TYPES.includes(value.type)
+      ||!text(value.text)||!record(value.data)||!(value.reply===null
+        ||exact(value.reply,['id','quote'])&&uuid(value.reply.id)&&text(value.reply.quote,256)))fail();
+    const d=value.data;
+    if(value.type==='text'&&(!exact(d,[])||!value.text.trim()))fail();
+    if(['product','reel','short','collection'].includes(value.type)
+      &&(!exact(d,['ids'])||!Array.isArray(d.ids)||!d.ids.length||d.ids.length>8
+        ||d.ids.some(v=>!id(v))||new Set(d.ids).size!==d.ids.length))fail();
+    if(['order','payment','delivery'].includes(value.type)&&(!exact(d,['id'])||!id(d.id)))fail();
+    if(value.type==='location'&&(!exact(d,['latitude','longitude','label'])
+      ||!Number.isFinite(d.latitude)||Math.abs(d.latitude)>90||!Number.isFinite(d.longitude)
+      ||Math.abs(d.longitude)>180||!text(d.label,160)))fail();
+    if(value.type==='contact'&&(!exact(d,['username','name'])||!id(d.username)||!text(d.name,160)))fail();
+    if(value.type==='reaction'&&(!exact(d,['targetId','emoji'])||!uuid(d.targetId)
+      ||!(d.emoji===''||REACTIONS.includes(d.emoji))||value.reply!==null||value.text!==''))fail();
+    if(value.type==='edit'&&(!exact(d,['targetId'])||!uuid(d.targetId)||!value.text.trim()||value.reply!==null))fail();
+    if(value.type==='hide'&&(!exact(d,['targetId'])||!uuid(d.targetId)||value.text!==''||value.reply!==null))fail();
+    if(new TextEncoder().encode(JSON.stringify(value)).length>MAX_BYTES)fail();
+    return structuredClone(value);
+  }
+  function encode(value){return PREFIX+JSON.stringify(validate(value));}
+  function parse(message) {
+    if(typeof message!=='string'||!message.startsWith(PREFIX))return null;
+    if(new TextEncoder().encode(message).length>MAX_BYTES+PREFIX.length)return null;
+    try{return validate(JSON.parse(message.slice(PREFIX.length)));}catch{return null;}
+  }
+  const create=(type,textValue='',data={},reply=null)=>validate({version:1,type,text:textValue,reply,data});
+  const event=value=>['reaction','edit','hide'].includes(value?.type);
+  function contentOf(item) {
+    const rich=parse(item.message);
+    if(rich)return rich;
+    if(item.message?.startsWith('WINGA-MEDIA/')||item.message?.startsWith('WINGA-CONTENT/'))return null;
+    try{return create('text',item.message||' ');}catch{return null;}
+  }
+  function canEdit(item,actor,time=Date.now()) {
+    const c=item.richContent||contentOf(item),created=Date.parse(item.timestamp);
+    return item.owner===actor&&item.status!=='pending'&&c?.type==='text'
+      &&Number.isFinite(created)&&time>=created&&time-created<=EDIT_WINDOW_MS;
+  }
+  function project(history,owner) {
+    const sorted=history.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||a.id.localeCompare(b.id));
+    const rows=new Map(),events=[];
+    for(const item of sorted) {
+      const c=parse(item.message);
+      if(event(c)){events.push([item,c]);continue;}
+      rows.set(item.id,{...item,richContent:c,reactions:[],edited:false});
+    }
+    const reactions=new Map(),hidden=new Set();
+    for(const [item,c] of events) {
+      if(item.status==='pending')continue;
+      const target=rows.get(c.data.targetId);
+      if(!target||!Number.isFinite(Date.parse(item.timestamp))||Date.parse(item.timestamp)<Date.parse(target.timestamp)
+        ||item.conversationId!==target.conversationId
+        ||![target.owner,target.peer].includes(item.owner)||item.owner===item.peer)continue;
+      if(c.type==='hide') {if(item.owner===owner)hidden.add(target.id);continue;}
+      if(c.type==='edit') {
+        if(canEdit(target,item.owner,Date.parse(item.timestamp))) {
+          const next={...(target.richContent||create('text',target.message)),text:c.text};
+          rows.set(target.id,{...target,richContent:next,edited:true});
+        }
+      }else {
+        const key=JSON.stringify([target.id,item.owner]);
+        const prior=reactions.get(key);
+        if(!prior||Date.parse(item.timestamp)>=Date.parse(prior.item.timestamp))reactions.set(key,{item,emoji:c.data.emoji});
+      }
+    }
+    for(const {item,emoji} of reactions.values()) {
+      if(!emoji)continue;
+      const target=rows.get(parse(item.message).data.targetId);
+      let group=target.reactions.find(r=>r.emoji===emoji);
+      if(!group){group={emoji,owners:[]};target.reactions.push(group);}
+      group.owners.push(item.owner);
+    }
+    return [...rows.values()].filter(item=>!hidden.has(item.id))
+      .concat(events.filter(([item])=>item.status==='pending').map(([item,c])=>({...item,richContent:c,eventRecord:true,reactions:[]})));
+  }
+  return {PREFIX,MAX_BYTES,EDIT_WINDOW_MS,REACTIONS,TYPES,encode,parse,create,event,project,canEdit,contentOf};
+});
+
+
 // src/chat/ui.js
 (() => {
   function normalizeConversationLink(value) {
@@ -17368,6 +17504,33 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return parts.join('') + deps.escapeHtml(text.slice(end));
     }
 
+    function richMessageMarkup(message) {
+      const c=message.richContent,esc=deps.escapeHtml;
+      if(message.eventRecord)return '<p>'+esc(t('chat.richChangePending','Change pending'))+'</p>';
+      if(message.richUnavailable)return '<p>'+esc(t('chat.richUnavailable','This item is unavailable.'))+'</p>';
+      if(!c)return '';
+      if(['product','reel','short','collection','order','payment','delivery'].includes(c.type)) {
+        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
+      }
+      if(c.type==='contact')return '<button type="button" class="chat-rich-contact" data-rich-contact="'+esc(c.data.username)+'">'+icon('user-round')+'<span>'+esc(c.data.name||c.data.username)+'</span></button>';
+      if(c.type==='location') {
+        const coordinates=c.data.latitude.toFixed(5)+', '+c.data.longitude.toFixed(5);
+        const link='https://www.openstreetmap.org/?mlat='+c.data.latitude+'&mlon='+c.data.longitude+'#map=16/'+c.data.latitude+'/'+c.data.longitude;
+        return '<button type="button" class="chat-message-link chat-rich-location" data-chat-link="'+esc(link)+'" aria-haspopup="dialog">'+icon('map-pin')+'<span>'+esc(c.data.label||t('chat.richLocation','Location'))+'<small dir="ltr">'+esc(coordinates)+'</small></span></button>';
+      }
+      return '';
+    }
+
+    function richActionsMarkup(message) {
+      if(!message.encrypted)return '';
+      const esc=deps.escapeHtml,id=esc(message.id);
+      const editable=globalThis.WingaRichContent?.canEdit({...message,owner:message.senderId},deps.getCurrentUser());
+      return '<button type="button" data-message-reply="'+id+'">'+esc(t('chat.richReply','Reply'))+'</button>'
+        +'<button type="button" data-rich-react="'+id+'">'+esc(t('chat.richReact','React'))+'</button>'
+        +(editable?'<button type="button" data-rich-edit="'+id+'">'+esc(t('chat.richEdit','Edit message'))+'</button>':'')
+        +'<button type="button" data-rich-delete="'+id+'">'+esc(t('chat.richDelete','Delete for me'))+'</button>';
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       let pending = [];
@@ -17393,21 +17556,26 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const replyMessage = deps.getReplyPreviewMessage(message, activeMessages);
         const canDelete = message.senderId === deps.getCurrentUser();
         const hasDownload = productItems.some((item) => item.productImage);
-        const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
+        const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage))
+          : deps.escapeHtml(message.replyQuote||t('chat.richReplyUnavailable','Earlier message unavailable'));
         const safeMessageText = message.message ? renderMessageText(message.message) : "";
         return `
           ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
-            ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
+            ${replyMessage||message.replyToMessageId ? `<div class="message-reply-preview"><strong>${deps.escapeHtml(t('chat.richReply','Reply'))}</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${richMessageMarkup(message)}
+            ${message.reactions?.length ? '<div class="chat-message-reactions">'+message.reactions.map(r=>'<button type="button" data-rich-react="'+deps.escapeHtml(message.id)+'" aria-label="'+deps.escapeHtml(t('chat.richReact','React'))+'">'+deps.escapeHtml(r.emoji)+' '+r.owners.length+'</button>').join('')+'</div>' : ''}
+            ${message.edited ? '<small class="chat-edited">'+deps.escapeHtml(t('chat.richEdited','Edited'))+'</small>' : ''}
             ${message.encrypted && message.attachmentId ? `<div class="chat-encrypted-attachment"><button type="button" class="chat-encrypted-file" data-encrypted-media-preview="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaPreview','View encrypted attachment'))}"><img src="/icons/navigation/eye.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button><button type="button" class="chat-encrypted-download" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}" aria-label="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /></button></div>` : ''}
             <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
-            ${enableActions && !message.encrypted ? `
+            ${enableActions && (!message.encrypted||message.status!=='pending'&&!message.eventRecord) ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
+                  ${richActionsMarkup(message)}
                   ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
                   ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
@@ -18773,7 +18941,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const serialize=work=>{const result=tail.then(()=>navigator.locks.request(`winga-encryption-session:${owner}`,async()=>{current();return work();}));tail=result.catch(()=>{});return result;};
     function messageView(item) {
       const a=globalThis.WingaEncryptedMedia?.attachment(item);
-      return {...item,message:a?a.text:item.message,...(a?{attachmentId:a.attachment.object.id,attachmentName:a.attachment.name}:{}),senderId:item.owner,receiverId:item.peer,messageType:a?'file':'text',productId:'',productName:'',productItems:[],replyToMessageId:'',encrypted:true,
+      const c=item.richContent||globalThis.WingaRichContent?.parse(item.message);
+      const unknown=!c&&item.message?.startsWith('WINGA-CONTENT/');
+      const body=item.eventRecord?'':c?c.text:a?a.text:unknown?'':item.message;
+      return {...item,message:body,richContent:c,richUnavailable:unknown,
+        ...(a?{attachmentId:a.attachment.object.id,attachmentName:a.attachment.name,attachmentKind:a.attachment.kind||'file'}:{}),
+          senderId:item.owner,receiverId:item.peer,messageType:a?(a.attachment.kind||'file'):c?.type||'text',productId:'',productName:'',productItems:[],
+        replyToMessageId:c?.reply?.id||'',replyQuote:c?.reply?.quote||'',encrypted:true,
         isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
         sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
     }
@@ -19050,6 +19224,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(g.status!=='active' || saved.values[`mls:replacement:${peer}`])fail('encrypted_membership_pending');
         if(await runtime.conversationId(peer)!==id)fail('encrypted_membership_required');
       }
+      async function wirePayload(payload) {
+        const rich=globalThis.WingaRichContent;
+        if(!rich)return payload;
+        let value=payload.richContent;
+        if(value&&rich.event(value))fail('rich_event_requires_action');
+        const products=(payload.productItems||[]).map(item=>item.productId).filter(Boolean);
+        if(!value&&products.length)value=rich.create('product',payload.message||'',{ids:[...new Set(products)]});
+        if(!value&&payload.productId)value=rich.create('product',payload.message||'',{ids:[payload.productId]});
+        const reply=payload.replyToMessageId?{id:payload.replyToMessageId,quote:''}:null;
+        if(!value&&(reply||payload.message?.startsWith('WINGA-CONTENT/')))value=rich.create('text',payload.message,{},reply);
+        if(value&&reply)value={...value,reply};
+        return {clientMessageId:payload.clientMessageId,receiverId:payload.receiverId,messageType:'text',
+          message:value?rich.encode(value):payload.message};
+      }
+      async function mutation(peer,type,targetId,value='') {
+        await requireActiveMembership(peer);
+        const rich=globalThis.WingaRichContent;if(!rich)fail('rich_content_unavailable');
+        const history=await runtime.history(peer),target=history.find(item=>item.id===targetId);
+        if(!target||target.conversationId!==await runtime.conversationId(peer)||target.status==='pending')fail('rich_target_unavailable');
+        if(type==='edit'&&!rich.canEdit(target,owner))fail('rich_edit_window_closed');
+        const data=type==='reaction'?{targetId,emoji:value}:{targetId};
+        const content=rich.create(type,type==='edit'?value:'',data);
+        const id=crypto.randomUUID();let result;
+        try {result=await runtime.sendMessage({clientMessageId:id,receiverId:peer,messageType:'text',message:rich.encode(content)});}
+        catch(error) {
+          if(!(error instanceof TypeError)&&error.status!==503)throw error;
+          result=(await runtime.history(peer)).find(item=>item.id===id);if(!result)throw error;
+        }
+        queueMicrotask(onChange);return messageView(result);
+      }
       const service={
         inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
@@ -19057,12 +19261,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           await serialize(syncInternal);
           return Boolean(groups.find(g=>g.creator===peer || g.recipient===peer));
         },
-        history:async peer=>[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])].map(messageView),
-        sendEncryptedMedia:(peer,file,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text));}),
+        history:async peer=>{
+          const history=[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])];
+          return (globalThis.WingaRichContent?WingaRichContent.project(history,owner):history).map(messageView);
+        },
+        mutateMessage:(peer,type,id,value)=>serialize(()=>mutation(peer,type,id,value)),
+        sendEncryptedMedia:(peer,file,text,kind)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.send(peer,file,text,kind));}),
+        stageMediaDraft:(peer,file,kind)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return media.stageDraft(peer,file,'',kind);}),
+        readMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.draft(peer);}),
+        discardMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.discardDraft(peer);}),
+        sendMediaDraft:(peer,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.sendDraft(peer,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
         sendMessage:payload=>serialize(async()=>{
           await requireActiveMembership(payload.receiverId);
-          try {const result=messageView(await runtime.sendMessage(payload));queueMicrotask(onChange);return result;}
+          const wire=await wirePayload(payload);
+          try {const result=messageView(await runtime.sendMessage(wire));queueMicrotask(onChange);return result;}
           catch(error) {
             const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
             if(!item || (!(error instanceof TypeError) && error.status!==503))throw error;
@@ -19099,7 +19312,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     try {
       const value=JSON.parse(item.message.slice(PREFIX.length)),a=value.attachment,d=a?.descriptor,o=a?.object;
       if(Object.keys(value).sort().join(',')!=='attachment,text' || typeof value.text!=='string' || value.text.length>4096
-        || Object.keys(a||{}).sort().join(',')!=='descriptor,name,object' || typeof a.name!=='string' || a.name.length>255
+        || !['descriptor,name,object','descriptor,kind,name,object'].includes(Object.keys(a||{}).sort().join(','))
+        || (a.kind!==undefined&&!['file','image','voice','video'].includes(a.kind)) || typeof a.name!=='string' || a.name.length>255
         || Object.keys(o||{}).sort().join(',')!=='bytes,id,sha256' || !uuid(o.id) || !Number.isSafeInteger(o.bytes)
         || o.bytes<40 || o.bytes>MAX_FILE_BYTES+4136 || !/^[a-f0-9]{64}$/.test(o.sha256)
         || Object.keys(d||{}).sort().join(',')!=='algorithm,attachmentId,conversationId,key,version' || d.version!==2
@@ -19133,19 +19347,41 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         queueMicrotask(onChange);
       }
     }
-    async function send(peer,file,text='') {
+    async function stageDraft(peer,file,text='',kind='file') {
       current();if(!(file instanceof Blob)||file.size>MAX_FILE_BYTES || typeof text!=='string'||text.length>4096)fail('private_media_invalid');
+      if(!['file','image','voice','video'].includes(kind))fail('private_media_invalid');
+      if((await vault.snapshot()).values['media:draft:'+peer])fail('private_media_draft_exists');
       const pending=await list();if(pending.length>=10 || pending.some(v=>v.peer===peer))fail('mls_pending_send_requires_retry');
       const conversationId=await runtime.conversationId(peer),id=crypto.randomUUID(),attachmentId=crypto.randomUUID();
-      const name=String(file.name||'attachment').slice(0,255),sealed=await codec.encryptMedia(file,{conversationId,attachmentId},{name});current();
+      const name=String(file.name||'attachment').slice(0,255),mime=(file.type||'application/octet-stream').split(';')[0].trim();
+      const sealed=await codec.encryptMedia(file,{conversationId,attachmentId},{name,mime});current();
       const ciphertext=new Uint8Array(await sealed.ciphertext.arrayBuffer()),object={id:attachmentId,bytes:ciphertext.length,sha256:await hash(ciphertext)};
-      const a={object,descriptor:sealed.descriptor,name},message=PREFIX+JSON.stringify({text,attachment:a});
+      const a={object,descriptor:sealed.descriptor,name,kind},message=PREFIX+JSON.stringify({text,attachment:a});
       const job={id,peer,conversationId,message,attachment:a,ciphertext,timestamp:new Date().toISOString()},s=await vault.snapshot();
-      await vault.write({expectedRevision:s.revision,values:{[`media:pending:${id}`]:job}});ciphertext.fill(0);
+      await vault.write({expectedRevision:s.revision,values:{['media:draft:'+peer]:job}});ciphertext.fill(0);
+      return {id,peer,kind,name};
+    }
+    async function draft(peer) {
+      current();const job=(await vault.snapshot()).values['media:draft:'+peer];if(!job)return null;
+      const result=await codec.decryptMedia(new Blob([job.ciphertext]),job.attachment.descriptor,
+        {conversationId:job.conversationId,attachmentId:job.attachment.object.id});current();
+      return {...result,id:job.id,kind:job.attachment.kind||'file',checkSession:current};
+    }
+    async function discardDraft(peer) {
+      current();const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,deleted:['media:draft:'+peer]});
+    }
+    async function sendDraft(peer,text) {
+      current();const s=await vault.snapshot(),job=s.values['media:draft:'+peer];if(!job)fail('private_media_draft_required');
+      if(text!==undefined){if(typeof text!=='string'||text.length>4096)fail('private_media_invalid');job.message=PREFIX+JSON.stringify({text,attachment:job.attachment});}
+      await vault.write({expectedRevision:s.revision,values:{['media:pending:'+job.id]:job},deleted:['media:draft:'+peer]});
+      const id=job.id;
       try {return await resume(id);}catch(error) {
         if(!(error instanceof TypeError)&&error.status!==503)throw error;
         const item=(await runtime.history(peer)).find(v=>v.id===id);return item || pendingView(job);
       }
+    }
+    async function send(peer,file,text='',kind='file') {
+      await stageDraft(peer,file,text,kind);return sendDraft(peer);
     }
     async function download(id) {
       current();const item=(await runtime.history()).find(v=>v.id===id),value=attachment(item);
@@ -19156,7 +19392,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();
       return {...result,checkSession:current};
     }
-    return {send,resume,list,download,pendingHistory:async()=> (await list()).map(pendingView)};
+    return {send,resume,list,download,stageDraft,draft,discardDraft,sendDraft,pendingHistory:async()=> (await list()).map(pendingView)};
   }
   globalThis.WingaEncryptedMedia={createMediaClient,attachment,MAX_FILE_BYTES};
 })();
@@ -19193,7 +19429,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         checkSession();if(!dialog.isConnected){bitmap.close();return;}
         const picture=document.createElement('img');picture.alt=result.name;picture.className='chat-decrypted-preview';
         url=URL.createObjectURL(result.blob);picture.src=url;dialog.insertBefore(picture,status);bitmap.close();bitmap=null;status.textContent='';
-      } else status.textContent=t('chat.mediaPreviewUnavailable','Preview unavailable');
+      } else {
+        const playable=await globalThis.WingaVoiceUi?.playable(result.blob);
+        checkSession();if(!dialog.isConnected)return;
+        if(playable) {
+          const player=document.createElement(playable);player.className='chat-decrypted-player';player.controls=true;player.preload='metadata';
+          url=URL.createObjectURL(result.blob);player.src=url;dialog.insertBefore(player,status);status.textContent='';
+          dialog.addEventListener('close',()=>{player.pause();player.removeAttribute('src');player.load();},{once:true});
+        }else status.textContent=t('chat.mediaPreviewUnavailable','Preview unavailable');
+      }
       timer=setInterval(()=>{try{checkSession();}catch{dialog.close();}},250);
     }catch {
       bitmap?.close();bitmap=null;if(url){URL.revokeObjectURL(url);url=null;}
@@ -19253,9 +19497,372 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/voice-ui.js
+(() => {
+  async function playable(blob) {
+    const mime=blob.type.split(';')[0],head=new Uint8Array(await blob.slice(0,16).arrayBuffer());
+    const matches=(offset,bytes)=>bytes.every((v,i)=>head[offset+i]===v);
+    const webm=matches(0,[26,69,223,163]),mp4=matches(4,[102,116,121,112]),ogg=matches(0,[79,103,103,83]);
+    if((mime==='video/webm'&&webm)||(mime==='video/mp4'&&mp4))return 'video';
+    if((mime==='audio/webm'&&webm)||(mime==='audio/mp4'&&mp4)||(mime==='audio/ogg'&&ogg)
+      ||(mime==='audio/wav'&&matches(0,[82,73,70,70])&&matches(8,[87,65,86,69]))
+      ||(mime==='audio/mpeg'&&(matches(0,[73,68,51])||(head[0]===255&&(head[1]&224)===224))))return 'audio';
+    return null;
+  }
+  async function open({kind,peer,dataLayer,translate=(k,f)=>f,refresh=()=>{},current=()=>true,sessionCurrent=current,capture=false}) {
+    if(!current())return;
+    const t=translate,d=document.createElement('dialog');d.className='chat-security-dialog chat-rich-dialog chat-recording-dialog';
+    const heading=document.createElement('h3');heading.textContent=kind==='voice'?t('chat.richVoice','Voice'):kind==='video'?t('chat.richVideo','Video'):kind==='image'?t('chat.richPhoto','Photo'):t('chat.mediaAttach','Attach encrypted file');
+    const preview=document.createElement('div');preview.className='chat-recording-preview';
+    const status=document.createElement('p');status.setAttribute('role','status');
+    const progress=document.createElement('progress');progress.hidden=true;progress.setAttribute('aria-label',t('chat.richUploading','Uploading encrypted attachment'));
+    const caption=document.createElement('textarea');caption.rows=2;caption.maxLength=4096;caption.placeholder=t('chat.mediaCaption','Caption');caption.setAttribute('aria-label',caption.placeholder);
+    const input=document.createElement('input');input.type='file';input.hidden=true;
+    if(kind==='image'){input.accept='image/png,image/jpeg,image/webp,image/gif';if(capture)input.setAttribute('capture','environment');}
+    if(kind==='video')input.accept='video/mp4,video/webm';
+    const actions=document.createElement('div');actions.className='chat-rich-actions';
+    const make=(key,label,iconName,handler)=>{const b=document.createElement('button');b.type='button';b.className='chat-rich-action';
+      b.title=t(key,label);b.setAttribute('aria-label',b.title);const icon=document.createElement('img');icon.src='/icons/navigation/'+iconName+'.svg';icon.width=icon.height=20;icon.alt='';
+      const text=document.createElement('span');text.textContent=b.title;b.append(icon,text);b.onclick=handler;actions.append(b);return b;};
+    d.append(heading,preview,caption,status,progress,input,actions);
+    let recorder,stream,url,source,busy=false,staged=false,discarded=false,started=0,clock,limit,timer,draftId,sendStarted=false;
+    function stopTracks(){stream?.getTracks().forEach(track=>track.stop());stream=null;clearInterval(clock);clearTimeout(limit);}
+    async function show(blob,name) {
+      if(url)URL.revokeObjectURL(url);url=null;preview.replaceChildren();
+      const label=document.createElement('p');label.textContent=name;preview.append(label);
+      const playerType=await playable(blob);let imageSafe=false,bitmap;
+      if(['image/png','image/jpeg','image/webp','image/gif'].includes(blob.type)) {
+        try{bitmap=await createImageBitmap(blob);imageSafe=bitmap.width*bitmap.height<=16*1024*1024;}catch{}
+        finally{bitmap?.close();}
+      }
+      if(!current()||!d.isConnected)return;
+      if(playerType) {
+        url=URL.createObjectURL(blob);
+        const player=document.createElement(playerType);
+        player.controls=true;player.preload='metadata';player.src=url;player.className='chat-decrypted-player';preview.append(player);
+      }else if(imageSafe) {
+        url=URL.createObjectURL(blob);
+        const image=document.createElement('img');image.src=url;image.alt=name;image.className='chat-decrypted-preview';preview.append(image);
+      }
+    }
+    async function stage(file) {
+      source=file;send.disabled=true;busy=true;progress.hidden=false;status.textContent=t('chat.richSaving','Saving encrypted draft...');
+      try {
+        const draft=await dataLayer.stageEncryptedMediaDraft(peer,file,kind);draftId=draft.id;staged=true;
+        if(current()&&d.isConnected){await show(file,file.name);if(current()&&d.isConnected){send.disabled=false;status.textContent=t('chat.richDraftSaved','Encrypted draft saved on this device.');}}
+      }catch{if(d.isConnected){status.textContent=t('chat.mediaFailed','Encrypted file operation failed');send.disabled=false;}}
+      finally{busy=false;progress.hidden=true;}
+    }
+    const choose=make('chat.richChoose','Choose file','paperclip',()=>input.click());
+    let record;
+    if(kind==='voice') {
+      choose.hidden=true;
+      record=make('chat.richRecord','Record','mic',async()=>{
+        if(busy||!current())return;
+        if(recorder?.state==='recording'){recorder.stop();stopTracks();return;}
+        if(staged){status.textContent=t('chat.richDraftSaved','Encrypted draft saved on this device.');return;}
+        record.disabled=true;
+        try {
+          const acquired=await navigator.mediaDevices.getUserMedia({audio:true});
+          if(!current()||!d.isConnected){acquired.getTracks().forEach(track=>track.stop());return;}
+          stream=acquired;
+          const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(value=>MediaRecorder.isTypeSupported(value));
+          if(!mime)throw new Error('voice_recording_unsupported'); // i18n-gate: allow -- translated microphone failure below
+          recorder=new MediaRecorder(stream,{mimeType:mime});const chunks=[];let bytes=0;
+          recorder.ondataavailable=event=>{if(event.data.size){chunks.push(event.data);bytes+=event.data.size;if(bytes>WingaEncryptedMedia.MAX_FILE_BYTES&&recorder.state==='recording')recorder.stop();}};
+          recorder.onstop=async()=>{
+            stopTracks();record.disabled=false;record.title=t('chat.richRecord','Record');record.setAttribute('aria-label',record.title);record.querySelector('span').textContent=record.title;
+            if(discarded||!sessionCurrent())return;
+            const blob=new Blob(chunks,{type:mime.split(';')[0]});
+            if(!blob.size||blob.size>WingaEncryptedMedia.MAX_FILE_BYTES){status.textContent=t('chat.mediaLimit','The encrypted file limit is 2 MiB.');return;}
+            const file=new File([blob],'voice-'+Date.now()+'.'+(mime.includes('mp4')?'m4a':mime.includes('ogg')?'ogg':'webm'),{type:blob.type});
+            await stage(file);
+          };
+          recorder.onerror=()=>{stopTracks();record.disabled=false;status.textContent=t('chat.mediaFailed','Encrypted file operation failed');};
+          recorder.start(1000);started=Date.now();
+          clock=setInterval(()=>{if(d.isConnected)status.textContent=t('chat.richRecording','Recording')+' '+Math.floor((Date.now()-started)/1000)+'s';},250);
+          limit=setTimeout(()=>{if(recorder.state==='recording')recorder.stop();stopTracks();},120000);
+          record.title=t('chat.richStop','Stop recording');record.setAttribute('aria-label',record.title);record.querySelector('span').textContent=record.title;
+          send.disabled=true;
+        }catch{stopTracks();status.textContent=t('chat.richMicrophoneFailed','Microphone unavailable. Check permission and try again.');}
+        finally{record.disabled=false;}
+      });
+    }
+    const send=make('chat.mediaSend','Send encrypted file','send',async()=>{
+      if(busy||!current()||recorder?.state==='recording')return;
+      busy=true;send.disabled=true;progress.hidden=false;status.textContent=t('chat.richUploading','Uploading encrypted attachment');
+      let accepted=false;
+      try {
+        if(!staged&&source){const draft=await dataLayer.stageEncryptedMediaDraft(peer,source,kind);draftId=draft.id;staged=true;}
+        if(sendStarted) {
+          const result=await dataLayer.retryPendingMessage(draftId);if(!result)throw new Error('private_media_retry_required'); // i18n-gate: allow -- translated operation failure below
+        }else {
+          sendStarted=true;caption.disabled=true;await dataLayer.sendEncryptedMediaDraft(peer,caption.value);
+        }
+        accepted=true;
+        await refresh();
+      }catch{if(d.isConnected)status.textContent=t('chat.mediaFailed','Encrypted file operation failed');}
+      finally{busy=false;progress.hidden=true;send.disabled=false;if(accepted)d.close();}
+    });send.disabled=true;
+    make('common.cancel','Cancel','x',async()=>{
+      if(busy)return;discarded=true;
+      if(recorder?.state==='recording')recorder.stop();stopTracks();
+      try {if(staged&&!sendStarted)await dataLayer.discardEncryptedMediaDraft(peer);d.close();}
+      catch{status.textContent=t('chat.mediaFailed','Encrypted file operation failed');}
+    });
+    input.onchange=async()=>{
+      const file=input.files[0];input.value='';if(!file||busy||!current())return;
+      if(file.size>WingaEncryptedMedia.MAX_FILE_BYTES){status.textContent=t('chat.mediaLimit','The encrypted file limit is 2 MiB.');return;}
+      if(kind==='video'&&await playable(file)!=='video'){status.textContent=t('chat.richInvalid','Check the selected item and try again.');return;}
+      if(kind==='image') {
+        if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)){status.textContent=t('chat.richInvalid','Check the selected item and try again.');return;}
+        let bitmap;
+        try {bitmap=await createImageBitmap(file);if(bitmap.width*bitmap.height>16*1024*1024)throw new Error('media_preview_too_large');} // i18n-gate: allow -- translated validation failure below
+        catch{status.textContent=t('chat.richInvalid','Check the selected item and try again.');return;}
+        finally{bitmap?.close();}
+      }
+      if(!current()||!d.isConnected)return;
+      choose.disabled=true;await stage(file);
+    };
+    d.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
+    d.addEventListener('close',()=>{
+      clearInterval(timer);if(recorder?.state==='recording')recorder.stop();stopTracks();
+      preview.querySelectorAll('audio,video').forEach(player=>{player.pause();player.removeAttribute('src');player.load();});
+      if(url)URL.revokeObjectURL(url);d.remove();
+    },{once:true});
+    document.body.append(d);d.showModal();
+    timer=setInterval(()=>{if(!current()||document.visibilityState!=='visible')d.close();},250);
+    try {
+      const saved=await dataLayer.readEncryptedMediaDraft(peer);
+      if(!current()||!d.isConnected)return;
+      if(saved){saved.checkSession();draftId=saved.id;staged=true;await show(saved.blob,saved.name);saved.checkSession();if(!current()||!d.isConnected)return;send.disabled=false;choose.disabled=true;status.textContent=t('chat.richDraftSaved','Encrypted draft saved on this device.');}
+      else if(kind!=='voice')input.click();
+    }catch{if(d.isConnected)status.textContent=t('chat.mediaFailed','Encrypted file operation failed');}
+  }
+  globalThis.WingaVoiceUi={open,playable};
+})();
+
+
+// src/chat/rich-ui.js
+(() => {
+  const element=(tag,className,text)=>{const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;};
+  const icon=name=>{const el=element('img');el.src='/icons/navigation/'+name+'.svg';el.width=el.height=20;el.alt='';return el;};
+  function bind(scope,{peer,dataLayer,translate=(k,f)=>f,refresh=()=>{},getSession=()=>null,getPeer=()=>peer,actions={},getMessages=()=>[]}) {
+    const key=()=>{const s=getSession();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+    const t=translate,initial=key(),owner=getSession()?.username;
+    const sessionCurrent=()=>key()===initial;
+    const current=()=>scope.isConnected&&getPeer()===peer&&sessionCurrent();
+    const references=new Map(),referenceReads=new Map();
+    const observer=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
+      for(const entry of entries)if(entry.isIntersecting){references.get(entry.target)?.();observer.unobserve(entry.target);}
+    },{rootMargin:'200px'}):null;
+    const button=(label,symbol,run)=>{
+      const b=element('button','chat-rich-action');b.type='button';b.title=label;b.setAttribute('aria-label',label);
+      if(symbol)b.append(icon(symbol));b.append(element('span','',label));
+      b.onclick=async()=>{
+        const host=b.closest('dialog');if(b.disabled||!current()||host?.dataset.busy)return;
+        b.disabled=true;if(host)host.dataset.busy='true';
+        try{await run(b);}catch{
+          b.title=t('chat.richFailed','The action failed. Your saved messages are unchanged.');
+          const status=host?.querySelector('[role="status"]');if(status)status.textContent=b.title;
+        }finally{b.disabled=false;if(host)delete host.dataset.busy;}
+      };return b;
+    };
+    function dialog(title) {
+      const d=element('dialog','chat-security-dialog chat-rich-dialog');d.append(element('h3','',title));
+      const body=element('div','chat-rich-fields'),status=element('p','chat-rich-status'),footer=element('div','chat-rich-actions');
+      status.setAttribute('role','status');d.append(body,status,footer);
+      const close=button(t('common.close','Close'),'x',()=>d.close());footer.append(close);
+      let timer=setInterval(()=>{if(!current()||document.visibilityState!=='visible')d.close();},250);
+      d.addEventListener('close',()=>{clearInterval(timer);d.remove();},{once:true});
+      document.body.append(d);d.showModal();
+      return {d,body,status,footer};
+    }
+    async function send(content,view) {
+      if(!current())return;let accepted=false;
+      view.status.textContent=t('chat.secureWorking','Working...');
+      const reply=actions.getReplyId?.();if(reply)content={...content,reply:{id:reply,quote:''}};
+      try {
+        await dataLayer.sendRichMessage(peer,content);accepted=true;
+        actions.clearReply?.();await refresh();
+      } catch {if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
+      finally {if(accepted)view.d.close();}
+    }
+    const kinds={
+      product:[t('chat.richProduct','Product'),'tag'],reel:[t('chat.richReel','Reel'),'clapperboard'],
+      short:[t('chat.richShort','Short'),'video'],collection:[t('chat.richCollection','Collection'),'layout-grid'],
+      order:[t('chat.richOrder','Order'),'shopping-bag'],payment:[t('chat.richPayment','Payment reference'),'credit-card'],
+      delivery:[t('chat.richDelivery','Delivery'),'truck'],location:[t('chat.richLocation','Location'),'map-pin'],
+      contact:[t('chat.richContact','Contact'),'user-round']
+    };
+    function addInput(view,label,{type='text',maxLength=128,value='',step,min,max}={}) {
+      const wrap=element('label','',label),input=element('input');input.type=type;input.maxLength=maxLength;input.value=value;
+      if(step)input.step=step;if(min!==undefined)input.min=min;if(max!==undefined)input.max=max;
+      wrap.append(input);view.body.append(wrap);return input;
+    }
+    function pickReference(kind) {
+      const view=dialog(kinds[kind][0]),list=element('div','chat-rich-picker'),input=addInput(view,t('chat.richSearch','Search items'),{maxLength:120});
+      view.body.append(list);let request=0,debounce;
+      const load=async()=>{
+        const revision=++request;view.status.textContent=t('inbox.loading','Loading...');
+        try {
+          const items=await dataLayer.readRichCatalog(kind,input.value);
+          if(!current()||!view.d.isConnected||request!==revision)return;
+          list.replaceChildren();view.status.textContent='';
+          const allowed=items.filter(item=>!['order','payment','delivery'].includes(kind)
+            ||[item.buyerUsername,item.sellerUsername].includes(peer));
+          for(const item of allowed) {
+            const name=item.name||item.title||item.productName||item.id;
+            const b=button(name,kinds[kind][1],()=>send(WingaRichContent.create(kind,'',
+              ['order','payment','delivery'].includes(kind)?{id:item.id}:{ids:[item.id]}),view));
+            b.dataset.richPick=item.id;list.append(b);
+          }
+          if(!allowed.length)view.status.textContent=t('chat.richNoItems','No items available.');
+        }catch{if(view.d.isConnected&&revision===request)view.status.textContent=t('chat.richUnavailable','This item is unavailable.');}
+      };
+      input.oninput=()=>{clearTimeout(debounce);debounce=setTimeout(load,250);};
+      view.d.addEventListener('close',()=>{request++;clearTimeout(debounce);},{once:true});load();input.focus();
+    }
+    function pickLocation() {
+      const view=dialog(kinds.location[0]);
+      const latitude=addInput(view,t('chat.richLatitude','Latitude'),{type:'number',step:'any',min:-90,max:90});
+      const longitude=addInput(view,t('chat.richLongitude','Longitude'),{type:'number',step:'any',min:-180,max:180});
+      const label=addInput(view,t('chat.richLabel','Name'),{maxLength:160});
+      view.body.append(button(t('chat.richCurrentLocation','Use current location'),'map-pin',()=>new Promise(resolve=>{
+        if(!navigator.geolocation){view.status.textContent=t('chat.richUnavailable','This item is unavailable.');resolve();return;}
+        navigator.geolocation.getCurrentPosition(p=>{
+          if(current()&&view.d.isConnected){latitude.value=String(p.coords.latitude);longitude.value=String(p.coords.longitude);}resolve();
+        },()=>{if(view.d.isConnected)view.status.textContent=t('chat.richUnavailable','This item is unavailable.');resolve();},{timeout:10000,maximumAge:0});
+      })));
+      view.footer.prepend(button(t('inbox.send','Send message'),'send',()=>{
+        if(!latitude.value||!longitude.value||!latitude.checkValidity()||!longitude.checkValidity()) {
+          view.status.textContent=t('chat.richInvalid','Check the selected item and try again.');return;
+        }
+        return send(WingaRichContent.create('location','',{latitude:Number(latitude.value),longitude:Number(longitude.value),label:label.value}),view);
+      }));
+    }
+    function pickContact() {
+      const view=dialog(kinds.contact[0]),name=addInput(view,t('chat.richUsername','Winga username'));
+      view.footer.prepend(button(t('inbox.send','Send message'),'send',async()=>{
+        try {
+          const contact=await dataLayer.readRichContact(name.value.trim());
+          if(!current()||!view.d.isConnected)return;
+          await send(WingaRichContent.create('contact','',{username:contact.username,name:contact.fullName||contact.username}),view);
+        }catch{view.status.textContent=t('chat.richUnavailable','This item is unavailable.');}
+      }));
+    }
+    function edit(id) {
+      const message=getMessages().find(m=>m.id===id);if(!message)return;
+      const view=dialog(t('chat.richEdit','Edit message')),text=element('textarea');text.maxLength=4096;text.rows=4;text.value=message.message||'';view.body.append(text);
+      view.footer.prepend(button(t('common.save','Save'),'check',async()=>{
+        if(!text.value.trim())return;
+        await dataLayer.mutateEncryptedMessage(peer,'edit',id,text.value);view.d.close();await refresh();
+      }));text.focus();
+    }
+    function remove(id) {
+      const view=dialog(t('chat.richDelete','Delete for me'));view.body.append(element('p','',t('chat.richDeleteNotice','This removes the message from your history. Other participants keep their copy.')));
+      view.footer.prepend(button(t('chat.richDelete','Delete for me'),'trash-2',async()=>{
+        await dataLayer.mutateEncryptedMessage(peer,'hide',id);view.d.close();await refresh();
+      }));
+    }
+    function react(id) {
+      const view=dialog(t('chat.richReact','React'));
+      for(const emoji of WingaRichContent.REACTIONS) {
+        const b=button(emoji,null,async()=>{
+          const mine=getMessages().find(m=>m.id===id)?.reactions?.some(r=>r.emoji===emoji&&r.owners.includes(owner));
+          await dataLayer.mutateEncryptedMessage(peer,'reaction',id,mine?'':emoji);view.d.close();await refresh();
+        });b.classList.add('chat-reaction-choice');view.body.append(b);
+      }
+    }
+    for(const [selector,run] of [
+      ['[data-rich-edit]',b=>edit(b.dataset.richEdit)],['[data-rich-delete]',b=>remove(b.dataset.richDelete)],
+      ['[data-rich-react]',b=>react(b.dataset.richReact)],['[data-rich-contact]',b=>actions.openContact?.(b.dataset.richContact)]
+    ])for(const control of scope.querySelectorAll(selector)) {
+      if(control.dataset.richBound)continue;control.dataset.richBound='true';
+      control.onclick=async()=>{
+        if(!current()||control.disabled)return;control.disabled=true;
+        try{await run(control);}catch{control.title=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
+        finally{control.disabled=false;}
+      };
+    }
+    for(const card of scope.querySelectorAll('[data-rich-reference-id]')) {
+      if(card.dataset.richBound)continue;card.dataset.richBound='true';
+      const kind=card.dataset.richReferenceKind,id=card.dataset.richReferenceId;
+      const load=async()=>{
+        if(!current()||!card.isConnected)return;
+        const state=element('p','',t('inbox.loading','Loading...'));card.replaceChildren(state);
+        try {
+          const cacheKey=JSON.stringify([kind,id]);
+          if(!referenceReads.has(cacheKey))referenceReads.set(cacheKey,dataLayer.readConversationReference(kind,id).catch(error=>{referenceReads.delete(cacheKey);throw error;}));
+          const item=await referenceReads.get(cacheKey);
+          if(!current()||!card.isConnected)return;
+          card.replaceChildren();
+          card.append(element('small','chat-rich-kind',kinds[kind]?.[0]||''));
+          const media=actions.sanitizeImage?.(item.image)||'';
+          if(media){const img=element('img','chat-rich-product-image');img.src=media;img.alt='';img.loading='lazy';img.referrerPolicy='no-referrer';card.append(img);}
+          card.append(element('strong','',item.name||item.title||item.productName||item.id));
+          if(item.price!==undefined||item.amount!==undefined)card.append(element('p','chat-rich-price',
+            actions.formatPrice?.(item.price??item.amount)||new Intl.NumberFormat(document.documentElement.lang||'sw',{style:'currency',currency:item.currency||'TZS'}).format(item.price??item.amount)));
+          if(item.availability)card.append(element('small','',t('chat.richState.'+item.availability,item.availability)));
+          if(item.status)card.append(element('small','',t('order.status.'+item.status,item.status)));
+          if(item.paymentIntentStatus)card.append(element('small','',t('chat.richPaymentState.'+item.paymentIntentStatus,item.paymentIntentStatus)));
+          for(const p of item.items||[])if(kind!=='collection')card.append(element('small','',[
+            p.name,p.size,p.color,p.quantity===undefined?'':t('chat.richQuantity','Quantity')+' '+p.quantity
+          ].filter(Boolean).join(' / ')));
+          const row=element('div','chat-rich-card-actions');card.append(row);
+          if(['product','reel','short'].includes(kind)) {
+            row.append(button(t('inbox.viewProduct','View product'),'eye',()=>actions.openProduct?.(id)));
+            if(kind==='product') {
+              row.append(button(t('common.save','Save'),'bookmark',()=>actions.saveProduct?.(id)));
+              if(item.availability!=='sold_out'&&item.availability!=='reserved')row.append(button(t('chat.richAddOrder','Add to order'),'shopping-bag',()=>actions.buyProduct?.(id)));
+            }
+          }else if(kind==='collection') {
+            for(const p of item.items||[])row.append(button(p.name||p.id,'tag',()=>actions.openProduct?.(p.id)));
+          }else {
+            row.append(button(t('chat.richViewOrder','View order'),'shopping-bag',()=>actions.openOrder?.(id)));
+            if(item.canSubmitReference)row.append(button(t('order.submitReferenceAction','Submit reference'),'credit-card',()=>actions.payOrder?.(id)));
+          }
+          row.append(button(t('inbox.refresh','Refresh conversations'),'refresh-cw',()=>{referenceReads.delete(cacheKey);return load();}));
+        }catch {
+          if(current()&&card.isConnected)card.replaceChildren(element('p','',t('chat.richUnavailable','This item is unavailable.')),
+            button(t('inbox.retry','Try again'),'refresh-cw',load));
+        }
+      };
+      // Reference reads are separate from message acceptance and never carry message text.
+      references.set(card,load);if(observer)observer.observe(card);else load();
+    }
+    if(references.size) {
+      const timer=setInterval(()=>{
+        if(!current()||![...references.keys()].some(card=>card.isConnected)){clearInterval(timer);observer?.disconnect();referenceReads.clear();return;}
+        if(document.visibilityState!=='visible')return;
+        referenceReads.clear();
+        for(const [card,load] of [...references].filter(([card])=>{const r=card.getBoundingClientRect();return card.isConnected&&r.bottom>0&&r.top<innerHeight;}).slice(0,12))load();
+      },30000);
+    }else observer?.disconnect();
+    const footer=scope.querySelector('.chat-compose-footer');if(!footer||footer.querySelector('[data-rich-composer]'))return;
+    const menu=button(t('chat.richAttach','Attach'),'plus',()=>{
+      const view=dialog(t('chat.richAttach','Attach'));
+      const mediaTypes=[['image',t('chat.richPhoto','Photo'),'image'],['voice',t('chat.richVoice','Voice'),'mic'],['video',t('chat.richVideo','Video'),'video'],['file',t('chat.mediaFile','Encrypted file'),'paperclip']];
+      for(const [kind,label,symbol] of mediaTypes)if(actions.mediaEnabled)view.body.append(button(label,symbol,()=>{
+        view.d.close();globalThis.WingaVoiceUi?.open({kind,peer,dataLayer,translate,refresh,current,sessionCurrent});
+      }));
+      for(const [kind,[label,symbol]] of Object.entries(kinds))view.body.append(button(label,symbol,()=>{
+        view.d.close();if(kind==='location')pickLocation();else if(kind==='contact')pickContact();else pickReference(kind);
+      }));
+    });
+    menu.dataset.richComposer='true';menu.classList.add('conversation-icon-button');footer.prepend(menu);
+    if(actions.mediaEnabled) {
+      const camera=button(t('chat.richCamera','Camera'),'camera',()=>globalThis.WingaVoiceUi?.open({kind:'image',capture:true,peer,dataLayer,translate,refresh,current,sessionCurrent}));
+      camera.classList.add('conversation-icon-button');footer.insertBefore(camera,menu.nextSibling);
+    }
+  }
+  globalThis.WingaRichUi={bind};
+})();
+
+
 // src/chat/encryption-ui.js
 (() => {
-  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{}}) {
+  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{},getSession,getPeer,getMessages,actions={}}) {
     const t=translate;
     globalThis.WingaDeviceManagementUi?.bind(scope,{dataLayer,translate,refresh});
     globalThis.WingaRecoveryUi?.bind(scope,{dataLayer,translate,refresh});
@@ -19269,8 +19876,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           button.hidden=info.status==='disabled';button.dataset.securityStatus=info.status;
           button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
           button.setAttribute('aria-label',button.title);
-          if(info.status==='active' && info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
-          if(['active','reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
+          if(info.status==='active'&&globalThis.WingaRichUi) {
+            globalThis.WingaRichUi.bind(scope,{peer,dataLayer,translate,refresh,getSession,getPeer,getMessages,actions:{...actions,mediaEnabled:info.mediaEnabled}});
+          }else if(info.status==='active'&&info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
+          if((info.status==='active'&&!globalThis.WingaRichUi)||['reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
             onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }
@@ -19858,6 +20467,31 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
     const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
+    function encryptedUiOptions(scope,refresh) {
+      return {
+        dataLayer:deps.dataLayer,translate:t,refresh,getSession:deps.getCurrentSession,
+        getPeer:()=>deps.getActiveChatContext()?.withUser,getMessages:deps.getActiveConversationMessages,
+        onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},
+        actions:{
+          getReplyId:deps.getActiveChatReplyMessageId,clearReply:()=>deps.setActiveChatReplyMessageId(''),
+          openProduct:deps.openConversationProduct||deps.openProductDetailModal,
+          saveProduct:deps.saveConversationProduct,buyProduct:deps.buyConversationProduct,
+          openOrder:deps.openConversationOrder,payOrder:deps.resumeOrderPayment,
+          sanitizeImage:deps.sanitizeImageSource,formatPrice:deps.formatProductPrice,
+          openContact:async username=>{
+            const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.();
+            const profile=await deps.dataLayer.readRichContact(username);
+            if(!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
+            if(profile.username===owner)return deps.openConversationProfile?.();
+            const context={withUser:profile.username,displayName:profile.fullName||profile.username,productId:'',productName:''};
+            await deps.dataLayer.loadConversationHistoryPage?.(context);
+            deps.setActiveChatContext(context);deps.setProfileMessagesMode('detail');deps.setProfileHasSelection?.(true);
+            await refresh();
+          }
+        }
+      };
+    }
+
     function syncChatViewport() {
       const profile = deps.getProfileDiv?.();
       if (profile?.dataset?.activeSection !== "profile-messages-panel") return;
@@ -20379,7 +21013,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
-      globalThis.WingaEncryptedChatUi?.bind(modal,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},refresh:async()=>{await deps.refreshMessagesState();replaceContextChatModal();}});
+      globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -20774,7 +21408,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         scrollThread.dataset.scrollInitialized = "true";
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
-      globalThis.WingaEncryptedChatUi?.bind(scope,{dataLayer:deps.dataLayer,translate:t,onEncrypted:()=>deps.setActiveChatReplyMessageId(''),refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
+      globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
       scope.querySelectorAll('[data-chat-link]').forEach(button => {
         button.onclick = () => {
           const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);

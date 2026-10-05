@@ -161,16 +161,18 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(parsed && parsed[1]===bytes.length && parsed[0].wireformat==='mls_private_message'
           && Buffer.from(parsed[0].privateMessage.groupId).toString('utf8')===g.id && String(parsed[0].privateMessage.epoch)===g.epoch);
         const prior=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1',[p.id])).rows[0];
+        let acceptedAt=prior?.created_at;
         if(prior) assert(prior.conversation_id===g.id && prior.sender_device===op.actorId && prior.hash===p.hash && prior.ciphertext===p.ciphertext
           && (prior.media_id || null)===(p.mediaId || null),409,'encrypted_send_conflict');
         else {
           const seq=(await client.query('UPDATE encrypted_conversations SET next_sequence=next_sequence+1 WHERE id=$1 RETURNING next_sequence',[g.id])).rows[0].next_sequence;
-          await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          const inserted=await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at`,
             [p.id,g.id,op.actorId,p.epoch,seq,p.ciphertext,p.hash,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+          acceptedAt=inserted.rows[0].created_at;
           await media.attach(client,g,op,p);
           await enqueuePush(client,{id:p.id,senderId:context.owner,receiverId:g.creator===context.owner?g.recipient:g.creator});
         }
-        return {id:p.id,hash:p.hash,status:'sent'};
+        return {id:p.id,hash:p.hash,status:'sent',createdAt:new Date(acceptedAt).toISOString()};
       }
       assert(['receipt','receipt-ack','reject'].includes(op.action) && uuid(p.id)
         && (op.action==='reject' ? p.reason==='invalid-ciphertext' : ['delivered','read'].includes(p.kind)));

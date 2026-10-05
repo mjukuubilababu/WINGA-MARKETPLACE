@@ -51,6 +51,15 @@ test("paged message reads reject unauthenticated callers before querying data", 
   }
 });
 
+test("canonical conversation references reject unauthenticated lookup without exposing state", async () => {
+  for (const kind of ["product", "reel", "short", "collection", "order", "payment", "delivery"]) {
+    const {response, body}=await request("/conversations/references?kind="+kind+"&id=private-id");
+    assert.equal(response.status,401);
+    assert.equal(body.amount,undefined);
+    assert.equal(body.items,undefined);
+  }
+});
+
 test("device receipt writes reject missing authentication and CSRF", async () => {
   const options = { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceId: "forged", kind: "stored", withUser: "someone", messageIds: ["private"] }) };
@@ -917,6 +926,12 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(buyerOwnedProductCreate.response.status, 200);
   assert.equal(buyerOwnedProductCreate.body.uploadedBy, buyerUsername);
   assert.equal(buyerOwnedProductCreate.body.status, "approved");
+
+  const exactConversationProduct=await request("/products?limit=1&productId=product-buyer-owned-001", {
+    headers: {Authorization: `Bearer ${buyerToken}`}
+  });
+  assert.equal(exactConversationProduct.response.status,200);
+  assert.deepEqual(getProductResponseItems(exactConversationProduct.body).map(p=>p.id),["product-buyer-owned-001"]);
 
   const buyerOwnedProductDelete = await request("/products/product-buyer-owned-001", {
     method: "DELETE",
@@ -2223,6 +2238,19 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(orderCreate.body.status, "placed");
   assert.equal(orderCreate.body.paymentStatus, "pending");
   const orderId = orderCreate.body.id;
+  for (const kind of ["order","payment","delivery"]) {
+    const endpoint="/conversations/references?kind="+kind+"&id="+encodeURIComponent(orderId);
+    const canonical=await request(endpoint,{headers:{Authorization:`Bearer ${buyerToken}`}});
+    assert.equal(canonical.response.status,200);
+    assert.equal(canonical.body.id,orderId);
+    assert.equal(canonical.body.amount,orderCreate.body.totalAmount);
+    assert.equal(canonical.body.status,"placed");
+    assert.equal(canonical.body.transactionId,undefined);
+    assert.equal(canonical.body.payerDetails,undefined);
+    assert.match(canonical.response.headers.get("cache-control"),/private, no-store/);
+    assert.equal((await request(endpoint,{headers:{Authorization:`Bearer ${sellerToken}`}})).response.status,200);
+    assert.equal((await request(endpoint,{headers:{Authorization:`Bearer ${sellerTwoToken}`}})).response.status,404);
+  }
   const buyerVisibleProductsAfterOrder = await request("/products", {
     headers: {
       Authorization: `Bearer ${buyerToken}`
@@ -2286,6 +2314,13 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(sellerVerifyPayment.body.status, "paid");
   assert.equal(sellerVerifyPayment.body.paymentStatus, "paid");
   assert.equal(sellerVerifyPayment.body.paymentIntentStatus, "verified");
+  const refreshedPaymentCard=await request("/conversations/references?kind=payment&id="+encodeURIComponent(orderId), {
+    headers:{Authorization:`Bearer ${buyerToken}`}
+  });
+  assert.equal(refreshedPaymentCard.response.status,200);
+  assert.equal(refreshedPaymentCard.body.status,"paid");
+  assert.equal(refreshedPaymentCard.body.paymentIntentStatus,"verified");
+  assert.equal(refreshedPaymentCard.body.canSubmitReference,false);
 
   const buyerNotificationsAfterPaymentVerify = await request("/notifications", {
     headers: { Authorization: `Bearer ${buyerToken}` }

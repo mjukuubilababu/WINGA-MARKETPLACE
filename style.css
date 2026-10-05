@@ -12959,3 +12959,28 @@ body.visual-categories-view #quick-discovery-rail{
 .chat-media-preview-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto}
 .chat-media-preview-dialog h3{overflow-wrap:anywhere}
 .chat-decrypted-preview{display:block;max-width:100%;max-height:65dvh;object-fit:contain;margin:12px auto}
+.chat-rich-dialog{max-height:calc(100dvh - 32px);overflow:auto;letter-spacing:0}
+.chat-rich-fields{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.chat-rich-picker{display:grid;gap:6px;max-height:300px;overflow:auto}
+.chat-rich-action{display:flex;align-items:center;gap:8px;min-height:40px;max-width:100%;padding:8px 10px;border:1px solid #d5ded8;border-radius:6px;background:#fff;color:#17432e;font:inherit;font-size:14px;text-align:start;cursor:pointer}
+.chat-rich-action img{flex:none}.chat-rich-action span{min-width:0;overflow-wrap:anywhere}
+.chat-rich-action:disabled{opacity:.55;cursor:default}
+.chat-rich-actions,.chat-rich-card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-block-start:12px}
+.chat-compose-footer .chat-rich-action.conversation-icon-button{flex:0 0 36px;min-height:36px;width:36px;height:36px;padding:6px;justify-content:center;border:0;background:none}
+.chat-compose-footer .chat-rich-action.conversation-icon-button span{display:none}
+.chat-rich-status{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.chat-rich-card{display:grid;gap:6px;max-width:270px;min-width:0;padding-block:10px;border-block:1px solid #d0dcd4;overflow-wrap:anywhere}
+.chat-rich-card .chat-rich-product-image{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;background:#fff;border-radius:4px}
+.chat-rich-kind{color:#426555}.chat-rich-price{font-weight:600}
+.chat-rich-contact,.chat-rich-location{display:flex;align-items:center;gap:8px;max-width:100%;text-align:start;overflow-wrap:anywhere}
+.chat-rich-contact{padding:10px;border:1px solid #d5ded8;background:#fff;border-radius:6px;font:inherit;cursor:pointer}
+.chat-rich-location small{display:block}
+.chat-message-reactions{display:flex;flex-wrap:wrap;gap:4px;margin-block:8px}
+.chat-message-reactions button,.chat-reaction-choice{padding:6px 9px;border:1px solid #c2d1c8;border-radius:6px;background:#fff;cursor:pointer;min-width:40px}
+.chat-edited{display:block;color:#547362}
+.chat-decrypted-player{display:block;width:100%;max-width:100%;max-height:55dvh;margin-block:12px}
+.chat-recording-preview{min-width:0;overflow-wrap:anywhere}
+.chat-recording-dialog progress{display:block;width:100%;height:8px;accent-color:#078742;margin-block:12px}
+.chat-rich-dialog textarea{box-sizing:border-box;padding:10px;border:1px solid #9da7ad;border-radius:4px}
+.message-bubble .message-action-menu{position:relative;inset:auto;min-width:0;max-width:240px;margin-block-start:10px;border-radius:6px;box-shadow:none}
+.message-bubble .message-action-menu button{border-radius:4px;text-align:start;min-height:36px;overflow-wrap:anywhere}

@@ -51,7 +51,7 @@ test.beforeAll(async()=>{
     }
     const assets={'/devices.js':'src/chat/crypto-devices.js','/vault.js':'src/chat/encrypted-vault.js','/policy.js':'src/chat/encrypted-policy.js',
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
-      '/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
+      '/rich.js':'src/chat/rich-content.js','/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
     if(/^\/icons\/navigation\/(key-round|paperclip|download|eye|monitor-smartphone)\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
     if(assets[url.pathname]){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(fs.readFileSync(path.resolve(__dirname,'../..',assets[url.pathname])));return;}
     if(url.pathname==='/vendor/winga-mls-candidate.js'){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(output,'winga-mls-candidate.js')));return;}
@@ -372,6 +372,34 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
           await expect(page.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'second retired device',messageType:'text'})))).rejects.toThrow('encrypted_membership_required');
           await alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Third epoch',messageType:'text'})));
           const latest=await third.evaluate(()=>render());expect(latest).toHaveLength(1);expect(latest[0].message).toBe('Third epoch');
+          await test.step('typed encrypted replies, edits, reactions, own deletion and persistent voice drafts',async()=>{
+            for(const p of [alice,third])await p.addScriptTag({url:origin+'/rich.js'});
+            const target=latest[0].id;
+            expect((await alice.evaluate(()=>render())).find(m=>m.id===target).timestamp).toBe(latest[0].timestamp);
+            await expect(third.evaluate(id=>client.mutateEncryptedMessage('alice','edit',id,'Forbidden'),target)).rejects.toThrow('rich_edit_window_closed');
+            await alice.evaluate(id=>client.mutateEncryptedMessage('bob','edit',id,'Third epoch edited'),target);
+            let received=(await third.evaluate(()=>render())).find(m=>m.id===target);
+            expect(received.message).toBe('Third epoch edited');expect(received.edited).toBe(true);
+            expect(received.id).toBe(target);
+            await third.evaluate(id=>client.mutateEncryptedMessage('alice','reaction',id,WingaRichContent.REACTIONS[1]),target);
+            expect((await alice.evaluate(()=>render())).find(m=>m.id===target).reactions[0].owners).toEqual(['bob']);
+            const reply=await third.evaluate(id=>client.sendRichMessage('alice',WingaRichContent.create('text','Encrypted reply',{}, {id,quote:''})),target);
+            expect((await alice.evaluate(()=>render())).find(m=>m.id===reply.id).replyToMessageId).toBe(target);
+            await alice.evaluate(()=>client.sendRichMessage('bob',WingaRichContent.create('product','Canonical product',{ids:['fixture-product']})));
+            expect((await third.evaluate(()=>render())).at(-1).richContent.data.ids).toEqual(['fixture-product']);
+            await third.evaluate(id=>client.mutateEncryptedMessage('alice','hide',id),target);
+            expect((await third.evaluate(()=>render())).some(m=>m.id===target)).toBe(false);
+            expect((await alice.evaluate(()=>render())).some(m=>m.id===target)).toBe(true);
+            const draft=await alice.evaluate(()=>client.stageEncryptedMediaDraft('bob',new File(['voice fixture'],'voice.webm',{type:'audio/webm'}),'voice'));
+            await alice.reload();await alice.evaluate(()=>start('alice'));await alice.addScriptTag({url:origin+'/rich.js'});
+            expect(await alice.evaluate(async()=>{const d=await client.readEncryptedMediaDraft('bob');return {id:d.id,text:await d.blob.text()};})).toEqual({id:draft.id,text:'voice fixture'});
+            const sent=await alice.evaluate(()=>client.sendEncryptedMediaDraft('bob','Encrypted voice'));
+            received=(await third.evaluate(()=>render())).find(m=>m.id===sent.id);expect(received.attachmentKind).toBe('voice');
+            expect(await third.evaluate(async id=>(await client.downloadEncryptedMedia(id)).blob.text(),sent.id)).toBe('voice fixture');
+            const stored=(await db.query('SELECT ciphertext FROM encrypted_conversation_messages')).rows;
+            expect(JSON.stringify(stored)).not.toContain('Third epoch edited');
+            expect(JSON.stringify(stored)).not.toContain('fixture-product');
+          });
         }finally{await thirdContext.close();}
       }finally{await fresh.close();}
     });
@@ -379,12 +407,14 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
     await expect(bob.locator('dialog')).toBeVisible();
     expect(await bob.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
     await bob.screenshot({path:'test-results/encrypted-chat-mobile.png'});await bob.getByRole('button',{name:'Close',exact:true}).click();
+    const acceptedCount=(await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n;
+    expect(acceptedCount).toBeGreaterThan(8);
     await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob'");
     await expect(alice.evaluate(async()=>{const p=await client.prepareMessage({receiverId:'bob',message:'must block',messageType:'text'});await client.sendMessage(p);})).rejects.toThrow('encrypted_access_denied');
-    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(8);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(acceptedCount);
     await a.clearCookies();
     await expect(alice.evaluate(()=>client.loadInboxPage())).rejects.toThrow('session_required');
     await expect(alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'no cookie must not send',messageType:'text'})))).rejects.toThrow('session_required');
-    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(8);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(acceptedCount);
   }finally{await a.close().catch(()=>{});await b.close().catch(()=>{});}
 });

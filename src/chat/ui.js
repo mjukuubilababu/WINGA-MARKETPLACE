@@ -453,6 +453,33 @@
       return parts.join('') + deps.escapeHtml(text.slice(end));
     }
 
+    function richMessageMarkup(message) {
+      const c=message.richContent,esc=deps.escapeHtml;
+      if(message.eventRecord)return '<p>'+esc(t('chat.richChangePending','Change pending'))+'</p>';
+      if(message.richUnavailable)return '<p>'+esc(t('chat.richUnavailable','This item is unavailable.'))+'</p>';
+      if(!c)return '';
+      if(['product','reel','short','collection','order','payment','delivery'].includes(c.type)) {
+        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
+      }
+      if(c.type==='contact')return '<button type="button" class="chat-rich-contact" data-rich-contact="'+esc(c.data.username)+'">'+icon('user-round')+'<span>'+esc(c.data.name||c.data.username)+'</span></button>';
+      if(c.type==='location') {
+        const coordinates=c.data.latitude.toFixed(5)+', '+c.data.longitude.toFixed(5);
+        const link='https://www.openstreetmap.org/?mlat='+c.data.latitude+'&mlon='+c.data.longitude+'#map=16/'+c.data.latitude+'/'+c.data.longitude;
+        return '<button type="button" class="chat-message-link chat-rich-location" data-chat-link="'+esc(link)+'" aria-haspopup="dialog">'+icon('map-pin')+'<span>'+esc(c.data.label||t('chat.richLocation','Location'))+'<small dir="ltr">'+esc(coordinates)+'</small></span></button>';
+      }
+      return '';
+    }
+
+    function richActionsMarkup(message) {
+      if(!message.encrypted)return '';
+      const esc=deps.escapeHtml,id=esc(message.id);
+      const editable=globalThis.WingaRichContent?.canEdit({...message,owner:message.senderId},deps.getCurrentUser());
+      return '<button type="button" data-message-reply="'+id+'">'+esc(t('chat.richReply','Reply'))+'</button>'
+        +'<button type="button" data-rich-react="'+id+'">'+esc(t('chat.richReact','React'))+'</button>'
+        +(editable?'<button type="button" data-rich-edit="'+id+'">'+esc(t('chat.richEdit','Edit message'))+'</button>':'')
+        +'<button type="button" data-rich-delete="'+id+'">'+esc(t('chat.richDelete','Delete for me'))+'</button>';
+    }
+
     function renderConversationMessagesMarkup(activeMessages, options = {}) {
       const { enableActions = false } = options;
       let pending = [];
@@ -478,21 +505,26 @@
         const replyMessage = deps.getReplyPreviewMessage(message, activeMessages);
         const canDelete = message.senderId === deps.getCurrentUser();
         const hasDownload = productItems.some((item) => item.productImage);
-        const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage)) : "";
+        const safeReplyText = replyMessage ? deps.escapeHtml(deps.getMessagePreviewText(replyMessage))
+          : deps.escapeHtml(message.replyQuote||t('chat.richReplyUnavailable','Earlier message unavailable'));
         const safeMessageText = message.message ? renderMessageText(message.message) : "";
         return `
           ${separator}
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
-            ${replyMessage ? `<div class="message-reply-preview"><strong>Reply</strong><span>${safeReplyText}</span></div>` : ""}
+            ${replyMessage||message.replyToMessageId ? `<div class="message-reply-preview"><strong>${deps.escapeHtml(t('chat.richReply','Reply'))}</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
             ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${richMessageMarkup(message)}
+            ${message.reactions?.length ? '<div class="chat-message-reactions">'+message.reactions.map(r=>'<button type="button" data-rich-react="'+deps.escapeHtml(message.id)+'" aria-label="'+deps.escapeHtml(t('chat.richReact','React'))+'">'+deps.escapeHtml(r.emoji)+' '+r.owners.length+'</button>').join('')+'</div>' : ''}
+            ${message.edited ? '<small class="chat-edited">'+deps.escapeHtml(t('chat.richEdited','Edited'))+'</small>' : ''}
             ${message.encrypted && message.attachmentId ? `<div class="chat-encrypted-attachment"><button type="button" class="chat-encrypted-file" data-encrypted-media-preview="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaPreview','View encrypted attachment'))}"><img src="/icons/navigation/eye.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button><button type="button" class="chat-encrypted-download" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}" aria-label="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /></button></div>` : ''}
             <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
             ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
-            ${enableActions && !message.encrypted ? `
+            ${enableActions && (!message.encrypted||message.status!=='pending'&&!message.eventRecord) ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
+                  ${richActionsMarkup(message)}
                   ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
                   ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}

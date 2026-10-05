@@ -331,9 +331,10 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       need(typeof transport?.send === 'function', 'mls_transport_unavailable'); current();
       const reply = await transport.send(structuredClone(job)); current();
       need(reply?.id === job.id && reply.hash === job.hash && reply.status === 'sent', 'mls_send_confirmation_rejected');
+      need(reply.createdAt===undefined||typeof reply.createdAt==='string'&&Number.isFinite(Date.parse(reply.createdAt)), 'mls_send_confirmation_rejected');
       saved = await vault.snapshot();
       need(saved.values[`mls:outbox:${job.id}`]?.hash === job.hash, 'mls_send_retry_conflict');
-      const result = { ...history, status: 'sent' };
+      const result = { ...history, timestamp:reply.createdAt||history.timestamp, status: 'sent' };
       await put(saved, { [`history:${job.id}`]: result }, [`mls:outbox:${job.id}`]); return { ...result, encrypted: true };
     });
   }

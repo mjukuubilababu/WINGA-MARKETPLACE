@@ -1,5 +1,5 @@
 (() => {
-  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{}}) {
+  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{},getSession,getPeer,getMessages,actions={}}) {
     const t=translate;
     globalThis.WingaDeviceManagementUi?.bind(scope,{dataLayer,translate,refresh});
     globalThis.WingaRecoveryUi?.bind(scope,{dataLayer,translate,refresh});
@@ -13,8 +13,10 @@
           button.hidden=info.status==='disabled';button.dataset.securityStatus=info.status;
           button.title=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.security','Chat security');
           button.setAttribute('aria-label',button.title);
-          if(info.status==='active' && info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
-          if(['active','reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
+          if(info.status==='active'&&globalThis.WingaRichUi) {
+            globalThis.WingaRichUi.bind(scope,{peer,dataLayer,translate,refresh,getSession,getPeer,getMessages,actions:{...actions,mediaEnabled:info.mediaEnabled}});
+          }else if(info.status==='active'&&info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
+          if((info.status==='active'&&!globalThis.WingaRichUi)||['reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
             onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }

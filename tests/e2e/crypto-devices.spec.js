@@ -481,7 +481,7 @@ test('device approval UI confirms an independent pending device and revokes it w
     await page.locator('[data-crypto-device-confirm]').fill('0'.repeat(64));await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
     await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);await expect(page.locator('[data-crypto-device-apply]')).toBeEnabled();
     await page.locator('[data-crypto-device-apply]').click();await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
-    expect((await enroll(other)).status).toBe('active');
+    await expect.poll(async()=>(await enroll(other)).status).toBe('active');
     expect((await store.readConversationCryptoDevices({owner:'bob',deviceId:'b1',token:'b1'})).devices.find(d=>d.id===own.id).status).toBe('active');
     await page.locator('[data-crypto-device-target]').selectOption(pending.id);await expect(page.locator('[data-crypto-device-action]')).toHaveValue('revoke');
     await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);await page.locator('[data-crypto-device-apply]').click();

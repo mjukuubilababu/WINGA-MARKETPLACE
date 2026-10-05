@@ -28,7 +28,15 @@
         checkSession();if(!dialog.isConnected){bitmap.close();return;}
         const picture=document.createElement('img');picture.alt=result.name;picture.className='chat-decrypted-preview';
         url=URL.createObjectURL(result.blob);picture.src=url;dialog.insertBefore(picture,status);bitmap.close();bitmap=null;status.textContent='';
-      } else status.textContent=t('chat.mediaPreviewUnavailable','Preview unavailable');
+      } else {
+        const playable=await globalThis.WingaVoiceUi?.playable(result.blob);
+        checkSession();if(!dialog.isConnected)return;
+        if(playable) {
+          const player=document.createElement(playable);player.className='chat-decrypted-player';player.controls=true;player.preload='metadata';
+          url=URL.createObjectURL(result.blob);player.src=url;dialog.insertBefore(player,status);status.textContent='';
+          dialog.addEventListener('close',()=>{player.pause();player.removeAttribute('src');player.load();},{once:true});
+        }else status.textContent=t('chat.mediaPreviewUnavailable','Preview unavailable');
+      }
       timer=setInterval(()=>{try{checkSession();}catch{dialog.close();}},250);
     }catch {
       bitmap?.close();bitmap=null;if(url){URL.revokeObjectURL(url);url=null;}

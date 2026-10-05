@@ -2159,6 +2159,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     });
     const filterParts = [...clauses];
     const filterParams = [...visibilityParams];
+    if(options.productId) {
+      filterParams.push(String(options.productId));
+      filterParts.push('p.id = $'+filterParams.length);
+    }
     const searchQuery = String(options.query || "").trim().slice(0, 120);
     const category = String(options.category || "").trim().slice(0, 80);
     const seller = String(options.seller || "").trim().slice(0, 80);
@@ -9199,7 +9203,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         AND collection_visibility.content_id = c.id
     ), 'public')`;
     let cursorClause = "";
-    if (cursorTime && cursorId) {
+    if(options.collectionId) {
+      params.push(String(options.collectionId));
+      cursorClause='AND c.id = $'+params.length;
+    }
+    if (cursorTime && cursorId && !options.collectionId) {
       params.push(cursorTime.toISOString(), cursorId);
       cursorClause = `AND (c.created_at, c.id) < ($${params.length - 1}::timestamptz, $${params.length})`;
     }
@@ -9987,6 +9995,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     updateUserCollection,
     setUserCollectionItem,
     readUserCollectionsPage,
+    async readConversationCollection(id,viewer) {
+      const result=await queryPrimaryRead('SELECT owner_username FROM public_collections WHERE id=$1',[id]);
+      const owner=result.rows?.[0]?.owner_username;if(!owner)return null;
+      return (await readUserCollectionsPage(owner,viewer,{limit:1,collectionId:id})).items[0]||null;
+    },
     setUserFollow,
     importUserFollows,
     setUserBlock,

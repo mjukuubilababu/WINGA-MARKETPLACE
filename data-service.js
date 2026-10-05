@@ -2201,7 +2201,17 @@ async loadAdminPayments(filters) {
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
         replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
         resumeEncryptedConversationReplacement(peer) { return getCommunicationsApiClient().resumeEncryptedConversationReplacement(peer); },
-        sendEncryptedMedia(peer,file,text) { return getCommunicationsApiClient().sendEncryptedMedia(peer,file,text); },
+        sendEncryptedMedia(peer,file,text,kind) { return getCommunicationsApiClient().sendEncryptedMedia(peer,file,text,kind); },
+        stageEncryptedMediaDraft(peer,file,kind) { return getCommunicationsApiClient().stageEncryptedMediaDraft(peer,file,kind); },
+        readEncryptedMediaDraft(peer) { return getCommunicationsApiClient().readEncryptedMediaDraft(peer); },
+        discardEncryptedMediaDraft(peer) { return getCommunicationsApiClient().discardEncryptedMediaDraft(peer); },
+        sendEncryptedMediaDraft(peer,text) { return getCommunicationsApiClient().sendEncryptedMediaDraft(peer,text); },
+        sendRichMessage(peer,content) { return getCommunicationsApiClient().sendRichMessage(peer,content); },
+        mutateEncryptedMessage(peer,type,id,value) { return getCommunicationsApiClient().mutateEncryptedMessage(peer,type,id,value); },
+        readConversationReference(kind,id) { return getCommunicationsApiClient().readConversationReference(kind,id); },
+        readRichCatalog(kind,query) { return getCommunicationsApiClient().readRichCatalog(kind,query); },
+        readRichContact(username) { return getCommunicationsApiClient().readRichContact(username); },
+        async readConversationProduct(id) { return resolveProductImages(await getCommunicationsApiClient().readConversationProduct(id)); },
         downloadEncryptedMedia(id) { return getCommunicationsApiClient().downloadEncryptedMedia(id); },
         encryptedRecoveryAvailable() { return getCommunicationsApiClient().encryptedRecoveryAvailable(); },
         createEncryptedRecovery() { return getCommunicationsApiClient().createEncryptedRecovery(); },
@@ -4270,7 +4280,23 @@ async loadAdminPayments() {
       async inspectEncryptedConversation(peer) {
         assertBuyerCapableAccess();ensureAdapter();return state.adapter.inspectEncryptedConversation?state.adapter.inspectEncryptedConversation(peer):{status:'disabled'};
       },
-      async sendEncryptedMedia(peer,file,text) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text); },
+      async sendEncryptedMedia(peer,file,text,kind) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text,kind); },
+      async stageEncryptedMediaDraft(peer,file,kind) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.stageEncryptedMediaDraft(peer,file,kind); },
+      async readEncryptedMediaDraft(peer) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readEncryptedMediaDraft(peer); },
+      async discardEncryptedMediaDraft(peer) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.discardEncryptedMediaDraft(peer); },
+      async sendEncryptedMediaDraft(peer,text) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.sendEncryptedMediaDraft(peer,text); },
+      async sendRichMessage(peer,content) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.sendRichMessage(peer,content); },
+      async mutateEncryptedMessage(peer,type,id,value) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.mutateEncryptedMessage(peer,type,id,value); },
+      async readConversationReference(kind,id) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readConversationReference(kind,id); },
+      async readRichCatalog(kind,query) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readRichCatalog(kind,query); },
+      async readRichContact(username) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readRichContact(username); },
+      async readConversationProduct(id) {
+        assertBuyerCapableAccess();ensureAdapter();
+        const adapter=state.adapter,key=()=>{const s=adapter.loadSession();return JSON.stringify([s?.username,s?.sessionId,s?.token]);},initial=key();
+        const p=await adapter.readConversationProduct(id);
+        if(adapter!==state.adapter||key()!==initial)throw Object.assign(new Error("conversation_session_changed"),{code:"conversation_session_changed"}); // i18n-gate: allow -- internal session diagnostic
+        state.products=sortProductsNewestFirst(mergeUniqueProducts(state.products,[p]));return clone(p);
+      },
       async downloadEncryptedMedia(id) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.downloadEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.downloadEncryptedMedia(id); },
       async encryptedRecoveryAvailable() { assertBuyerCapableAccess();ensureAdapter();return state.adapter.encryptedRecoveryAvailable?state.adapter.encryptedRecoveryAvailable():false; },
       async createEncryptedRecovery() { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.createEncryptedRecovery)throw new Error('recovery_unavailable');return state.adapter.createEncryptedRecovery(); },

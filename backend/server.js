@@ -44,6 +44,7 @@ const { createEncryptedMediaApi, createEncryptedMediaCleanup } = require("./encr
 const { createConversationCryptoDevicesApi } = require("./conversation-crypto-devices-api");
 const { createEncryptedConversationsApi } = require("./encrypted-conversations-api");
 const { requireLegacyPayload } = require("./encrypted-content-contract");
+const { createConversationReferenceReader } = require("./conversation-references");
 const conversationTransport = createConversationTransport();
 
 const PORT = process.env.PORT || 3000;
@@ -9588,6 +9589,8 @@ const server = http.createServer(async (req, res) => {
       const requestedQuery = String(url.searchParams.get("q") || "").trim().slice(0, 120);
       const requestedCategory = String(url.searchParams.get("category") || "").trim().slice(0, 80);
       const requestedSeller = String(url.searchParams.get("seller") || "").trim().slice(0, 80);
+      const requestedProductId = String(url.searchParams.get("productId") || "").trim();
+      if(requestedProductId&&!/^[A-Za-z0-9._:-]{1,128}$/.test(requestedProductId)){sendJson(res,400,{code:"invalid_product_reference"});return;}
       const pageLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
         ? Math.min(Math.floor(requestedLimit), MAX_API_PRODUCT_LIMIT)
         : 12;
@@ -9608,6 +9611,7 @@ const server = http.createServer(async (req, res) => {
           query: requestedQuery,
           category: requestedCategory,
           seller: requestedSeller,
+          productId: requestedProductId,
           maxLimit: MAX_API_PRODUCT_LIMIT,
           viewerUsername: viewer?.username || "",
           isStaffViewer,
@@ -9619,7 +9623,8 @@ const server = http.createServer(async (req, res) => {
           cursor: requestedCursor,
           query: requestedQuery,
           category: requestedCategory,
-          seller: requestedSeller
+          seller: requestedSeller,
+          productId: requestedProductId
         })).digest("hex")}`;
         const pageData = token
           ? await readProductPage()
@@ -9652,6 +9657,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const visibleProducts = buildVisibleProducts(store, viewer).filter((product) => {
+        if(requestedProductId&&product.id!==requestedProductId)return false;
         if (requestedSeller && String(product?.uploadedBy || "") !== requestedSeller) {
           return false;
         }
@@ -11196,6 +11202,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+      if (req.method === "GET" && url.pathname === "/api/conversations/references") {
+        const user=ensureMarketplaceUser(store,findSession(store,readAuthToken(req)),res);if(!user)return;
+        const read=createConversationReferenceReader({
+          readProduct:async(id,owner)=>{
+            if(!postgresStore?.readProductsPage)return null;
+            const page=await postgresStore.readProductsPage({productId:id,limit:1,viewerUsername:owner,usePrimary:true});
+            return page.items?.[0]?sanitizeVisibleProduct(page.items[0],user,store):null;
+          },
+          readOrder:async(id,owner)=>{
+            const order=getOrderById(store,id);if(!order||![order.buyerUsername,order.sellerUsername].includes(owner))return null;
+            const s=buildOrdersSummary({...store,orders:[order]},owner);return [...s.purchases,...s.sales].find(o=>o.id===id);
+          },
+          readCollection:(id,owner)=>postgresStore?.readConversationCollection?.(id,owner)
+        });
+        try{sendJson(res,200,await read(user.username,url.searchParams.get('kind'),url.searchParams.get('id')),{'Cache-Control':'private, no-store'});}
+        catch(error){sendJson(res,error.status||503,{code:error.code||'conversation_reference_unavailable'},{'Cache-Control':'private, no-store'});}
+        return;
+      }
       if (req.method === "GET" && url.pathname === "/api/orders/mine") {
         const token = readAuthToken(req);
         const session = findSession(store, token);
