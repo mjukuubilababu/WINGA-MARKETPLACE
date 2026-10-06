@@ -93,6 +93,39 @@ test('real SQL: push is durable, private, session-bound, retryable and does not 
   } finally { await db.close(); }
 });
 
+test('push retries are bounded and distinguish permanent payload errors from transient provider failures',async()=>{
+  const db=new PGlite();let failure;
+  const provider={generateVAPIDKeys:()=>({publicKey:'public-test',privateKey:'private-test'}),
+    async sendNotification(){throw failure;}};
+  const transaction=work=>db.transaction(tx=>work({query:(sql,params)=>
+    sql.includes('pg_advisory_xact_lock')?{rows:[]}:tx.query(sql,params)}));
+  const store=createMessageWebPushStore({query:db.query.bind(db),withTransaction:transaction,provider});
+  try {
+    await db.exec("CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT DEFAULT 'active'); INSERT INTO users VALUES('alice','active'),('bob','active'); CREATE TABLE sessions(token TEXT,username TEXT,session_id TEXT,expires_at BIGINT); INSERT INTO sessions VALUES('d1','bob','d1',9999999999999); CREATE TABLE messages(id TEXT PRIMARY KEY,sender_id TEXT,receiver_id TEXT,is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT FALSE); CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);");
+    for(const sql of migration.statements)await db.exec(sql);
+    await store.saveWebPush({owner:'bob',token:'d1',sessionId:'d1',payload:{subscription:subscription()}});
+    for(const [index,[error,retry,attempts]] of [
+      [{statusCode:400},false,0],[{statusCode:413},false,0],[{status:400},false,0],
+      [{statusCode:408},true,0],[{statusCode:429},true,0],[{statusCode:503},true,0],
+      [{statusCode:401},true,0],[{statusCode:403},true,0],[{},true,0],[{},false,7]
+    ].entries()) {
+      const id='push-case-'+index;failure={...error,body:'PRIVATE PROVIDER BODY',message:'SECRET ERROR'};
+      await db.query("INSERT INTO messages(id,sender_id,receiver_id) VALUES($1,'alice','bob')",[id]);
+      await transaction(client=>enqueueMessagePush(client,{id,receiverId:'bob'}));
+      await db.query("UPDATE web_push_jobs SET attempts=$2 WHERE message_id=$1",[id,attempts]);
+      const result=await store.dispatchWebPushBatch();
+      const job=(await db.query('SELECT * FROM web_push_jobs WHERE message_id=$1',[id])).rows[0];
+      assert.equal(job.completed_at===null,retry);
+      assert.equal(result.retrying,retry?1:0);assert.equal(result.rejected,retry?0:1);
+      assert.equal(result.accepted,0);
+      assert.equal(JSON.stringify(result).includes('SECRET'),false);
+      assert.equal((await db.query('SELECT is_delivered FROM messages WHERE id=$1',[id])).rows[0].is_delivered,false);
+      assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM web_push_subscriptions')).rows[0].n,1);
+      await db.query('DELETE FROM web_push_jobs WHERE message_id=$1',[id]);
+    }
+  }finally{await db.close();}
+});
+
 function workerHarness() {
   const handlers = {}, shown = [], opened = [], messages = [];
   let clients = [];

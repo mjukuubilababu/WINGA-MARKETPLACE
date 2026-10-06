@@ -614,7 +614,8 @@
       const showConversationDetail = directView && profileMessagesMode === "detail";
       const panelTitle = t("nav.inbox", "Inbox");
       const panelSubtitle = t("inbox.subtitle", "Your conversations");
-      const lastActiveLabel = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
+      const lastMessageTime = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
+      const lastActiveLabel = lastMessageTime ? t("chat.lastMessageAt", "Last message: {time}", {time:lastMessageTime}) : "";
 
       return `
         <section id="profile-messages-panel" class="modern-inbox conversation-workspace" data-conversations-view="${conversationsView}" data-conversation-selected="${showConversationDetail}">
@@ -686,6 +687,7 @@
                     <button type="button" class="chat-security-control" data-chat-security="${deps.escapeHtml(activeChatContext.withUser)}" hidden title="${deps.escapeHtml(t('chat.security','Chat security'))}"><img src="/icons/navigation/lock-keyhole.svg" width="16" height="16" alt="" /><span>${deps.escapeHtml(t('chat.security','Chat security'))}</span></button>
                   </div>
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
+                    <button class="action-btn action-btn-secondary" type="button" data-open-person-profile="${deps.escapeHtml(activeChatContext.withUser)}" data-person-profile-source="conversation">${deps.escapeHtml(t("chat.viewProfile","View profile"))}</button>
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
@@ -850,9 +852,8 @@
         : null;
       const safeProductName = deps.escapeHtml(productName);
       const safeSellerName = deps.escapeHtml(conversationName({ ...activeChatContext, displayName: sellerName }));
-      const lastActiveLabel = activeMessages[activeMessages.length - 1]?.timestamp
-        ? `Last active ${new Date(activeMessages[activeMessages.length - 1].timestamp).toLocaleString("sw-TZ")}`
-        : "Ready to chat";
+      const lastMessageTime = conversationTime(activeMessages[activeMessages.length - 1]?.timestamp);
+      const lastActiveLabel = lastMessageTime ? t("chat.lastMessageAt", "Last message: {time}", {time:lastMessageTime}) : "";
 
       return `
         <section class="context-chat-shell">

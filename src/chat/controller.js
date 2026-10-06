@@ -7,6 +7,15 @@
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
     const t = (key, fallbackText = "", variables = {}) => translate(key, variables, fallbackText);
 
+    function captureSendFailure(event,error) {
+      const status=Number(error?.status);
+      const diagnostic=new Error("chat_send_failed"); // i18n-gate: allow -- fixed content-free telemetry diagnostic
+      diagnostic.name="ConversationSendError";
+      deps.captureError?.(event,diagnostic,{category:"messaging",
+        status:Number.isInteger(status)&&status>=100&&status<=599?status:0,
+        retryable:error instanceof TypeError||status>=500});
+    }
+
     function encryptedUiOptions(scope,refresh) {
       return {
         dataLayer:deps.dataLayer,translate:t,refresh,getSession:deps.getCurrentSession,
@@ -627,9 +636,7 @@
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
           });
-          deps.captureError?.("context_message_send_failed", error, {
-            receiverId: activeChatContext?.withUser || ""
-          });
+          captureSendFailure("context_message_send_failed",error);
           replaceContextChatModal();
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),
@@ -1698,9 +1705,7 @@
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
           });
-          deps.captureError?.("profile_message_send_failed", error, {
-            receiverId: activeChatContext?.withUser || ""
-          });
+          captureSendFailure("profile_message_send_failed",error);
           deps.replaceMessagesPanel(scope);
           deps.showInAppNotification?.({
             title: t("chat.failedTitle", "Message failed"),

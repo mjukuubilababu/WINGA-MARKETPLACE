@@ -41,13 +41,14 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
       refreshActiveMessageHistory:async()=>{},markActiveConversationRead:async()=>{state.reads++;},
       navigateConversationHome:()=>state.home++,openConversationAlerts:()=>state.alerts++,openConversationProfile:()=>state.profile++,
       refreshMessagesState:async()=>{},refreshNotificationsState:async()=>{},
+      captureError:(event,error,context)=>{(state.captured||(state.captured=[])).push({event,message:error.message,name:error.name,context});},
       createNotificationsContainerFromState:()=>document.createElement('div'),
       dataLayer:{isEncryptedConversation:async()=>true,
         loadSocialProfile:async username=>{
           if(username==='pending')return new Promise(resolve=>{state.resolveLookup=()=>resolve({profile:{username:'pending'}});});
           return {profile:{username:username==='invalid'?'different':username,displayName:username,fullName:username==='named'?'Asha Mussa':''}};
         },
-        sendMessage:async payload=>{state.sends++;state.lastPayload=payload;return {id:'sent-'+state.sends};}
+        sendMessage:async payload=>{if(state.sendFailure)throw Object.assign(new Error(state.sendFailure),{status:503});state.sends++;state.lastPayload=payload;return {id:'sent-'+state.sends};}
       },setChatComposeStatus:()=>{},replaceMessagesPanel:()=>render()
     });
     function render(){document.querySelector('.profile-shell').innerHTML=ui.renderMessagesSection();controller.bindMessageActions(document.getElementById('profile-messages-panel'));}
@@ -256,6 +257,26 @@ test('mobile inbox navigation, search, real controller send and honest room empt
   await expect(page.locator('.conversation-view-tabs [data-conversations-action="private"]')).toHaveAttribute('aria-pressed','true');
   await page.locator('.conversation-view-tabs [data-conversations-action="chats"]').click();
   await page.screenshot({path:path.join(root,'.tmp-chat-ui/conversations-mobile.png')});
+});
+
+test('header labels message time honestly and profile navigation keeps canonical identity',async({page})=>{
+  await openChatUi(page);await page.locator('[data-conversation-user="rey"]').click();
+  await expect(page.locator('.thread-presence')).toContainText('Ujumbe wa mwisho:');
+  await page.locator('.inbox-conversation-menu summary').click();
+  await expect(page.locator('[data-open-person-profile]')).toHaveAttribute('data-open-person-profile','rey');
+  await expect(page.locator('[data-open-person-profile]')).toHaveText('Angalia wasifu');
+  expect(await page.locator('.messages-thread-head').textContent()).not.toContain('Last active');
+});
+
+test('message failure telemetry contains no private error text or recipient identity',async({page})=>{
+  await openChatUi(page);await page.locator('[data-conversation-user="rey"]').click();
+  await page.evaluate(()=>chatUiFixture.state.sendFailure='PRIVATE MESSAGE ERROR AND RECOVERY SECRET');
+  await page.locator('#message-compose-input').fill('Private text');
+  await page.getByRole('button',{name:'Tuma ujumbe',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.captured?.length||0)).toBe(1);
+  const diagnostic=await page.evaluate(()=>chatUiFixture.state.captured[0]);
+  expect(diagnostic).toEqual({event:'profile_message_send_failed',message:'chat_send_failed',name:'ConversationSendError',
+    context:{category:'messaging',status:503,retryable:true}});
 });
 
 test('new chat validates the public contact and never sends until explicit compose submit',async({page})=>{

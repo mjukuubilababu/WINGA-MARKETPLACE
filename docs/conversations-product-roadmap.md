@@ -1,6 +1,6 @@
 # Conversations: Contract 110-238 Execution
 
-Updated: 2026-10-05. This is an execution/evidence ledger, not acceptance of the
+Updated: 2026-10-06. This is an execution/evidence ledger, not acceptance of the
 whole contract and not a replacement for the user's requirements.
 
 ## Authoritative Sources
@@ -316,6 +316,11 @@ public product-video pipeline. No schema migration or feature-flag change is
 required by this increment.
 
 ## Gates Still Open
+
+The follow-on header, recovery-preview, push and telemetry audit is tracked in
+[Direct audit 151-170](conversations-direct-audit-151-170.md). That ledger keeps
+account-level Archive/Mute, selective reporting and foundation acceptance open;
+it does not declare the whole 151-170 range complete.
 
 - Independent crypto review/approval; passing local tests do not certify ts-mls.
 - Authenticated physical-device private media, recovery and replacement evidence

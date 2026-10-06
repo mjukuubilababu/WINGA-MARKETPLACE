@@ -1473,6 +1473,9 @@
                      "chat.findAnotherSeller": "العثور على بائع آخر",
                      "chat.findBetterPrice": "العثور على سعر أفضل",
                      "chat.lowerPriceMatches": "{count} نتائج بسعر أقل ضمن هذه النتائج.",
-                     "chat.noLowerPriceMatches": "لا توجد نتائج بسعر أقل هنا. يمكنك متابعة البحث."
+                     "chat.noLowerPriceMatches": "لا توجد نتائج بسعر أقل هنا. يمكنك متابعة البحث.",
+                     "chat.lastMessageAt": "آخر رسالة: {time}",
+                     "chat.viewProfile": "عرض الملف الشخصي",
+                     "chat.recoveryPreviewUnavailable": "تمت استعادة السجل. المعاينة غير متاحة؛ السجل المحفوظ لم يتغير."
                  }
 }

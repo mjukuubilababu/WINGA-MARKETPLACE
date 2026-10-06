@@ -1469,6 +1469,9 @@
                      "chat.findAnotherSeller": "Find another seller",
                      "chat.findBetterPrice": "Find better price",
                      "chat.lowerPriceMatches": "{count} lower-priced matches in these results.",
-                     "chat.noLowerPriceMatches": "No lower-priced matches in these results. You can continue searching."
+                     "chat.noLowerPriceMatches": "No lower-priced matches in these results. You can continue searching.",
+                     "chat.lastMessageAt": "Last message: {time}",
+                     "chat.viewProfile": "View profile",
+                     "chat.recoveryPreviewUnavailable": "History restored. Preview is unavailable; saved history is unchanged."
                  }
 }

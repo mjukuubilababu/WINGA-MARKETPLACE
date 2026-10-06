@@ -154,12 +154,12 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
           });
           outcome.accepted += 1;
         } catch (error) {
-          const status = Number(error.statusCode || 0);
+          const status = Number(error.statusCode || error.status || 0);
           outcome.lastProviderStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : 0;
-          if ([404, 410].includes(error.statusCode)) {
+          if ([404, 410].includes(status)) {
             await query("DELETE FROM web_push_subscriptions WHERE id=$1 AND subscription=$2::jsonb", [row.subscription_id, JSON.stringify(row.subscription)]);
           } else {
-            retry = row.attempts < 8 && error.status !== 400;
+            retry = row.attempts < 8 && ![400, 413].includes(status);
           }
           outcome[retry ? "retrying" : "rejected"] += 1;
         }

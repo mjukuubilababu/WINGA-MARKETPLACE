@@ -1469,6 +1469,9 @@
                      "chat.findAnotherSeller": "Tafuta muuzaji mwingine",
                      "chat.findBetterPrice": "Tafuta bei bora",
                      "chat.lowerPriceMatches": "Bidhaa {count} zenye bei ya chini kwenye matokeo haya.",
-                     "chat.noLowerPriceMatches": "Hakuna bidhaa zenye bei ya chini kwenye matokeo haya. Unaweza kuendelea kutafuta."
+                     "chat.noLowerPriceMatches": "Hakuna bidhaa zenye bei ya chini kwenye matokeo haya. Unaweza kuendelea kutafuta.",
+                     "chat.lastMessageAt": "Ujumbe wa mwisho: {time}",
+                     "chat.viewProfile": "Angalia wasifu",
+                     "chat.recoveryPreviewUnavailable": "Historia imerejeshwa. Mwonekano haupatikani; historia iliyohifadhiwa haijabadilishwa."
                  }
 }
