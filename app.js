@@ -9292,7 +9292,11 @@ async function markActiveConversationRead() {
   }
 }
 
+let conversationPreferenceSync = null;
+
 function disconnectRealtimeChannel() {
+  conversationPreferenceSync?.close();
+  conversationPreferenceSync = null;
   if (chatUiState.realtimeReconnectTimer) {
     clearTimeout(chatUiState.realtimeReconnectTimer);
     chatUiState.realtimeReconnectTimer = 0;
@@ -9313,6 +9317,19 @@ function connectRealtimeChannel() {
 
   const replayUser = currentUser;
   const replaySession = currentSession?.sessionId || currentSession?.token || "";
+  conversationPreferenceSync = window.WingaConversationPreferenceSync?.watch({
+    getSession: () => currentSession,
+    isActive: () => chatUiState.isContextOpen || (currentView === "profile" && profileDiv?.isConnected && profileRuntimeState.activeSection === "profile-messages-panel"),
+    refresh: async () => {
+      const changed = await window.WingaConversationArchive?.refresh({ dataLayer: window.WingaDataLayer, getSession: () => currentSession });
+      if (window.WingaConversationArchive?.snapshot(currentSession).error) throw Error("archive_unavailable");
+      return changed;
+    },
+    onChange: () => {
+      // Preference reconciliation must not replace an open composer or discard a draft.
+      if (currentView === "profile" && profileDiv?.isConnected && chatUiState.profileMessagesMode !== "detail") replaceMessagesPanel(profileDiv);
+    }
+  });
   if (messageReplayState?.owner !== replayUser) messageReplayState = { owner: replayUser, cursor: "" };
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
     replayState: messageReplayState,
@@ -9683,7 +9700,7 @@ async function refreshMessagesState() {
   try {
     const archiveSession=currentSession;
     void window.WingaConversationArchive?.refresh({dataLayer:window.WingaDataLayer,getSession:()=>currentSession}).then(changed=>{
-      if(changed&&user===currentUser&&archiveSession===currentSession&&currentView==="profile"&&profileDiv)replaceMessagesPanel(profileDiv);
+      if(changed&&user===currentUser&&archiveSession===currentSession&&currentView==="profile"&&profileDiv&&chatUiState.profileMessagesMode!=="detail")replaceMessagesPanel(profileDiv);
     }).catch(()=>{});
     const paged = await getMessagePager().refreshInbox();
     if (user !== currentUser) return;

@@ -42,6 +42,16 @@ async function fixture(page,{width=390,locale='en'}={}) {
 }
 const submit=page=>page.locator('dialog .chat-security-actions button').first();
 const consent=page=>page.locator('[data-report-consent]');
+test('report subjects require selected incoming canonical evidence, not unrelated or outgoing targets',async({page})=>{
+  await fixture(page);await page.locator('[data-chat-report]').click();
+  const subject=page.locator('dialog select').first();
+  await subject.selectOption('media');
+  await page.locator('[data-report-message="m1"]').check();await consent(page).check();
+  await expect(submit(page)).toBeDisabled();
+  await page.locator('[data-report-message="media1"]').check();await expect(submit(page)).toBeEnabled();
+  await submit(page).click();
+  expect(await page.evaluate(()=>reportFixture.calls[0].subject)).toEqual({type:'media',id:'media1'});
+});
 test('only explicit selected evidence is shared; no automatic disclosure or private attachment bytes',async({page})=>{
   await fixture(page);await page.getByRole('button',{name:'Report one',exact:true}).click();
   await expect(page.locator('[data-report-message]')).toHaveCount(4);

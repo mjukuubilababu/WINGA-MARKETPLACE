@@ -407,8 +407,9 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     return initialize();
   }
   async function history(peer) {
-    current(); const saved = await (vault.historySnapshot?vault.historySnapshot():vault.snapshot()); current();
-    return Object.entries(saved.values).filter(([key,value]) => key.startsWith('history:') && (!peer || value.owner === peer || value.peer === peer))
+    const belongs=(value,key)=>key.startsWith('history:')&&(!peer||value.owner===peer||value.peer===peer);
+    current(); const saved = await (vault.historySnapshot?vault.historySnapshot({filter:belongs}):vault.snapshot()); current();
+    return Object.entries(saved.values).filter(([key,value]) => belongs(value,key))
       .map(([,value]) => structuredClone(value)).sort((a,b) => a.timestamp.localeCompare(b.timestamp));
   }
   async function applyReceipt(p, pin) {

@@ -33,6 +33,14 @@ API credential available in this workspace, and dashboard automation failed.
 Public healthy responses alone do not prove the exact backend commit or new
 migration/application-flow acceptance.
 
+## Latest 158-189 Work
+
+See [conversations-spec-158-189.md](conversations-spec-158-189.md) for the new local
+search, explicit report subjects, opaque notification grouping, aggregate
+transport metrics, foreground preference reconciliation, session-consistent
+filtered history and exact open Shopping Room gates. The release record above
+describes the preceding release, not deployment of these new changes.
+
 ## Foundation: 0-109
 
 The integrated system has durable canonical acceptance, exact-ID retry,

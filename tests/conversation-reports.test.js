@@ -3,7 +3,8 @@ const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
 const {PGlite}=require('@electric-sql/pglite');
 const {CONSENT,validateDisclosure,createConversationReportStore}=require('../backend/conversation-reports');
-const migration=require('../backend/migrations/conversation-report-evidence');
+const migration={statements:[...require('../backend/migrations/conversation-report-evidence').statements,
+  ...require('../backend/migrations/conversation-report-subject').statements]};
 const fs=require('node:fs'),vm=require('node:vm');
 const alice={owner:'alice',token:'ta',deviceId:'sa'};
 const mod={owner:'mod',token:'tm',deviceId:'sm'};
@@ -29,6 +30,33 @@ test('disclosure requires explicit consent, exact whitelists, bounded selections
     {selection:[{id:'m1',kind:'text',text:'x'},{id:'m1',kind:'text',text:'y'}]},
     {selection:Array.from({length:10},(_,i)=>({id:'m'+i,kind:'text',text:'界'.repeat(4096)}))}])
     assert.throws(()=>validateDisclosure(alice,payload(more)),{status:400});
+});
+test('report subject migration is additive and registered once after its evidence dependency',()=>{
+  const ids=require('../backend/migrations').MIGRATIONS.map(m=>m.id);
+  const subject='2026100604_conversation_report_subject';
+  assert.equal(ids.filter(id=>id===subject).length,1);
+  assert.ok(ids.indexOf(subject)>ids.indexOf('2026100603_conversation_report_evidence'));
+  assert.equal(validateDisclosure(alice,payload({peer:'مريم',subject:{type:'user',id:'مريم'}})).subject.id,'مريم');
+});
+test('real SQL: report subjects are selected canonical peer evidence, never arbitrary targets',async()=>{
+  const f=await fixture();try {
+    for(const subject of [{type:'user',id:'mallory'},{type:'conversation',id:'g-unrelated'},
+      {type:'message',id:'unselected'},{type:'media',id:'m1'},{type:'unknown',id:'m1'},
+      {type:'message',id:'m1',privateKey:'SECRET'}])
+      assert.throws(()=>validateDisclosure(alice,payload({subject})),{status:400});
+    await assert.rejects(f.store.submitConversationReport(alice,payload({subject:{type:'message',id:'own'},
+      selection:[{id:'own',kind:'text',text:'my message'},{id:'m1',kind:'text',text:'incoming'}]})),{status:403});
+    for(const subject of [{type:'user',id:'bob'},{type:'conversation',id:'bob'},{type:'message',id:'m1'},{type:'media',id:'media1'}]) {
+      await f.db.exec('DELETE FROM open_report_claims');
+      const p=payload({subject,selection:subject.type==='media'?[{id:'media1',kind:'media',text:'File not shared'}]:[{id:'m1',kind:'text',text:'selected'}]});
+      const submitted=await f.store.submitConversationReport(alice,p);
+      const result=await f.store.readConversationReportEvidence(mod,{owner:'mod',sessionId:'sm',reportId:submitted.id,reason:'Inspect selected evidence'});
+      assert.deepEqual(result.subject,subject);assert.equal(result.filesShared,false);
+      await f.db.query("UPDATE reports SET status='closed' WHERE id=$1",[submitted.id]);
+      assert.equal((await f.store.submitConversationReport(alice,p)).replayed,true);
+      assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM conversation_report_evidence WHERE report_id=$1',[submitted.id])).rows[0].n,1);
+    }
+  }finally{await f.db.close();}
 });
 test('real SQL: selected plaintext is stored separately, retry is idempotent and only moderator reads are audited',async()=>{
   const f=await fixture();try{

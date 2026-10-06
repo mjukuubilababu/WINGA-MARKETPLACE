@@ -1,4 +1,4 @@
-const { createHash, randomUUID, ECDH } = require("node:crypto");
+const { createHash, createHmac, randomUUID, ECDH } = require("node:crypto");
 const webPush = require("web-push");
 
 const reject = (status = 400) => Object.assign(new Error("Push request rejected."), { status });
@@ -218,7 +218,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
         return id;
       });
       if (!job) break;
-      const result = await query(`${sources} SELECT j.id,j.attempts,p.id AS subscription_id,p.subscription,p.locale
+      const result = await query(`${sources} SELECT j.id,j.attempts,j.owner_id,m.sender_id,p.id AS subscription_id,p.subscription,p.locale
         FROM web_push_jobs j JOIN web_push_subscriptions p ON p.id=j.subscription_id
           AND p.session_id=j.session_id AND p.owner_id=j.owner_id
         JOIN sessions s ON s.session_id=j.session_id AND s.username=j.owner_id
@@ -235,9 +235,11 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
       if (row) {
         try {
           const keys = await identity();
-          await provider.sendNotification(validateSubscription(row.subscription), JSON.stringify({ version: 1, id: job, locale: row.locale }), {
+          // Opaque grouping; owner/peer identifiers never enter provider payloads.
+          const topic=createHmac('sha256',keys.private_key).update(JSON.stringify(['winga-alert-v1',row.owner_id,row.sender_id])).digest('base64url').slice(0,32);
+          await provider.sendNotification(validateSubscription(row.subscription), JSON.stringify({ version: 1, id: job, locale: row.locale, group:topic }), {
             vapidDetails: { subject: "https://wingamarket.com", publicKey: keys.public_key, privateKey: keys.private_key },
-            TTL: 86400, timeout: 10000, urgency: "high", topic: job.replace(/-/g, "")
+            TTL: 86400, timeout: 10000, urgency: "high", topic
           });
           outcome.accepted += 1;
         } catch (error) {

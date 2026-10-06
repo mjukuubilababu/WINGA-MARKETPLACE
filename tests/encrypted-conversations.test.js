@@ -289,7 +289,7 @@ test('encrypted sends enqueue one generic background push, authorize deep links 
     provider:{generateVAPIDKeys:()=>require('web-push').generateVAPIDKeys(),sendNotification:async(subscription,payload)=>payloads.push(JSON.parse(payload))}});
   assert.deepEqual(await push.resolveWebPush({owner:'bob',token:'b1',sessionId:'b1',id:jobs[0].id}),{withUser:'alice'});
   const result=await push.dispatchWebPushBatch();assert.equal(result.accepted,1);
-  assert.deepEqual(Object.keys(payloads[0]).sort(),['id','locale','version']);assert.equal(JSON.stringify(payloads).includes('server must not receive this'),false);
+  assert.deepEqual(Object.keys(payloads[0]).sort(),['group','id','locale','version']);assert.equal(JSON.stringify(payloads).includes('server must not receive this'),false);
   const context={owner:'bob',token:'b1',sessionId:'b1'},payload={owner:'bob',sessionId:'b1',peer:'alice'};
   await f.db.exec('UPDATE web_push_jobs SET completed_at=NULL');
   const muted=await push.saveConversationMute({...context,payload:{...payload,revision:'0',muted:true}});

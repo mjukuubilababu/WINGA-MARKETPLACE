@@ -56,6 +56,25 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
   },{catalog,rtl});
 }
 
+test('real conversation menu opens local message search through the existing controller',async({page})=>{
+  await openChatUi(page);
+  for(const file of ['message-search.js','message-search-ui.js'])
+    await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/chat',file),'utf8')});
+  await page.evaluate(()=>{
+    const f=chatUiFixture;f.state.session={username:'alice',sessionId:'search-fixture'};
+    for(const row of f.messages)row.receiverId=row.senderId==='alice'?'rey':'alice';
+    f.render();
+  });
+  await page.locator('[data-conversation-user="rey"]').click();
+  await page.locator('.inbox-conversation-menu summary').click();
+  await page.locator('[data-chat-message-search]').click();
+  await expect(page.locator('dialog h3')).toHaveText('Tafuta ujumbe');
+  await page.locator('input[name=query]').fill('Picha');
+  await page.locator('dialog form button[type=submit]').click();
+  await expect(page.locator('.chat-message-search-result')).toHaveCount(1);
+  await expect(page.locator('.chat-message-search-result')).toContainText('Habari! Picha imefika vizuri.');
+});
+
 for(const [width,rtl] of [[320,false],[1280,false],[390,true]])test('archived view keeps history and new-message unread state at '+width+(rtl?' RTL':''),async({page})=>{
   await openChatUi(page,{width,rtl});
   await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/chat/archive-ui.js'),'utf8')});

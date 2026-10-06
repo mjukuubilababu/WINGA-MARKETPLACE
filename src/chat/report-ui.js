@@ -35,6 +35,12 @@
     const view=shell(scope,options,t('chat.reportMessages','Report messages'),peer);if(!view)return;
     const {dialog,active,initial}=view;
     dialog.append(node('p',t('chat.reportDisclosure','Only selected message text, message IDs, participants, timestamps and your report details will be shared with Winga moderation. Files, encryption keys, recovery keys and other messages are not shared.')));
+    const subjectLabel=node('label',t('chat.reportSubject','Report about')),subjectType=node('select');
+    for(const value of ['conversation','user','message','media']) {
+      const option=node('option',t('chat.reportSubject.'+value,value));option.value=value;subjectType.append(option);
+    }
+    subjectLabel.append(subjectType);dialog.append(subjectLabel);
+    const subjectId=node('select');subjectId.setAttribute('aria-label',t('chat.reportSubjectMessage','Selected message'));subjectId.hidden=true;dialog.append(subjectId);
     const selection=node('div');selection.className='chat-report-selection';dialog.append(selection);
     const choices=candidates.map(item=>{
       const label=node('label'),input=node('input');input.type='checkbox';input.checked=item.id===selectedId;input.dataset.reportMessage=item.id;
@@ -54,20 +60,30 @@
     let busy=false,sent=false,requestId=crypto.randomUUID(),previous='';
     const update=()=>{
       const count=choices.filter(choice=>choice.input.checked).length;
+      const prior=subjectId.value;subjectId.replaceChildren();
+      const targeted=['message','media'].includes(subjectType.value);subjectId.hidden=!targeted;
+      if(targeted)for(const choice of choices)if(choice.input.checked&&incoming.has(choice.item.id)
+        &&(subjectType.value!=='media'||choice.item.kind==='media')) {
+        const option=node('option',choice.item.text.slice(0,80));option.value=choice.item.id;subjectId.append(option);
+      }
+      if([...subjectId.options].some(option=>option.value===prior))subjectId.value=prior;
       submit.disabled=busy||sent||!consent.checked||count<1||count>10
+        ||targeted&&!subjectId.value
         ||!choices.some(choice=>choice.input.checked&&incoming.has(choice.item.id));
       for(const choice of choices)choice.input.disabled=busy||sent||count>=10&&!choice.input.checked;
       consent.disabled=busy||sent;reason.disabled=busy||sent;details.disabled=busy||sent;
+      subjectType.disabled=busy||sent;subjectId.disabled=busy||sent;
     };
-    for(const choice of choices)choice.input.onchange=update;consent.onchange=update;update();
+    for(const choice of choices)choice.input.onchange=update;consent.onchange=update;subjectType.onchange=update;update();
     close.onclick=()=>dialog.close();
     submit.onclick=async()=>{
       if(submit.disabled||!active())return;
       const selection=choices.filter(choice=>choice.input.checked).map(choice=>({...choice.item}));
-      const intent=JSON.stringify([reason.value,details.value,selection]);
+      const subject={type:subjectType.value,id:['user','conversation'].includes(subjectType.value)?peer:subjectId.value};
+      const intent=JSON.stringify([reason.value,details.value,selection,subject]);
       if(previous&&previous!==intent)requestId=crypto.randomUUID();previous=intent;
       const payload={owner:initial.username,sessionId:initial.sessionId,peer,requestId,consent:CONSENT,
-        reason:reason.value,description:details.value,selection};
+        reason:reason.value,description:details.value,selection,subject};
       busy=true;update();
       try {
         if(new TextEncoder().encode(JSON.stringify(payload)).length>65536)throw Error('report_too_large');
@@ -107,6 +123,8 @@
         if(result?.id!==reportId||result.plaintextVerified!==false||result.filesShared!==false
           ||!Array.isArray(result.selection)||result.selection.length>10)throw Error('report_unavailable');
         content.replaceChildren();
+        if(result.subject&&['user','conversation','message','media'].includes(result.subject.type))
+          content.append(node('strong',t('chat.reportSubject.'+result.subject.type,result.subject.type)));
         for(const item of result.selection){
           if(typeof item.text!=='string'||item.text.length>4096||typeof item.sender!=='string')throw Error('report_unavailable');
           const article=node('article');article.append(node('strong',item.sender),node('p',item.text));content.append(article);

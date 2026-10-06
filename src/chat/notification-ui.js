@@ -16,9 +16,9 @@
       if(button.dataset.muteBound)continue;button.dataset.muteBound='true';button.hidden=false;
       button.onclick=async()=>{
         const peer=button.dataset.chatNotifications;if(!current(peer)||button.disabled)return;
-        button.disabled=true;let dialog;
+        button.disabled=true;let dialog,sync;
         try {
-          let state=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));if(!current(peer))return;
+          let state=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST')),readVersion=0;if(!current(peer))return;
           const node=(tag,text)=>{const el=document.createElement(tag);if(text)el.textContent=text;return el;};
           dialog=node('dialog');dialog.className='chat-security-dialog chat-notification-dialog';
           dialog.append(node('h3',t('chat.notificationSettings','Notifications')));
@@ -33,20 +33,41 @@
           const actions=node('div');actions.className='chat-security-actions';
           const save=node('button',t('common.save','Save')),close=node('button',t('common.close','Close'));
           for(const control of [save,close]){control.type='button';control.className='action-btn';actions.append(control);}dialog.append(actions);
+          const dirty=()=>select.checked!==state.muted;
+          sync=globalThis.WingaConversationPreferenceSync?.watch({getSession,
+            isActive:()=>current(peer)&&dialog.isConnected,
+            refresh:async()=>{
+              if(dirty()||save.disabled)return false;
+              const version=++readVersion;
+              const next=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));
+              if(!current(peer)||!dialog.isConnected||version!==readVersion||dirty()||save.disabled)return false;
+              if(BigInt(next.revision)<BigInt(state.revision))throw Error('conversation_mute_unavailable');
+              const changed=next.revision!==state.revision||next.muted!==state.muted;state=next;return changed;
+            },onChange:showState});
           save.onclick=async()=>{
             if(save.disabled||!current(peer)||!dialog.isConnected)return;save.disabled=true;select.disabled=true;
+            readVersion++;
             try {
               const next=validate(await dataLayer.pushRequest('mute',{owner,sessionId,peer,muted:select.checked,revision:state.revision},'POST'));
               if(!current(peer)||!dialog.isConnected)return;state=next;showState();await refresh();
-            }catch{if(current(peer)&&dialog.isConnected)status.textContent=t('chat.muteFailed','Unable to update notifications. Try again.');}
+            }catch(error){
+              if(error?.status===409&&current(peer)&&dialog.isConnected){
+                try {
+                  const next=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));
+                  if(current(peer)&&dialog.isConnected&&BigInt(next.revision)>=BigInt(state.revision))state=next;
+                }catch{}
+              }
+              // Keep the explicit choice; a second Save confirms it against the new revision.
+              if(current(peer)&&dialog.isConnected)status.textContent=t('chat.muteFailed','Unable to update notifications. Try again.');
+            }
             finally{save.disabled=false;select.disabled=false;}
           };
           close.onclick=()=>dialog.close();
           const timer=setInterval(()=>{if(!current(peer))dialog.close();},250);
           const hidden=()=>{if(!current(peer))dialog.close();};document.addEventListener('visibilitychange',hidden);
-          dialog.addEventListener('close',()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.remove();},{once:true});
+          dialog.addEventListener('close',()=>{sync?.close();clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.remove();},{once:true});
           document.body.append(dialog);dialog.showModal();
-        }catch{if(current(peer))button.title=t('chat.muteFailed','Unable to update notifications. Try again.');dialog?.remove();}
+        }catch{sync?.close();if(current(peer))button.title=t('chat.muteFailed','Unable to update notifications. Try again.');dialog?.remove();}
         finally{button.disabled=false;}
       };
     }

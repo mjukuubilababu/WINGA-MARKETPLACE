@@ -7,7 +7,9 @@ const text=(value,max)=>typeof value==='string'&&value.length<=max&&!/[\u0000-\u
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value);
 const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 function validateDisclosure(context,payload) {
-  if(!exact(payload,['owner','sessionId','peer','requestId','consent','reason','description','selection'])
+  const keys=['owner','sessionId','peer','requestId','consent','reason','description','selection'];
+  if(Object.hasOwn(payload||{},'subject'))keys.push('subject');
+  if(!exact(payload,keys)
     ||payload.owner!==context.owner||payload.sessionId!==context.deviceId
     ||!text(payload.peer,40)||!payload.peer||/[\u0000-\u001f\u007f]/.test(payload.peer)||payload.peer.trim()!==payload.peer||payload.peer===context.owner
     ||!uuid(payload.requestId)||payload.consent!==CONSENT
@@ -18,7 +20,11 @@ function validateDisclosure(context,payload) {
       ||!['text','media','card'].includes(row.kind)||!text(row.text,4096)||!row.text.trim()
       ||row.text.startsWith('WINGA-MEDIA/')||row.text.startsWith('WINGA-CONTENT/'))
     ||Buffer.byteLength(JSON.stringify(payload))>65536)throw rejected();
-  return {peer:payload.peer,requestId:payload.requestId,consent:CONSENT,reason:payload.reason,
+  const subject=payload.subject;
+  if(subject!==undefined&&(!exact(subject,['type','id'])||!['user','conversation','message','media'].includes(subject.type)
+    ||(['user','conversation'].includes(subject.type)?subject.id!==payload.peer
+      :!id(subject.id)||!payload.selection.some(row=>row.id===subject.id&&(subject.type!=='media'||row.kind==='media')))))throw rejected();
+  return {...(subject===undefined?{}:{subject:{type:subject.type,id:subject.id}}),peer:payload.peer,requestId:payload.requestId,consent:CONSENT,reason:payload.reason,
     description:payload.description,selection:payload.selection.map(row=>({id:row.id,kind:row.kind,text:row.text}))};
 }
 function createConversationReportStore({withTransaction,now=Date.now}) {
@@ -53,6 +59,7 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
         found.set(row.id,{...row,source});
       }
       if(ids.some(value=>!found.has(value))||!ids.some(value=>found.get(value).sender_id===disclosure.peer))throw rejected(403);
+      if(['message','media'].includes(disclosure.subject?.type)&&found.get(disclosure.subject.id)?.sender_id!==disclosure.peer)throw rejected(403);
       const selection=disclosure.selection.map(item=>{
         const row=found.get(item.id);
         if(item.kind==='media'&&!row.media_id)throw rejected();
@@ -69,8 +76,9 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
         status,review_note,reviewed_by,created_at,updated_at,row_version)
         VALUES($1,'user',$2,'',$3,$4,$5,'open','','',$6,$6,1)`,
         [reportId,disclosure.peer,context.owner,disclosure.reason,disclosure.description,created]);
-      await client.query(`INSERT INTO conversation_report_evidence(report_id,reporter_id,request_id,request_hash,consent,selection)
-        VALUES($1,$2,$3,$4,$5,$6::jsonb)`,[reportId,context.owner,disclosure.requestId,hash,CONSENT,JSON.stringify(selection)]);
+      await client.query(`INSERT INTO conversation_report_evidence(report_id,reporter_id,request_id,request_hash,consent,selection,subject)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,[reportId,context.owner,disclosure.requestId,hash,CONSENT,JSON.stringify(selection),
+          JSON.stringify(disclosure.subject||{type:'user',id:disclosure.peer})]);
       return {ok:true,id:reportId,replayed:false};
     });
   }
@@ -86,14 +94,14 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
       ||!id(payload.reportId)||!text(payload.reason,300)||payload.reason.trim().length<3)throw rejected();
     return withTransaction(async client=>{
       const role=await moderator(client,context);
-      const result=(await client.query(`SELECT e.report_id,e.reporter_id,e.consent,e.selection,e.created_at,
+      const result=(await client.query(`SELECT e.report_id,e.reporter_id,e.consent,e.selection,e.subject,e.created_at,
         r.target_user_id,r.reason FROM conversation_report_evidence e JOIN reports r ON r.id=e.report_id
         WHERE e.report_id=$1 FOR SHARE OF e,r`,[payload.reportId])).rows[0];
       if(!result)throw rejected(404);
       await client.query(`INSERT INTO conversation_report_evidence_reads(report_id,reviewer_id,reviewer_role,reason)
         VALUES($1,$2,$3,$4)`,[payload.reportId,context.owner,role,payload.reason.trim()]);
       return {version:1,id:result.report_id,consent:result.consent,reporter:result.reporter_id,peer:result.target_user_id,
-        reason:result.reason,selection:result.selection,plaintextVerified:false,filesShared:false};
+        reason:result.reason,subject:result.subject||{type:'user',id:result.target_user_id},selection:result.selection,plaintextVerified:false,filesShared:false};
     });
   }
   return {submitConversationReport,readConversationReportFlags,readConversationReportEvidence};

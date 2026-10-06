@@ -6,9 +6,10 @@ self.addEventListener("push", event => {
     let payload = {};
     try { payload = event.data?.json() || {}; } catch { /* Use a generic notification. */ }
     const id = typeof payload.id === "string" && /^[a-f0-9-]{36}$/.test(payload.id) ? payload.id : "";
+    const group = typeof payload.group === "string" && /^[A-Za-z0-9_-]{32}$/.test(payload.group) ? payload.group : "";
     const bodies = { sw: "Una ujumbe mpya.", en: "You have a new message.", fr: "Vous avez un nouveau message.", ar: "\u0644\u062f\u064a\u0643 \u0631\u0633\u0627\u0644\u0629 \u062c\u062f\u064a\u062f\u0629." };
     await self.registration.showNotification("Winga", {
-      body: Object.hasOwn(bodies, payload.locale) ? bodies[payload.locale] : bodies.sw, tag: id ? `winga-push-${id}` : "winga-push",
+      body: Object.hasOwn(bodies, payload.locale) ? bodies[payload.locale] : bodies.sw, tag: group ? `winga-conversation-${group}` : id ? `winga-push-${id}` : "winga-push",
       data: { id }, renotify: false
     });
   })());

@@ -143,10 +143,17 @@
       const values=Object.fromEntries(await Promise.all(saved.rows.map(async([key,sealed])=>[key,await reveal(key,sealed)])));
       assertCurrent(context);return {revision:saved.revision,values,next:saved.next};
     }
-    async function historySnapshot() {
-      let after,revision;const values={};
-      do {const page=await historyPage({after,expectedRevision:revision});revision=page.revision;Object.assign(values,page.values);after=page.next;}while(after);
-      return {revision,values};
+    async function historySnapshot({filter}={}) {
+      if(filter!==undefined&&typeof filter!=='function')fail('crypto_vault_write_invalid');
+      const context=current();let after,revision;const values={};
+      do {
+        assertCurrent(context);
+        const page=await historyPage({after,expectedRevision:revision});
+        assertCurrent(context);revision=page.revision;
+        for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
+        after=page.next;
+      }while(after);
+      assertCurrent(context);return {revision,values};
     }
     async function pruneExpiredAdmissions(now) {
       if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');

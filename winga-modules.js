@@ -17754,6 +17754,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-open-person-profile="${deps.escapeHtml(activeChatContext.withUser)}" data-person-profile-source="conversation">${deps.escapeHtml(t("chat.viewProfile","View profile"))}</button>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-message-search hidden title="${deps.escapeHtml(t("chat.messageSearch","Search messages"))}">${icon("search")}<span>${deps.escapeHtml(t("chat.messageSearch","Search messages"))}</span></button>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
                     <p role="status" data-chat-archive-status hidden></p>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
@@ -17947,6 +17948,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           </div>
           <div class="context-chat-actions">
             <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-message-search hidden title="${deps.escapeHtml(t("chat.messageSearch","Search messages"))}">${icon("search")}<span>${deps.escapeHtml(t("chat.messageSearch","Search messages"))}</span></button>
             <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
             <p role="status" data-chat-archive-status hidden></p>
             <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
@@ -20126,10 +20128,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const values=Object.fromEntries(await Promise.all(saved.rows.map(async([key,sealed])=>[key,await reveal(key,sealed)])));
       assertCurrent(context);return {revision:saved.revision,values,next:saved.next};
     }
-    async function historySnapshot() {
-      let after,revision;const values={};
-      do {const page=await historyPage({after,expectedRevision:revision});revision=page.revision;Object.assign(values,page.values);after=page.next;}while(after);
-      return {revision,values};
+    async function historySnapshot({filter}={}) {
+      if(filter!==undefined&&typeof filter!=='function')fail('crypto_vault_write_invalid');
+      const context=current();let after,revision;const values={};
+      do {
+        assertCurrent(context);
+        const page=await historyPage({after,expectedRevision:revision});
+        assertCurrent(context);revision=page.revision;
+        for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
+        after=page.next;
+      }while(after);
+      assertCurrent(context);return {revision,values};
     }
     async function pruneExpiredAdmissions(now) {
       if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');
@@ -20501,6 +20510,69 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/preference-sync.js
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.WingaConversationPreferenceSync = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  const sessionKey = session => JSON.stringify([session?.username, session?.sessionId, session?.token]);
+  function watch({ getSession, refresh, onChange = () => {}, isActive = () => true,
+    document = globalThis.document, window = globalThis.window,
+    setTimeout = globalThis.setTimeout, clearTimeout = globalThis.clearTimeout,
+    now = Date.now, intervalMs = 15000 } = {}) {
+    if (typeof getSession !== 'function' || typeof refresh !== 'function'
+      || !Number.isInteger(intervalMs) || intervalMs < 15000 || intervalMs > 60000) throw Error('preference_sync_invalid');
+    const initial = getSession(), key = sessionKey(initial);
+    let closed = false, timer, running = false, failures = 0, lastStarted = -Infinity, retryAt = 0;
+    const authenticated = () => initial?.username && initial.sessionId && sessionKey(getSession()) === key;
+    const foreground = () => document?.visibilityState === 'visible' && window?.navigator?.onLine !== false;
+    function close() {
+      if (closed) return;
+      closed = true; clearTimeout(timer);
+      document?.removeEventListener('visibilitychange', wake);
+      window?.removeEventListener('online', wake);
+      window?.removeEventListener('focus', wake);
+    }
+    function schedule(delay = Math.min(60000, intervalMs * (2 ** failures))) {
+      clearTimeout(timer);
+      if (!closed && foreground()) timer = setTimeout(wake, delay);
+    }
+    async function wake() {
+      if (closed) return;
+      clearTimeout(timer);
+      if (!authenticated()) { close(); return; }
+      if (!foreground()) return;
+      if (running) return;
+      if (!isActive()) { schedule(); return; }
+      const wait = Math.max(1000 - (now() - lastStarted), retryAt - now());
+      if (wait > 0) { schedule(wait); return; }
+      running = true; lastStarted = now();
+      try {
+        const changed = await refresh();
+        if (!authenticated()) { close(); return; }
+        if (closed || !foreground() || !isActive()) return;
+        failures = 0; retryAt = 0;
+        if (changed) await onChange();
+      } catch {
+        failures = Math.min(2, failures + 1);
+        retryAt = now() + Math.min(60000, intervalMs * (2 ** failures));
+      } finally {
+        running = false;
+        if (!closed) schedule();
+      }
+    }
+    if (!authenticated()) { close(); return { wake, close }; }
+    document?.addEventListener('visibilitychange', wake);
+    window?.addEventListener('online', wake);
+    window?.addEventListener('focus', wake);
+    schedule();
+    return { wake, close };
+  }
+  return { watch };
+});
+
+
 // src/chat/notification-ui.js
 (() => {
   function bind(scope,{dataLayer,getSession,getPeer,translate=(k,f)=>f,refresh=()=>{}}) {
@@ -20520,9 +20592,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(button.dataset.muteBound)continue;button.dataset.muteBound='true';button.hidden=false;
       button.onclick=async()=>{
         const peer=button.dataset.chatNotifications;if(!current(peer)||button.disabled)return;
-        button.disabled=true;let dialog;
+        button.disabled=true;let dialog,sync;
         try {
-          let state=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));if(!current(peer))return;
+          let state=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST')),readVersion=0;if(!current(peer))return;
           const node=(tag,text)=>{const el=document.createElement(tag);if(text)el.textContent=text;return el;};
           dialog=node('dialog');dialog.className='chat-security-dialog chat-notification-dialog';
           dialog.append(node('h3',t('chat.notificationSettings','Notifications')));
@@ -20537,20 +20609,41 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const actions=node('div');actions.className='chat-security-actions';
           const save=node('button',t('common.save','Save')),close=node('button',t('common.close','Close'));
           for(const control of [save,close]){control.type='button';control.className='action-btn';actions.append(control);}dialog.append(actions);
+          const dirty=()=>select.checked!==state.muted;
+          sync=globalThis.WingaConversationPreferenceSync?.watch({getSession,
+            isActive:()=>current(peer)&&dialog.isConnected,
+            refresh:async()=>{
+              if(dirty()||save.disabled)return false;
+              const version=++readVersion;
+              const next=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));
+              if(!current(peer)||!dialog.isConnected||version!==readVersion||dirty()||save.disabled)return false;
+              if(BigInt(next.revision)<BigInt(state.revision))throw Error('conversation_mute_unavailable');
+              const changed=next.revision!==state.revision||next.muted!==state.muted;state=next;return changed;
+            },onChange:showState});
           save.onclick=async()=>{
             if(save.disabled||!current(peer)||!dialog.isConnected)return;save.disabled=true;select.disabled=true;
+            readVersion++;
             try {
               const next=validate(await dataLayer.pushRequest('mute',{owner,sessionId,peer,muted:select.checked,revision:state.revision},'POST'));
               if(!current(peer)||!dialog.isConnected)return;state=next;showState();await refresh();
-            }catch{if(current(peer)&&dialog.isConnected)status.textContent=t('chat.muteFailed','Unable to update notifications. Try again.');}
+            }catch(error){
+              if(error?.status===409&&current(peer)&&dialog.isConnected){
+                try {
+                  const next=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));
+                  if(current(peer)&&dialog.isConnected&&BigInt(next.revision)>=BigInt(state.revision))state=next;
+                }catch{}
+              }
+              // Keep the explicit choice; a second Save confirms it against the new revision.
+              if(current(peer)&&dialog.isConnected)status.textContent=t('chat.muteFailed','Unable to update notifications. Try again.');
+            }
             finally{save.disabled=false;select.disabled=false;}
           };
           close.onclick=()=>dialog.close();
           const timer=setInterval(()=>{if(!current(peer))dialog.close();},250);
           const hidden=()=>{if(!current(peer))dialog.close();};document.addEventListener('visibilitychange',hidden);
-          dialog.addEventListener('close',()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.remove();},{once:true});
+          dialog.addEventListener('close',()=>{sync?.close();clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.remove();},{once:true});
           document.body.append(dialog);dialog.showModal();
-        }catch{if(current(peer))button.title=t('chat.muteFailed','Unable to update notifications. Try again.');dialog?.remove();}
+        }catch{sync?.close();if(current(peer))button.title=t('chat.muteFailed','Unable to update notifications. Try again.');dialog?.remove();}
         finally{button.disabled=false;}
       };
     }
@@ -20668,6 +20761,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const view=shell(scope,options,t('chat.reportMessages','Report messages'),peer);if(!view)return;
     const {dialog,active,initial}=view;
     dialog.append(node('p',t('chat.reportDisclosure','Only selected message text, message IDs, participants, timestamps and your report details will be shared with Winga moderation. Files, encryption keys, recovery keys and other messages are not shared.')));
+    const subjectLabel=node('label',t('chat.reportSubject','Report about')),subjectType=node('select');
+    for(const value of ['conversation','user','message','media']) {
+      const option=node('option',t('chat.reportSubject.'+value,value));option.value=value;subjectType.append(option);
+    }
+    subjectLabel.append(subjectType);dialog.append(subjectLabel);
+    const subjectId=node('select');subjectId.setAttribute('aria-label',t('chat.reportSubjectMessage','Selected message'));subjectId.hidden=true;dialog.append(subjectId);
     const selection=node('div');selection.className='chat-report-selection';dialog.append(selection);
     const choices=candidates.map(item=>{
       const label=node('label'),input=node('input');input.type='checkbox';input.checked=item.id===selectedId;input.dataset.reportMessage=item.id;
@@ -20687,20 +20786,30 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let busy=false,sent=false,requestId=crypto.randomUUID(),previous='';
     const update=()=>{
       const count=choices.filter(choice=>choice.input.checked).length;
+      const prior=subjectId.value;subjectId.replaceChildren();
+      const targeted=['message','media'].includes(subjectType.value);subjectId.hidden=!targeted;
+      if(targeted)for(const choice of choices)if(choice.input.checked&&incoming.has(choice.item.id)
+        &&(subjectType.value!=='media'||choice.item.kind==='media')) {
+        const option=node('option',choice.item.text.slice(0,80));option.value=choice.item.id;subjectId.append(option);
+      }
+      if([...subjectId.options].some(option=>option.value===prior))subjectId.value=prior;
       submit.disabled=busy||sent||!consent.checked||count<1||count>10
+        ||targeted&&!subjectId.value
         ||!choices.some(choice=>choice.input.checked&&incoming.has(choice.item.id));
       for(const choice of choices)choice.input.disabled=busy||sent||count>=10&&!choice.input.checked;
       consent.disabled=busy||sent;reason.disabled=busy||sent;details.disabled=busy||sent;
+      subjectType.disabled=busy||sent;subjectId.disabled=busy||sent;
     };
-    for(const choice of choices)choice.input.onchange=update;consent.onchange=update;update();
+    for(const choice of choices)choice.input.onchange=update;consent.onchange=update;subjectType.onchange=update;update();
     close.onclick=()=>dialog.close();
     submit.onclick=async()=>{
       if(submit.disabled||!active())return;
       const selection=choices.filter(choice=>choice.input.checked).map(choice=>({...choice.item}));
-      const intent=JSON.stringify([reason.value,details.value,selection]);
+      const subject={type:subjectType.value,id:['user','conversation'].includes(subjectType.value)?peer:subjectId.value};
+      const intent=JSON.stringify([reason.value,details.value,selection,subject]);
       if(previous&&previous!==intent)requestId=crypto.randomUUID();previous=intent;
       const payload={owner:initial.username,sessionId:initial.sessionId,peer,requestId,consent:CONSENT,
-        reason:reason.value,description:details.value,selection};
+        reason:reason.value,description:details.value,selection,subject};
       busy=true;update();
       try {
         if(new TextEncoder().encode(JSON.stringify(payload)).length>65536)throw Error('report_too_large');
@@ -20740,6 +20849,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(result?.id!==reportId||result.plaintextVerified!==false||result.filesShared!==false
           ||!Array.isArray(result.selection)||result.selection.length>10)throw Error('report_unavailable');
         content.replaceChildren();
+        if(result.subject&&['user','conversation','message','media'].includes(result.subject.type))
+          content.append(node('strong',t('chat.reportSubject.'+result.subject.type,result.subject.type)));
         for(const item of result.selection){
           if(typeof item.text!=='string'||item.text.length>4096||typeof item.sender!=='string')throw Error('report_unavailable');
           const article=node('article');article.append(node('strong',item.sender),node('p',item.text));content.append(article);
@@ -20749,6 +20860,122 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     };
   }
   globalThis.WingaConversationReports={selectedCandidates,bind,open,review};
+})();
+
+
+// src/chat/message-search.js
+(function(root,factory) {
+  const api=factory();
+  if(typeof module==='object'&&module.exports)module.exports=api;
+  else root.WingaMessageSearch=api;
+})(typeof globalThis!=='undefined'?globalThis:this,function() {
+  const MAX_SCAN=5000,MAX_RESULTS=100;
+  const failure=()=>{throw Object.assign(new Error('message_search_invalid'),{code:'message_search_invalid'});}; // i18n-gate: allow -- internal code, UI renders a localized fixed error
+  const normalize=value=>String(value||'').normalize('NFKC').toLocaleLowerCase().trim();
+  function date(value) {
+    if(!value)return null;
+    if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))failure();
+    const parsed=Date.parse(value+'T00:00:00.000Z');
+    if(!Number.isFinite(parsed)||new Date(parsed).toISOString().slice(0,10)!==value)failure();
+    return parsed;
+  }
+  // Accept only the visible projection, never raw MLS records, packets or media descriptors.
+  function search(messages,{owner,peer,query='',sender='',from='',to='',limit=MAX_RESULTS}={}) {
+    if(!Array.isArray(messages)||typeof owner!=='string'||!owner||typeof peer!=='string'||!peer||owner===peer
+      ||typeof query!=='string'||query.length>200||![owner,peer,''].includes(sender)
+      ||!Number.isInteger(limit)||limit<1||limit>MAX_RESULTS)failure();
+    const start=date(from),end=date(to),terms=normalize(query).split(/\s+/u).filter(Boolean);
+    if(start!==null&&end!==null&&start>end)failure();
+    const rows=[],seen=new Set();
+    for(const item of messages.slice(-MAX_SCAN)) {
+      if(!item||typeof item.id!=='string'||seen.has(item.id)||item.eventRecord||item.hidden||item.deleted
+        ||item.richUnavailable||!((item.senderId===owner&&item.receiverId===peer)||(item.senderId===peer&&item.receiverId===owner))
+        ||sender&&item.senderId!==sender)continue;
+      const stamp=Date.parse(item.timestamp);
+      if(!Number.isFinite(stamp)||start!==null&&stamp<start||end!==null&&stamp>=end+86400000)continue;
+      const content=item.richContent;
+      if(['reaction','edit','hide'].includes(content?.type))continue;
+      const text=typeof content?.text==='string'?content.text:typeof item.message==='string'?item.message:'';
+      if(text.startsWith('WINGA-MEDIA/')||text.startsWith('WINGA-CONTENT/')||text.length>4096)continue;
+      const products=content?.type==='product'&&Array.isArray(content.data?.ids)?content.data.ids.filter(v=>typeof v==='string').slice(0,10):[];
+      const reference=typeof item.productName==='string'?item.productName.slice(0,255):'';
+      const haystack=normalize([text,reference,item.senderId,...products].join(' '));
+      if(!terms.every(term=>haystack.includes(term)))continue;
+      seen.add(item.id);
+      rows.push({id:item.id,sender:item.senderId,text,productName:reference,timestamp:item.timestamp});
+    }
+    rows.sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp)||a.id.localeCompare(b.id));
+    return {items:rows.slice(0,limit),matches:rows.length,truncated:messages.length>MAX_SCAN||rows.length>limit,
+      scope:'loaded-device-history'};
+  }
+  return {search,MAX_SCAN,MAX_RESULTS};
+});
+
+
+// src/chat/message-search-ui.js
+(() => {
+  const key=s=>JSON.stringify([s?.username,s?.sessionId,s?.token]);
+  const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textContent=text;return e;};
+  function open(scope,options) {
+    const initial=options.getSession(),identity=key(initial),peer=options.getPeer();
+    if(!initial?.username||!initial.sessionId||!peer||!scope.isConnected||document.visibilityState!=='visible'
+      ||document.querySelector('.chat-message-search-dialog'))return;
+    const t=options.translate||((k,f)=>f),dialog=node('dialog');
+    dialog.className='chat-security-dialog chat-message-search-dialog';
+    const current=()=>dialog.isConnected&&scope.isConnected&&options.getPeer()===peer
+      &&key(options.getSession())===identity&&document.visibilityState==='visible';
+    dialog.append(node('h3',t('chat.messageSearch','Search messages')));
+    const form=node('form');form.className='chat-message-search-form';dialog.append(form);
+    const field=(label,type,name)=>{
+      const row=node('label',label),input=node('input');input.type=type;input.name=name;
+      row.append(input);form.append(row);return input;
+    };
+    const query=field(t('chat.messageSearch','Search messages'),'search','query');
+    query.maxLength=200;query.autocomplete='off';
+    const senderLabel=node('label',t('chat.searchSender','Sender')),sender=node('select');
+    for(const [value,label]of [['',t('chat.searchAnyone','Anyone')],[initial.username,t('chat.searchMe','Me')],[peer,peer]]) {
+      const option=node('option',label);option.value=value;sender.append(option);
+    }
+    senderLabel.append(sender);form.append(senderLabel);
+    const from=field(t('chat.searchFrom','From date (UTC)'),'date','from'),to=field(t('chat.searchTo','To date (UTC)'),'date','to');
+    const status=node('p');status.setAttribute('role','status');dialog.append(status);
+    const results=node('div');results.className='chat-message-search-results';dialog.append(results);
+    const controls=node('div');controls.className='chat-security-actions';form.append(controls);
+    const submit=node('button',t('chat.search','Search'));submit.type='submit';submit.className='action-btn';controls.append(submit);
+    const close=node('button',t('common.close','Close'));close.type='button';close.className='action-btn';controls.append(close);
+    const render=()=>{
+      if(!current())return;
+      results.replaceChildren();
+      try {
+        const found=WingaMessageSearch.search(options.getMessages(),{owner:initial.username,peer,query:query.value,
+          sender:sender.value,from:from.value,to:to.value});
+        status.textContent=found.truncated?t('chat.searchLimited','More results are outside this loaded view.')
+          :found.items.length?'':t('chat.searchEmpty','No matching messages on this device.');
+        for(const item of found.items) {
+          const article=node('article');article.className='chat-message-search-result';
+          const date=node('time');date.dateTime=item.timestamp;
+          date.textContent=new Date(item.timestamp).toLocaleString(document.documentElement.lang||'sw');
+          article.append(node('strong',item.sender),date,node('p',item.text||item.productName));results.append(article);
+        }
+      }catch{status.textContent=t('chat.searchInvalid','Check the search filters.');}
+    };
+    form.onsubmit=e=>{e.preventDefault();render();};
+    close.onclick=()=>dialog.close();
+    const hidden=()=>{if(!current())dialog.close();};
+    const timer=setInterval(hidden,250);document.addEventListener('visibilitychange',hidden);
+    dialog.addEventListener('close',()=>{
+      clearInterval(timer);document.removeEventListener('visibilitychange',hidden);
+      query.value='';from.value='';to.value='';results.replaceChildren();dialog.replaceChildren();dialog.remove();
+    },{once:true});
+    document.body.append(dialog);dialog.showModal();query.focus();
+  }
+  function bind(scope,options) {
+    for(const button of scope.querySelectorAll('[data-chat-message-search]')) {
+      if(button.dataset.messageSearchBound)continue;
+      button.dataset.messageSearchBound='true';button.hidden=false;button.onclick=()=>open(scope,options);
+    }
+  }
+  globalThis.WingaMessageSearchUi={bind,open};
 })();
 
 
@@ -21320,6 +21547,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
       globalThis.WingaConversationNotifications?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
       globalThis.WingaConversationReports?.bind(modal,encryptedUiOptions(modal,async()=>{}));
+      globalThis.WingaMessageSearchUi?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaConversationArchive?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:async()=>{await deps.refreshMessagesState();deps.replaceContextChatModal?.();}});
 
 
@@ -21716,6 +21944,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
       globalThis.WingaConversationNotifications?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
       globalThis.WingaConversationReports?.bind(scope,encryptedUiOptions(scope,async()=>{}));
+      globalThis.WingaMessageSearchUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaConversationArchive?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),
         onArchived:()=>deps.setProfileMessagesMode('list'),
         refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});

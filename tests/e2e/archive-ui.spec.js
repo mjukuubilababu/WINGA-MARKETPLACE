@@ -4,9 +4,9 @@ const root=path.resolve(__dirname,'../..');
 async function fixture(page) {
   await page.route('http://archive-ui.test/**',route=>{
     const url=new URL(route.request().url());
-    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><main id="chat"><button data-chat-archive="bob" hidden><span>Archive</span></button><p data-chat-archive-status role="status" hidden></p></main><script src="/src/chat/archive-ui.js"></script>'});
-    if(url.pathname!=='/src/chat/archive-ui.js')return route.abort();
-    return route.fulfill({contentType:'application/javascript',body:fs.readFileSync(path.join(root,'src/chat/archive-ui.js'))});
+    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><main id="chat"><button data-chat-archive="bob" hidden><span>Archive</span></button><p data-chat-archive-status role="status" hidden></p></main><script src="/src/chat/preference-sync.js"></script><script src="/src/chat/archive-ui.js"></script>'});
+    if(!['/src/chat/archive-ui.js','/src/chat/preference-sync.js'].includes(url.pathname))return route.abort();
+    return route.fulfill({contentType:'application/javascript',body:fs.readFileSync(path.join(root,url.pathname.slice(1)))});
   });await page.goto('http://archive-ui.test/');
   await page.evaluate(()=>{
     const data={session:{username:'alice',sessionId:'d1'},peer:'bob',calls:[],peers:[],state:{revision:'0',archived:false},rerenders:0};
@@ -82,4 +82,28 @@ test('unchanged snapshots do not request another Inbox render',async({page})=>{
   expect(await page.evaluate(()=>archiveFixture.refresh())).toBe(false);
   expect(await page.evaluate(()=>{archiveFixture.data.peers=['bob'];return archiveFixture.refresh();})).toBe(true);
   expect(await page.evaluate(()=>archiveFixture.refresh())).toBe(false);
+});
+test('foreground reconciliation updates remote archive state without deleting the draft or sending a message',async({page})=>{
+  await fixture(page);await page.clock.install();await page.evaluate(async()=>{
+    await archiveFixture.refresh();const input=document.createElement('textarea');input.value='Unsent private draft';document.getElementById('chat').append(input);
+    archiveFixture.sync=WingaConversationPreferenceSync.watch({getSession:archiveFixture.options.getSession,
+      refresh:archiveFixture.refresh,onChange:()=>archiveFixture.data.rerenders++});
+    archiveFixture.data.peers=['bob'];
+  });await page.clock.runFor(15000);
+  expect(await page.evaluate(()=>archiveFixture.rows('archived'))).toEqual(['bob']);
+  await expect(page.locator('textarea')).toHaveValue('Unsent private draft');
+  expect(await page.evaluate(()=>archiveFixture.data.rerenders)).toBe(1);
+  await page.clock.runFor(15000);expect(await page.evaluate(()=>archiveFixture.data.rerenders)).toBe(1);
+  expect(await page.evaluate(()=>archiveFixture.data.calls.every(call=>call.route==='archive/list'))).toBe(true);
+});
+test('reconciliation cannot apply another account snapshot from a late response',async({page})=>{
+  await fixture(page);await page.clock.install();await page.evaluate(async()=>{
+    await archiveFixture.refresh();archiveFixture.sync=WingaConversationPreferenceSync.watch({getSession:archiveFixture.options.getSession,
+      refresh:archiveFixture.refresh,onChange:()=>archiveFixture.data.rerenders++});
+    archiveFixture.data.peers=['bob'];archiveFixture.data.deferred='archive/list';
+  });await page.clock.runFor(15000);await expect.poll(()=>page.evaluate(()=>typeof archiveFixture.data.release)).toBe('function');
+  await page.evaluate(()=>{archiveFixture.data.session={username:'mallory',sessionId:'d2'};archiveFixture.data.release();});
+  expect(await page.evaluate(()=>archiveFixture.rows('archived'))).toEqual([]);
+  expect(await page.evaluate(()=>archiveFixture.data.rerenders)).toBe(0);
+  await page.clock.runFor(60000);expect(await page.evaluate(()=>archiveFixture.data.calls)).toHaveLength(2);
 });

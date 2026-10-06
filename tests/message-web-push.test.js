@@ -71,7 +71,8 @@ test('real SQL: push is durable, private, session-bound, retryable and does not 
     await db.exec('UPDATE web_push_jobs SET next_attempt_at=NOW()');
     await store.dispatchWebPushBatch(); await store.dispatchWebPushBatch();
     assert.equal(sent.length, 1);
-    assert.deepEqual(sent[0].body, { version: 1, id, locale: 'sw' });
+    assert.deepEqual(sent[0].body, { version: 1, id, locale: 'sw',group:sent[0].options.topic });
+    assert.match(sent[0].options.topic,/^[A-Za-z0-9_-]{32}$/);
     assert.equal(sent[0].options.TTL, 86400);
     assert.equal(sent[0].options.urgency, 'high');
     assert.equal((await rows('messages'))[0].is_delivered, false);
@@ -251,4 +252,13 @@ test('closed-app push only displays fixed private copy; click opens fixed same-o
   worker.setClients([]);
   await worker.fire('notificationclick', { notification: { data: { id: 'https://attacker.test' }, close() {} } });
   assert.equal(worker.opened[1], '/');
+});
+test('worker groups opaque conversation alerts, retains current navigation, and ignores arbitrary grouping values',async()=>{
+  const worker=workerHarness(),group='a'.repeat(32),id='11111111-1111-4111-8111-111111111111';
+  await worker.fire('push',{data:{json:()=>({id,group,locale:'en',body:'PRIVATE'})}});
+  assert.equal(worker.shown[0].tag,'winga-conversation-'+group);
+  assert.deepEqual(JSON.parse(JSON.stringify(worker.shown[0].data)),{id});
+  await worker.fire('push',{data:{json:()=>({id,group:'PRIVATE-USERNAME',locale:'en'})}});
+  assert.equal(worker.shown[1].tag,'winga-push-'+id);
+  assert.equal(JSON.stringify(worker.shown).includes('PRIVATE'),false);
 });

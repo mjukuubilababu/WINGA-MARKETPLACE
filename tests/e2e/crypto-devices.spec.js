@@ -312,6 +312,48 @@ test('paged journal crosses 2000 records and 32 MiB without blocking ratchets, r
   }finally{v.close();}},session)).toEqual({replay:'a'.repeat(64),epoch:2501});
 });
 
+test('filtered history scans sealed pages without accumulating other conversations or evicting replay state',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
+    try {
+      const values={'mls:received:keep':'a'.repeat(64)};
+      for(let n=0;n<205;n++)values['history:'+String(n).padStart(4,'0')]={peer:n%2?'alice':'charlie',message:'retained-'+n};
+      await vault.write({expectedRevision:'0',values});let visited=0;
+      const selected=await vault.historySnapshot({filter:value=>{visited++;return value.peer==='alice';}});
+      let invalid;try{await vault.historySnapshot({filter:'not-a-filter'});}catch(error){invalid=error.code;}
+      return {visited,selected:Object.keys(selected.values).length,
+        peers:[...new Set(Object.values(selected.values).map(value=>value.peer))],
+        total:Object.keys((await vault.historySnapshot()).values).length,replay:await vault.lookup('mls:received:keep'),invalid};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({visited:205,selected:102,peers:['alice'],total:205,replay:'a'.repeat(64),invalid:'crypto_vault_write_invalid'});
+});
+
+test('history pagination cannot combine plaintext across replacement sessions for the same account',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    let active=session,armed=false,changed=false,decrypted=0;
+    const getSession=()=>{
+      const before=active;
+      if(armed&&!changed&&decrypted===100){changed=true;active={...session,sessionId:'replacement-session'};}
+      return before;
+    };
+    const cryptoAdapter={getRandomValues:bytes=>crypto.getRandomValues(bytes),subtle:{
+      generateKey:(...args)=>crypto.subtle.generateKey(...args),encrypt:(...args)=>crypto.subtle.encrypt(...args),
+      decrypt:async(...args)=>{const bytes=await crypto.subtle.decrypt(...args);decrypted++;return bytes;}}};
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession,crypto:cryptoAdapter});
+    try {
+      const values={};for(let n=0;n<101;n++)values['history:'+String(n).padStart(4,'0')]={message:'private-'+n};
+      await vault.write({expectedRevision:'0',values});armed=true;
+      let code;try{await vault.historySnapshot();}catch(error){code=error.code;}
+      armed=false;active=session;
+      return {code,changed,retained:Object.keys((await vault.historySnapshot()).values).length};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({code:'crypto_vault_session_changed',changed:true,retained:101});
+});
+
 test('v1 vault upgrades sealed history atomically and expired admissions are pruned without deleting consumption evidence',async({page})=>{
   await prepare(page);
   const result=await page.evaluate(async session=>{

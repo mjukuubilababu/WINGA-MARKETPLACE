@@ -693,6 +693,7 @@
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-open-person-profile="${deps.escapeHtml(activeChatContext.withUser)}" data-person-profile-source="conversation">${deps.escapeHtml(t("chat.viewProfile","View profile"))}</button>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-message-search hidden title="${deps.escapeHtml(t("chat.messageSearch","Search messages"))}">${icon("search")}<span>${deps.escapeHtml(t("chat.messageSearch","Search messages"))}</span></button>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
                     <p role="status" data-chat-archive-status hidden></p>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
@@ -886,6 +887,7 @@
           </div>
           <div class="context-chat-actions">
             <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-message-search hidden title="${deps.escapeHtml(t("chat.messageSearch","Search messages"))}">${icon("search")}<span>${deps.escapeHtml(t("chat.messageSearch","Search messages"))}</span></button>
             <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
             <p role="status" data-chat-archive-status hidden></p>
             <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>

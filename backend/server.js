@@ -7168,7 +7168,8 @@ const server = http.createServer(async (req, res) => {
       time: new Date().toISOString(),
       environment: NODE_ENV
     }, {
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      ...require("./deployment-identity").releaseHeaders()
     });
     return;
   }
@@ -7190,7 +7191,8 @@ const server = http.createServer(async (req, res) => {
       storageMode: runtimeConfiguration.storageMode,
       configWarningsCount: runtimeConfiguration.warnings.length
     }, {
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      ...require("./deployment-identity").releaseHeaders()
     });
     return;
   }
@@ -7632,6 +7634,14 @@ const server = http.createServer(async (req, res) => {
       legacyCompatibilityEnabled: process.env.WINGA_LEGACY_UPLOADS_R2_COMPAT_ENABLED === "true",
       diskRemovalReady: false, crossNodeFailoverProven: false
     }, { "Cache-Control": "no-store" });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/ops/conversations/metrics") {
+    if (!isValidOpsHealthToken(req)) {
+      sendJson(res, OPS_HEALTH_TOKEN ? 401 : 503, { ok:false, code:"ops_auth_required" }, { "Cache-Control":"no-store" });
+      return;
+    }
+    sendJson(res,200,{ok:true,...require("./conversation-metrics").conversationMetrics.snapshot()},{ "Cache-Control":"private, no-store" });
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
