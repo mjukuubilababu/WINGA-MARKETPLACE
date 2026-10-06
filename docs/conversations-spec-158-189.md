@@ -228,6 +228,53 @@ requested publishing this tested build. Exact live commit/build identity must be
 verified from release tooling; no additional instances, credentials, feature
 activation or CSP changes are authorized by source publication.
 
+Verified native-core publication: commit `cb89767ab2675aa77a43a9916020cb2841600aa4`,
+frontend build `20261006164553`, Worker version
+`70668183-2f34-4106-bec5-bb2fba3f7b44`. Both direct and same-domain health returned
+Ready with that exact backend SHA. Eight core/crypto static asset digests matched
+the prepared release; the Worker-generated build identity reported the same build.
+Multi-device admission remains disabled; this publication does not close its gate.
+
+### Canonical Device Delivery Foundation
+
+The subsequent additive migration `2026100605_encrypted_device_delivery` snapshots
+native device/owner membership for each existing MLS epoch. Initial admission and
+replacement seed the snapshot in the same transaction; historic grants are
+immutable and cannot be rewritten or deleted. A new login/active native identity
+alone does not create a conversation grant. Reusing an existing epoch with changed
+creator/recipient devices is rejected. Historical receipt and media checks use the
+device/owner snapshot, while current access still requires the selected endpoint.
+
+Receipt ACKs are separate durable rows keyed by message, receipt native device,
+kind and observing sender native device. The browser names the verified receipt
+actor in its signed ACK. A legacy client may omit that actor only if exactly one
+matching peer receipt exists; ambiguity is rejected without draining anything.
+Polling consults the observing endpoint's ACK, not a shared sender-ACK timestamp.
+Existing legacy ACKs backfill only their actual sender endpoint. Own-account
+sibling copies cannot create peer Delivered/Read receipts. This is NOT yet an
+own-sibling sync-ACK transport or fully admitted multi-device service.
+
+Read-only readiness now requires nine crypto migrations and the two enabled
+device grant triggers in addition to the unchanged downgrade guards. The new
+browser ACK payload requires this backend migration/code before frontend deploy;
+old browser ACKs remain compatible for existing direct pairs.
+
+Canonical multi-device reservation/Commit/Welcome/retained-endpoint acceptance,
+global old-epoch drain, sibling sync ACKs, per-endpoint receipt fanout, removal,
+authorized old-history transfer and Shopping Rooms remain pending. Synthetic
+extra epoch rows used by ACK race tests are fixtures, not production admission
+or Shopping Room capacity evidence.
+
+Device-delivery local validation: 123 secure-content/backend tests passed, then
+all five focused membership/ACK/readiness regressions passed after adding the
+own-account sender-copy case. All 35 strict-CSP browser crypto tests, 34 real
+PostgreSQL concurrency/load tests, frontend core/80 behavior checks and four
+1,518-key locale catalogs passed. The disposable PostgreSQL cluster shut down.
+The 90-module release build is `20261006171240`; its deployment dry-run passed.
+This validation is local evidence, not authenticated production acceptance or
+independent cryptographic approval. New frontend ACKs deploy after the exact
+backend release becomes Ready; no multi-device feature gate is changed.
+
 `scripts/run-local-conversation-db-tests.ps1` creates a fresh disposable PostgreSQL
 cluster using existing installed binaries, binds only `127.0.0.1`, sets a process-local
 explicit test URL, and stops only its own cluster in `finally`. It never reads or

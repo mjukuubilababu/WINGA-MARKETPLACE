@@ -6,7 +6,7 @@ const {createEncryptedConversationsApi}=require('../backend/encrypted-conversati
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function fixture(t) {
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
-  for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements'])
+  for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery'])
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
@@ -252,6 +252,71 @@ test('receipts require recipient proof, persist idempotently and sender ACK drai
   await f.call('alice','receipt-ack',p);assert.equal((await f.call('alice','poll',{})).groups[0].receipts.length,0);
   await f.call('bob','receipt',{...p,kind:'read'});assert.equal((await f.call('alice','poll',{})).groups[0].receipts.length,1);
 });
+test('device-qualified receipt ACK cannot consume another recipient device or receipt kind',async t=>{
+  const f=await fixture(t);await f.active();await f.call('alice','send',f.packet);
+  const next=await newMember(f,'bob2','bob'),p={id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'delivered'};
+  await f.call('bob','receipt',p);await f.call('bob','receipt',{...p,kind:'read'});
+  // Synthetic future roster: the store still refuses unselected devices and does not admit this endpoint.
+  await f.db.query('INSERT INTO encrypted_conversation_epoch_devices VALUES($1,$2,$3,$4)',[f.id,'1',next.id,'bob']);
+  await f.db.query(`INSERT INTO encrypted_conversation_receipts(message_id,device_id,kind,proof) VALUES($1,$2,'delivered',$3)`,
+    [f.packet.id,next.id,JSON.stringify({owner:'bob',sessionId:next.context.deviceId,...next.sign('receipt',p)})]);
+  await assert.rejects(f.call('bob2','receipt',p),{code:'encrypted_membership_required'});
+  await assert.rejects(f.call('alice','receipt-ack',p),{code:'encrypted_receipt_ack_ambiguous'});
+  const ack={...p,receiptDeviceId:f.members.bob.id};
+  await f.call('alice','receipt-ack',ack);await f.call('alice','receipt-ack',ack);
+  let receipts=(await f.call('alice','poll',{})).groups[0].receipts;
+  assert.equal(receipts.length,2);assert(receipts.some(r=>r.actorId===next.id));assert(receipts.some(r=>r.payload.kind==='read'));
+  await assert.rejects(f.call('alice','receipt-ack',{...ack,receiptDeviceId:f.members.eve.id}),{code:'encrypted_receipt_ack_ambiguous'});
+  await assert.rejects(f.call('alice','receipt-ack',{...ack,receiptDeviceId:'invalid'}),{code:'encrypted_operation_invalid'});
+  await assert.rejects(f.call('alice','receipt-ack',{...ack,hash:'0'.repeat(64)}),{code:'encrypted_receipt_rejected'});
+  await f.call('alice','receipt-ack',{...ack,kind:'read'});
+  receipts=(await f.call('alice','poll',{})).groups[0].receipts;assert.equal(receipts.length,1);assert.equal(receipts[0].actorId,next.id);
+  const rows=(await f.db.query('SELECT * FROM encrypted_conversation_receipt_acks')).rows;
+  assert.equal(rows.length,2);assert(rows.every(r=>r.observer_device===f.members.alice.id && r.receipt_device===f.members.bob.id));
+  assert(rows.every(r=>r.proof.payload.receiptDeviceId===f.members.bob.id));
+  assert((await f.db.query('SELECT sender_ack_at FROM encrypted_conversation_receipts')).rows.every(r=>r.sender_ack_at===null));
+});
+
+test('a sibling sender copy cannot become Delivered or Read for the peer account',async t=>{
+  const f=await fixture(t);await f.active();const sibling=await newMember(f,'alice2','alice'),id=crypto.randomUUID();
+  await f.db.query('INSERT INTO encrypted_conversation_epoch_devices VALUES($1,$2,$3,$4)',[f.id,'1',sibling.id,'alice']);
+  await f.db.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof)
+    VALUES($1,$2,$3,'1',1,'synthetic-opaque','synthetic-hash','{}')`,[id,f.id,sibling.id]);
+  for(const kind of ['delivered','read'])await assert.rejects(f.call('alice','receipt',{
+    id,conversationId:f.id,epoch:'1',hash:'synthetic-hash',kind
+  }),{code:'encrypted_receipt_rejected'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n,0);
+  await f.call('bob','receipt',{id,conversationId:f.id,epoch:'1',hash:'synthetic-hash',kind:'delivered'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n,1);
+});
+
+test('native epoch membership is immutable, account-bound and never created by login alone',async t=>{
+  const f=await fixture(t);await f.active();const next=await newMember(f,'bob2','bob');
+  const rows=(await f.db.query('SELECT device_id,owner_id FROM encrypted_conversation_epoch_devices ORDER BY owner_id')).rows;
+  assert.deepEqual(rows,[{device_id:f.members.alice.id,owner_id:'alice'},{device_id:f.members.bob.id,owner_id:'bob'}]);
+  await assert.rejects(f.db.query(`UPDATE encrypted_conversation_epoch_devices SET owner_id='bob' WHERE owner_id='alice'`),{code:'23514'});
+  await assert.rejects(f.db.query('DELETE FROM encrypted_conversation_epoch_devices'),{code:'23514'});
+  await assert.rejects(f.db.query('INSERT INTO encrypted_conversation_epoch_devices VALUES($1,$2,$3,$4)',[f.id,'1',next.id,'alice']),{code:'23514'});
+  await assert.rejects(f.db.query('INSERT INTO encrypted_conversation_epoch_devices VALUES($1,$2,$3,$4)',[f.id,'1',f.members.eve.id,'eve']),{code:'23514'});
+  assert.deepEqual((await f.call('bob2','poll',{})).groups,[]);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices')).rows[0].n,2);
+  const currentEpoch=require('../backend/encrypted-membership-replacement').createMembershipReplacement({access:()=>{}}).currentEpoch;
+  const group=(await f.db.query('SELECT * FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0];
+  await assert.rejects(f.db.transaction(client=>currentEpoch(client,{...group,recipient_device:next.id})),{code:'encrypted_epoch_membership_conflict'});
+});
+
+test('additive delivery migration preserves historic grants and backfills legacy ACK only for its sender',async t=>{
+  const f=await fixture(t);await f.active();await f.call('alice','send',f.packet);
+  const p={id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'delivered'};
+  await f.call('bob','receipt',p);
+  await f.db.query('UPDATE encrypted_conversation_receipts SET sender_ack_at=NOW()');
+  await f.db.transaction(async client=>{for(const sql of require('../backend/migrations/encrypted-device-delivery').statements)await client.exec(sql);});
+  assert.equal((await f.call('alice','poll',{})).groups[0].receipts.length,0);
+  const rows=(await f.db.query('SELECT * FROM encrypted_conversation_receipt_acks')).rows;
+  assert.equal(rows.length,1);assert.equal(rows[0].observer_device,f.members.alice.id);assert.equal(rows[0].receipt_device,f.members.bob.id);
+  assert.deepEqual(rows[0].proof,{legacy:true});assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices')).rows[0].n,2);
+});
+
 test('block, suspension and native revocation fail closed without revealing queued content',async t=>{
   const f=await fixture(t);await f.active();await f.call('alice','send',f.packet);
   await f.db.query("INSERT INTO user_blocks VALUES('bob','alice')");await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_access_denied'});

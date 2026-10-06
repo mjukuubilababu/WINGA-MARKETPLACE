@@ -61,6 +61,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields['replace-accept']=['conversationId','transferId','epoch'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     if(op.action==='poll' && Object.hasOwn(p,'after'))fields.poll=['after'];
+    if(op.action==='receipt-ack' && Object.hasOwn(p,'receiptDeviceId'))fields['receipt-ack']=[...fields['receipt-ack'],'receiptDeviceId'];
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
     return withTransaction(async client => {
@@ -120,7 +121,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.device_id=$2 AND r.kind='delivered')
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_rejections r WHERE r.message_id=m.id AND r.device_id=$2) ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId,g.epoch])).rows;
           const receipts=(await client.query(`SELECT r.proof FROM encrypted_conversation_receipts r JOIN encrypted_conversation_messages m ON m.id=r.message_id
-            WHERE m.conversation_id=$1 AND m.sender_device=$2 AND r.sender_ack_at IS NULL ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
+            WHERE m.conversation_id=$1 AND m.sender_device=$2
+            AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipt_acks a WHERE a.message_id=r.message_id
+              AND a.receipt_device=r.device_id AND a.kind=r.kind AND a.observer_device=$2)
+            ORDER BY m.sequence,r.device_id,r.kind LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
           result.push({...g,...(r?{replacement:r}:{}),packages:await packages(client,[g.source_hash,g.target_hash]),messages,receipts});
         }
         return {version:1,groups:result,next:page.length>100?groups.at(-1).id:null};
@@ -177,15 +181,28 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       assert(['receipt','receipt-ack','reject'].includes(op.action) && uuid(p.id)
         && (op.action==='reject' ? p.reason==='invalid-ciphertext' : ['delivered','read'].includes(p.kind)));
       const m=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1 AND conversation_id=$2',[p.id,g.id])).rows[0];
-      const epochMember=m && (await client.query(`SELECT 1 FROM encrypted_conversation_epochs WHERE conversation_id=$1 AND epoch=$2
-        AND (creator_device=$3 OR recipient_device=$3)`,[g.id,m.epoch,op.actorId])).rows.length;
+      const epochMember=m && (await client.query(`SELECT 1 FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2
+        AND device_id=$3 AND owner_id=$4`,[g.id,m.epoch,op.actorId,context.owner])).rows.length;
       assert(epochMember,403,'encrypted_receipt_rejected');
       if(op.action==='receipt-ack') {
         assert(m && m.sender_device===op.actorId && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
-        await client.query(`UPDATE encrypted_conversation_receipts SET sender_ack_at=COALESCE(sender_ack_at,NOW()) WHERE message_id=$1 AND kind=$2`,[p.id,p.kind]);
+        assert(p.receiptDeviceId===undefined || uuid(p.receiptDeviceId));
+        const receipts=(await client.query(`SELECT r.device_id FROM encrypted_conversation_receipts r
+          JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=$3 AND e.epoch=$4 AND e.device_id=r.device_id
+          WHERE r.message_id=$1 AND r.kind=$2 AND e.owner_id<>$5
+          AND ($6::text IS NULL OR r.device_id=$6) ORDER BY r.device_id LIMIT 2`,
+          [p.id,p.kind,g.id,m.epoch,context.owner,p.receiptDeviceId || null])).rows;
+        // Old clients may omit the device only when exactly one authenticated receipt exists.
+        assert(receipts.length===1,409,'encrypted_receipt_ack_ambiguous');
+        await client.query(`INSERT INTO encrypted_conversation_receipt_acks(message_id,receipt_device,kind,observer_device,proof)
+          VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+          [p.id,receipts[0].device_id,p.kind,op.actorId,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
         return {version:1,ok:true};
       }
-      assert(m && m.sender_device!==op.actorId && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
+      const senderOwner=m && (await client.query(`SELECT owner_id FROM encrypted_conversation_epoch_devices
+        WHERE conversation_id=$1 AND epoch=$2 AND device_id=$3`,[g.id,m.epoch,m.sender_device])).rows[0]?.owner_id;
+      assert(m && m.sender_device!==op.actorId && senderOwner && (op.action==='reject' || senderOwner!==context.owner)
+        && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
       const proof={owner:context.owner,sessionId:context.deviceId,...op};
       if(op.action==='reject') {
         await client.query(`INSERT INTO encrypted_conversation_rejections(message_id,device_id,proof) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[p.id,op.actorId,JSON.stringify(proof)]);

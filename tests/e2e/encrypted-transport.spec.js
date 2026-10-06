@@ -15,7 +15,7 @@ const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypt
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
   db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-conversation-backups'])
+  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-conversation-backups'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   devices=createConversationCryptoDeviceStore({withTransaction:work=>db.transaction(work)});
   packages=createCryptoKeyPackageStore({withTransaction:work=>db.transaction(work)});
@@ -162,6 +162,11 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
     await alice.evaluate(()=>render());await expect(alice.locator('.message-bubble')).toContainText('Delivered');
     await bob.bringToFront();await bob.evaluate(id=>client.markConversationRead({withUser:'alice',messageIds:[id]}),sent.id);
     await alice.evaluate(()=>render());await expect(alice.locator('.message-bubble')).toContainText('Read');
+    const deviceAcks=(await db.query(`SELECT receipt_device,observer_device,proof FROM encrypted_conversation_receipt_acks
+      WHERE message_id=$1 ORDER BY kind`,[sent.id])).rows;
+    expect(deviceAcks).toHaveLength(2);
+    for(const ack of deviceAcks){expect(ack.proof.payload.receiptDeviceId).toBe(ack.receipt_device);expect(ack.proof.actorId).toBe(ack.observer_device);}
+    expect((await db.query('SELECT sender_ack_at FROM encrypted_conversation_receipts WHERE message_id=$1',[sent.id])).rows.every(r=>r.sender_ack_at===null)).toBe(true);
     loseNextSend=true;
     const second=await alice.evaluate(async()=>{const p=await client.prepareMessage({receiverId:'bob',message:'Retry the same ciphertext',messageType:'text'});try{await client.sendMessage(p);}catch{}return p;});
     const before=(await db.query('SELECT ciphertext FROM encrypted_conversation_messages WHERE id=$1',[second.clientMessageId])).rows[0].ciphertext;

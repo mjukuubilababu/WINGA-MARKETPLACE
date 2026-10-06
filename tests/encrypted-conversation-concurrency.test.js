@@ -12,7 +12,7 @@ async function fixture(t){
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements'])
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery'])
     await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);});
     await transaction(migrationClient,async c=>{for(const sql of require('../backend/migrations/encrypted-conversation-media').statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
@@ -132,6 +132,35 @@ test('bounded real PostgreSQL load: two stores persist decryptable messages once
     concurrentConnections:6,stores:2,duplicateRows:0,recipientDecryptions:decoded.size,durationMs:Math.round(durationMs),
     p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*0.95)-1]),productionSloProven:false,shoppingRoomsProven:false}));
 });
+test('independent connections ACK one receipt device exactly once without draining another',async t=>{
+  const f=await replacementFixture(t),a=f.members.alice,b=f.members.bob,other=f.targets[0],message=crypto.randomUUID();
+  await f.pool.query('INSERT INTO encrypted_conversation_epochs VALUES($1,$2,$3,$4)',[f.id,'1',a.id,b.id]);
+  await f.pool.query('INSERT INTO encrypted_conversation_epoch_devices VALUES($1,$2,$3,$4)',[f.id,'1',other.id,'bob']);
+  await f.pool.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof)
+    VALUES($1,$2,$3,'1',1,'synthetic-opaque','synthetic-hash','{}')`,[message,f.id,a.id]);
+  const receipt={id:message,conversationId:f.id,epoch:'1',hash:'synthetic-hash',kind:'delivered'};
+  await f.store.encryptedOperation(b.context,b.sign('receipt',receipt));
+  // A pre-admitted synthetic receipt tests ACK isolation, not MLS admission or group capacity.
+  await f.pool.query(`INSERT INTO encrypted_conversation_receipts VALUES($1,$2,'delivered',$3,NULL)`,[message,other.id,
+    JSON.stringify({actorId:other.id,owner:'bob',payload:receipt})]);
+  const nodes=[0,1].map(()=>createEncryptedConversationStore({withTransaction:async work=>{
+    const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}
+  }}));
+  await assert.rejects(nodes[0].encryptedOperation(a.context,a.sign('receipt-ack',receipt)),{code:'encrypted_receipt_ack_ambiguous'});
+  await Promise.all(Array.from({length:16},(_,index)=>nodes[index%2].encryptedOperation(a.context,a.sign('receipt-ack',{
+    ...receipt,receiptDeviceId:b.id
+  }))));
+  const pending=(await f.store.encryptedOperation(a.context,a.sign('poll',{}))).groups[0].receipts;
+  assert.equal(pending.length,1);assert.equal(pending[0].actorId,other.id);
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipt_acks')).rows[0].n,1);
+  // An ACK observed on another native sender profile must not suppress this sender's queue.
+  await f.pool.query(`INSERT INTO encrypted_conversation_receipt_acks(message_id,receipt_device,kind,observer_device,proof)
+    VALUES($1,$2,'delivered',$3,'{}')`,[message,other.id,b.id]);
+  assert.equal((await f.store.encryptedOperation(a.context,a.sign('poll',{}))).groups[0].receipts.length,1);
+  await nodes[1].encryptedOperation(a.context,a.sign('receipt-ack',{...receipt,receiptDeviceId:other.id}));
+  assert.equal((await f.store.encryptedOperation(a.context,a.sign('poll',{}))).groups[0].receipts.length,0);
+});
+
 test('reservation retirement and a delayed reservation serialize to exactly one durable outcome',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,intent=f.intent(f.targets[0]);
   const results=await Promise.allSettled([

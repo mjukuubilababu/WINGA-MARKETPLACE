@@ -63,7 +63,7 @@
     async function verifyReceipt(proof) {
       const pin=await verifyProof(proof,'receipt');
       await runtime.applyReceipt(proof.payload,pin);
-      await operation('receipt-ack',proof.payload);
+      await operation('receipt-ack',{...proof.payload,receiptDeviceId:proof.actorId});
     }
     async function acknowledge(item,kind) {
       await operation('receipt',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash,kind});

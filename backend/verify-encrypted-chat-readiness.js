@@ -7,7 +7,8 @@ const migrations = [
   "2026100201_encrypted_conversation_backups", "2026100301_conversation_crypto_devices",
   "2026100302_conversation_security_mode", "2026100303_conversation_crypto_key_packages",
   "2026100304_encrypted_conversations", "2026100305_encrypted_conversation_media",
-  "2026100306_encrypted_conversation_replacement", "2026100307_encrypted_replacement_retirements"
+  "2026100306_encrypted_conversation_replacement", "2026100307_encrypted_replacement_retirements",
+  "2026100605_encrypted_device_delivery"
 ];
 const configurationKeys = [
   "R2_ACCOUNT_ID", "R2_BUCKET_NAME", "R2_CONVERSATION_BUCKET_NAME",
@@ -30,10 +31,17 @@ async function verifyEncryptedChatReadiness({ client, env = process.env, privacy
     to_regclass('encrypted_conversation_media') IS NOT NULL AS media,
     to_regclass('conversation_crypto_devices') IS NOT NULL AS devices,
     to_regclass('encrypted_conversation_replacements') IS NOT NULL AS replacements,
-    to_regclass('encrypted_replacement_retirements') IS NOT NULL AS retirements`, [migrations])).rows[0];
+    to_regclass('encrypted_replacement_retirements') IS NOT NULL AS retirements,
+    to_regclass('encrypted_conversation_epoch_devices') IS NOT NULL AS epoch_devices,
+    to_regclass('encrypted_conversation_receipt_acks') IS NOT NULL AS receipt_acks,
+    (SELECT COUNT(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgenabled IN ('O','A')
+      AND ((tgname='guard_encrypted_epoch_device' AND tgrelid=to_regclass('encrypted_conversation_epoch_devices'))
+        OR (tgname='seed_encrypted_epoch_devices' AND tgrelid=to_regclass('encrypted_conversation_epochs')))) AS device_guards`, [migrations])).rows[0];
   result.schema = { ready: schema.migrations === migrations.length && schema.guards === 2
-      && schema.media && schema.devices && schema.replacements && schema.retirements,
-    migrationsApplied: schema.migrations, migrationsRequired: migrations.length, guardTriggersEnabled: schema.guards };
+      && schema.media && schema.devices && schema.replacements && schema.retirements
+      && schema.epoch_devices && schema.receipt_acks && schema.device_guards===2,
+    migrationsApplied: schema.migrations, migrationsRequired: migrations.length, guardTriggersEnabled: schema.guards,
+    deviceGrantTriggersEnabled: schema.device_guards };
   result.recovery = await verifyEncryptedConversationBackups(client);
   result.schema.ready = result.schema.ready && result.recovery.ok;
   result.features = {

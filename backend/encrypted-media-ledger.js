@@ -50,9 +50,9 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,memb
         if(row.status!=='attached')await client.query(`UPDATE encrypted_conversation_media SET expires_at=GREATEST(expires_at,NOW()+INTERVAL '1 hour') WHERE id=$1`,[row.id]);
       } else {
         need(action==='download' && row.status==='attached');
-        const historical=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epochs e
+        const historical=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epoch_devices e
           ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch WHERE m.id=$1 AND m.media_id=$2
-          AND (e.creator_device=$3 OR e.recipient_device=$3)`,[row.message_id,row.id,op.actorId])).rows.length;
+          AND e.device_id=$3 AND e.owner_id=$4`,[row.message_id,row.id,op.actorId,context.owner])).rows.length;
         need(historical);
       }
       return true;

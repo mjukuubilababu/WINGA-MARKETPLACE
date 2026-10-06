@@ -9,6 +9,9 @@ function createMembershipReplacement({access}) {
   async function currentEpoch(client,g) {
     await client.query(`INSERT INTO encrypted_conversation_epochs(conversation_id,epoch,creator_device,recipient_device)
       VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[g.id,g.epoch,g.creator_device,g.recipient_device]);
+    const row=(await client.query(`SELECT creator_device,recipient_device FROM encrypted_conversation_epochs
+      WHERE conversation_id=$1 AND epoch=$2`,[g.id,g.epoch])).rows[0];
+    need(row?.creator_device===g.creator_device && row.recipient_device===g.recipient_device,'encrypted_epoch_membership_conflict');
   }
   async function latest(client,id) {
     return (await client.query(`SELECT * FROM encrypted_conversation_replacements WHERE conversation_id=$1 ORDER BY previous_epoch::numeric DESC LIMIT 1`,[id])).rows[0];
