@@ -511,7 +511,73 @@
         }
         queueMicrotask(onChange);return messageView(result);
       }
+      async function seller(action,args){
+        if(!roomSession)fail('encrypted_rooms_disabled');const rich=globalThis.WingaRichContent;
+        const sha=wire=>digest(new TextEncoder().encode(wire));
+        const save=async(key,value)=>{const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{[key]:value}});};
+        const accepted=async(peer,id,wire)=>{await requireActiveMembership(peer);const item=await runtime.sendMessage({clientMessageId:id,receiverId:peer,messageType:'text',message:wire});
+          if(!item||item.status==='pending')fail('encrypted_seller_question_pending');return item;};
+        if(action==='pending'){const s=await vault.snapshot();return Object.entries(s.values).filter(([k,v])=>k.startsWith('room:seller-question:')&&!v.completed&&(!args[0]||v.roomId===args[0])).map(([,v])=>({id:v.id,roomId:v.roomId,sellerId:v.sellerId,question:v.question}));}
+        if(!rich)fail('rich_content_unavailable');
+        if(action==='ask'){
+          const [roomId,shareId,question,productId,sellerId,confirmed]=args;
+          if(confirmed!==true)fail('room_seller_consent_required');
+          const board=await roomSession.board(roomId),share=board.products.find(p=>p.shareId===shareId&&p.productId===productId);
+          if(!share||sellerId===owner)fail('room_product_required');
+          const codec=await import('/src/chat/shopping-room-content.mjs'),s=await vault.snapshot();
+          const existing=Object.values(s.values).find(v=>v?.roomId===roomId&&v?.shareId===shareId&&v?.kind==='seller-question'&&!v.completed);
+          if(existing){if(existing.question!==question||existing.sellerId!==sellerId)fail('encrypted_seller_request_conflict');return seller('resume',[existing.id]);}
+          const id=crypto.randomUUID();codec.createSellerQuestion(board,{shareId,question,correlationId:id,confirmed});
+          const draft={kind:'seller-question',id,roomId,shareId,question,productId,sellerId,roomMessageId:crypto.randomUUID(),completed:false};
+          await save('room:seller-question:'+id,draft);return seller('resume',[id]);
+        }
+        if(action==='resume'){
+          const s=await vault.snapshot(),d=s.values['room:seller-question:'+args[0]];if(!d)fail('room_product_required');
+          await requireActiveMembership(d.sellerId);const directId=await runtime.conversationId(d.sellerId),wire=rich.encode(rich.create('seller-question',d.question,{questionId:d.id,productId:d.productId}));
+          await operation('seller-question-reserve',{id:d.id,conversationId:d.roomId,shareId:d.shareId,productId:d.productId,sellerId:d.sellerId,directId,questionHash:await sha(wire)},d.id);
+          await accepted(d.sellerId,d.id,wire);
+          await roomSession.command(d.roomId,'seller-question',{questionId:d.id,shareId:d.shareId,productId:d.productId,sellerId:d.sellerId,question:d.question},d.roomMessageId);
+          await save('room:seller-question:'+d.id,{...d,completed:true});onChange();return {id:d.id};
+        }
+        if(action==='read'){
+          const [peer,messageId]=args;await requireActiveMembership(peer);const m=(await runtime.history(peer)).find(m=>m.id===messageId&&m.owner===peer&&m.status!=='pending'),c=rich.parse(m?.message);
+          if(c?.type!=='seller-question'||c.data.questionId!==m.id)fail('encrypted_seller_request_rejected');
+          const r=await operation('seller-question-read',{id:c.data.questionId,conversationId:m.conversationId});
+          if(r.question?.sellerId!==owner||r.question.buyerId!==peer||r.question.productId!==c.data.productId||r.question.questionHash!==await sha(m.message))fail('encrypted_seller_request_rejected');
+          const s=await vault.snapshot();return {question:c.text,productId:c.data.productId,answered:r.answered,draft:s.values['room:seller-answer:'+m.id]?.answer||''};
+        }
+        if(action==='answer'){
+          const [peer,messageId,answer,confirmed]=args;if(confirmed!==true)fail('room_seller_consent_required');
+          const q=await seller('read',[peer,messageId]),key='room:seller-answer:'+messageId,s=await vault.snapshot();
+          const wire=rich.encode(rich.create('seller-response',answer,{questionId:messageId,productId:q.productId}));
+          let d=s.values[key];if(d&&d.wire!==wire)fail('encrypted_seller_answer_conflict');
+          if(!d){d={id:crypto.randomUUID(),wire,answer};await save(key,d);}
+          const item=await accepted(peer,d.id,wire);
+          await operation('seller-answer-register',{id:messageId,conversationId:item.conversationId,messageId:d.id,answerHash:await sha(wire)},d.id);
+          onChange();return {id:d.id};
+        }
+        if(action==='share'){
+          const [peer,messageId,confirmed]=args;if(confirmed!==true)fail('room_seller_consent_required');await requireActiveMembership(peer);
+          const m=(await runtime.history(peer)).find(m=>m.id===messageId&&m.owner===peer&&m.status!=='pending'),c=rich.parse(m?.message);
+          if(c?.type!=='seller-response')fail('encrypted_seller_answer_rejected');
+          const key='room:seller-question:'+c.data.questionId,s=await vault.snapshot(),d=s.values[key];
+          if(!d?.completed||d.sellerId!==peer||d.productId!==c.data.productId)fail('encrypted_seller_request_rejected');
+          const r=await operation('seller-evidence',{id:d.id,conversationId:d.roomId}),a=r?.answer,p=a?.proof?.payload;
+          const pinned=(await pins()).find(pin=>pin.id===m.deviceId&&pin.owner===peer&&pin.status==='active');
+          if(r.question?.buyerId!==owner||r.question.sellerId!==peer||a?.messageId!==m.id||a.answerHash!==await sha(m.message)
+            ||p?.id!==d.id||p.messageId!==m.id||p.conversationId!==m.conversationId||p.answerHash!==a.answerHash||a.anchor?.owner!==peer
+            ||a.proof.actorId!==m.deviceId||!pinned||pinned.publicKey!==a.anchor.publicKey||pinned.fingerprint!==a.anchor.fingerprint
+            ||await digest(decode(a.anchor.publicKey))!==a.anchor.fingerprint)fail('encrypted_seller_answer_rejected');
+          await verifyProof(a.proof,'seller-answer-register',pinned);
+          const relay=d.relay||{id:crypto.randomUUID(),answerId:m.id,answer:c.text};
+          if(relay.answerId!==m.id||relay.answer!==c.text)fail('encrypted_seller_answer_conflict');
+          await save(key,{...d,relay});await roomSession.command(d.roomId,'seller-response',{questionId:d.id,answerId:m.id,answer:c.text},relay.id);
+          onChange();return {roomId:d.roomId};
+        }
+        fail('encrypted_seller_request_invalid');
+      }
       const service={
+        seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{

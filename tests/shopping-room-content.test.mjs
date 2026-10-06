@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {encodeRoomContent,parseRoomContent,projectRoomContent,resolveRoomProducts,createSellerQuestion} from '../src/chat/shopping-room-content.mjs';
+import {encodeRoomContent,parseRoomContent,projectRoomContent,resolveRoomProducts,createSellerQuestion,compareRoomProducts} from '../src/chat/shopping-room-content.mjs';
 import rich from '../src/chat/rich-content.js';
 const cid=randomUUID(),devices={alice:randomUUID(),bob:randomUUID(),carol:randomUUID(),bob2:randomUUID()};
 const roster=[{owner:'alice',id:devices.alice,role:'admin'},{owner:'bob',id:devices.bob,role:'member'},
@@ -12,6 +12,36 @@ const row=(sequence,owner,type,data,extra={})=>({id:randomUUID(),kind:'shopping-
   message:encodeRoomContent(type,data),...extra});
 const product=(seq=1)=>row(seq,'alice','product-share',{productId:'product-1',note:'Chosen privately',snapshot:{name:'Old title',currency:'TZS',unitPriceMinor:10000}});
 const poll=(seq=2)=>row(seq,'alice','poll-create',{question:'Which one?',options:[{id:randomUUID(),label:'First'},{id:randomUUID(),label:'Second'}],closesAt:null});
+
+test('comparison uses only current authorized catalog attributes and keeps missing data unknown',()=>{
+  const a=product(),b=row(2,'bob','product-share',{productId:'product-2',note:'',snapshot:null}),board=projectRoomContent([a,b],options);
+  const catalog=new Map([['product-1',{id:'product-1',status:'approved',name:'Current',price:65000,currency:'TZS',uploadedBy:'seller',sizes:['M','L'],stockQuantity:0,availability:'sold_out'}]]);
+  const compared=compareRoomProducts(board,['product-1','product-2'],catalog);
+  assert.equal(compared[0].price,65000);assert.equal(compared[0].stock,0);assert.deepEqual(compared[0].sizes,['M','L']);
+  assert.equal(compared[1].price,null);assert.equal(compared[1].availability,null);assert.equal(compared[1].available,false);
+  catalog.set('product-1',{id:'product-1',status:'pending',price:99,sizes:['S']});assert.equal(compareRoomProducts(board,['product-1','product-2'],catalog)[0].price,null);
+  for(const ids of [['product-1'],['product-1','product-1'],['product-1','foreign']])assert.throws(()=>compareRoomProducts(board,ids,catalog));
+});
+test('comparison rejects malformed attributes without inferring votes, currency or stock from notes and snapshots',()=>{
+  const a=product(),b=row(2,'bob','product-share',{productId:'product-2',note:'100 votes',snapshot:null}),board=projectRoomContent([a,b],options);
+  const c=compareRoomProducts(board,['product-1','product-2'],new Map([['product-1',{id:'product-1',status:'approved',price:'65000',stockQuantity:-1,sizes:['M',{}],colors:'red'}]]))[0];
+  assert.equal(c.currency,null);assert.equal(c.price,null);assert.equal(c.stock,null);assert.equal(c.sizes,null);assert.equal(c.colors,null);assert.equal(Object.hasOwn(c,'votes'),false);
+});
+test('seller disclosure schemas reject room metadata, quotes, unknown fields and oversized texts',()=>{
+  const id=randomUUID();for(const type of ['seller-question','seller-response']){
+    const c=rich.create(type,'Question',{questionId:id,productId:'product-1'});assert.deepEqual(rich.parse(rich.encode(c)),c);
+    for(const value of [{...c,reply:{id,quote:'private room history'}},{...c,data:{...c.data,roomId:cid}},{...c,text:'x'.repeat(2049)}])assert.throws(()=>rich.encode(value));
+  }
+});
+test('Room seller cards require verified source hashes, original requester and exact answer binding',()=>{
+  const share=product(),id=randomUUID(),answerId=randomUUID(),q=row(2,'bob','seller-question',{questionId:id,shareId:share.id,productId:'product-1',sellerId:'seller',question:'Size M?'}),
+    answer=row(3,'bob','seller-response',{questionId:id,answerId,answer:'Yes, M is available.'});
+  assert.equal(projectRoomContent([share,q,answer],options).sellerQuestions.length,0);
+  const sellerEvidence=new Map([[id,{question:{id,shareId:share.id,productId:'product-1',sellerId:'seller',buyerId:'bob'},questionText:'Size M?',answer:{messageId:answerId},answerText:'Yes, M is available.'}]]);
+  const result=projectRoomContent([answer,q,share,q],{...options,sellerEvidence});assert.equal(result.sellerQuestions[0].answer.text,'Yes, M is available.');
+  for(const fake of [{...answer,owner:'carol',deviceId:devices.carol}, {...answer,message:encodeRoomContent('seller-response',{questionId:id,answerId,answer:'Forged'})}])
+    assert.equal(projectRoomContent([share,q,fake],{...options,sellerEvidence}).sellerQuestions[0].answer,null);
+});
 
 test('strict room content roundtrips all core board and poll commands without becoming direct text',()=>{
   const share=product(),p=poll();

@@ -134,6 +134,7 @@ const MIGRATIONS = Object.freeze([
   require("./encrypted-device-lifecycle"),
   require("./encrypted-native-history"),
   require("./encrypted-shopping-rooms"),
+  require("./encrypted-room-sellers"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([

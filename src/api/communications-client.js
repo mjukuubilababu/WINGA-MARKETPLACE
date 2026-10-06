@@ -470,6 +470,7 @@
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      seller:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.seller(action,args);},
       inspectEncryptedConversation: async peer => {
         const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
       },

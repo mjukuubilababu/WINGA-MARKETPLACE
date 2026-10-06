@@ -104,7 +104,7 @@ Do not erase this distinction by calling the entire foundation complete.
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
-| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. | Production rollout/physical-device acceptance, actual PostgreSQL races/load, independent audit, old-room-history multi-native transfer/recovery, room-specific preferences, role/leave policy, current product comparison and correlated seller question/response. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
+| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge; see the 2026-10-07 follow-up. | Production rollout/physical-device acceptance, actual PostgreSQL races/load, independent audit, old-room-history multi-native transfer/recovery, room-specific preferences and role/leave policy. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |
@@ -114,6 +114,13 @@ Do not erase this distinction by calling the entire foundation complete.
 | 227-238 | Source principles and Definition of Done are preserved. | Formal security/product/foundation acceptance and final handoff remain open. These are acceptance criteria, not 12 additional UI features. |
 
 ## Next Work
+
+Spec 180/181 follow-up (2026-10-07): canonical current-product comparison and
+explicit encrypted Seller question/response relay are implemented. Seller access
+is limited to the direct product/question context; Room membership/history is not
+granted. See `conversations-spec-180-181-20261007.md` for local test evidence and
+production/audit boundaries. The grouped 171-189 row above is historical; product
+comparison and correlated Seller response are no longer unimplemented scope.
 
 1. Confirm the exact Render commit is Live and the three migrations applied;
    exercise Mute/Archive/selected reporting with authenticated test accounts.

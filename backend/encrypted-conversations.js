@@ -21,6 +21,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     access:async(client,g,actor,owner,options)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner,options);},
     membershipFrozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),historyRecoveryEnabled:multiDeviceEnabled});
   const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled});
+  const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
   async function consumeNewConversationQuota(client, owner) {
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
     const key=digest(JSON.stringify(['winga-encrypted-new-conversations',1,owner]));
@@ -62,8 +63,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   }
   async function encryptedOperation(context, op) {
     assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
-      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields)].includes(op?.action));
+      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields),...Object.keys(require('./encrypted-room-sellers').fields)].includes(op?.action));
     if(op.action.startsWith('room-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
+    if(op.action.startsWith('seller-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
     if(op.action.startsWith('device-') || op.action.startsWith('history-') || op.action.startsWith('archive-read') || op.action==='sync-ack' || op.action==='media-history-grant')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
@@ -91,6 +93,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields['archive-read-ack']=[...fields.receipt,'receiptDeviceId'];
     Object.assign(fields,require('./encrypted-native-history').fields);
     Object.assign(fields,require('./encrypted-shopping-rooms').fields);
+    Object.assign(fields,require('./encrypted-room-sellers').fields);
     if(op.action==='history-tasks' && Object.hasOwn(p,'after'))fields['history-tasks']=['after'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     if(op.action==='room-send' && Object.hasOwn(p,'mediaId'))fields['room-send']=[...fields['room-send'],'mediaId'];
@@ -102,6 +105,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       // Serialize membership and message writes before authentication's user lock.
       await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
       await authorize(client, context, op);
+      if(op.action.startsWith('seller-'))return sellers.handle(client,context,op);
       if(op.action.startsWith('room-'))return rooms.handle(client,context,op);
       if(op.action==='history-tasks') {
         assert(p.after===undefined||uuid(p.after));return nativeHistory.handle(client,context,op);

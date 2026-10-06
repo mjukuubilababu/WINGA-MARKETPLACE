@@ -13046,6 +13046,19 @@ body.visual-categories-view #quick-discovery-rail{
 .room-dialog label { display:flex; flex-direction:column; gap:6px; font-size:14px; }
 .room-dialog .room-members-list { position:static; width:100%; max-height:none; padding:0; border:0; box-shadow:none; box-sizing:border-box; }
 .room-dialog input,.room-dialog textarea { width:100%; box-sizing:border-box; padding:10px; border:1px solid #d1d5db; border-radius:6px; font:inherit; }
+.room-comparison-scroll { overflow:auto; max-width:100%; border:1px solid #d1d5db; border-radius:6px; }
+.room-comparison-table { border-collapse:collapse; table-layout:fixed; width:100%; min-width:100%; font-size:13px; }
+.room-comparison-table caption { text-align:start; padding:12px; font-weight:600; }
+.room-comparison-table th,.room-comparison-table td { padding:8px; text-align:start; border-bottom:1px solid #e5e7eb; vertical-align:top; overflow-wrap:anywhere; min-width:0; }
+.room-comparison-table th:first-child { width:34%; }
+.room-comparison-table img { width:100%; aspect-ratio:1; object-fit:contain; display:block; margin-bottom:8px; }
+.room-comparison-table thead { background:#f0f5f2; }
+.room-compare-choice,.room-dialog label.room-consent,.chat-rich-dialog label.room-consent { display:flex; flex-direction:row; align-items:flex-start; gap:8px; font-size:14px; }
+.room-compare-choice input,.room-dialog .room-consent input,.chat-rich-dialog .room-consent input { width:18px; height:18px; flex:0 0 18px; margin:2px 0; accent-color:#087d45; padding:0; }
+.room-seller-cards { display:grid; gap:12px; margin-top:16px; }
+.room-seller-card { border:1px solid #d1d5db; border-radius:6px; padding:12px; display:grid; gap:6px; min-width:0; }
+.room-seller-card p,.room-seller-pending p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
+.room-seller-pending { padding:12px 0; display:grid; gap:8px; border-bottom:1px solid #e5e7eb; }
 .room-key-review { padding:0; list-style:none; display:grid; gap:12px; }
 .room-key-review li { display:grid; gap:4px; }
 .room-key-review code { font-size:12px; word-break:break-all; color:#4b5563; }

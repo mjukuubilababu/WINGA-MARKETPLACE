@@ -95,9 +95,9 @@ counts or bucket public-access settings are changed by this integration.
 ## Not Claimed Complete
 
 Orders is reserved future scope, not a wallet, automatic checkout or shared order
-service. Room role promotion/self-leave, room-specific mute/archive, automatic
-old-room-history transfer/recovery to a newly admitted native, canonical product
-comparison and correlated Ask Seller request/response need their own contracts
-and implementation. Current Ask Seller only opens the existing direct contact
-without admitting the seller or exporting room history. These boundaries are
-not hidden by declaring all sections 171-189 or 0-238 complete.
+service. Room role promotion/self-leave, room-specific mute/archive and automatic
+old-room-history transfer/recovery to a newly admitted native remain open.
+Spec 180/181 now implement canonical comparison and consented correlated Seller
+questions/responses through the existing encrypted direct and Room transports.
+See `conversations-spec-180-181-20261007.md` for exact contracts, tests and remaining
+live/audit acceptance. This does not declare all sections 171-189 or 0-238 complete.

@@ -9,9 +9,10 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false,roomsEnabled=false,loseRoomReserve=false;
-const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
-const roomCatalogProduct={id:'room-fixture-product',name:'Kariakoo simu',price:850000,status:'approved',availability:'available',sellerId:'outside-seller'};
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false,roomsEnabled=false,loseRoomReserve=false,loseSellerAnswer=false,loseSellerQuestion=false,tamperSellerEvidence=false;
+const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'},s:{username:'outside-seller',sessionId:'s',token:'s'}};
+const roomCatalogProduct={id:'room-fixture-product',name:'Kariakoo simu',price:850000,currency:'TZS',status:'approved',availability:'available',uploadedBy:'outside-seller'};
+const roomSecondProduct={id:'room-fixture-laptop',name:'Laptop',price:950000,currency:'TZS',status:'approved',availability:'reserved',uploadedBy:'outside-seller'};
 const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypto').randomBytes(32).toString('hex'),s]));
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
@@ -35,6 +36,7 @@ test.beforeAll(async()=>{
   const sendJson=(res,status,value,headers={})=>{
     if(tamperReservation && value?.groups)value={...value,groups:value.groups.map(g=>g.replacement?{...g,replacement:{...g.replacement,reservation_proof:{...g.replacement.reservation_proof,signature:'A'.repeat(86)}}}:g)};
     if(tamperDirectory && value?.packages)value={...value,packages:value.packages.map(p=>({...p,mlsPublicKey:Buffer.alloc(32).toString('base64url')}))};
+    if(tamperSellerEvidence&&value?.question&&value?.answer)value={...value,answer:{...value.answer,proof:{...value.answer.proof,signature:'A'.repeat(86)}}};
     res.writeHead(status,{'Content-Type':'application/json',...headers});res.end(JSON.stringify(value));
   };
   const collectBody=req=>new Promise((resolve,reject)=>{let body='';req.on('data',chunk=>{body+=chunk;if(body.length>262144)reject(new Error('too_large'));});req.on('end',()=>{try{resolve(JSON.parse(body));}catch(e){reject(e);}});});
@@ -54,6 +56,7 @@ test.beforeAll(async()=>{
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
       '/room-session.js':'src/chat/room-session.js','/rooms-ui.js':'src/chat/rooms-ui.js','/src/chat/shopping-room-content.mjs':'src/chat/shopping-room-content.mjs',
       '/rich.js':'src/chat/rich-content.js','/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/history-sync.js':'src/chat/native-history-client.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
+    assets['/rich-ui.js']='src/chat/rich-ui.js';
     if(/^\/icons\/navigation\/[a-z0-9-]+\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
     if(assets[url.pathname]){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(fs.readFileSync(path.resolve(__dirname,'../..',assets[url.pathname])));return;}
     if(url.pathname==='/room-read-visibility.js'){const app=fs.readFileSync(path.resolve(__dirname,'../../app.js'),'utf8');res.setHeader('Content-Type','text/javascript');
@@ -95,19 +98,24 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer || loseRoomReserve)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer || loseRoomReserve || loseSellerAnswer || loseSellerQuestion)){
           const body=await collectBody(req);
+          if(body.action==='send'&&loseSellerQuestion){loseSellerQuestion=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_seller_question_reply'});return;}
+          if(body.action==='seller-answer-register'&&loseSellerAnswer){loseSellerAnswer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_seller_answer_reply'});return;}
           if(body.action==='room-reserve'&&loseRoomReserve){loseRoomReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_room_reservation_reply'});return;}
           if(['device-transfer','device-change-transfer'].includes(body.action) && loseDeviceTransfer){loseDeviceTransfer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_device_transfer_reply'});return;}
           if(body.action==='replace-reserve' && rejectReplacementReserve){rejectReplacementReserve=false;sendJson(res,409,{code:'encrypted_package_unavailable'});return;}
           if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
           if(body.action==='replace-transfer' && rejectReplacementTransfer){sendJson(res,503,{code:'fixture_transfer_unavailable'});return;}
           if(body.action==='replace-transfer' && loseReplacementTransfer){loseReplacementTransfer=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
-          if(body.action==='send'){loseNextSend=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
+          if(body.action==='send'&&loseNextSend){loseNextSend=false;await transport.encryptedOperation(context,body);req.socket.destroy();return;}
           sendJson(res,200,await transport.encryptedOperation(context,body));return;
         }
         if(await api.handle(req,res,url))return;
-        if(url.pathname==='/api/products'){sendJson(res,200,{items:[roomCatalogProduct].filter(p=>!url.searchParams.get('productId')||p.id===url.searchParams.get('productId'))});return;}
+        if(url.pathname==='/api/products'){sendJson(res,200,{items:[roomCatalogProduct,roomSecondProduct].filter(p=>!url.searchParams.get('productId')||p.id===url.searchParams.get('productId'))});return;}
+        if(url.pathname==='/api/conversations/references'&&url.searchParams.get('kind')==='product'){
+          const p=[roomCatalogProduct,roomSecondProduct].find(p=>p.id===url.searchParams.get('id'));
+          sendJson(res,p?200:404,p?{kind:'product',...p}:{code:'conversation_reference_unavailable'});return;}
         if(url.pathname.endsWith('/crypto/devices')){sendJson(res,200,req.method==='POST'?await devices.mutateConversationCryptoDevice(context,await collectBody(req)):await devices.readConversationCryptoDevices(context));return;}
         if(url.pathname.endsWith('/crypto/key-packages')){sendJson(res,200,await packages.publishCryptoKeyPackage(context,await collectBody(req)));return;}
         if(url.pathname==='/api/messages'){sendJson(res,200,[]);return;}
@@ -124,8 +132,12 @@ test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await 
 async function resetStores(multidevice=false,rooms=false) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms'])
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
+  await db.exec(`INSERT INTO users(username) VALUES('outside-seller');INSERT INTO sessions VALUES('s','outside-seller','s',9999999999999);
+    CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
+    INSERT INTO products VALUES('room-fixture-product','outside-seller','approved'),('room-fixture-laptop','outside-seller','approved');
+    CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);`);
   const withTransaction=work=>db.transaction(work);
   devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
   transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice,roomsEnabled:rooms});
@@ -260,6 +272,114 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
   }finally{for(const c of contexts)await c.close();roomsEnabled=false;}
 });
 function assertRoomBoards(boards){for(const board of boards){expect(board.polls).toHaveLength(1);expect(board.polls[0].options[0].votes).toBe(1);}}
+
+test('spec 180 and 181 compare canonical products and relay an outside seller signed encrypted response without Room access',async({browser})=>{
+  test.setTimeout(180000);await resetStores(false,true);
+  const contexts=await Promise.all(Array.from({length:4},()=>browser.newContext({viewport:{width:390,height:844}})));
+  try{
+    const pages=await Promise.all(contexts.map(c=>c.newPage())),[alice,bob,eve,seller]=pages;
+    for(const [i,p]of pages.entries()){
+      p.on('response',async r=>{if(r.url().includes('/api/')&&!r.ok())console.log('seller-http',i,r.request().postData()?.startsWith('{')?r.request().postDataJSON()?.action:null,r.status(),(await r.json().catch(()=>({}))).code);});
+      await p.goto(origin);for(const url of ['/rich.js','/rich-ui.js','/room-session.js','/rooms-ui.js'])await p.addScriptTag({url:origin+url});
+      await p.evaluate(name=>start(name),['alice','bob','eve','outside-seller'][i]);
+      await p.evaluate(()=>{window.nativeOperation=async(action,payload)=>{const device=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>browserSession,
+        request:async signed=>{const r=await fetch('/api/conversations/crypto/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(signed)});return r.json();}});
+        const op=await device.signCryptoOperation(action,payload);const r=await fetch('/api/conversations/encrypted/operations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(op)});return {status:r.status,body:await r.json()};};});
+    }
+    const id=await alice.evaluate(async()=>{const selected=await client.shoppingRoom('inspectOwners',[['bob','eve']]);return client.shoppingRoom('create',['Private Shopping',selected]);});
+    for(const p of [bob,eve])await p.evaluate(id=>client.shoppingRoom('join',[id]),id);
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    for(const productId of [roomCatalogProduct.id,roomSecondProduct.id])await alice.evaluate(({id,productId})=>client.shoppingRoom('command',[id,'product-share',{productId,note:'private Room note',snapshot:null}]),{id,productId});
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    const board=await alice.evaluate(id=>client.shoppingRoom('board',[id]),id),shareId=board.products[0].shareId;
+    console.log('seller-flow: native Room activated, canonical products shared');
+    await alice.evaluate(()=>{
+      window.renderRoomUi=()=>{
+      const ui=WingaModules.chat.createChatUiModule({escapeHtml:v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+        getCurrentUser:()=>browserSession.username,getCurrentSession:()=>browserSession,getConversationSummaries:()=>[],getActiveChatContext:()=>null,
+        getCurrentMessageDraft:()=>'',getConversationsView:()=> 'rooms',getProfileMessagesMode:()=> 'list',getProfileMessagesFilter:()=> 'all',
+        getUserDisplayName:v=>v,getMarketplaceUser:()=>null,getProductById:()=>null,getActiveConversationMessages:()=>[],getUnreadNotifications:()=>[]});
+      document.querySelector('main').innerHTML=ui.renderMessagesSection();WingaShoppingRoomsUi.bind(document.querySelector('.conversation-workspace'),{dataLayer:client,getSession:()=>browserSession});};renderRoomUi();
+    });
+    await alice.locator('[data-room-row]').click();await alice.getByRole('tab',{name:'Products',exact:true}).click();
+    await expect(alice.locator('.room-product-item')).toHaveCount(2);
+    await alice.getByRole('checkbox',{name:'Compare Kariakoo simu'}).check();await alice.getByRole('checkbox',{name:'Compare Laptop'}).check();
+    await alice.getByRole('button',{name:'Compare products',exact:true}).click();
+    console.log('seller-flow: comparison controls opened');
+    await expect(alice.locator('[data-compare-attribute=sizes]')).toHaveText(['Not provided','Not provided']);
+    await expect(alice.locator('[data-compare-attribute=price]')).toHaveText(['850,000 TZS','950,000 TZS']);
+    for(const width of [390,1280]){await alice.setViewportSize({width,height:844});expect(await alice.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-room-comparison-'+width+'.png'),fullPage:true});}
+    await alice.evaluate(()=>{document.documentElement.dir='rtl';});expect(await alice.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await alice.evaluate(()=>{document.documentElement.dir='ltr';});await alice.locator('dialog').getByRole('button',{name:'Close chat'}).click();
+    await expect(alice.evaluate(({id,shareId})=>client.seller('ask',[id,shareId,'Does it have size M?', 'room-fixture-product','outside-seller',false]),{id,shareId})).rejects.toThrow('room_seller_consent_required');
+    await alice.locator('.room-product-item').first().getByRole('button',{name:'Ask seller'}).click();
+    await alice.locator('textarea[name=seller-question]').fill('Does it have size M?');await expect(alice.locator('dialog').getByRole('button',{name:'Send message'})).toBeDisabled();
+    await alice.locator('dialog input[type=checkbox]').check();await alice.locator('dialog').getByRole('button',{name:'Send message'}).click();
+    await expect(alice.locator('[data-room-error]')).toHaveText('Seller chat encryption is not ready.');
+    await alice.locator('dialog').getByRole('button',{name:'Close chat'}).click();
+    const pending=await alice.evaluate(()=>client.seller('pending'));expect(pending).toHaveLength(1);const questionId=pending[0].id;
+    console.log('seller-flow: consent and pre-encryption draft saved');
+    const ai=await alice.evaluate(()=>client.inspectEncryptedConversation('outside-seller')),si=await seller.evaluate(()=>client.inspectEncryptedConversation('alice'));
+    const sd=(await db.query("SELECT id FROM conversation_crypto_devices WHERE owner_id='outside-seller' AND status='active'")).rows[0].id,
+      ad=(await db.query("SELECT id FROM conversation_crypto_devices WHERE owner_id='alice' AND status='active'")).rows[0].id;
+    await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('outside-seller',id,fp),{id:sd,fp:si.ownFingerprint});
+    await seller.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:ad,fp:ai.ownFingerprint});
+    console.log('seller-flow: direct native fingerprints verified');
+    loseSellerQuestion=true;await expect(alice.evaluate(id=>client.seller('resume',[id]),questionId)).rejects.toThrow();expect(loseSellerQuestion).toBe(false);
+    await alice.evaluate(id=>client.seller('resume',[id]),questionId);await alice.evaluate(id=>client.seller('resume',[id]),questionId);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages WHERE id=$1',[questionId])).rows[0].n).toBe(1);
+    await seller.evaluate(()=>client.loadConversationPage('alice'));
+    console.log('seller-flow: exact retried question decrypted by seller');
+    const directId=(await db.query('SELECT direct_id FROM encrypted_room_seller_questions WHERE id=$1',[questionId])).rows[0].direct_id;
+    const read=await seller.evaluate(({questionId,directId})=>nativeOperation('seller-question-read',{id:questionId,conversationId:directId}),{questionId,directId});
+    expect(read.status).toBe(200);expect(JSON.stringify(read.body)).not.toContain(id);expect(JSON.stringify(read.body)).not.toContain('Private Shopping');
+    expect(read.body.question).toEqual({id:questionId,productId:roomCatalogProduct.id,buyerId:'alice',sellerId:'outside-seller',questionHash:expect.any(String)});
+    expect((await seller.evaluate(({questionId,id})=>nativeOperation('seller-evidence',{id:questionId,conversationId:id}),{questionId,id})).status).toBe(403);
+    expect(await seller.evaluate(()=>client.shoppingRoom('list'))).toHaveLength(0);
+    expect((await bob.evaluate(({questionId,directId})=>nativeOperation('seller-answer-register',{id:questionId,conversationId:directId,messageId:questionId,answerHash:'a'.repeat(64)}),{questionId,directId})).status).toBe(403);
+    seller.on('console',m=>{if(m.text().startsWith('seller-native'))console.log(m.text());});
+    await seller.evaluate(async()=>{const messages=await render();WingaRichUi.bind(document,{peer:'alice',dataLayer:client,getSession:()=>browserSession,refresh:render,getMessages:()=>messages,actions:{onError:code=>console.log('seller-native',code)}});});
+    await seller.getByRole('button',{name:'Respond',exact:true}).click();await seller.locator('dialog textarea').fill('Yes, size M is available.');
+    await expect(seller.locator('dialog').getByRole('button',{name:'Respond',exact:true})).toBeDisabled();await seller.locator('dialog input[type=checkbox]').check();
+    loseSellerAnswer=true;await seller.locator('dialog').getByRole('button',{name:'Respond',exact:true}).click();
+    await expect(seller.locator('dialog [role=status]')).toContainText('action failed');
+    await seller.locator('dialog').getByRole('button',{name:'Respond',exact:true}).click();await expect(seller.locator('dialog')).toHaveCount(0);
+    const answerId=(await db.query('SELECT message_id FROM encrypted_room_seller_answers WHERE question_id=$1',[questionId])).rows[0].message_id;
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_seller_answers')).rows[0].n).toBe(1);
+    const changed=await seller.evaluate(({questionId,directId,answerId})=>nativeOperation('seller-answer-register',{id:questionId,conversationId:directId,messageId:answerId,answerHash:'a'.repeat(64)}),{questionId,directId,answerId});expect(changed.status).toBe(409);
+    const missing=await seller.evaluate(({questionId,directId})=>nativeOperation('seller-answer-register',{id:questionId,conversationId:directId,messageId:crypto.randomUUID(),answerHash:'b'.repeat(64)}),{questionId,directId});expect(missing.status).toBe(409);
+    await alice.evaluate(()=>client.loadConversationPage('outside-seller'));
+    await expect(alice.evaluate(answerId=>client.seller('share',['outside-seller',answerId,false]),answerId)).rejects.toThrow('room_seller_consent_required');
+    tamperSellerEvidence=true;await expect(alice.evaluate(answerId=>client.seller('share',['outside-seller',answerId,true]),answerId)).rejects.toThrow('mls_receipt_rejected');tamperSellerEvidence=false;
+    await alice.evaluate(async()=>{window.peer='outside-seller';document.querySelector('main').innerHTML='<div data-chat-read-user="outside-seller"></div><form class="messages-compose"><div class="chat-compose-footer"></div></form>';
+      const messages=await render();WingaRichUi.bind(document,{peer:'outside-seller',dataLayer:client,getSession:()=>browserSession,getPeer:()=>window.peer,refresh:render,getMessages:()=>messages});});
+    await alice.getByRole('button',{name:'Share response to room',exact:true}).click();await expect(alice.locator('dialog')).toContainText('Yes, size M is available.');
+    await expect(alice.locator('dialog').getByRole('button',{name:'Share response to room',exact:true})).toBeDisabled();await alice.locator('dialog input[type=checkbox]').check();
+    await alice.locator('dialog').getByRole('button',{name:'Share response to room',exact:true}).click();await expect(alice.locator('dialog')).toHaveCount(0);
+    await alice.evaluate(answerId=>client.seller('share',['outside-seller',answerId,true]),answerId);
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    for(const p of [alice,bob,eve])expect((await p.evaluate(id=>client.shoppingRoom('board',[id]),id)).sellerQuestions[0].answer.text).toBe('Yes, size M is available.');
+    await bob.evaluate(({id,questionId,answerId})=>client.shoppingRoom('command',[id,'seller-response',{questionId,answerId,answer:'Forged seller answer'}]),{id,questionId,answerId});
+    await bob.evaluate(({id,questionId,shareId})=>client.shoppingRoom('command',[id,'seller-question',{questionId,shareId,productId:'room-fixture-product',sellerId:'outside-seller',question:'Forged question'}]),{id,questionId,shareId});
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    for(const p of [alice,bob,eve]){const board=await p.evaluate(id=>client.shoppingRoom('board',[id]),id);expect(board.sellerQuestions).toHaveLength(1);expect(board.sellerQuestions[0].answer.text).toBe('Yes, size M is available.');expect(board.rejected.length).toBe(2);}
+    await alice.evaluate(()=>renderRoomUi());await alice.getByRole('tab',{name:'Products',exact:true}).click();
+    await expect(alice.locator('.room-seller-card')).toContainText('Yes, size M is available.',{timeout:15000});
+    await alice.setViewportSize({width:390,height:844});await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-room-seller-response.png'),fullPage:true});
+    await expect(db.query(`UPDATE encrypted_room_seller_answers SET answer_hash=$1`,['0'.repeat(64)])).rejects.toThrow();
+    const stored=JSON.stringify((await db.query('SELECT * FROM encrypted_room_seller_questions')).rows)+JSON.stringify((await db.query('SELECT * FROM encrypted_room_seller_answers')).rows);
+    expect(stored).not.toContain('Does it have');expect(stored).not.toContain('size M is available');
+    await db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');const {verifyRoomSellerRequests,migrationId}=require('../../backend/verify-room-seller-requests');
+    await db.query('INSERT INTO schema_migrations VALUES($1)',[migrationId]);const ready=await verifyRoomSellerRequests(db);expect(ready.ok).toBe(true);expect(ready.authenticatedSellerFlowVerified).toBe(false);
+    await db.query("INSERT INTO user_blocks VALUES('alice','outside-seller')");
+    expect((await seller.evaluate(({questionId,directId})=>nativeOperation('seller-question-read',{id:questionId,conversationId:directId}),{questionId,directId})).status).toBe(403);
+    await expect(alice.evaluate(answerId=>client.seller('share',['outside-seller',answerId,true]),answerId)).rejects.toThrow('encrypted_access_denied');
+    await db.query("DELETE FROM user_blocks WHERE blocker_username='alice' AND blocked_username='outside-seller'");
+    await db.query("INSERT INTO user_blocks VALUES('bob','alice')");
+    expect((await bob.evaluate(({questionId,id})=>nativeOperation('seller-evidence',{id:questionId,conversationId:id}),{questionId,id})).status).toBe(403);
+  }finally{for(const c of contexts)await c.close().catch(()=>{});roomsEnabled=false;loseNextSend=false;loseSellerAnswer=false;loseSellerQuestion=false;tamperSellerEvidence=false;}
+});
 
 test('production session admits a third approved native device and converges encrypted messages and receipts',async({browser})=>{
   test.setTimeout(120000);await resetStores(true);

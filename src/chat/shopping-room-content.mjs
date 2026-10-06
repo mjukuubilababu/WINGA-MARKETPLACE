@@ -31,6 +31,9 @@ export function validateRoomContent(value) {
       break;
     case 'poll-vote': need(exact(d, ['pollId','optionId']) && uuid(d.pollId) && (d.optionId === null || uuid(d.optionId))); break;
     case 'poll-close': need(exact(d, ['pollId']) && uuid(d.pollId)); break;
+    case 'seller-question': need(exact(d,['questionId','shareId','productId','sellerId','question'])&&uuid(d.questionId)&&uuid(d.shareId)
+      &&identifier(d.productId)&&identifier(d.sellerId)&&text(d.question,2048)&&d.question.trim());break;
+    case 'seller-response': need(exact(d,['questionId','answerId','answer'])&&uuid(d.questionId)&&uuid(d.answerId)&&text(d.answer,2048)&&d.answer.trim());break;
     default: need(false);
   }
   need(bytes(JSON.stringify(value)) <= MAX_BYTES);
@@ -46,7 +49,7 @@ export function parseRoomContent(message) {
 
 // Only decrypted, sender-verified native history belongs here. Server packets,
 // optimistic outbox entries and a current roster are not historical membership evidence.
-export function projectRoomContent(history, {conversationId, epochs, now = Date.now(), maxEvents = MAX_EVENTS} = {}) {
+export function projectRoomContent(history, {conversationId, epochs, now = Date.now(), maxEvents = MAX_EVENTS, sellerEvidence = new Map()} = {}) {
   need(uuid(conversationId) && epochs instanceof Map && Number.isSafeInteger(now)
     && Number.isInteger(maxEvents) && maxEvents >= 1 && maxEvents <= MAX_EVENTS, 'room_projection_invalid');
   need(Array.isArray(history) && history.length <= maxEvents, 'room_history_limit');
@@ -79,7 +82,7 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
     unique.set(item.id, {item, binding}); sequences.set(item.sequence, item.id);
   }
   const sorted = [...unique.values()].map(v => v.item).sort((a,b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1);
-  const products = new Map(), polls = new Map(), rejected = [];
+  const products = new Map(), polls = new Map(), questions = new Map(), rejected = [];
   const role = item => epochs.get(item.epoch).find(m => m.owner === item.owner && m.id === item.deviceId)?.role;
   const before = (target, item) => target && BigInt(target.sequence) < BigInt(item.sequence);
   for (const item of sorted) {
@@ -105,6 +108,20 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
       }
       polls.set(item.id, {id:item.id,owner:item.owner,sequence:item.sequence,question:d.question,
         options:d.options,closesAt:d.closesAt,closedAt:null,ballots:new Map()});
+    } else if(c.type==='seller-question'||c.type==='seller-response') {
+      const evidence=sellerEvidence.get(d.questionId),q=evidence?.question;
+      if(c.type==='seller-question'){
+        const share=products.get(d.shareId);
+        if(!q||!before(share,item)||q.buyerId!==item.owner||q.productId!==d.productId||share.productId!==d.productId
+          ||q.shareId!==d.shareId||q.sellerId!==d.sellerId||evidence.questionText!==d.question||questions.has(d.questionId)){
+          rejected.push({id:item.id,code:'room_seller_evidence_required'});continue;}
+        questions.set(d.questionId,{...d,messageId:item.id,owner:item.owner,sequence:item.sequence,answer:null});
+      }else{
+        const target=questions.get(d.questionId);
+        if(!before(target,item)||target.owner!==item.owner||target.answer||evidence?.answer?.messageId!==d.answerId||evidence.answerText!==d.answer){
+          rejected.push({id:item.id,code:'room_seller_evidence_required'});continue;}
+        target.answer={id:d.answerId,sharedMessageId:item.id,text:d.answer,sellerId:q.sellerId,sharedBy:item.owner};
+      }
     } else {
       const poll = polls.get(d.pollId);
       if (!before(poll,item) || poll.closedAt !== null || poll.closesAt !== null && Date.parse(item.timestamp) >= Date.parse(poll.closesAt)
@@ -119,6 +136,7 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
   }
   return {
     conversationId,
+    sellerQuestions:[...questions.values()].map(q=>structuredClone(q)),
     products:[...products.values()].filter(p => !p.removed).map(p => ({shareId:p.shareId,productId:p.productId,note:p.note,
       owner:p.owner,historicalSnapshot:structuredClone(p.historicalSnapshot),
       shortlistedBy:[...p.selections].filter(([,selected]) => selected).map(([owner]) => owner).sort()})),
@@ -152,6 +170,23 @@ export function createSellerQuestion(projection, {shareId,question,correlationId
   need(share && identifier(share.productId), 'room_product_required');
   // Explicit disclosure is limited to the chosen product and question, never a room invite or history export.
   return {version:1,productId:share.productId,question,correlationId};
+}
+
+export function compareRoomProducts(projection, ids, catalog) {
+  need(projection&&Array.isArray(projection.products)&&catalog instanceof Map&&Array.isArray(ids)&&ids.length>=2&&ids.length<=4
+    &&ids.every(identifier)&&new Set(ids).size===ids.length&&ids.every(id=>projection.products.some(p=>p.productId===id)), 'room_comparison_selection_required');
+  const scalar=v=>typeof v==='string'&&v.trim()&&v.length<=160&&!/[\u0000]/.test(v)?v:null;
+  const list=v=>Array.isArray(v)&&v.length>0&&v.length<=32&&v.every(x=>scalar(x))?[...new Set(v)]:null;
+  return ids.map(id=>{const p=catalog.get(id),valid=p?.id===id&&p.status==='approved';
+    // No historical snapshot, poll-label matching, or demand inference supplies missing catalog attributes.
+    return {id,available:valid,name:valid?scalar(p.name):null,
+      price:valid&&typeof p.price==='number'&&Number.isFinite(p.price)&&p.price>=0?p.price:null,
+      currency:valid&&/^[A-Z]{3}$/.test(p.currency)?p.currency:null,
+      availability:valid&&['available','reserved','sold_out'].includes(p.availability)?p.availability:null,
+      stock:valid&&Number.isSafeInteger(p.stockQuantity)&&p.stockQuantity>=0?p.stockQuantity:null,
+      sizes:valid?list(p.sizes):null,colors:valid?list(p.colors):null,brand:valid?scalar(p.brand):null,
+      category:valid?scalar(p.category):null,sellerId:valid&&identifier(p.uploadedBy)?p.uploadedBy:null,
+      shortlistedBy:[...new Set(projection.products.filter(s=>s.productId===id).flatMap(s=>s.shortlistedBy))].sort()};});
 }
 
 export {PREFIX as ROOM_CONTENT_PREFIX};

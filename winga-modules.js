@@ -1624,6 +1624,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      seller:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.seller(action,args);},
       inspectEncryptedConversation: async peer => {
         const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
       },
@@ -16990,7 +16991,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })(globalThis,function() {
   const PREFIX='WINGA-CONTENT/1\n',MAX_BYTES=12000,EDIT_WINDOW_MS=15*60*1000;
   const REACTIONS=['\u2764\uFE0F','\uD83D\uDC4D','\uD83D\uDE02','\uD83D\uDD25'];
-  const TYPES=['text','product','reel','short','collection','order','payment','delivery','location','contact','reaction','edit','hide'];
+  const TYPES=['text','product','reel','short','collection','order','payment','delivery','location','contact','reaction','edit','hide','seller-question','seller-response'];
   const id=value=>typeof value==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value);
   const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -17002,6 +17003,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       ||!text(value.text)||!record(value.data)||!(value.reply===null
         ||exact(value.reply,['id','quote'])&&uuid(value.reply.id)&&text(value.reply.quote,256)))fail();
     const d=value.data;
+    if(['seller-question','seller-response'].includes(value.type)&&(!exact(d,['questionId','productId'])||!uuid(d.questionId)||!id(d.productId)
+      ||value.reply!==null||!value.text.trim()||!text(value.text,2048)))fail();
     if(value.type==='text'&&(!exact(d,[])||!value.text.trim()))fail();
     if(['product','reel','short','collection'].includes(value.type)
       &&(!exact(d,['ids'])||!Array.isArray(d.ids)||!d.ids.length||d.ids.length>8
@@ -17539,6 +17542,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(message.eventRecord)return '<p>'+esc(t('chat.richChangePending','Change pending'))+'</p>';
       if(message.richUnavailable)return '<p>'+esc(t('chat.richUnavailable','This item is unavailable.'))+'</p>';
       if(!c)return '';
+      if(['seller-question','seller-response'].includes(c.type))return '<section class="chat-rich-card"><strong>'+esc(t(c.type==='seller-question'?'rooms.sellerQuestion':'rooms.sellerResponse',c.type==='seller-question'?'Seller question':'Seller response'))+
+        '</strong><div data-rich-reference-kind="product" data-rich-reference-id="'+esc(c.data.productId)+'"></div>'+
+        (message.senderId!==deps.getCurrentUser()&&message.sendState!=='failed'?'<button type="button" class="chat-rich-action" data-seller-message="'+esc(message.id)+'" data-seller-action="'+(c.type==='seller-question'?'answer':'share')+'">'+icon(c.type==='seller-question'?'reply':'share-2')+esc(t(c.type==='seller-question'?'rooms.respond':'rooms.shareResponse',c.type==='seller-question'?'Respond':'Share response to room'))+'</button>':'')+'</section>';
       if(['product','reel','short','collection','order','payment','delivery'].includes(c.type)) {
         return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
       }
@@ -19501,7 +19507,73 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         queueMicrotask(onChange);return messageView(result);
       }
+      async function seller(action,args){
+        if(!roomSession)fail('encrypted_rooms_disabled');const rich=globalThis.WingaRichContent;
+        const sha=wire=>digest(new TextEncoder().encode(wire));
+        const save=async(key,value)=>{const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{[key]:value}});};
+        const accepted=async(peer,id,wire)=>{await requireActiveMembership(peer);const item=await runtime.sendMessage({clientMessageId:id,receiverId:peer,messageType:'text',message:wire});
+          if(!item||item.status==='pending')fail('encrypted_seller_question_pending');return item;};
+        if(action==='pending'){const s=await vault.snapshot();return Object.entries(s.values).filter(([k,v])=>k.startsWith('room:seller-question:')&&!v.completed&&(!args[0]||v.roomId===args[0])).map(([,v])=>({id:v.id,roomId:v.roomId,sellerId:v.sellerId,question:v.question}));}
+        if(!rich)fail('rich_content_unavailable');
+        if(action==='ask'){
+          const [roomId,shareId,question,productId,sellerId,confirmed]=args;
+          if(confirmed!==true)fail('room_seller_consent_required');
+          const board=await roomSession.board(roomId),share=board.products.find(p=>p.shareId===shareId&&p.productId===productId);
+          if(!share||sellerId===owner)fail('room_product_required');
+          const codec=await import('/src/chat/shopping-room-content.mjs'),s=await vault.snapshot();
+          const existing=Object.values(s.values).find(v=>v?.roomId===roomId&&v?.shareId===shareId&&v?.kind==='seller-question'&&!v.completed);
+          if(existing){if(existing.question!==question||existing.sellerId!==sellerId)fail('encrypted_seller_request_conflict');return seller('resume',[existing.id]);}
+          const id=crypto.randomUUID();codec.createSellerQuestion(board,{shareId,question,correlationId:id,confirmed});
+          const draft={kind:'seller-question',id,roomId,shareId,question,productId,sellerId,roomMessageId:crypto.randomUUID(),completed:false};
+          await save('room:seller-question:'+id,draft);return seller('resume',[id]);
+        }
+        if(action==='resume'){
+          const s=await vault.snapshot(),d=s.values['room:seller-question:'+args[0]];if(!d)fail('room_product_required');
+          await requireActiveMembership(d.sellerId);const directId=await runtime.conversationId(d.sellerId),wire=rich.encode(rich.create('seller-question',d.question,{questionId:d.id,productId:d.productId}));
+          await operation('seller-question-reserve',{id:d.id,conversationId:d.roomId,shareId:d.shareId,productId:d.productId,sellerId:d.sellerId,directId,questionHash:await sha(wire)},d.id);
+          await accepted(d.sellerId,d.id,wire);
+          await roomSession.command(d.roomId,'seller-question',{questionId:d.id,shareId:d.shareId,productId:d.productId,sellerId:d.sellerId,question:d.question},d.roomMessageId);
+          await save('room:seller-question:'+d.id,{...d,completed:true});onChange();return {id:d.id};
+        }
+        if(action==='read'){
+          const [peer,messageId]=args;await requireActiveMembership(peer);const m=(await runtime.history(peer)).find(m=>m.id===messageId&&m.owner===peer&&m.status!=='pending'),c=rich.parse(m?.message);
+          if(c?.type!=='seller-question'||c.data.questionId!==m.id)fail('encrypted_seller_request_rejected');
+          const r=await operation('seller-question-read',{id:c.data.questionId,conversationId:m.conversationId});
+          if(r.question?.sellerId!==owner||r.question.buyerId!==peer||r.question.productId!==c.data.productId||r.question.questionHash!==await sha(m.message))fail('encrypted_seller_request_rejected');
+          const s=await vault.snapshot();return {question:c.text,productId:c.data.productId,answered:r.answered,draft:s.values['room:seller-answer:'+m.id]?.answer||''};
+        }
+        if(action==='answer'){
+          const [peer,messageId,answer,confirmed]=args;if(confirmed!==true)fail('room_seller_consent_required');
+          const q=await seller('read',[peer,messageId]),key='room:seller-answer:'+messageId,s=await vault.snapshot();
+          const wire=rich.encode(rich.create('seller-response',answer,{questionId:messageId,productId:q.productId}));
+          let d=s.values[key];if(d&&d.wire!==wire)fail('encrypted_seller_answer_conflict');
+          if(!d){d={id:crypto.randomUUID(),wire,answer};await save(key,d);}
+          const item=await accepted(peer,d.id,wire);
+          await operation('seller-answer-register',{id:messageId,conversationId:item.conversationId,messageId:d.id,answerHash:await sha(wire)},d.id);
+          onChange();return {id:d.id};
+        }
+        if(action==='share'){
+          const [peer,messageId,confirmed]=args;if(confirmed!==true)fail('room_seller_consent_required');await requireActiveMembership(peer);
+          const m=(await runtime.history(peer)).find(m=>m.id===messageId&&m.owner===peer&&m.status!=='pending'),c=rich.parse(m?.message);
+          if(c?.type!=='seller-response')fail('encrypted_seller_answer_rejected');
+          const key='room:seller-question:'+c.data.questionId,s=await vault.snapshot(),d=s.values[key];
+          if(!d?.completed||d.sellerId!==peer||d.productId!==c.data.productId)fail('encrypted_seller_request_rejected');
+          const r=await operation('seller-evidence',{id:d.id,conversationId:d.roomId}),a=r?.answer,p=a?.proof?.payload;
+          const pinned=(await pins()).find(pin=>pin.id===m.deviceId&&pin.owner===peer&&pin.status==='active');
+          if(r.question?.buyerId!==owner||r.question.sellerId!==peer||a?.messageId!==m.id||a.answerHash!==await sha(m.message)
+            ||p?.id!==d.id||p.messageId!==m.id||p.conversationId!==m.conversationId||p.answerHash!==a.answerHash||a.anchor?.owner!==peer
+            ||a.proof.actorId!==m.deviceId||!pinned||pinned.publicKey!==a.anchor.publicKey||pinned.fingerprint!==a.anchor.fingerprint
+            ||await digest(decode(a.anchor.publicKey))!==a.anchor.fingerprint)fail('encrypted_seller_answer_rejected');
+          await verifyProof(a.proof,'seller-answer-register',pinned);
+          const relay=d.relay||{id:crypto.randomUUID(),answerId:m.id,answer:c.text};
+          if(relay.answerId!==m.id||relay.answer!==c.text)fail('encrypted_seller_answer_conflict');
+          await save(key,{...d,relay});await roomSession.command(d.roomId,'seller-response',{questionId:d.id,answerId:m.id,answer:c.text},relay.id);
+          onChange();return {roomId:d.roomId};
+        }
+        fail('encrypted_seller_request_invalid');
+      }
       const service={
+        seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
@@ -19558,7 +19630,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
   function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,onChange=()=>{}}){
-    let rooms=[],directory=[],content;const mediaClients=new Map();
+    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
     async function readIntent(i){
@@ -19693,11 +19765,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const t=await runtime().room.change(i,new Map(selected.map(p=>[p.deviceId,decode(p.keyPackage)])));await operation('room-transfer',WingaMlsCandidate.encodeRoomTransferPayload(t),i.id);
       saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true},deleted:[`room:change:${id}`]});await sync();return id;}
     async function history(id){return runtime().room.history(id);}
-    async function board(id){const codec=await module();return codec.projectRoomContent(await history(id),{conversationId:id,epochs:await runtime().room.epochs(id)});}
+    async function board(id){const codec=await module(),items=await history(id),evidence=new Map();
+      const commands=items.filter(m=>m.status!=='pending').map(item=>({item,c:codec.parseRoomContent(item.message)})).filter(v=>['seller-question','seller-response'].includes(v.c?.type));
+      const requests=new Set(commands.filter(v=>v.c.type==='seller-question').map(v=>v.c.data.questionId));
+      for(const questionId of requests){try{const key=id+':'+questionId,cached=sellerCache.get(key),hasResponse=commands.some(v=>v.c.type==='seller-response'&&v.c.data.questionId===questionId);
+        // Immutable disclosure evidence is local history, not a live presence/identity claim.
+        const r=cached&&(!hasResponse||cached.answerText)?structuredClone(cached):await operation('seller-evidence',{id:questionId,conversationId:id});
+        need(r?.version===1&&r.question?.id===questionId);
+        let q;for(const {item,c} of commands){const d=c?.data;
+          if(item.status==='pending'||item.owner!==r.question.buyerId||c?.type!=='seller-question'||d.questionId!==questionId
+            ||d.productId!==r.question.productId||d.shareId!==r.question.shareId||d.sellerId!==r.question.sellerId)continue;
+          const wire=WingaRichContent.encode(WingaRichContent.create('seller-question',d.question,{questionId,productId:d.productId}));
+          if(await hash(new TextEncoder().encode(wire))===r.question.questionHash){q=d;break;}}
+        need(q);r.questionText=q.question;
+        if(r.answer){const a=commands.find(v=>v.c.type==='seller-response'&&v.c.data.questionId===questionId&&v.c.data.answerId===r.answer.messageId);
+          if(a){try{const proof=r.answer.proof,p=proof?.payload,anchor=r.answer.anchor;
+            need(anchor?.owner===r.question.sellerId&&anchor.id===proof?.actorId&&await hash(decode(anchor.publicKey))===anchor.fingerprint
+              &&proof.owner===r.question.sellerId&&p.id===questionId&&p.messageId===r.answer.messageId&&p.answerHash===r.answer.answerHash);
+            await verifyProof(proof,'seller-answer-register',anchor);
+            for(const {item,c} of commands){
+              if(item.status==='pending'||item.owner!==r.question.buyerId||c?.type!=='seller-response'||c.data.questionId!==questionId||c.data.answerId!==r.answer.messageId)continue;
+              const wire=WingaRichContent.encode(WingaRichContent.create('seller-response',c.data.answer,{questionId,productId:q.productId}));
+              if(await hash(new TextEncoder().encode(wire))===r.answer.answerHash){r.answerText=c.data.answer;break;}}
+          }catch{r.answer=null;}}}
+        evidence.set(questionId,r);sellerCache.set(key,structuredClone(r));if(sellerCache.size>512)sellerCache.delete(sellerCache.keys().next().value);
+      }catch(error){if(error.status===401||error.code==='mls_session_changed')throw error;}}
+      return codec.projectRoomContent(items,{conversationId:id,epochs:await runtime().room.epochs(id),sellerEvidence:evidence});}
     async function send(id,message,clientMessageId=crypto.randomUUID()){
       const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();return result;
     }
-    async function command(id,type,data){const codec=await module();return send(id,codec.encodeRoomContent(type,data));}
+    async function command(id,type,data,clientMessageId){const codec=await module();return send(id,codec.encodeRoomContent(type,data),clientMessageId);}
     async function markRead(id,ids){if(document.visibilityState!=='visible'||!document.hasFocus())return;
       const detail=[...document.querySelectorAll('[data-room-id]')].find(el=>el.dataset.roomId===id&&el.getClientRects().length),thread=detail?.querySelector('.room-thread');
       if(!thread||typeof globalThis.visibleIncomingMessageIds!=='function')return;
@@ -19752,12 +19849,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
       case 'encrypted_package_unavailable':return t('rooms.packageUnavailable','A member device changed. Review devices again.');
+      case 'encrypted_membership_required':case 'encrypted_membership_pending':return t('rooms.sellerChatRequired','Seller chat encryption is not ready.');
+      case 'encrypted_seller_product_unavailable':return t('rooms.productUnavailable','Current product unavailable');
+      case 'encrypted_seller_request_conflict':return t('rooms.sellerDraftPending','A saved question is waiting to be sent.');
       default:return t('rooms.actionFailed','Unable to finish. Try again.');}}
     const memberName=id=>actions.memberName?.(id)||id;
     function memberAvatar(id){const wrap=element('span','','message-thread-avatar'),fallback=()=>wrap.replaceChildren(element('span',memberName(id).slice(0,1),'conversation-avatar-initial'));
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
-    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],readQueued=false;const urls=new Set(),dialogs=new Set();
+    state.comparison=state.comparison||new Map();
+    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -19766,13 +19867,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const iconButton=(name,label,fn)=>{const b=control(element('button','','conversation-icon-button'));b.type='button';b.title=label;b.setAttribute('aria-label',label);
       const image=document.createElement('img');image.src='/icons/navigation/'+name+'.svg';image.width=20;image.height=20;image.alt='';b.append(image);b.onclick=()=>run(fn);return b;};
     const button=(text,fn,className='action-btn action-btn-secondary')=>{const b=control(element('button',text,className));b.type='button';b.onclick=()=>run(fn);return b;};
-    const run=async fn=>{if(busy||!current())return;busy=true;status.textContent='';scope.setAttribute('aria-busy','true');
+    const run=async fn=>{if(busy||!current())return;busy=true;lastError='';status.textContent='';scope.setAttribute('aria-busy','true');
       for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
-      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){status.textContent=errorText(error);
+      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
         const dialog=document.querySelector('.room-dialog form');if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
-      finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}}};
+      finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}
+        for(const [b,ready]of readyControls){if(b.isConnected)ready();else readyControls.delete(b);}}};
     function modal(title){const d=element('dialog','','chat-security-dialog room-dialog'),form=element('form'),heading=element('h3',title);
       d.append(heading,form);const close=iconButton('x',t('chat.closeAria','Close chat'),async()=>d.close());close.onclick=()=>d.close();d.prepend(close);
       document.body.append(d);dialogs.add(d);d.addEventListener('close',()=>{dialogs.delete(d);d.remove();},{once:true});d.showModal();return {d,form};}
@@ -19826,21 +19928,65 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       view.d.addEventListener('close',()=>{URL.revokeObjectURL(url);urls.delete(url);},{once:true});
       if(['image/jpeg','image/png','image/webp','image/gif'].includes(result.mime||result.blob.type)){const image=document.createElement('img');image.src=url;image.alt=result.name||'';image.className='room-attachment-preview';view.form.append(image);}
       const link=element('a',t('rooms.download','Download'),'action-btn action-btn-secondary');link.href=url;link.download=(result.name||'attachment').replace(/[\\/\u0000-\u001f]/g,'_');view.form.append(link);}
+    async function compare(room,board){const ids=(state.comparison.get(room.id)||[]).filter(id=>board.products.some(p=>p.productId===id));
+      const view=modal(t('rooms.compare','Compare products')),catalog=new Map(),codec=await import('/src/chat/shopping-room-content.mjs');
+      for(const id of ids){try{catalog.set(id,await dataLayer.readConversationProduct(id));}catch{}if(!current()){view.d.close();return;}}
+      const columns=codec.compareRoomProducts(board,ids,catalog),scroll=element('div','','room-comparison-scroll');scroll.tabIndex=0;
+      const table=element('table','','room-comparison-table'),caption=element('caption',t('rooms.compare','Compare products')),head=element('thead'),header=element('tr');
+      if(columns.length>2)table.style.minWidth=(columns.length+1)*120+'px';
+      header.append(element('th',t('rooms.attribute','Attribute')));
+      for(const p of columns){const th=element('th',p.name||t('rooms.productUnavailable','Current product unavailable'));th.scope='col';
+        const item=catalog.get(p.id),src=p.available&&actions.sanitizeImage?.(item?.image||item?.images?.[0]||'','');
+        if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';th.prepend(image);}header.append(th);}head.append(header);table.append(caption,head);
+      const body=element('tbody'),unknown=t('rooms.unknown','Not provided'),number=value=>new Intl.NumberFormat(document.documentElement.lang||'sw').format(value);
+      const rows=[['price',t('rooms.price','Price'),p=>p.price===null?null:number(p.price)+(p.currency?' '+p.currency:' ('+unknown+')')],
+        ['availability',t('rooms.availability','Availability'),p=>p.availability?t('chat.richState.'+p.availability,p.availability):null],
+        ['stock',t('rooms.stock','Stock'),p=>p.stock===null?null:number(p.stock)],['votes',t('rooms.votes','Votes'),()=>null],['sizes',t('rooms.sizes','Sizes'),p=>p.sizes?.join(', ')],
+        ['colors',t('rooms.colors','Colors'),p=>p.colors?.join(', ')],['brand',t('rooms.brand','Brand'),p=>p.brand],
+        ['category',t('rooms.category','Category'),p=>p.category],['seller',t('rooms.seller','Seller'),p=>p.sellerId],
+        ['shortlist',t('rooms.shortlistedCount','Shortlisted by'),p=>number(p.shortlistedBy.length)]];
+      for(const [key,label,value] of rows){const row=element('tr'),heading=element('th',label);heading.scope='row';row.append(heading);
+        for(const p of columns){const td=element('td',value(p)??unknown);td.dataset.compareAttribute=key;row.append(td);}body.append(row);}
+      table.append(body);scroll.append(table);view.form.append(scroll,button(t('inbox.refresh','Refresh conversations'),async()=>{view.d.close();await compare(room,board);}));}
+    async function askSeller(room,share,product){const sellerId=product.uploadedBy||product.sellerId,view=modal(t('rooms.askSeller','Ask seller'));
+      view.form.append(element('strong',product.name));const question=input(view.form,t('rooms.question','Question'),'seller-question',{area:true,max:2048});
+      const label=element('label','','room-consent'),consent=document.createElement('input');consent.type='checkbox';consent.required=true;
+      label.append(consent,element('span',t('rooms.questionConsent','Send only this product and question to the seller.')));view.form.append(label);
+      const send=submit(view.form,t('inbox.send','Send message'),async()=>{if(!consent.checked)return;
+        await dataLayer.seller('ask',[room.id,share.shareId,question.value.trim(),product.id,sellerId,true]);view.d.close();});
+      send.disabled=true;const ready=()=>send.disabled=busy||!consent.checked||!question.value.trim();readyControls.set(send,ready);question.oninput=ready;consent.onchange=ready;
+      if(actions.openContact)view.form.append(button(t('rooms.openSellerChat','Open seller chat'),async()=>{view.d.close();await actions.openContact(sellerId);}));}
+    function sellerCards(room,board){const wrap=element('div','','room-seller-cards');
+      for(const q of board.sellerQuestions||[]){const card=element('article','','room-seller-card');card.append(element('strong',t('rooms.sellerQuestion','Seller question')),element('small',q.sellerId),element('p',q.question));
+        if(q.answer)card.append(element('strong',t('rooms.sellerResponse','Seller response')),element('p',q.answer.text),element('small',t('rooms.sharedBy','Shared by {member}',{member:memberName(q.answer.sharedBy)})));
+        else card.append(element('small',t('rooms.awaitingSeller','Awaiting seller response')));
+        if(q.owner===owner&&actions.openContact)card.append(button(t('rooms.openSellerChat','Open seller chat'),()=>actions.openContact(q.sellerId)));wrap.append(card);}
+      return wrap;}
     function productView(room,board,shortlist=false){const wrap=element('div','','room-products'),toolbar=element('div','','rooms-list-toolbar');
       toolbar.append(element('strong',shortlist?t('rooms.shortlist','Shortlist'):t('rooms.products','Products')),
         iconButton('plus',t('rooms.share','Share product'),()=>productSearch(room)));wrap.append(toolbar);
+      const selection=(state.comparison.get(room.id)||[]).filter(id=>board.products.some(p=>p.productId===id));state.comparison.set(room.id,selection);
+      const compareButton=iconButton('arrow-left-right',t('rooms.compare','Compare products'),()=>compare(room,board));compareButton.disabled=selection.length<2;toolbar.append(compareButton);
+      const seen=new Set();
       const products=shortlist?board.products.filter(p=>p.shortlistedBy.includes(owner)):board.products;
       for(const share of products.slice(0,state.shown)){const p=state.catalog.get(share.productId)?.product,row=element('article','','room-product-item');
         const image=actions.sanitizeImage?.(p?.image||p?.images?.[0]||'','');if(image){const img=document.createElement('img');img.src=image;img.alt=p.name||'';img.loading='lazy';row.append(img);}
         const body=element('div');body.append(element('strong',p?.name||share.productId));
+        if(!seen.has(share.productId)){seen.add(share.productId);const label=element('label','','room-compare-choice'),check=control(document.createElement('input'));check.type='checkbox';check.checked=selection.includes(share.productId);
+          check.disabled=busy||!check.checked&&selection.length>=4;check.setAttribute('aria-label',t('rooms.compareProduct','Compare {name}',{name:p?.name||share.productId}));
+          if(!check.checked&&selection.length>=4)delete check.dataset.roomBusyDisabled;
+          check.onchange=()=>{state.comparison.set(room.id,check.checked?[...selection,share.productId]:selection.filter(id=>id!==share.productId));detailView();};label.append(check,element('span',t('rooms.compare','Compare products')));body.append(label);}
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
         if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>actions.openProduct?.(p.id)));
-          if(p.sellerId&&p.sellerId!==owner&&actions.openContact)controls.append(button(t('rooms.askSeller','Ask seller'),async()=>actions.openContact(p.sellerId)));}
+          const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
       if(!products.length)wrap.append(element('p',t('rooms.noProducts','No products shared yet.'),'empty-copy'));
+      for(const q of pendingQuestions.filter(q=>q.roomId===room.id)){const row=element('div','','room-seller-pending');row.append(element('p',q.question),button(t('inbox.retry','Try again'),()=>dataLayer.seller('resume',[q.id])));
+        if(actions.openContact)row.append(button(t('rooms.openSellerChat','Open seller chat'),()=>actions.openContact(q.sellerId)));wrap.append(row);}
+      wrap.append(sellerCards(room,board));
       if(products.length>state.shown)wrap.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));return wrap;
     }
     function pollsView(room,board){const wrap=element('div','','room-polls');wrap.append(button(t('rooms.newPoll','New poll'),()=>newPoll(room)));
@@ -19885,7 +20031,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             if(JSON.parse(i.roles).some(r=>r.owner===m.owner&&r.role==='admin'))author.append(element('span',t('chat.roomAdmin','Admin')));bubble.append(author);}
           const attachment=globalThis.WingaEncryptedMedia?.attachment(m);
           if(attachment){bubble.append(button(attachment.attachment.name||t('rooms.attachment','Attachment'),()=>openFile(room,m)));if(attachment.text)bubble.append(element('p',attachment.text));}
-          else if(m.message.startsWith('WINGA-ROOM/'))bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('poll-')?'polls':'products';}));
+          else if(m.message.startsWith('WINGA-ROOM/')){
+            const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);
+            if(q){bubble.append(element('strong',m.message.includes('seller-response')?t('rooms.sellerResponse','Seller response'):t('rooms.sellerQuestion','Seller question')),
+              element('small',q.sellerId),element('p',m.message.includes('seller-response')?q.answer?.text||t('rooms.awaitingSeller','Awaiting seller response'):q.question));}
+            else bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('poll-')?'polls':'products';}));}
           else if(m.message.startsWith('WINGA-MEDIA/'))bubble.append(element('p',t('rooms.attachmentUnavailable','Attachment unavailable')));
           else bubble.append(element('p',m.message));
           bubble.append(element('small',new Date(m.timestamp).toLocaleTimeString(document.documentElement.lang||'sw',{hour:'2-digit',minute:'2-digit'})+(m.owner===owner?' '+(m.status==='pending'?t('chat.sending','Sending'):t('rooms.'+m.status,m.status)):'')));
@@ -19906,6 +20056,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function refresh(force=false){if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
       pendingTransitions=await call('pendingTransitions');if(!current())return;
+      pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;
+      if(['encrypted_membership_required','encrypted_membership_pending'].includes(lastError)&&!pendingQuestions.length){lastError='';status.textContent='';}
       for(const room of rooms){if(room.status==='removed'||room.clientError)continue;
         const history=await call('history',room.id);if(!current())return;state.history.set(room.id,history);
         try{const board=await call('board',room.id);if(!current())return;state.boards.set(room.id,board);
@@ -19913,7 +20065,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
       pendingFiles=[];if(state.selected)try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,pendingFiles,pendingTransitions]);
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
     }
@@ -20544,7 +20696,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       b.onclick=async()=>{
         const host=b.closest('dialog');if(b.disabled||!current()||host?.dataset.busy)return;
         b.disabled=true;if(host)host.dataset.busy='true';
-        try{await run(b);}catch{
+        try{await run(b);}catch(error){
+          actions.onError?.(/^[a-z0-9_]{1,80}$/.test(error?.code||'')?error.code:'rich_action_failed');
           b.title=t('chat.richFailed','The action failed. Your saved messages are unchanged.');
           const status=host?.querySelector('[role="status"]');if(status)status.textContent=b.title;
         }finally{b.disabled=false;if(host)delete host.dataset.busy;}
@@ -20569,6 +20722,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         actions.clearReply?.();await refresh();
       } catch {if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
       finally {if(accepted)view.d.close();}
+    }
+    for(const trigger of scope.querySelectorAll('[data-seller-message]')){
+      if(trigger.dataset.sellerBound)continue;trigger.dataset.sellerBound='true';
+      trigger.onclick=async()=>{if(!current()||trigger.disabled)return;trigger.disabled=true;
+        const messageId=trigger.dataset.sellerMessage,reply=trigger.dataset.sellerAction==='answer',view=dialog(t(reply?'rooms.respond':'rooms.shareResponse',reply?'Respond':'Share response to room'));
+        try{
+          let answer;
+          if(reply){const q=await dataLayer.seller('read',[peer,messageId]);if(!current()||!view.d.isConnected)return;
+            view.body.append(element('p','',q.question));const label=element('label','',t('rooms.sellerResponse','Seller response'));
+            answer=element('textarea');answer.maxLength=2048;answer.required=true;answer.value=q.draft;label.append(answer);view.body.append(label);}
+          else {const m=getMessages().find(m=>m.id===messageId);view.body.append(element('p','',m?.richContent?.text||m?.message||''));}
+          const label=element('label','room-consent'),consent=element('input');consent.type='checkbox';
+          label.append(consent,element('span','',t(reply?'rooms.answerConsent':'rooms.responseConsent',reply?'Share this response with the requesting room.':'Share only this seller response with the room.')));view.body.append(label);
+          const submit=button(t(reply?'rooms.respond':'rooms.shareResponse',reply?'Respond':'Share response to room'),'send',async()=>{
+            if(!consent.checked||reply&&!answer.value.trim())return;
+            await dataLayer.seller(reply?'answer':'share',reply?[peer,messageId,answer.value.trim(),true]:[peer,messageId,true]);
+            if(current()){view.d.close();await refresh();}});submit.disabled=true;
+          const ready=()=>submit.disabled=!consent.checked||reply&&!answer.value.trim();consent.onchange=ready;if(answer)answer.oninput=ready;view.footer.prepend(submit);
+        }catch{if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
+        finally{trigger.disabled=false;}
+      };
     }
     const kinds={
       product:[t('chat.richProduct','Product'),'tag'],reel:[t('chat.richReel','Reel'),'clapperboard'],

@@ -5,7 +5,7 @@
 })(globalThis,function() {
   const PREFIX='WINGA-CONTENT/1\n',MAX_BYTES=12000,EDIT_WINDOW_MS=15*60*1000;
   const REACTIONS=['\u2764\uFE0F','\uD83D\uDC4D','\uD83D\uDE02','\uD83D\uDD25'];
-  const TYPES=['text','product','reel','short','collection','order','payment','delivery','location','contact','reaction','edit','hide'];
+  const TYPES=['text','product','reel','short','collection','order','payment','delivery','location','contact','reaction','edit','hide','seller-question','seller-response'];
   const id=value=>typeof value==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(value);
   const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -17,6 +17,8 @@
       ||!text(value.text)||!record(value.data)||!(value.reply===null
         ||exact(value.reply,['id','quote'])&&uuid(value.reply.id)&&text(value.reply.quote,256)))fail();
     const d=value.data;
+    if(['seller-question','seller-response'].includes(value.type)&&(!exact(d,['questionId','productId'])||!uuid(d.questionId)||!id(d.productId)
+      ||value.reply!==null||!value.text.trim()||!text(value.text,2048)))fail();
     if(value.type==='text'&&(!exact(d,[])||!value.text.trim()))fail();
     if(['product','reel','short','collection'].includes(value.type)
       &&(!exact(d,['ids'])||!Array.isArray(d.ids)||!d.ids.length||d.ids.length>8

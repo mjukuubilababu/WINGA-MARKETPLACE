@@ -30,12 +30,16 @@
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
       case 'encrypted_package_unavailable':return t('rooms.packageUnavailable','A member device changed. Review devices again.');
+      case 'encrypted_membership_required':case 'encrypted_membership_pending':return t('rooms.sellerChatRequired','Seller chat encryption is not ready.');
+      case 'encrypted_seller_product_unavailable':return t('rooms.productUnavailable','Current product unavailable');
+      case 'encrypted_seller_request_conflict':return t('rooms.sellerDraftPending','A saved question is waiting to be sent.');
       default:return t('rooms.actionFailed','Unable to finish. Try again.');}}
     const memberName=id=>actions.memberName?.(id)||id;
     function memberAvatar(id){const wrap=element('span','','message-thread-avatar'),fallback=()=>wrap.replaceChildren(element('span',memberName(id).slice(0,1),'conversation-avatar-initial'));
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
-    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],readQueued=false;const urls=new Set(),dialogs=new Set();
+    state.comparison=state.comparison||new Map();
+    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -44,13 +48,14 @@
     const iconButton=(name,label,fn)=>{const b=control(element('button','','conversation-icon-button'));b.type='button';b.title=label;b.setAttribute('aria-label',label);
       const image=document.createElement('img');image.src='/icons/navigation/'+name+'.svg';image.width=20;image.height=20;image.alt='';b.append(image);b.onclick=()=>run(fn);return b;};
     const button=(text,fn,className='action-btn action-btn-secondary')=>{const b=control(element('button',text,className));b.type='button';b.onclick=()=>run(fn);return b;};
-    const run=async fn=>{if(busy||!current())return;busy=true;status.textContent='';scope.setAttribute('aria-busy','true');
+    const run=async fn=>{if(busy||!current())return;busy=true;lastError='';status.textContent='';scope.setAttribute('aria-busy','true');
       for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
-      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){status.textContent=errorText(error);
+      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
         const dialog=document.querySelector('.room-dialog form');if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
-      finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}}};
+      finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}
+        for(const [b,ready]of readyControls){if(b.isConnected)ready();else readyControls.delete(b);}}};
     function modal(title){const d=element('dialog','','chat-security-dialog room-dialog'),form=element('form'),heading=element('h3',title);
       d.append(heading,form);const close=iconButton('x',t('chat.closeAria','Close chat'),async()=>d.close());close.onclick=()=>d.close();d.prepend(close);
       document.body.append(d);dialogs.add(d);d.addEventListener('close',()=>{dialogs.delete(d);d.remove();},{once:true});d.showModal();return {d,form};}
@@ -104,21 +109,65 @@
       view.d.addEventListener('close',()=>{URL.revokeObjectURL(url);urls.delete(url);},{once:true});
       if(['image/jpeg','image/png','image/webp','image/gif'].includes(result.mime||result.blob.type)){const image=document.createElement('img');image.src=url;image.alt=result.name||'';image.className='room-attachment-preview';view.form.append(image);}
       const link=element('a',t('rooms.download','Download'),'action-btn action-btn-secondary');link.href=url;link.download=(result.name||'attachment').replace(/[\\/\u0000-\u001f]/g,'_');view.form.append(link);}
+    async function compare(room,board){const ids=(state.comparison.get(room.id)||[]).filter(id=>board.products.some(p=>p.productId===id));
+      const view=modal(t('rooms.compare','Compare products')),catalog=new Map(),codec=await import('/src/chat/shopping-room-content.mjs');
+      for(const id of ids){try{catalog.set(id,await dataLayer.readConversationProduct(id));}catch{}if(!current()){view.d.close();return;}}
+      const columns=codec.compareRoomProducts(board,ids,catalog),scroll=element('div','','room-comparison-scroll');scroll.tabIndex=0;
+      const table=element('table','','room-comparison-table'),caption=element('caption',t('rooms.compare','Compare products')),head=element('thead'),header=element('tr');
+      if(columns.length>2)table.style.minWidth=(columns.length+1)*120+'px';
+      header.append(element('th',t('rooms.attribute','Attribute')));
+      for(const p of columns){const th=element('th',p.name||t('rooms.productUnavailable','Current product unavailable'));th.scope='col';
+        const item=catalog.get(p.id),src=p.available&&actions.sanitizeImage?.(item?.image||item?.images?.[0]||'','');
+        if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';th.prepend(image);}header.append(th);}head.append(header);table.append(caption,head);
+      const body=element('tbody'),unknown=t('rooms.unknown','Not provided'),number=value=>new Intl.NumberFormat(document.documentElement.lang||'sw').format(value);
+      const rows=[['price',t('rooms.price','Price'),p=>p.price===null?null:number(p.price)+(p.currency?' '+p.currency:' ('+unknown+')')],
+        ['availability',t('rooms.availability','Availability'),p=>p.availability?t('chat.richState.'+p.availability,p.availability):null],
+        ['stock',t('rooms.stock','Stock'),p=>p.stock===null?null:number(p.stock)],['votes',t('rooms.votes','Votes'),()=>null],['sizes',t('rooms.sizes','Sizes'),p=>p.sizes?.join(', ')],
+        ['colors',t('rooms.colors','Colors'),p=>p.colors?.join(', ')],['brand',t('rooms.brand','Brand'),p=>p.brand],
+        ['category',t('rooms.category','Category'),p=>p.category],['seller',t('rooms.seller','Seller'),p=>p.sellerId],
+        ['shortlist',t('rooms.shortlistedCount','Shortlisted by'),p=>number(p.shortlistedBy.length)]];
+      for(const [key,label,value] of rows){const row=element('tr'),heading=element('th',label);heading.scope='row';row.append(heading);
+        for(const p of columns){const td=element('td',value(p)??unknown);td.dataset.compareAttribute=key;row.append(td);}body.append(row);}
+      table.append(body);scroll.append(table);view.form.append(scroll,button(t('inbox.refresh','Refresh conversations'),async()=>{view.d.close();await compare(room,board);}));}
+    async function askSeller(room,share,product){const sellerId=product.uploadedBy||product.sellerId,view=modal(t('rooms.askSeller','Ask seller'));
+      view.form.append(element('strong',product.name));const question=input(view.form,t('rooms.question','Question'),'seller-question',{area:true,max:2048});
+      const label=element('label','','room-consent'),consent=document.createElement('input');consent.type='checkbox';consent.required=true;
+      label.append(consent,element('span',t('rooms.questionConsent','Send only this product and question to the seller.')));view.form.append(label);
+      const send=submit(view.form,t('inbox.send','Send message'),async()=>{if(!consent.checked)return;
+        await dataLayer.seller('ask',[room.id,share.shareId,question.value.trim(),product.id,sellerId,true]);view.d.close();});
+      send.disabled=true;const ready=()=>send.disabled=busy||!consent.checked||!question.value.trim();readyControls.set(send,ready);question.oninput=ready;consent.onchange=ready;
+      if(actions.openContact)view.form.append(button(t('rooms.openSellerChat','Open seller chat'),async()=>{view.d.close();await actions.openContact(sellerId);}));}
+    function sellerCards(room,board){const wrap=element('div','','room-seller-cards');
+      for(const q of board.sellerQuestions||[]){const card=element('article','','room-seller-card');card.append(element('strong',t('rooms.sellerQuestion','Seller question')),element('small',q.sellerId),element('p',q.question));
+        if(q.answer)card.append(element('strong',t('rooms.sellerResponse','Seller response')),element('p',q.answer.text),element('small',t('rooms.sharedBy','Shared by {member}',{member:memberName(q.answer.sharedBy)})));
+        else card.append(element('small',t('rooms.awaitingSeller','Awaiting seller response')));
+        if(q.owner===owner&&actions.openContact)card.append(button(t('rooms.openSellerChat','Open seller chat'),()=>actions.openContact(q.sellerId)));wrap.append(card);}
+      return wrap;}
     function productView(room,board,shortlist=false){const wrap=element('div','','room-products'),toolbar=element('div','','rooms-list-toolbar');
       toolbar.append(element('strong',shortlist?t('rooms.shortlist','Shortlist'):t('rooms.products','Products')),
         iconButton('plus',t('rooms.share','Share product'),()=>productSearch(room)));wrap.append(toolbar);
+      const selection=(state.comparison.get(room.id)||[]).filter(id=>board.products.some(p=>p.productId===id));state.comparison.set(room.id,selection);
+      const compareButton=iconButton('arrow-left-right',t('rooms.compare','Compare products'),()=>compare(room,board));compareButton.disabled=selection.length<2;toolbar.append(compareButton);
+      const seen=new Set();
       const products=shortlist?board.products.filter(p=>p.shortlistedBy.includes(owner)):board.products;
       for(const share of products.slice(0,state.shown)){const p=state.catalog.get(share.productId)?.product,row=element('article','','room-product-item');
         const image=actions.sanitizeImage?.(p?.image||p?.images?.[0]||'','');if(image){const img=document.createElement('img');img.src=image;img.alt=p.name||'';img.loading='lazy';row.append(img);}
         const body=element('div');body.append(element('strong',p?.name||share.productId));
+        if(!seen.has(share.productId)){seen.add(share.productId);const label=element('label','','room-compare-choice'),check=control(document.createElement('input'));check.type='checkbox';check.checked=selection.includes(share.productId);
+          check.disabled=busy||!check.checked&&selection.length>=4;check.setAttribute('aria-label',t('rooms.compareProduct','Compare {name}',{name:p?.name||share.productId}));
+          if(!check.checked&&selection.length>=4)delete check.dataset.roomBusyDisabled;
+          check.onchange=()=>{state.comparison.set(room.id,check.checked?[...selection,share.productId]:selection.filter(id=>id!==share.productId));detailView();};label.append(check,element('span',t('rooms.compare','Compare products')));body.append(label);}
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
         if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>actions.openProduct?.(p.id)));
-          if(p.sellerId&&p.sellerId!==owner&&actions.openContact)controls.append(button(t('rooms.askSeller','Ask seller'),async()=>actions.openContact(p.sellerId)));}
+          const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
       if(!products.length)wrap.append(element('p',t('rooms.noProducts','No products shared yet.'),'empty-copy'));
+      for(const q of pendingQuestions.filter(q=>q.roomId===room.id)){const row=element('div','','room-seller-pending');row.append(element('p',q.question),button(t('inbox.retry','Try again'),()=>dataLayer.seller('resume',[q.id])));
+        if(actions.openContact)row.append(button(t('rooms.openSellerChat','Open seller chat'),()=>actions.openContact(q.sellerId)));wrap.append(row);}
+      wrap.append(sellerCards(room,board));
       if(products.length>state.shown)wrap.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));return wrap;
     }
     function pollsView(room,board){const wrap=element('div','','room-polls');wrap.append(button(t('rooms.newPoll','New poll'),()=>newPoll(room)));
@@ -163,7 +212,11 @@
             if(JSON.parse(i.roles).some(r=>r.owner===m.owner&&r.role==='admin'))author.append(element('span',t('chat.roomAdmin','Admin')));bubble.append(author);}
           const attachment=globalThis.WingaEncryptedMedia?.attachment(m);
           if(attachment){bubble.append(button(attachment.attachment.name||t('rooms.attachment','Attachment'),()=>openFile(room,m)));if(attachment.text)bubble.append(element('p',attachment.text));}
-          else if(m.message.startsWith('WINGA-ROOM/'))bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('poll-')?'polls':'products';}));
+          else if(m.message.startsWith('WINGA-ROOM/')){
+            const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);
+            if(q){bubble.append(element('strong',m.message.includes('seller-response')?t('rooms.sellerResponse','Seller response'):t('rooms.sellerQuestion','Seller question')),
+              element('small',q.sellerId),element('p',m.message.includes('seller-response')?q.answer?.text||t('rooms.awaitingSeller','Awaiting seller response'):q.question));}
+            else bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('poll-')?'polls':'products';}));}
           else if(m.message.startsWith('WINGA-MEDIA/'))bubble.append(element('p',t('rooms.attachmentUnavailable','Attachment unavailable')));
           else bubble.append(element('p',m.message));
           bubble.append(element('small',new Date(m.timestamp).toLocaleTimeString(document.documentElement.lang||'sw',{hour:'2-digit',minute:'2-digit'})+(m.owner===owner?' '+(m.status==='pending'?t('chat.sending','Sending'):t('rooms.'+m.status,m.status)):'')));
@@ -184,6 +237,8 @@
     async function refresh(force=false){if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
       pendingTransitions=await call('pendingTransitions');if(!current())return;
+      pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;
+      if(['encrypted_membership_required','encrypted_membership_pending'].includes(lastError)&&!pendingQuestions.length){lastError='';status.textContent='';}
       for(const room of rooms){if(room.status==='removed'||room.clientError)continue;
         const history=await call('history',room.id);if(!current())return;state.history.set(room.id,history);
         try{const board=await call('board',room.id);if(!current())return;state.boards.set(room.id,board);
@@ -191,7 +246,7 @@
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
       pendingFiles=[];if(state.selected)try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,pendingFiles,pendingTransitions]);
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
     }

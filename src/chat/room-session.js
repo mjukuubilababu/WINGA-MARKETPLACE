@@ -5,7 +5,7 @@
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
   function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,onChange=()=>{}}){
-    let rooms=[],directory=[],content;const mediaClients=new Map();
+    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
     async function readIntent(i){
@@ -140,11 +140,36 @@
       const t=await runtime().room.change(i,new Map(selected.map(p=>[p.deviceId,decode(p.keyPackage)])));await operation('room-transfer',WingaMlsCandidate.encodeRoomTransferPayload(t),i.id);
       saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true},deleted:[`room:change:${id}`]});await sync();return id;}
     async function history(id){return runtime().room.history(id);}
-    async function board(id){const codec=await module();return codec.projectRoomContent(await history(id),{conversationId:id,epochs:await runtime().room.epochs(id)});}
+    async function board(id){const codec=await module(),items=await history(id),evidence=new Map();
+      const commands=items.filter(m=>m.status!=='pending').map(item=>({item,c:codec.parseRoomContent(item.message)})).filter(v=>['seller-question','seller-response'].includes(v.c?.type));
+      const requests=new Set(commands.filter(v=>v.c.type==='seller-question').map(v=>v.c.data.questionId));
+      for(const questionId of requests){try{const key=id+':'+questionId,cached=sellerCache.get(key),hasResponse=commands.some(v=>v.c.type==='seller-response'&&v.c.data.questionId===questionId);
+        // Immutable disclosure evidence is local history, not a live presence/identity claim.
+        const r=cached&&(!hasResponse||cached.answerText)?structuredClone(cached):await operation('seller-evidence',{id:questionId,conversationId:id});
+        need(r?.version===1&&r.question?.id===questionId);
+        let q;for(const {item,c} of commands){const d=c?.data;
+          if(item.status==='pending'||item.owner!==r.question.buyerId||c?.type!=='seller-question'||d.questionId!==questionId
+            ||d.productId!==r.question.productId||d.shareId!==r.question.shareId||d.sellerId!==r.question.sellerId)continue;
+          const wire=WingaRichContent.encode(WingaRichContent.create('seller-question',d.question,{questionId,productId:d.productId}));
+          if(await hash(new TextEncoder().encode(wire))===r.question.questionHash){q=d;break;}}
+        need(q);r.questionText=q.question;
+        if(r.answer){const a=commands.find(v=>v.c.type==='seller-response'&&v.c.data.questionId===questionId&&v.c.data.answerId===r.answer.messageId);
+          if(a){try{const proof=r.answer.proof,p=proof?.payload,anchor=r.answer.anchor;
+            need(anchor?.owner===r.question.sellerId&&anchor.id===proof?.actorId&&await hash(decode(anchor.publicKey))===anchor.fingerprint
+              &&proof.owner===r.question.sellerId&&p.id===questionId&&p.messageId===r.answer.messageId&&p.answerHash===r.answer.answerHash);
+            await verifyProof(proof,'seller-answer-register',anchor);
+            for(const {item,c} of commands){
+              if(item.status==='pending'||item.owner!==r.question.buyerId||c?.type!=='seller-response'||c.data.questionId!==questionId||c.data.answerId!==r.answer.messageId)continue;
+              const wire=WingaRichContent.encode(WingaRichContent.create('seller-response',c.data.answer,{questionId,productId:q.productId}));
+              if(await hash(new TextEncoder().encode(wire))===r.answer.answerHash){r.answerText=c.data.answer;break;}}
+          }catch{r.answer=null;}}}
+        evidence.set(questionId,r);sellerCache.set(key,structuredClone(r));if(sellerCache.size>512)sellerCache.delete(sellerCache.keys().next().value);
+      }catch(error){if(error.status===401||error.code==='mls_session_changed')throw error;}}
+      return codec.projectRoomContent(items,{conversationId:id,epochs:await runtime().room.epochs(id),sellerEvidence:evidence});}
     async function send(id,message,clientMessageId=crypto.randomUUID()){
       const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();return result;
     }
-    async function command(id,type,data){const codec=await module();return send(id,codec.encodeRoomContent(type,data));}
+    async function command(id,type,data,clientMessageId){const codec=await module();return send(id,codec.encodeRoomContent(type,data),clientMessageId);}
     async function markRead(id,ids){if(document.visibilityState!=='visible'||!document.hasFocus())return;
       const detail=[...document.querySelectorAll('[data-room-id]')].find(el=>el.dataset.roomId===id&&el.getClientRects().length),thread=detail?.querySelector('.room-thread');
       if(!thread||typeof globalThis.visibleIncomingMessageIds!=='function')return;

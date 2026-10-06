@@ -80,6 +80,7 @@ const fileCopies = [
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
   ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "eye", "monitor-smartphone", "search", "users", "bell", "send", "ellipsis", "arrow-left", "square-pen", "user-round", "info", "pin", "phone", "image", "mic", "video", "shopping-bag", "credit-card", "truck", "map-pin", "bookmark", "bookmark-check", "list", "camera", "archive", "flag", "check", "trash-2", "x"]
+    .concat(['arrow-left-right'])
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 

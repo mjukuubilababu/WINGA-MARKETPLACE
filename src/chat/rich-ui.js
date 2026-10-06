@@ -16,7 +16,8 @@
       b.onclick=async()=>{
         const host=b.closest('dialog');if(b.disabled||!current()||host?.dataset.busy)return;
         b.disabled=true;if(host)host.dataset.busy='true';
-        try{await run(b);}catch{
+        try{await run(b);}catch(error){
+          actions.onError?.(/^[a-z0-9_]{1,80}$/.test(error?.code||'')?error.code:'rich_action_failed');
           b.title=t('chat.richFailed','The action failed. Your saved messages are unchanged.');
           const status=host?.querySelector('[role="status"]');if(status)status.textContent=b.title;
         }finally{b.disabled=false;if(host)delete host.dataset.busy;}
@@ -41,6 +42,27 @@
         actions.clearReply?.();await refresh();
       } catch {if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
       finally {if(accepted)view.d.close();}
+    }
+    for(const trigger of scope.querySelectorAll('[data-seller-message]')){
+      if(trigger.dataset.sellerBound)continue;trigger.dataset.sellerBound='true';
+      trigger.onclick=async()=>{if(!current()||trigger.disabled)return;trigger.disabled=true;
+        const messageId=trigger.dataset.sellerMessage,reply=trigger.dataset.sellerAction==='answer',view=dialog(t(reply?'rooms.respond':'rooms.shareResponse',reply?'Respond':'Share response to room'));
+        try{
+          let answer;
+          if(reply){const q=await dataLayer.seller('read',[peer,messageId]);if(!current()||!view.d.isConnected)return;
+            view.body.append(element('p','',q.question));const label=element('label','',t('rooms.sellerResponse','Seller response'));
+            answer=element('textarea');answer.maxLength=2048;answer.required=true;answer.value=q.draft;label.append(answer);view.body.append(label);}
+          else {const m=getMessages().find(m=>m.id===messageId);view.body.append(element('p','',m?.richContent?.text||m?.message||''));}
+          const label=element('label','room-consent'),consent=element('input');consent.type='checkbox';
+          label.append(consent,element('span','',t(reply?'rooms.answerConsent':'rooms.responseConsent',reply?'Share this response with the requesting room.':'Share only this seller response with the room.')));view.body.append(label);
+          const submit=button(t(reply?'rooms.respond':'rooms.shareResponse',reply?'Respond':'Share response to room'),'send',async()=>{
+            if(!consent.checked||reply&&!answer.value.trim())return;
+            await dataLayer.seller(reply?'answer':'share',reply?[peer,messageId,answer.value.trim(),true]:[peer,messageId,true]);
+            if(current()){view.d.close();await refresh();}});submit.disabled=true;
+          const ready=()=>submit.disabled=!consent.checked||reply&&!answer.value.trim();consent.onchange=ready;if(answer)answer.oninput=ready;view.footer.prepend(submit);
+        }catch{if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
+        finally{trigger.disabled=false;}
+      };
     }
     const kinds={
       product:[t('chat.richProduct','Product'),'tag'],reel:[t('chat.richReel','Reel'),'clapperboard'],
