@@ -1,5 +1,6 @@
 const ACTIONS=Object.freeze(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll',
-  'media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire']);
+  'media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
+  'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant']);
 function createConversationMetrics({now=Date.now}={}) {
   const started=now(),counts=new Map();
   function record(action,status,durationMs) {

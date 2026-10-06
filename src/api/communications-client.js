@@ -483,6 +483,9 @@
       admitEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.admitDevice(peer,deviceId,fingerprint);
       },
+      changeEncryptedConversationDevice:async(peer,removedId,replacementId,fingerprint)=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.changeDevice(peer,removedId,replacementId,fingerprint);
+      },
       verifyEncryptedConversationAdmission:async(peer,fingerprints)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.verifyAdmission(peer,fingerprints);
       },
@@ -600,13 +603,14 @@
           ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
         });
       },
-      cryptoRecoveryRequest: (method, payload, context) => {
+      cryptoRecoveryRequest: (method, payload, context, page) => {
         requireFetcher();
         const active = deps.getSession?.();
         if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
           || active.token !== context.token) throw new Error("crypto_device_session_changed");
         if (!['GET', 'PUT', 'DELETE'].includes(method)) throw new Error("crypto_device_method_invalid");
-        return fetchJson(`${baseUrl}/conversations/recovery`, {
+        const suffix=page ? `/pages${method==='GET'?`?id=${encodeURIComponent(page.id)}&revision=${encodeURIComponent(page.revision)}`:''}`:'';
+        return fetchJson(`${baseUrl}/conversations/recovery${suffix}`, {
           method, headers: method === 'GET' ? authHeaders() : jsonHeaders(),
           ...(method === 'GET' ? {} : { body: JSON.stringify(payload) })
         });

@@ -9,6 +9,7 @@ async function fixture(t,options={}) {
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery'])
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   for(const sql of require('../backend/migrations/encrypted-device-admissions').statements)await db.exec(sql);
+  for(const sql of require('../backend/migrations/encrypted-device-lifecycle').statements)await db.exec(sql);
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
   for(const [owner,token]of [['alice','a'],['bob','b1'],['eve','e']]) {
@@ -68,6 +69,62 @@ async function admissionPacket(f,target) {
   const acceptance={conversationId:f.id,transferId:intent.id,epoch:'2',transferHash:hash(JSON.stringify(transfer,Object.keys(transfer).sort()))};
   return {intent,transfer,acceptance,committed};
 }
+
+async function admittedFixture(t) {
+  const f=await fixture(t,{multiDeviceEnabled:true});await f.active();const next=await newMember(f,'next','alice'),a=await admissionPacket(f,next);
+  await f.call('alice','device-reserve',a.intent);await f.call('alice','device-transfer',a.transfer);
+  for(const owner of ['alice','bob','next'])await f.call(owner,'device-accept',a.acceptance);
+  f.group=a.committed.newState;return f;
+}
+async function changePacket(f,actor,removed,target=null) {
+  const who=f.members[actor],old=f.members[removed],intent={id:crypto.randomUUID(),conversationId:f.id,previousEpoch:'2',actorOwner:who.context.owner,
+    actorDeviceId:who.id,removedOwner:old.context.owner,removedDeviceId:old.id,addedOwner:target?.context.owner||'',addedDeviceId:target?.id||'',packageHash:target?.hash||''};
+  const index=f.group.ratchetTree.findIndex(n=>n?.nodeType==='leaf'&&JSON.parse(new TextDecoder().decode(n.leaf.credential.identity))[3]===old.id)/2;
+  const proposals=[{proposalType:'remove',remove:{removed:index}}];if(target)proposals.push({proposalType:'add',add:{keyPackage:target.pkg.publicPackage}});
+  assert.equal(actor,'alice');
+  const committed=await f.mls.createCommit({state:f.group,cipherSuite:f.suite},{extraProposals:proposals});
+  const roster=committed.newState.ratchetTree.filter(n=>n?.nodeType==='leaf').map(n=>{const v=JSON.parse(new TextDecoder().decode(n.leaf.credential.identity));
+    return {owner:v[2],id:v[3],fingerprint:v[4],key:Array.from(n.leaf.signaturePublicKey)};}).sort((a,b)=>`${a.owner}/${a.id}`<`${b.owner}/${b.id}`?-1:1);
+  const {encodeRatchetTree}=await import('ts-mls/ratchetTree.js');
+  const transfer={...intent,version:3,epoch:'3',roster:JSON.stringify(roster),commit:Buffer.from(f.mls.encodeMlsMessage(committed.commit)).toString('base64url'),
+    welcome:target?Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:committed.welcome})).toString('base64url'):'',
+    tree:Buffer.from(encodeRatchetTree(committed.newState.ratchetTree)).toString('base64url')};
+  return {intent,transfer,committed,acceptance:{conversationId:f.id,transferId:intent.id,epoch:'3',transferHash:hash(JSON.stringify(transfer,Object.keys(transfer).sort()))}};
+}
+test('canonical Remove excludes the old endpoint, preserves historical grants and requires only retained native acceptances',async t=>{
+  const f=await admittedFixture(t),r=await changePacket(f,'alice','next');
+  await f.call('alice','device-change-reserve',r.intent);await f.call('alice','device-change-reserve',r.intent);
+  await assert.rejects(f.call('bob','send',f.packet),{code:'encrypted_membership_pending'});
+  assert.equal((await f.call('next','poll',{})).groups[0].status,'blocked');
+  await f.call('alice','device-change-transfer',r.transfer);await f.call('alice','device-change-transfer',r.transfer);
+  await assert.rejects(f.call('next','device-change-accept',r.acceptance),{code:'encrypted_membership_required'});
+  await assert.rejects(f.call('bob','device-accept',r.acceptance),{code:'encrypted_device_admission_conflict'});
+  assert.equal((await f.call('alice','device-change-accept',r.acceptance)).status,'pending');
+  assert.equal((await f.call('bob','device-change-accept',r.acceptance)).status,'active');
+  assert.equal((await f.call('bob','device-change-accept',r.acceptance)).status,'active');
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch='2'`,[f.id])).rows[0].n,3);
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch='3'`,[f.id])).rows[0].n,2);
+  await assert.rejects(f.call('next','send',{...f.packet,epoch:'3'}),{code:'encrypted_membership_required'});
+  const app=await f.mls.createApplicationMessage(r.committed.newState,new TextEncoder().encode('future remains encrypted'),f.suite);
+  const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:app.privateMessage}));
+  await f.call('alice','send',{...f.packet,id:crypto.randomUUID(),epoch:'3',ciphertext:bytes.toString('base64url'),hash:hash(bytes)});
+  assert.equal((await f.call('bob','poll',{})).groups[0].messages.length,1);
+  const freshIntent={...r.intent,id:crypto.randomUUID(),previousEpoch:'3',removedOwner:'bob',removedDeviceId:f.members.bob.id};
+  await assert.rejects(f.call('alice','device-change-reserve',freshIntent),{code:'encrypted_membership_required'});
+});
+test('canonical expanded replacement authorizes only a revoked peer or own endpoint and gives no historic message grants',async t=>{
+  const f=await admittedFixture(t),target=await newMember(f,'fresh','bob'),r=await changePacket(f,'alice','bob',target);
+  await assert.rejects(f.call('alice','device-change-reserve',r.intent),{code:'encrypted_membership_required'});
+  await f.db.query(`UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1`,[f.members.bob.id]);
+  await f.call('alice','device-change-reserve',r.intent);
+  await f.call('alice','device-change-transfer',r.transfer);
+  for(const actor of ['alice','next','fresh'])await f.call(actor,'device-change-accept',r.acceptance);
+  const g=(await f.call('fresh','poll',{})).groups[0];assert.equal(g.status,'active');assert.equal(g.recipient_device,target.id);
+  assert.equal(g.roster.length,3);assert.equal(g.roster.some(m=>m.id===f.members.bob.id),false);
+  assert.equal(g.messages.length,0);assert.equal(g.receipts.length,0);
+  await assert.rejects(f.call('bob','poll',{}),{code:'encrypted_proof_rejected'});
+  await assert.rejects(f.call('alice','device-change-transfer',{...r.transfer,removedOwner:'alice'}),{code:'encrypted_device_admission_conflict'});
+});
 
 test('native device admission freezes all writers and activates only after every retained and new endpoint accepts',async t=>{
   const f=await fixture(t,{multiDeviceEnabled:true});await f.active();const next=await newMember(f,'next','alice'),a=await admissionPacket(f,next);
@@ -137,6 +194,28 @@ test('native admission rejects mutated rosters, revoked targets, competing reser
   await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[next.id]);
   await assert.rejects(f.call('alice','device-accept',a.acceptance),{code:'encrypted_access_denied'});
   assert.equal((await f.db.query('SELECT epoch FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0].epoch,'1');
+});
+
+test('historical attachment access needs an explicit native grant for the same original owner and never changes old epoch grants',async t=>{
+  const f=await fixture(t,{multiDeviceEnabled:true});await f.active();const m=privateStorage(f);
+  await m.reserve();await m.storage.put(m.context('alice','upload'),m.object,m.bytes);await f.store.completeEncryptedMediaUpload(m.context('alice','upload'),m.object);
+  await f.call('alice','send',{...f.packet,mediaId:m.object.id});
+  await f.call('bob','receipt',{id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'delivered'});
+  const next=await newMember(f,'next','alice'),a=await admissionPacket(f,next);
+  const payload={...m.object,conversationId:f.id,messageId:f.packet.id};
+  await assert.rejects(f.call('next','media-history-grant',payload),{code:'encrypted_membership_required'});
+  await f.call('alice','device-reserve',a.intent);await f.call('alice','device-transfer',a.transfer);
+  for(const name of ['alice','bob','next'])await f.call(name,'device-accept',a.acceptance);
+  await assert.rejects(m.storage.get(m.context('next','download'),m.object),{code:'private_media_access_rejected'});
+  await assert.rejects(f.call('next','media-history-grant',{...payload,messageId:crypto.randomUUID()}),{code:'private_media_access_rejected'});
+  await assert.rejects(f.call('eve','media-history-grant',payload),{code:'encrypted_membership_required'});
+  assert.deepEqual(await f.call('next','media-history-grant',payload),m.object);
+  assert.deepEqual(await f.call('next','media-history-grant',payload),m.object);
+  assert.deepEqual(await m.storage.get(m.context('next','download'),m.object),m.bytes);
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n,2);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_media_archive_grants')).rows[0].n,1);
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[next.id]);
+  await assert.rejects(m.storage.get(m.context('next','download'),m.object),{code:'encrypted_proof_rejected'});
 });
 
 test('multi-device actions remain unavailable when their production gate is disabled',async t=>{

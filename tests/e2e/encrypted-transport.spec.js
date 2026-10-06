@@ -15,7 +15,7 @@ const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypt
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
   db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-conversation-backups'])
+  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-conversation-backups','encrypted-history-pages'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   devices=createConversationCryptoDeviceStore({withTransaction:work=>db.transaction(work)});
   packages=createCryptoKeyPackageStore({withTransaction:work=>db.transaction(work)});
@@ -90,7 +90,7 @@ test.beforeAll(async()=>{
         if(await media.handle(req,res,url))return;
         if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer)){
           const body=await collectBody(req);
-          if(body.action==='device-transfer' && loseDeviceTransfer){loseDeviceTransfer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_device_transfer_reply'});return;}
+          if(['device-transfer','device-change-transfer'].includes(body.action) && loseDeviceTransfer){loseDeviceTransfer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_device_transfer_reply'});return;}
           if(body.action==='replace-reserve' && rejectReplacementReserve){rejectReplacementReserve=false;sendJson(res,409,{code:'encrypted_package_unavailable'});return;}
           if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
           if(body.action==='replace-transfer' && rejectReplacementTransfer){sendJson(res,503,{code:'fixture_transfer_unavailable'});return;}
@@ -115,7 +115,7 @@ test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await 
 async function resetStores(multidevice=false) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-conversation-backups'])
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-conversation-backups','encrypted-history-pages'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const withTransaction=work=>db.transaction(work);
   devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
@@ -135,6 +135,11 @@ test('production session admits a third approved native device and converges enc
     await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('bob',id,fp),{id:bobDevice,fp:bi.ownFingerprint});
     await bob.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:aliceDevice,fp:ai.ownFingerprint});
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    const historicFile=await alice.evaluate(()=>client.sendEncryptedMedia('bob',new File(['Historic encrypted document'],'historic.txt',{type:'text/plain'}),'Historic file'));
+    await bob.evaluate(()=>render());await alice.evaluate(()=>render());
+    const historyKit=await alice.evaluate(async()=>{
+      const session=await client.createEncryptedRecovery();try{const key=session.generateKey();return await session.backup(key);}finally{session.close();}
+    });
     await expect(sibling.evaluate(()=>start('alice'))).rejects.toThrow();
     const next=(await db.query("SELECT id,fingerprint FROM conversation_crypto_devices WHERE owner_id='alice' AND status='pending'")).rows[0];
     expect(next).toBeTruthy();
@@ -160,10 +165,15 @@ test('production session admits a third approved native device and converges enc
     await sibling.evaluate(fps=>client.verifyEncryptedConversationAdmission('bob',fps),{[aliceDevice]:ai.ownFingerprint,[bobDevice]:bi.ownFingerprint});
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
     for(const page of [alice,bob,sibling])expect((await page.evaluate(()=>client.inspectEncryptedConversation(peer))).status).toBe('active');
+    expect((await sibling.evaluate(()=>render())).some(m=>m.id===historicFile.id)).toBe(false);
+    await sibling.evaluate(async kit=>{const session=await client.createEncryptedRecovery();try{return await session.restore(kit);}finally{session.close();}},historyKit);
+    expect(await sibling.evaluate(async id=>(await client.downloadEncryptedMedia(id)).blob.text(),historicFile.id)).toBe('Historic encrypted document');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_media_archive_grants')).rows[0].n).toBe(1);
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n).toBe(2);
     const sent=await alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Three-device encrypted convergence',messageType:'text'})));
     const copy=(await sibling.evaluate(()=>render())).find(m=>m.id===sent.id);expect(copy.message).toBe('Three-device encrypted convergence');expect(copy.status).toBe('sent');
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_sync_acks')).rows[0].n).toBe(1);
-    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n).toBe(0);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts WHERE message_id=$1',[sent.id])).rows[0].n).toBe(0);
     await bob.evaluate(()=>render());for(const page of [alice,sibling])expect((await page.evaluate(()=>render())).find(m=>m.id===sent.id).status).toBe('delivered');
     await bob.bringToFront();await bob.evaluate(id=>client.markConversationRead({withUser:'alice',messageIds:[id]}),sent.id);
     for(const page of [alice,sibling])expect((await page.evaluate(()=>render())).find(m=>m.id===sent.id).status).toBe('read');
@@ -171,6 +181,27 @@ test('production session admits a third approved native device and converges enc
     const reverse=await sibling.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Sent by second native endpoint',messageType:'text'})));
     expect((await bob.evaluate(()=>render())).find(m=>m.id===reverse.id).message).toBe('Sent by second native endpoint');
     expect((await alice.evaluate(()=>render())).find(m=>m.id===reverse.id).message).toBe('Sent by second native endpoint');
+    await alice.locator('[data-chat-security]').click();
+    const remove=alice.locator('dialog form').filter({has:alice.getByRole('button',{name:'Remove chat device',exact:true})});
+    await remove.getByLabel('Manage chat device').selectOption(next.id);
+    for(const width of [390,1440]) {
+      await alice.setViewportSize({width,height:844});
+      expect(await alice.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+      await alice.screenshot({path:`test-results/encrypted-device-removal-${width}.png`});
+    }
+    loseDeviceTransfer=true;await remove.getByRole('button',{name:'Remove chat device',exact:true}).click();
+    await expect(alice.locator('dialog [role=status]')).toContainText('Waiting for every chat device');
+    await alice.getByRole('button',{name:'Close',exact:true}).click();
+    await alice.reload();await alice.evaluate(()=>start('alice'));
+    await bob.evaluate(()=>client.inspectEncryptedConversation('alice'));
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    expect((await bob.evaluate(()=>client.inspectEncryptedConversation('alice'))).status).toBe('active');
+    expect((await db.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch).toBe('3');
+    await expect(sibling.evaluate(()=>client.sendMessage({receiverId:'bob',clientMessageId:crypto.randomUUID(),message:'removed endpoint',messageType:'text'}))).rejects.toThrow();
+    await expect(sibling.evaluate(id=>client.downloadEncryptedMedia(id),historicFile.id)).rejects.toThrow();
+    const afterRemove=await alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Retained devices only',messageType:'text'})));
+    expect((await bob.evaluate(()=>render())).find(m=>m.id===afterRemove.id).message).toBe('Retained devices only');
+    expect((await sibling.evaluate(()=>render())).some(m=>m.id===afterRemove.id)).toBe(false);
     expect(JSON.stringify((await db.query('SELECT * FROM encrypted_conversation_messages')).rows)).not.toContain('Three-device encrypted convergence');
     expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
   } finally {for(const c of contexts)await c.close();multiDeviceEnabled=false;}

@@ -1637,6 +1637,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       admitEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.admitDevice(peer,deviceId,fingerprint);
       },
+      changeEncryptedConversationDevice:async(peer,removedId,replacementId,fingerprint)=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.changeDevice(peer,removedId,replacementId,fingerprint);
+      },
       verifyEncryptedConversationAdmission:async(peer,fingerprints)=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.verifyAdmission(peer,fingerprints);
       },
@@ -1754,13 +1757,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           ...(method === 'POST' ? { body: JSON.stringify(payload) } : {})
         });
       },
-      cryptoRecoveryRequest: (method, payload, context) => {
+      cryptoRecoveryRequest: (method, payload, context, page) => {
         requireFetcher();
         const active = deps.getSession?.();
         if (!active || active.username !== context?.owner || active.sessionId !== context.deviceId
           || active.token !== context.token) throw new Error("crypto_device_session_changed");
         if (!['GET', 'PUT', 'DELETE'].includes(method)) throw new Error("crypto_device_method_invalid");
-        return fetchJson(`${baseUrl}/conversations/recovery`, {
+        const suffix=page ? `/pages${method==='GET'?`?id=${encodeURIComponent(page.id)}&revision=${encodeURIComponent(page.revision)}`:''}`:'';
+        return fetchJson(`${baseUrl}/conversations/recovery${suffix}`, {
           method, headers: method === 'GET' ? authHeaders() : jsonHeaders(),
           ...(method === 'GET' ? {} : { body: JSON.stringify(payload) })
         });
@@ -19030,46 +19034,54 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const canonical=value=>JSON.stringify(value,Object.keys(value).sort());
       async function processAdmission(g) {
         const r=g.admission;if(!multiDeviceEnabled || !r)return;
-        const intent=r.intent,peer=g.creator===owner?g.recipient:g.creator,expectedFields=['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash'];
+        const change=r.kind && r.kind!=='add',prefix=change?'device-change':'device';
+        const intent=r.intent,peer=g.creator===owner?g.recipient:g.creator,expectedFields=['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash',...(change?['removedOwner','removedDeviceId']:[])];
+        const encodeTransfer=change?WingaMlsCandidate.encodeDeviceChangePayload:WingaMlsCandidate.encodeDeviceAdmissionPayload;
         if(!intent || intent.conversationId!==g.id || intent.id!==r.id || intent.previousEpoch!==r.previous_epoch
-          || intent.actorDeviceId!==r.actor_device || intent.addedDeviceId!==r.added_device || intent.addedOwner!==r.added_owner
-          || intent.packageHash!==r.package_hash || r.reservation_proof?.owner!==intent.actorOwner
+          || intent.actorDeviceId!==r.actor_device || intent.addedDeviceId!==(r.added_device||'') || intent.addedOwner!==(r.added_owner||'')
+          || intent.packageHash!==(r.package_hash||'') || (change&&(intent.removedDeviceId!==r.removed_device || intent.removedOwner!==r.removed_owner))
+          || r.reservation_proof?.owner!==intent.actorOwner
           || r.reservation_proof.actorId!==intent.actorDeviceId || canonical(r.reservation_proof.payload)!==canonical(intent))fail('mls_device_intent_rejected');
         let saved=await vault.snapshot();
         for(const p of g.packages||[])if(p.deviceId===own.id)await verifyPackage(p,own.fingerprint);
         saved=await vault.snapshot();
         // An unverified new fingerprint pauses this one chat, never silently trusts a login.
         if((g.packages||[]).some(p=>!saved.values[`mls:pin:${p.deviceId}`]))return;
-        await verifyProof(r.reservation_proof,'device-reserve',intent.actorDeviceId===own.id?native:undefined);
+        await verifyProof(r.reservation_proof,prefix+'-reserve',intent.actorDeviceId===own.id?native:undefined);
+        if(change && r.removed_status==='revoked' && saved.values[`mls:pin:${r.removed_device}`]?.status==='active') {
+          await vault.write({expectedRevision:saved.revision,values:{[`mls:pin:${r.removed_device}`]:{...saved.values[`mls:pin:${r.removed_device}`],status:'revoked'}}});
+          saved=await vault.snapshot();
+        }
         const expected=Object.fromEntries(expectedFields.map(k=>[k,intent[k]]));
         if(r.status==='reserved') {
           if(r.actor_device!==own.id)return;
           const local=saved.values[`mls:device-admission:${peer}`];
           if(!local || canonical(local)!==canonical(intent))fail('mls_device_intent_rejected');
           const pkg=g.packages.find(p=>p.hash===r.package_hash && p.deviceId===r.added_device);
-          if(!pkg)fail('encrypted_package_unavailable');
-          const transfer=saved.values[`mls:membership:${g.id}`] || await runtime.addDevice(g.id,r.previous_epoch,decode(pkg.keyPackage),
-            {owner:r.added_owner,id:r.added_device},r.id);
-          await operation('device-transfer',WingaMlsCandidate.encodeDeviceAdmissionPayload(transfer),r.id);return;
+          if(r.added_device && !pkg)fail('encrypted_package_unavailable');
+          const target=r.added_device?{owner:r.added_owner,id:r.added_device}:null;
+          const transfer=saved.values[`mls:membership:${g.id}`] || (change?await runtime.changeDevice(g.id,r.previous_epoch,r.removed_device,
+            pkg?decode(pkg.keyPackage):null,target,r.id):await runtime.addDevice(g.id,r.previous_epoch,decode(pkg.keyPackage),target,r.id));
+          await operation(prefix+'-transfer',encodeTransfer(transfer),r.id);return;
         }
         if(!r.transfer || r.transfer_hash!==await digest(new TextEncoder().encode(canonical(r.transfer)))
           || r.transfer_proof?.actorId!==r.actor_device || r.transfer_proof.owner!==intent.actorOwner
           || canonical(r.transfer_proof.payload)!==canonical(r.transfer))fail('mls_device_transfer_rejected');
-        await verifyProof(r.transfer_proof,'device-transfer',r.actor_device===own.id?native:undefined);
-        const transfer=WingaMlsCandidate.decodeDeviceAdmissionPayload(r.transfer);
+        await verifyProof(r.transfer_proof,prefix+'-transfer',r.actor_device===own.id?native:undefined);
+        const transfer=change?WingaMlsCandidate.decodeDeviceChangePayload(r.transfer):WingaMlsCandidate.decodeDeviceAdmissionPayload(r.transfer);
         if(r.actor_device===own.id) {
           const local=saved.values[`mls:membership:${g.id}`];
-          if(local && canonical(WingaMlsCandidate.encodeDeviceAdmissionPayload(local))!==canonical(r.transfer))fail('mls_device_transfer_rejected');
+          if(local && canonical(encodeTransfer(local))!==canonical(r.transfer))fail('mls_device_transfer_rejected');
           if(!local && await runtime.conversationEpoch(peer)!==r.epoch)fail('mls_device_epoch_conflict');
-        } else if(r.added_device===own.id)await runtime.acceptDeviceWelcome(peer,transfer,expected);
-        else await runtime.applyDeviceCommit(peer,transfer,expected);
+        } else if(r.added_device===own.id)await (change?runtime.acceptDeviceChangeWelcome:runtime.acceptDeviceWelcome)(peer,transfer,expected);
+        else await (change?runtime.applyDeviceChange:runtime.applyDeviceCommit)(peer,transfer,expected);
         const payload={conversationId:g.id,transferId:r.id,epoch:r.epoch,transferHash:r.transfer_hash};
-        if(r.status!=='accepted') {await operation('device-accept',payload,r.id);return;}
+        if(r.status!=='accepted') {await operation(prefix+'-accept',payload,r.id);return;}
         const required=transfer.roster.map(m=>m.id),seen=new Set();
         for(const proof of r.acceptances||[]) {
           const member=transfer.roster.find(m=>m.id===proof.actorId);
           if(!member || member.owner!==proof.owner || seen.has(proof.actorId) || canonical(proof.payload)!==canonical(payload))fail('mls_membership_confirmation_rejected');
-          await verifyProof(proof,'device-accept',proof.actorId===own.id?native:undefined);seen.add(proof.actorId);
+          await verifyProof(proof,prefix+'-accept',proof.actorId===own.id?native:undefined);seen.add(proof.actorId);
         }
         if(required.some(id=>!seen.has(id)))fail('mls_membership_confirmation_rejected');
         if(r.actor_device===own.id)await runtime.confirmMembership(g.id,r.id);
@@ -19104,7 +19116,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         catch{return {reason:'admission-unavailable'};}
         return {intent,p,pin};
       }
-      if(mediaEnabled && globalThis.WingaEncryptedMedia && typeof mediaRequest==='function')media=await WingaEncryptedMedia.createMediaClient({owner,getSession,vault,runtime,identity,operation,request:mediaRequest,onChange});
+      if(mediaEnabled && globalThis.WingaEncryptedMedia && typeof mediaRequest==='function')media=await WingaEncryptedMedia.createMediaClient({owner,getSession,vault,runtime,identity,operation,request:mediaRequest,historyRecoveryEnabled:multiDeviceEnabled,onChange});
       async function retireAbsentIntent(peer,g) {
         let saved=await vault.snapshot();const intent=saved.values[`mls:replacement:${peer}`];
         if(!intent || g?.status!=='active' || g.replacement?.status && g.replacement.status!=='accepted')return;
@@ -19140,7 +19152,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if(multiDeviceEnabled && g.status==='active' && intent && g.admission?.id!==intent.id
             && intent.previousEpoch===g.epoch && saved.values[`mls:group:${g.id}`]?.confirmed
             && !saved.values[`mls:membership:${g.id}`] && await runtime.conversationEpoch(peer)===g.epoch) {
-            const retired=await operation('device-retire',intent,intent.id);
+            const retired=await operation(intent.removedDeviceId?'device-change-retire':'device-retire',intent,intent.id);
             if(retired?.id!==intent.id || retired.status!=='retired' || retired.epoch!==intent.previousEpoch)fail('mls_device_intent_rejected');
             saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,deleted:[`mls:device-admission:${peer}`]});
             saved=await vault.snapshot();
@@ -19216,7 +19228,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           let directory;
           try {directory=await operation('directory',{peer});}catch(error){if(error.code==='encrypted_access_denied')return {status:'blocked',ownFingerprint:own.fingerprint};throw error;}
+          const changeInfo=()=>({canChange:Boolean(multiDeviceEnabled&&directory.canChange),
+            changeMembers:(directory.roster||[]).filter(m=>m.id!==own.id&&(m.owner===owner||m.status==='revoked')).map(m=>({...m,
+              canRemove:(directory.roster||[]).filter(d=>d.owner===m.owner).length>1,
+              replacements:directory.packages.filter(p=>p.owner===m.owner&&!directory.roster.some(d=>d.id===p.deviceId))}))});
           if(g?.status==='blocked') {
+            if(multiDeviceEnabled && directory.canChange && await runtime.isEncrypted(peer))return {status:'blocked',ownFingerprint:own.fingerprint,
+              group:directory.group,...changeInfo()};
             // Only the surviving selected device can start a fresh replacement of a revoked old peer.
             const stored=directory.group,selected=stored && (stored.creator===owner?stored.creator_device:stored.recipient_device);
             if(!directory.canReplace || stored?.status!=='active' || selected!==own.id || !(await runtime.isEncrypted(peer)))return {status:'blocked',ownFingerprint:own.fingerprint};
@@ -19229,7 +19247,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const local=await vault.snapshot(),intent=local.values[`mls:replacement:${peer}`];
           const canReplace=g?.status==='active' && selected===own.id && await runtime.isEncrypted(peer);
           if(multiDeviceEnabled && directory.canAdmit && await runtime.isEncrypted(peer))return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media),
-            canAdmit:true,canReplace:directory.canReplace,packages:candidates,group:g,
+            canAdmit:true,canReplace:directory.canReplace,packages:candidates,group:g,...changeInfo(),
             admissionPackages:directory.packages.filter(p=>!directory.roster.some(m=>m.id===p.deviceId))};
           if(canReplace)return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media),canReplace:directory.canReplace,packages:candidates,group:g};
           if(directory.group?.status==='active' && selected!==own.id)return {status:'rejoin-required',ownFingerprint:own.fingerprint};
@@ -19337,6 +19355,31 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           await processAdmission(g);await syncInternal();return {status:groups.find(v=>v.id===g.id)?.status||'device-pending'};
         });
       }
+      async function changeDevice(peer,removedDeviceId,replacementDeviceId=null,expectedFingerprint=null) {
+        return serialize(async()=>{
+          if(!multiDeviceEnabled)fail('encrypted_multidevice_disabled');
+          await syncInternal();const directory=await operation('directory',{peer}),g=directory.group;
+          if(!g || !directory.canChange || !await runtime.isEncrypted(peer))fail('encrypted_membership_required');
+          const removed=directory.roster.find(m=>m.id===removedDeviceId);
+          if(!removed || removed.id===own.id || !(removed.owner===owner||removed.status==='revoked'))fail('encrypted_membership_required');
+          const p=replacementDeviceId?directory.packages.find(p=>p.deviceId===replacementDeviceId&&p.owner===removed.owner):null;
+          if(replacementDeviceId && !p)fail('encrypted_package_unavailable');
+          if(p)await verifyPackage(p,expectedFingerprint);
+          let saved=await vault.snapshot(),intent=saved.values[`mls:device-admission:${peer}`];
+          if(!saved.values[`mls:pin:${removed.id}`])fail('mls_identity_verification_failed');
+          if(!intent) {
+            if(!saved.values[`mls:group:${g.id}`]?.confirmed || Object.entries(saved.values).some(([key,job])=>
+              (key.startsWith('mls:outbox:')||key.startsWith('media:pending:'))&&job.conversationId===g.id))fail('mls_pending_send_requires_retry');
+            intent={id:crypto.randomUUID(),conversationId:g.id,previousEpoch:g.epoch,actorOwner:owner,actorDeviceId:own.id,
+              removedOwner:removed.owner,removedDeviceId:removed.id,addedOwner:p?.owner||'',addedDeviceId:p?.deviceId||'',packageHash:p?.hash||''};
+            await vault.write({expectedRevision:saved.revision,values:{[`mls:device-admission:${peer}`]:intent}});
+          }
+          if(intent.removedDeviceId!==removed.id || intent.addedDeviceId!==(p?.deviceId||'') || intent.packageHash!==(p?.hash||''))fail('mls_device_intent_rejected');
+          await operation('device-change-reserve',intent,intent.id);
+          try{await syncInternal();}catch(error){if(!(error instanceof TypeError)&&error.status!==503)throw error;}
+          return {status:'device-pending'};
+        });
+      }
       async function resumeReplacement(peer) {
         return serialize(async()=>{
           await syncInternal();const g=groups.find(g=>g.creator===peer || g.recipient===peer);
@@ -19394,7 +19437,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         queueMicrotask(onChange);return messageView(result);
       }
       const service={
-        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,sync:()=>serialize(syncInternal),
+        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
           await serialize(syncInternal);
@@ -19461,7 +19504,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return value;
     }catch{return null;}
   }
-  async function createMediaClient({owner,getSession,vault,runtime,identity,operation,request,onChange=()=>{}}) {
+  async function createMediaClient({owner,getSession,vault,runtime,identity,operation,request,historyRecoveryEnabled=false,onChange=()=>{}}) {
     const codec=await WingaSecureContent.loadSecureContent(),initial={...getSession()};
     const current=()=>{const s=getSession();if(s?.username!==owner || s.token!==initial.token || s.sessionId!==initial.sessionId)fail('mls_session_changed');};
     async function list() {current();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('media:pending:')).map(([,v])=>v);}
@@ -19525,8 +19568,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function download(id) {
       current();const item=(await runtime.history()).find(v=>v.id===id),value=attachment(item);
       if(!value)fail('private_media_invalid');const {object,descriptor}=value.attachment;
-      const proof=await identity.signCryptoOperation('media-download',object);
-      const blob=await request('GET',object,proof);current();
+      let blob;
+      try {blob=await request('GET',object,await identity.signCryptoOperation('media-download',object));}
+      catch(error) {
+        current();if(!historyRecoveryEnabled || error.code!=='private_media_access_rejected')throw error;
+        const grant=await operation('media-history-grant',{...object,conversationId:item.conversationId,messageId:id});current();
+        if(JSON.stringify(grant,Object.keys(grant||{}).sort())!==JSON.stringify(object,Object.keys(object).sort()))fail('private_media_integrity_rejected');
+        blob=await request('GET',object,await identity.signCryptoOperation('media-download',object));
+      }
+      current();
       if(!(blob instanceof Blob)||blob.size!==object.bytes||await hash(await blob.arrayBuffer())!==object.sha256)fail('private_media_integrity_rejected');
       const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();
       return {...result,checkSession:current};
@@ -20050,6 +20100,30 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           const options=info.packages || [];
           const admissionOptions=info.admissionPackages||[],verificationOptions=info.verificationPackages||[];
+          if(info.canChange && info.changeMembers?.length) {
+            const form=document.createElement('form'),label=document.createElement('label');label.textContent=t('chat.encryptionChangeDevice','Manage chat device');
+            const selected=document.createElement('select');selected.setAttribute('aria-label',label.textContent);
+            for(const member of info.changeMembers){const option=document.createElement('option');option.value=member.id;option.textContent=member.owner+' / '+member.fingerprint.slice(0,16);selected.append(option);}
+            label.append(selected);form.append(label);
+            const replacementLabel=document.createElement('label');replacementLabel.textContent=t('chat.encryptionReplaceChatDevice','Replace chat device');
+            const replacement=document.createElement('select');replacement.setAttribute('aria-label',replacementLabel.textContent);replacementLabel.append(replacement);form.append(replacementLabel);
+            const fingerprintLabel=document.createElement('label');fingerprintLabel.textContent=t('chat.expectedFingerprint','Fingerprint received from your contact');
+            const input=document.createElement('input');input.pattern='[a-fA-F0-9 ]{64,95}';input.autocomplete='off';input.spellcheck=false;fingerprintLabel.append(input);form.append(fingerprintLabel);
+            const submit=document.createElement('button');submit.type='submit';submit.className='action-btn';form.append(submit);
+            const choose=()=>{const add=Boolean(replacement.value);input.required=add;input.disabled=!add;fingerprintLabel.hidden=!add;
+              submit.textContent=add?t('chat.encryptionReplaceChatDevice','Replace chat device'):t('chat.encryptionRemoveChatDevice','Remove chat device');submit.disabled=!replacement.options.length;};
+            const options=()=>{replacement.replaceChildren();const member=info.changeMembers.find(m=>m.id===selected.value);
+              if(member.canRemove){const option=document.createElement('option');option.value='';option.textContent=t('chat.encryptionRemoveChatDevice','Remove chat device');replacement.append(option);}
+              for(const p of member.replacements){const option=document.createElement('option');option.value=p.deviceId;option.textContent=p.owner+' / '+p.fingerprint.slice(0,16);replacement.append(option);}
+              input.value='';choose();};
+            selected.onchange=options;replacement.onchange=choose;options();
+            form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;selected.disabled=replacement.disabled=input.disabled=true;
+              try{await dataLayer.changeEncryptedConversationDevice(peer,selected.value,replacement.value||null,replacement.value?input.value.replace(/\s/g,'').toLowerCase():null);
+                state.textContent=t('chat.encryptionDevicePending','Waiting for every chat device to verify the new membership.');form.remove();await refresh();await update();
+              }catch(error){state.textContent=error.code==='encrypted_device_inbox_pending'?t('chat.encryptionDeviceDrain','Open this chat on its current devices before adding another device.'):
+                t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');selected.disabled=replacement.disabled=false;choose();}};
+            dialog.append(form);
+          }
           if(info.canAdmit && admissionOptions.length) {
             const form=document.createElement('form'),label=document.createElement('label');
             label.textContent=t('chat.encryptionAddDevice','Add chat device');
@@ -20140,8 +20214,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
-  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
-  const journalKind = value => value.startsWith('history:')?'history:':value.slice(0,value.indexOf(':',4)+1);
+  const journalId = value => /^(history:|recovery:page:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
+  const journalKind = value => value.startsWith('history:')?'history:':value.startsWith('recovery:page:')?'recovery:page:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) value += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
@@ -20256,7 +20330,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     async function historyPage({after,limit=100,expectedRevision,prefix='history:'}={}) {
       if((after!==undefined && (typeof after!=='string' || after.length>192)) || !Number.isInteger(limit) || limit<1 || limit>100
-        || !['history:','mls:package:'].includes(prefix))fail('crypto_vault_write_invalid');
+        || !['history:','mls:package:','recovery:page:'].includes(prefix))fail('crypto_vault_write_invalid');
       const context=current();
       const saved=await transaction(['journal','metadata'],'readonly',(tx,done,abort)=>{
         const revision=tx.objectStore('metadata').get('revision'),rows=[];let bytes=0,next;
@@ -20321,10 +20395,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const recent=await historyPage({expectedRevision:saved.revision});Object.assign(values,recent.values);
       assertCurrent(context); return { revision: saved.revision, values };
     }
-    async function write({ expectedRevision, values = {}, deleted = [] } = {}) {
+    async function write({ expectedRevision, values = {}, deleted = [], historyRestore = false } = {}) {
       if (!/^(0|[1-9][0-9]{0,15})$/.test(expectedRevision || '') || !Number.isSafeInteger(Number(expectedRevision))
         || Number(expectedRevision) >= Number.MAX_SAFE_INTEGER || !Array.isArray(deleted)
-        || !values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length + deleted.length > 2000
+        || !values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length + deleted.length > (historyRestore?100001:2000)
+        || (historyRestore && (deleted.length || Object.keys(values).some(key=>!key.startsWith('history:')&&key!=='recovery:checkpoint')))
         || [...Object.keys(values), ...deleted].some(recordId => !id(recordId))) fail('crypto_vault_write_invalid');
       // Capture the complete logical write before waiting for another tab's lock.
       try { values = structuredClone(values); deleted = [...deleted]; }
@@ -20337,7 +20412,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const bytes = pack(value), nonce = crypto.getRandomValues(new Uint8Array(12));
           try {
             if(journalId(recordId))journalBytes+=bytes.length+16;else changedBytes+=bytes.length+16;
-            if (changedBytes > 32 * 1024 * 1024 || journalBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
+            if (changedBytes > 32 * 1024 * 1024 || journalBytes > (historyRestore?128:32) * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
             records.push([recordId, { v: 1, nonce, ciphertext: new Uint8Array(await crypto.subtle.encrypt(parameters(recordId, nonce), key, bytes)) }]);
           }
           finally { bytes.fill(0); }
@@ -20429,15 +20504,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (before.token !== after.token || before.deviceId !== after.deviceId) fail('recovery_session_changed');
     };
     const historyOnly = values => Object.fromEntries(Object.entries(values).filter(([key]) => /^history:[A-Za-z0-9._:-]{1,128}$/.test(key)));
-    const retainedWindow = values => {
-      const entries=Object.entries(values).sort((a,b)=>String(b[1]?.timestamp || '').localeCompare(String(a[1]?.timestamp || '')));
-      const result={};let bytes=0;
-      for(const [key,value] of entries) {
-        const size=encoder.encode(JSON.stringify({[key]:value})).length;
-        if(Object.keys(result).length>=1999 || bytes+size>2*1024*1024)break;
-        result[key]=value;bytes+=size;
+    const archivePages = values => {
+      if(Object.keys(values).length>100000)fail('recovery_archive_limit');
+      const pages=[];let items={},bytes=encoder.encode(JSON.stringify({v:1,owner,items})).length,count=0;
+      for(const key of Object.keys(values).sort()) {
+        const size=encoder.encode(JSON.stringify({[key]:values[key]})).length+1;
+        if(size>2*1024*1024-256)fail('recovery_archive_limit');
+        if(count && (count>=1999 || bytes+size>2*1024*1024)) {
+          pages.push(items);items={};count=0;bytes=256;
+        }
+        items[key]=values[key];count++;bytes+=size;
       }
-      return result;
+      if(count || !pages.length)pages.push(items);
+      if(pages.length>64)fail('recovery_archive_limit');
+      return pages;
     };
     const localHistory = async revision => {
       const saved=await (vault.historySnapshot?vault.historySnapshot():vault.snapshot());
@@ -20450,12 +20530,55 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         || Object.keys(archive.items).length > 1999 || Object.keys(archive.items).some(key => !/^history:[A-Za-z0-9._:-]{1,128}$/.test(key))) fail('recovery_archive_invalid');
       return archive;
     };
+    const readManifest = bytes => {
+      const value=JSON.parse(decoder.decode(bytes));
+      if(value?.v!==2)return null;
+      if(Object.keys(value).sort().join(',')!=='count,owner,pages,v' || value.owner!==owner || !Array.isArray(value.pages)
+        || !value.pages.length || value.pages.length>64 || !Number.isInteger(value.count) || value.count<0 || value.count>100000
+        || value.pages.some(p=>!p || Object.keys(p).sort().join(',')!=='count,hash,id'
+          || typeof p.id!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(p.id) || typeof p.hash!=='string'||!/^[a-f0-9]{64}$/.test(p.hash)
+          || !Number.isInteger(p.count)||p.count<0||p.count>1999)
+        || new Set(value.pages.map(p=>p.id)).size!==value.pages.length
+        || value.pages.reduce((n,p)=>n+p.count,0)!==value.count)fail('recovery_archive_invalid');
+      return value;
+    };
+    async function openArchive(remote,key,session) {
+      const plaintext=await codec.openRecovery(remote.capsule,key,{owner,id:remote.capsule.id,generation:remote.capsule.generation});
+      let manifest;
+      try {manifest=readManifest(plaintext);if(!manifest)return readArchive(plaintext).items;}
+      finally {plaintext.fill(0);}
+      const items={};let bytes=0;
+      for(const page of manifest.pages) {
+        current(session);const result=await request('GET',undefined,session,{id:page.id,revision:remote.revision});current(session);
+        const actual=await checkpointFor(result?.capsule,remote.revision,crypto);
+        if(result.revision!==remote.revision || actual.owner!==owner || actual.hash!==page.hash || result.capsule.id!==page.id)fail('recovery_freshness_rejected');
+        const content=await codec.openRecovery(result.capsule,key,{owner,id:page.id,generation:Number(remote.revision)});
+        try {
+          bytes+=content.length;if(content.length>2*1024*1024 || bytes>128*1024*1024)fail('recovery_archive_limit');
+          const restored=readArchive(content).items;
+          if(Object.keys(restored).length!==page.count || Object.keys(restored).some(k=>Object.hasOwn(items,k)))fail('recovery_archive_invalid');
+          Object.assign(items,restored);
+        }finally{content.fill(0);}
+      }
+      return items;
+    }
+    async function clearStaging(local) {
+      if(!vault.historyPage)return local;
+      let after;
+      do {
+        const page=await vault.historyPage({prefix:'recovery:page:',after,expectedRevision:local.revision});
+        after=page.next;const deleted=Object.keys(page.values);
+        if(deleted.length){await vault.write({expectedRevision:local.revision,deleted});local=await vault.snapshot();}
+      }while(after);
+      return local;
+    }
     async function backup(key, { checkpoint, previousKey } = {}) {
       const session = context();
       return locks.request(`winga-recovery-operation:${owner}`, async () => {
         current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
         if (!pending) {
-          let items = retainedWindow(await localHistory(local.revision));
+          local=await clearStaging(local);
+          let items = await localHistory(local.revision);
           const remote = await request('GET', undefined, session); current(session);
           if (typeof remote?.revision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(remote.revision) || !Number.isSafeInteger(Number(remote.revision))
             || Number(remote.revision) >= Number.MAX_SAFE_INTEGER) fail('recovery_revision_invalid');
@@ -20464,25 +20587,45 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (retained && !remote.capsule) fail('recovery_freshness_rejected');
           if (remote.capsule) {
             await verifyCheckpoint(remote, checkpoint || retained, owner, crypto);
-            const bytes = await codec.openRecovery(remote.capsule, previousKey || key, {
-              owner, id: remote.capsule.id, generation: remote.capsule.generation });
-            try {
-              const prior = readArchive(bytes).items;
-              if (!Object.keys(items).length) fail('recovery_restore_required');
-              items = mergeHistory(prior,items);
-            } finally { bytes.fill(0); }
+            const prior=await openArchive(remote,previousKey || key,session);
+            if (!Object.keys(items).length) fail('recovery_restore_required');
+            items = mergeHistory(prior,items);
           }
-          items=retainedWindow(items);
-          const archive = encoder.encode(JSON.stringify({ v: 1, owner, items }));
+          const pages=archivePages(items),descriptors=[];
+          if(pages.length>1) {
+            if(!vault.lookup || !vault.historyPage)fail('recovery_paging_unavailable');
+            for(const values of pages) {
+              current(session);const bytes=encoder.encode(JSON.stringify({v:1,owner,items:values}));
+              try {
+                const capsule=await codec.sealRecovery(bytes,key,{owner,id:crypto.randomUUID(),generation:Number(remote.revision)+1});
+                const proof=await checkpointFor(capsule,String(capsule.generation),crypto);
+                descriptors.push({id:capsule.id,hash:proof.hash,count:Object.keys(values).length});
+                await vault.write({expectedRevision:local.revision,values:{['recovery:page:'+capsule.id]:capsule}});
+                local=await vault.snapshot();
+              }finally{bytes.fill(0);}
+            }
+          }
+          const archive = encoder.encode(JSON.stringify(descriptors.length?{v:2,owner,pages:descriptors,count:Object.keys(items).length}:{v:1,owner,items}));
           try {
             const capsule = await codec.sealRecovery(archive, key, { owner, id: crypto.randomUUID(), generation: Number(remote.revision) + 1 });
-            pending = { expectedRevision: remote.revision, capsule };
+            pending = { expectedRevision: remote.revision, capsule,...(descriptors.length?{pageIds:descriptors.map(p=>p.id)}:{}) };
             await vault.write({ expectedRevision: local.revision, values: { 'backup:pending': pending } });
           } finally { archive.fill(0); }
         } else {
           // A retry must prove the supplied recovery key opens the retained exact capsule.
           const bytes = await codec.openRecovery(pending.capsule, key, {
             owner, id: pending.capsule.id, generation: pending.capsule.generation }); bytes.fill(0);
+        }
+        let manifest;
+        const rootBytes=await codec.openRecovery(pending.capsule,key,{owner,id:pending.capsule.id,generation:pending.capsule.generation});
+        try{manifest=readManifest(rootBytes);}finally{rootBytes.fill(0);}
+        if(JSON.stringify(manifest?.pages.map(p=>p.id)||[])!==JSON.stringify(pending.pageIds||[]))fail('recovery_pending_conflict');
+        for(const id of pending.pageIds || []) {
+          current(session);const capsule=await vault.lookup('recovery:page:'+id);
+          if(!capsule || capsule.id!==id || capsule.generation!==Number(pending.expectedRevision)+1)fail('recovery_pending_conflict');
+          if((await checkpointFor(capsule,String(capsule.generation),crypto)).hash!==manifest.pages.find(p=>p.id===id)?.hash)fail('recovery_pending_conflict');
+          const bytes=await codec.openRecovery(capsule,key,{owner,id,generation:capsule.generation});bytes.fill(0);
+          await request('PUT',{expectedRevision:pending.expectedRevision,capsule},session,{id});current(session);
         }
         current(session);
         const result = await request('PUT', pending, session); current(session);
@@ -20491,7 +20634,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         local = await vault.snapshot();
         const retained = local.values['backup:pending'];
         if (!retained || JSON.stringify(retained) !== JSON.stringify(pending)) fail('recovery_pending_conflict');
-        await vault.write({ expectedRevision: local.revision, values: { 'recovery:checkpoint': acceptedCheckpoint }, deleted: ['backup:pending'] });
+        await vault.write({ expectedRevision: local.revision, values: { 'recovery:checkpoint': acceptedCheckpoint }, deleted: ['backup:pending',...(pending.pageIds || []).map(id=>'recovery:page:'+id)] });
         current(session); return { revision: result.revision, checkpoint: acceptedCheckpoint };
       });
     }
@@ -20504,15 +20647,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (retained && Number(checkpoint.revision) < Number(retained.revision)) fail('recovery_freshness_rejected');
         const remote = await request('GET', undefined, session); current(session);
         await verifyCheckpoint(remote, checkpoint, owner, crypto);
-        const plaintext = await codec.openRecovery(remote.capsule, key, {
-          owner, id: remote.capsule.id, generation: remote.capsule.generation });
-        let archive;
-        try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
+        const archive={items:await openArchive(remote,key,session)};
         if (local.values['backup:pending']) fail('recovery_local_history_conflict');
         const history=await localHistory(local.revision),items=mergeHistory(archive.items,
           Object.fromEntries(Object.entries(history).filter(([key])=>Object.hasOwn(archive.items,key))));
         current(session);
-        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
+        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint },historyRestore:true });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
       });
     }
@@ -20571,7 +20711,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         collection:t('chat.richCollection','Collection'),order:t('chat.richOrder','Order'),payment:t('chat.richPayment','Payment reference'),
         delivery:t('chat.richDelivery','Delivery'),location:t('chat.richLocation','Location'),contact:t('chat.richContact','Contact')};
       dialog.append(node('h3',t('chat.recovery','Encrypted history recovery')));
-      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Backups retain the latest 1,999 messages within 2 MiB; older history stays on this device. Anyone with the file can read the backup. It does not restore live chat membership.')));
+      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Anyone with the file can read the backup. History is never silently truncated; an archive exceeding 100,000 records or 64 encrypted pages is rejected. Recovery does not restore live chat membership.')));
       const status=node('p','');status.setAttribute('role','status');dialog.append(status);
       const importLabel=node('label',t('chat.recoveryImport','Recovery file')),file=document.createElement('input');file.type='file';file.accept='.json,application/json';file.dataset.recoveryFile='';importLabel.append(file);dialog.append(importLabel);
       const newKey=node('button',t('chat.recoveryCreate','Create recovery key'));newKey.type='button';newKey.className='action-btn action-btn-secondary';newKey.disabled=remote.revision!=='0';dialog.append(newKey);

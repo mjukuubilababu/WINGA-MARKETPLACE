@@ -14,8 +14,10 @@ const fixture = async () => {
   const db = new PGlite();
   await db.exec(require('./helpers/conversation-event-fixture'));
   for (const sql of migration.statements) await db.exec(sql);
+  for (const sql of require('../backend/migrations/encrypted-history-pages').statements) await db.exec(sql);
   await db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
   await db.query('INSERT INTO schema_migrations VALUES($1)', [migration.id]);
+  await db.query('INSERT INTO schema_migrations VALUES($1)', ['2026100608_encrypted_history_pages']);
   const codec = await createSecureContent();
   const key = codec.generateRecoveryKey();
   const seal = (generation = 1, owner = 'bob', text = 'private history') => codec.sealRecovery(
@@ -81,6 +83,60 @@ test('stale writes cannot overwrite or resurrect a deleted backup', async () => 
     assert.equal(next.revision, '3');
     await assert.rejects(f.store.writeEncryptedConversationBackup(context('alice', 'a'), { expectedRevision: '0', capsule: await f.seal() }), error => error.status === 400);
   } finally { await f.db.close(); }
+});
+
+test('paged roots publish only complete owner-bound pages and retry exactly across stores',async()=>{
+  const f=await fixture();
+  try {
+    const page=await f.codec.sealRecovery(new TextEncoder().encode('private archive page'),f.key,{owner:'bob',id:'page-1',generation:1});
+    const root={expectedRevision:'0',capsule:await f.seal(),pageIds:[page.id]};
+    await assert.rejects(f.store.writeEncryptedConversationBackup(context(),root),{code:'backup_pages_incomplete'});
+    assert.equal((await f.store.readEncryptedConversationBackup(context())).revision,'0');
+    await assert.rejects(f.store.writeEncryptedHistoryPage(context('alice','a'),{expectedRevision:'0',capsule:page}),{code:'invalid_encrypted_backup'});
+    await f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule:page});
+    await assert.rejects(f.store.readEncryptedHistoryPage(context(),{id:page.id,revision:'0'}),{code:'backup_page_unavailable'});
+    const accepted=await f.store.writeEncryptedConversationBackup(context(),root);
+    const other=createEncryptedConversationBackupStore({withTransaction:work=>f.db.transaction(work)});
+    assert.deepEqual(await other.writeEncryptedConversationBackup(context('bob','b2'),root),accepted);
+    assert.deepEqual((await other.readEncryptedHistoryPage(context('bob','b2'),{id:page.id,revision:'1'})).capsule,page);
+    assert.deepEqual(await other.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule:page}),{version:1,id:page.id});
+    for(const pageIds of [null,[page.id,page.id],['missing']])await assert.rejects(other.writeEncryptedConversationBackup(context(),{...root,pageIds}));
+    const changed=await f.codec.sealRecovery(new Uint8Array([9]),f.key,{owner:'bob',id:'page-1',generation:1});
+    await assert.rejects(other.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule:changed}),{code:'backup_page_conflict'});
+    await assert.rejects(other.readEncryptedHistoryPage(context('alice','a'),{id:page.id,revision:'1'}),{code:'backup_revision_conflict'});
+    const stored=JSON.stringify((await f.db.query('SELECT capsule FROM encrypted_conversation_backup_pages')).rows);
+    assert.equal(stored.includes('private archive page'),false);assert.equal(stored.includes(f.key),false);
+    await other.deleteEncryptedConversationBackup(context(),{expectedRevision:'1'});
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_backup_pages')).rows[0].n,0);
+    await assert.rejects(other.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule:page}),{code:'backup_revision_conflict'});
+  }finally{await f.db.close();}
+});
+
+test('archive page staging is bounded and revoked sessions cannot publish or retrieve it',async()=>{
+  const f=await fixture();
+  try {
+    for(let n=0;n<64;n++) {
+      const capsule=await f.codec.sealRecovery(new Uint8Array([n]),f.key,{owner:'bob',id:'p-'+n,generation:1});
+      await f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule});
+    }
+    const capsule=await f.codec.sealRecovery(new Uint8Array([1]),f.key,{owner:'bob',id:'too-many',generation:1});
+    await assert.rejects(f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule}),{code:'backup_page_limit'});
+    await f.db.exec("UPDATE sessions SET expires_at=0 WHERE session_id='b1'");
+    await assert.rejects(f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule}),{code:'backup_unauthorized'});
+    await assert.rejects(f.store.readEncryptedHistoryPage(context(),{id:'p-0',revision:'0'}),{code:'backup_unauthorized'});
+    assert.equal((await f.store.readEncryptedConversationBackup(context('bob','b2'))).revision,'0');
+  }finally{await f.db.close();}
+});
+
+test('deleting an unpublished paged archive tombstones its revision and blocks delayed publication',async()=>{
+  const f=await fixture();try{
+    const capsule=await f.codec.sealRecovery(new Uint8Array([1]),f.key,{owner:'bob',id:'unpublished',generation:1});
+    await f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule});
+    assert.deepEqual(await f.store.deleteEncryptedConversationBackup(context(),{expectedRevision:'0'}),{version:1,revision:'1',capsule:null});
+    await assert.rejects(f.store.writeEncryptedHistoryPage(context(),{expectedRevision:'0',capsule}),{code:'backup_revision_conflict'});
+    await assert.rejects(f.store.writeEncryptedConversationBackup(context(),{expectedRevision:'0',capsule:await f.seal(),pageIds:[capsule.id]}),{code:'backup_revision_conflict'});
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_backup_pages')).rows[0].n,0);
+  }finally{await f.db.close();}
 });
 
 test('expired, revoked, cross-owner sessions and suspended users cannot read or mutate backups', async () => {

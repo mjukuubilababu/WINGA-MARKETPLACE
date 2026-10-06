@@ -48,6 +48,30 @@
           }
           const options=info.packages || [];
           const admissionOptions=info.admissionPackages||[],verificationOptions=info.verificationPackages||[];
+          if(info.canChange && info.changeMembers?.length) {
+            const form=document.createElement('form'),label=document.createElement('label');label.textContent=t('chat.encryptionChangeDevice','Manage chat device');
+            const selected=document.createElement('select');selected.setAttribute('aria-label',label.textContent);
+            for(const member of info.changeMembers){const option=document.createElement('option');option.value=member.id;option.textContent=member.owner+' / '+member.fingerprint.slice(0,16);selected.append(option);}
+            label.append(selected);form.append(label);
+            const replacementLabel=document.createElement('label');replacementLabel.textContent=t('chat.encryptionReplaceChatDevice','Replace chat device');
+            const replacement=document.createElement('select');replacement.setAttribute('aria-label',replacementLabel.textContent);replacementLabel.append(replacement);form.append(replacementLabel);
+            const fingerprintLabel=document.createElement('label');fingerprintLabel.textContent=t('chat.expectedFingerprint','Fingerprint received from your contact');
+            const input=document.createElement('input');input.pattern='[a-fA-F0-9 ]{64,95}';input.autocomplete='off';input.spellcheck=false;fingerprintLabel.append(input);form.append(fingerprintLabel);
+            const submit=document.createElement('button');submit.type='submit';submit.className='action-btn';form.append(submit);
+            const choose=()=>{const add=Boolean(replacement.value);input.required=add;input.disabled=!add;fingerprintLabel.hidden=!add;
+              submit.textContent=add?t('chat.encryptionReplaceChatDevice','Replace chat device'):t('chat.encryptionRemoveChatDevice','Remove chat device');submit.disabled=!replacement.options.length;};
+            const options=()=>{replacement.replaceChildren();const member=info.changeMembers.find(m=>m.id===selected.value);
+              if(member.canRemove){const option=document.createElement('option');option.value='';option.textContent=t('chat.encryptionRemoveChatDevice','Remove chat device');replacement.append(option);}
+              for(const p of member.replacements){const option=document.createElement('option');option.value=p.deviceId;option.textContent=p.owner+' / '+p.fingerprint.slice(0,16);replacement.append(option);}
+              input.value='';choose();};
+            selected.onchange=options;replacement.onchange=choose;options();
+            form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;selected.disabled=replacement.disabled=input.disabled=true;
+              try{await dataLayer.changeEncryptedConversationDevice(peer,selected.value,replacement.value||null,replacement.value?input.value.replace(/\s/g,'').toLowerCase():null);
+                state.textContent=t('chat.encryptionDevicePending','Waiting for every chat device to verify the new membership.');form.remove();await refresh();await update();
+              }catch(error){state.textContent=error.code==='encrypted_device_inbox_pending'?t('chat.encryptionDeviceDrain','Open this chat on its current devices before adding another device.'):
+                t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');selected.disabled=replacement.disabled=false;choose();}};
+            dialog.append(form);
+          }
           if(info.canAdmit && admissionOptions.length) {
             const form=document.createElement('form'),label=document.createElement('label');
             label.textContent=t('chat.encryptionAddDevice','Add chat device');

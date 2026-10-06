@@ -18,7 +18,7 @@
       return value;
     }catch{return null;}
   }
-  async function createMediaClient({owner,getSession,vault,runtime,identity,operation,request,onChange=()=>{}}) {
+  async function createMediaClient({owner,getSession,vault,runtime,identity,operation,request,historyRecoveryEnabled=false,onChange=()=>{}}) {
     const codec=await WingaSecureContent.loadSecureContent(),initial={...getSession()};
     const current=()=>{const s=getSession();if(s?.username!==owner || s.token!==initial.token || s.sessionId!==initial.sessionId)fail('mls_session_changed');};
     async function list() {current();return Object.entries((await vault.snapshot()).values).filter(([k])=>k.startsWith('media:pending:')).map(([,v])=>v);}
@@ -82,8 +82,15 @@
     async function download(id) {
       current();const item=(await runtime.history()).find(v=>v.id===id),value=attachment(item);
       if(!value)fail('private_media_invalid');const {object,descriptor}=value.attachment;
-      const proof=await identity.signCryptoOperation('media-download',object);
-      const blob=await request('GET',object,proof);current();
+      let blob;
+      try {blob=await request('GET',object,await identity.signCryptoOperation('media-download',object));}
+      catch(error) {
+        current();if(!historyRecoveryEnabled || error.code!=='private_media_access_rejected')throw error;
+        const grant=await operation('media-history-grant',{...object,conversationId:item.conversationId,messageId:id});current();
+        if(JSON.stringify(grant,Object.keys(grant||{}).sort())!==JSON.stringify(object,Object.keys(object).sort()))fail('private_media_integrity_rejected');
+        blob=await request('GET',object,await identity.signCryptoOperation('media-download',object));
+      }
+      current();
       if(!(blob instanceof Blob)||blob.size!==object.bytes||await hash(await blob.arrayBuffer())!==object.sha256)fail('private_media_integrity_rejected');
       const result=await codec.decryptMedia(blob,descriptor,{conversationId:item.conversationId,attachmentId:object.id});current();
       return {...result,checkSession:current};

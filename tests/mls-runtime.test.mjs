@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { randomUUID, createHash, webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { createMlsRuntime, inspectBoundKeyPackage, encodeDeviceAdmissionPayload, decodeDeviceAdmissionPayload } from '../src/chat/mls-runtime.mjs';
+import { createMlsRuntime, inspectBoundKeyPackage, encodeDeviceAdmissionPayload, decodeDeviceAdmissionPayload,
+  encodeDeviceChangePayload, decodeDeviceChangePayload } from '../src/chat/mls-runtime.mjs';
 import { verifyBoundKeyPackage } from '../backend/conversation-mls-protocol.mjs';
 import { operationBytes } from '../backend/encrypted-conversations.js';
 import { decodeGroupState, decodeMlsMessage, processPrivateMessage, emptyPskIndex, getCiphersuiteFromName, getCiphersuiteImpl,
@@ -83,6 +84,46 @@ async function admitSibling(fixture) {
   await alice.runtime.confirmMembership(id, transfer.id);
   return transfer;
 }
+
+const changeIntent=transfer=>Object.fromEntries(['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash','removedOwner','removedDeviceId']
+  .map(key=>[key,transfer[key]]));
+test('native Remove rotates a three-device direct group to two leaves, preserves retries and excludes removed future decryption',async()=>{
+  const f=await deviceFixture(),{alice,bob,next,id}=f;await admitSibling(f);
+  const transfer=await alice.runtime.changeDevice(id,'2',next.device.id),expected=changeIntent(transfer);
+  assert.equal(transfer.epoch,'3');assert.equal(transfer.roster.length,2);assert.equal(transfer.welcome.length,0);
+  const payload=encodeDeviceChangePayload(transfer);assert.deepEqual(decodeDeviceChangePayload(payload),transfer);
+  await assert.rejects(alice.runtime.sendMessage(message('frozen')),{code:'mls_membership_pending'});
+  await assert.rejects(bob.runtime.applyDeviceChange('alice',transfer,{...expected,removedOwner:'bob'}),{code:'mls_device_intent_rejected'});
+  await assert.rejects(next.runtime.applyDeviceChange('bob',transfer,expected),{code:'mls_peer_invalid'});
+  bob.vault.rejectNext=true;const before=await bob.vault.snapshot();
+  await assert.rejects(bob.runtime.applyDeviceChange('alice',transfer,expected),{code:'storage_aborted'});assert.deepEqual(await bob.vault.snapshot(),before);
+  await bob.runtime.applyDeviceChange('alice',transfer,expected);const accepted=await bob.vault.snapshot();
+  await bob.runtime.applyDeviceChange('alice',transfer,expected);assert.deepEqual(await bob.vault.snapshot(),accepted);
+  await assert.rejects(bob.runtime.applyDeviceChange('alice',{...transfer,tree:transfer.tree.slice(0,-1)},expected),{code:'mls_replay_conflict'});
+  await alice.runtime.confirmMembership(id,transfer.id);await alice.runtime.sendMessage(message('only retained devices'));
+  assert.equal((await bob.runtime.receive('alice',alice.packets.at(-1))).message,'only retained devices');
+  await assert.rejects(next.runtime.receive('bob',alice.packets.at(-1)),{code:'mls_envelope_binding_rejected'});
+  await assert.rejects(alice.runtime.changeDevice(id,'3',bob.device.id),{code:'mls_device_intent_rejected'});
+  await assert.rejects(alice.runtime.changeDevice(id,'3',alice.device.id),{code:'mls_device_intent_rejected'});
+});
+test('native expanded replacement retires a revoked last peer leaf with one verified Remove+Add and a fresh Welcome',async()=>{
+  const f=await deviceFixture(),{alice,bob,next,id}=f;await admitSibling(f);const fresh=await participant('bob',{multiDevice:true});
+  for(const retained of [alice,next]) {
+    retained.pins.find(p=>p.id===bob.device.id).status='revoked';retained.pins.push({...fresh.device,status:'active'});
+    fresh.pins.push({...retained.device,status:'active'});
+  }
+  const transfer=await alice.runtime.changeDevice(id,'2',bob.device.id,fresh.device.keyPackage,{owner:'bob',id:fresh.device.id}),expected=changeIntent(transfer);
+  assert.equal(transfer.roster.length,3);assert.equal(transfer.removedOwner,'bob');assert.equal(transfer.addedOwner,'bob');
+  await next.runtime.applyDeviceChange('bob',transfer,expected);
+  await fresh.runtime.acceptDeviceChangeWelcome('alice',decodeDeviceChangePayload(encodeDeviceChangePayload(transfer)),expected);
+  await alice.runtime.confirmMembership(id,transfer.id);
+  await alice.runtime.sendMessage(message('replacement protected'));
+  for(const p of [next,fresh])assert.equal((await p.runtime.receive(p.identity.owner==='alice'?'bob':'alice',alice.packets.at(-1))).message,'replacement protected');
+  await assert.rejects(bob.runtime.receive('alice',alice.packets.at(-1)),{code:'mls_envelope_binding_rejected'});
+  await fresh.runtime.sendMessage({...message('new peer'),receiverId:'alice'});
+  assert.equal((await alice.runtime.receive('bob',fresh.packets.at(-1))).message,'new peer');
+  assert.equal((await next.runtime.receive('bob',fresh.packets.at(-1))).message,'new peer');
+});
 
 test('candidate native three-device admission converges future history in both send directions without granting old keys', async () => {
   const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;

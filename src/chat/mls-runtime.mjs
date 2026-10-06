@@ -35,6 +35,7 @@ const contentBytes = value => encoder.encode(JSON.stringify(['winga-mls-content'
   value.id, value.conversationId, value.epoch, value.owner, value.deviceId, value.peer, value.message]));
 const deviceTransferFields = ['actorDeviceId','actorOwner','addedDeviceId','addedOwner','commit','conversationId','epoch','id',
   'packageHash','previousEpoch','roster','tree','version','welcome'];
+const deviceChangeFields = [...deviceTransferFields,'removedDeviceId','removedOwner'].sort();
 const encodeBase64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // Native transport v1 canonicalizes flat payload keys. Keep the entire roster
@@ -67,6 +68,34 @@ export function decodeDeviceAdmissionPayload(payload) {
   need(Array.isArray(transfer.roster) && transfer.roster.length >= 3 && transfer.roster.length <= 8
     && JSON.stringify(transfer.roster) === payload.roster, 'mls_device_roster_rejected');
   return transfer;
+}
+
+export function encodeDeviceChangePayload(transfer) {
+  need(transfer?.version===3 && Object.keys(transfer).sort().join(',')===deviceChangeFields.join(','),'mls_device_transfer_rejected');
+  const payload=structuredClone(transfer);
+  for(const key of ['commit','welcome','tree']) {
+    need(payload[key] instanceof Uint8Array && payload[key].length<=65536
+      && (payload[key].length>0 || key==='welcome' && payload.addedDeviceId===''),'mls_wire_rejected');
+    payload[key]=encodeBase64(payload[key]);
+  }
+  need(Array.isArray(payload.roster) && payload.roster.length>=2 && payload.roster.length<=8,'mls_device_roster_rejected');
+  payload.roster=JSON.stringify(payload.roster);
+  need(payload.roster.length<=8192 && encoder.encode(JSON.stringify(payload)).length<=262144,'mls_wire_rejected');return payload;
+}
+export function decodeDeviceChangePayload(payload) {
+  need(payload?.version===3 && Object.keys(payload).sort().join(',')===deviceChangeFields.join(',')
+    && typeof payload.roster==='string' && payload.roster.length<=8192
+    && encoder.encode(JSON.stringify(payload)).length<=262144,'mls_device_transfer_rejected');
+  const transfer=structuredClone(payload);
+  for(const key of ['commit','welcome','tree']) {
+    const text=transfer[key];need(typeof text==='string' && text.length<=87382
+      && (/^[A-Za-z0-9_-]+$/.test(text) || text==='' && key==='welcome' && payload.addedDeviceId===''),'mls_wire_rejected');
+    try{transfer[key]=Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),b=>b.charCodeAt(0));}catch{fail('mls_wire_rejected');}
+    need(transfer[key].length<=65536 && encodeBase64(transfer[key])===text,'mls_wire_rejected');
+  }
+  try{transfer.roster=JSON.parse(transfer.roster);}catch{fail('mls_device_roster_rejected');}
+  need(Array.isArray(transfer.roster) && transfer.roster.length>=2 && transfer.roster.length<=8
+    && JSON.stringify(transfer.roster)===payload.roster,'mls_device_roster_rejected');return transfer;
 }
 
 export async function inspectBoundKeyPackage(bytes,identity,now=Date.now()) {
@@ -151,7 +180,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const pin = records.get(`${tuple[2]}/${tuple[3]}`);
       // Only replacement may load the exact previously pinned, revoked peer leaf.
       // The MLS auth service still rejects revoked credentials in the new tree.
-      const retiring = retiringDeviceId && tuple[3] === retiringDeviceId && tuple[2] === row.peer
+      const retiring = retiringDeviceId && tuple[3] === retiringDeviceId && [owner,row.peer].includes(tuple[2])
         && pin?.status === 'revoked' && equal(node.leaf.credential.identity, credential(pin).identity)
         && equal(node.leaf.signaturePublicKey, pin.signaturePublicKey);
       need(retiring || await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
@@ -251,8 +280,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     need(!Object.entries(saved.values).some(([key, job]) => (key.startsWith('mls:outbox:') || key.startsWith('media:pending:'))
       && job.conversationId === id), 'mls_pending_send_requires_retry');
   }
-  function validRoster(entries, peer) {
-    need(Array.isArray(entries) && entries.length >= 3 && entries.length <= 8, 'mls_device_roster_rejected');
+  function validRoster(entries, peer, minimum=3) {
+    need(Array.isArray(entries) && entries.length >= minimum && entries.length <= 8, 'mls_device_roster_rejected');
     const seen = new Set(), keys = new Set(), counts = new Map();
     for (const entry of entries) {
       need(entry && Object.keys(entry).sort().join(',') === 'fingerprint,id,key,owner'
@@ -369,6 +398,108 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     need(expected && typeof expected === 'object', 'mls_device_intent_rejected');
     return acceptWelcome(peer, transfer, undefined, expected);
   }
+  async function deviceChangeTransfer(transfer,expected,peer) {
+    need(multiDevice,'mls_multidevice_disabled');
+    const fields=['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash','removedOwner','removedDeviceId'];
+    need(transfer?.version===3 && Object.keys(transfer).sort().join(',')===deviceChangeFields.join(',')
+      && expected && Object.keys(expected).sort().join(',')===[...fields].sort().join(',')
+      && fields.every(k=>expected[k]===transfer[k]) && uuid(transfer.id) && uuid(transfer.conversationId)
+      && uuid(transfer.actorDeviceId) && uuid(transfer.removedDeviceId) && transfer.actorDeviceId!==transfer.removedDeviceId
+      && [owner,peer].includes(transfer.actorOwner) && [owner,peer].includes(transfer.removedOwner)
+      && typeof transfer.previousEpoch==='string' && /^[1-9][0-9]{0,19}$/.test(transfer.previousEpoch)
+      && typeof transfer.epoch==='string' && /^[1-9][0-9]{0,19}$/.test(transfer.epoch)
+      && BigInt(transfer.epoch)===BigInt(transfer.previousEpoch)+1n,'mls_device_intent_rejected');
+    const add=transfer.addedDeviceId!=='';
+    need(add ? uuid(transfer.addedDeviceId) && transfer.addedOwner===transfer.removedOwner
+      && transfer.addedDeviceId!==transfer.removedDeviceId && /^[a-f0-9]{64}$/.test(transfer.packageHash)
+      : transfer.addedOwner==='' && transfer.packageHash==='' && transfer.welcome instanceof Uint8Array && transfer.welcome.length===0,
+      'mls_device_intent_rejected');
+    for(const key of ['commit','tree','welcome'])need(transfer[key] instanceof Uint8Array && transfer[key].length<=65536
+      && (transfer[key].length>0 || key==='welcome'&&!add),'mls_wire_rejected');
+    validRoster(transfer.roster,peer,2);
+    need(!transfer.roster.some(m=>m.id===transfer.removedDeviceId),'mls_device_roster_rejected');
+    return hash(encoder.encode(JSON.stringify(['winga-mls-device-change',3,transfer.conversationId,
+      ...fields.map(k=>transfer[k]),transfer.epoch,transfer.roster,await hash(transfer.commit),await hash(transfer.welcome),await hash(transfer.tree)])));
+  }
+  async function changeDevice(conversationId,expectedEpoch,removedDeviceId,packageBytes=null,target=null,operationId=crypto.randomUUID()) {
+    need(multiDevice,'mls_multidevice_disabled');
+    need(uuid(conversationId) && uuid(removedDeviceId) && uuid(operationId) && typeof expectedEpoch==='string'
+      && /^[1-9][0-9]{0,19}$/.test(expectedEpoch),'mls_device_intent_rejected');
+    need(target===null ? packageBytes===null : target && Object.keys(target).sort().join(',')==='id,owner'
+      && uuid(target.id) && ownerId(target.owner) && packageBytes instanceof Uint8Array && packageBytes.length<=8192,'mls_device_intent_rejected');
+    packageBytes=packageBytes?.slice();target=structuredClone(target);
+    return locked(async()=>{
+      const saved=await vault.snapshot(),group=await state(saved,conversationId,removedDeviceId),own=saved.values['mls:identity'];
+      need(group.row.confirmed && !saved.values[`mls:membership:${conversationId}`],'mls_membership_pending');
+      need(String(group.value.groupContext.epoch)===expectedEpoch,'mls_device_epoch_conflict');noPendingSend(saved,conversationId);
+      const before=roster(group.value),removed=before.find(m=>m.id===removedDeviceId),pin=removed&&group.records.get(`${removed.owner}/${removed.id}`);
+      need(removed && removed.id!==own.id && (removed.owner===owner || pin?.status==='revoked'),'mls_device_intent_rejected');
+      const index=group.value.ratchetTree.findIndex(n=>n?.nodeType==='leaf' && equal(n.leaf.credential.identity,credential(removed).identity));
+      const proposals=[{proposalType:'remove',remove:{removed:index/2}}],after=before.filter(m=>m.id!==removedDeviceId);
+      if(target) {
+        const fresh=group.records.get(`${target.owner}/${target.id}`);
+        need(target.owner===removed.owner && fresh?.status==='active' && !before.some(m=>m.id===target.id),'mls_untrusted_package');
+        await inspectBoundKeyPackage(packageBytes,fresh,now());const kp=exact(decodeMlsMessage,packageBytes).keyPackage;
+        need(equal(kp.leafNode.signaturePublicKey,fresh.signaturePublicKey),'mls_untrusted_package');
+        proposals.push({proposalType:'add',add:{keyPackage:kp}});after.push({owner:target.owner,id:target.id,fingerprint:fresh.fingerprint,key:Array.from(fresh.signaturePublicKey)});
+      }
+      after.sort((a,b)=>`${a.owner}/${a.id}`<`${b.owner}/${b.id}`?-1:1);validRoster(after,group.row.peer,2);
+      const changed=await createCommit({state:group.value,cipherSuite:suite},{extraProposals:proposals});
+      try {
+        need(changed.newState.groupContext.epoch===group.value.groupContext.epoch+1n
+          && JSON.stringify(roster(changed.newState))===JSON.stringify(after),'mls_device_roster_rejected');
+        const transfer={version:3,id:operationId,conversationId,previousEpoch:expectedEpoch,epoch:String(changed.newState.groupContext.epoch),
+          actorOwner:owner,actorDeviceId:own.id,removedOwner:removed.owner,removedDeviceId,addedOwner:target?.owner||'',addedDeviceId:target?.id||'',
+          packageHash:target?await hash(packageBytes):'',roster:after,commit:encodeMlsMessage(changed.commit),tree:encodeRatchetTree(changed.newState.ratchetTree),
+          welcome:target?encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:changed.welcome}):new Uint8Array()};
+        await put(saved,{[`mls:group:${conversationId}`]:{...group.row,multiDevice:true,bytes:encodeGroupState(changed.newState),confirmed:false},
+          [`mls:membership:${conversationId}`]:transfer});return structuredClone(transfer);
+      }finally{wipe(changed);}
+    });
+  }
+  async function applyDeviceChange(peer,transfer,expected) {
+    transfer=structuredClone(transfer);expected=structuredClone(expected);
+    return locked(async()=>{
+      need(ownerId(peer)&&peer!==owner,'mls_peer_invalid');const digest=await deviceChangeTransfer(transfer,expected,peer);
+      const saved=await vault.snapshot(),id=transfer.conversationId,own=saved.values['mls:identity'];
+      need(saved.values[`mls:route:${peer}`]?.conversationId===id && own.id!==transfer.removedDeviceId,'mls_peer_invalid');
+      const prior=await record(saved,`mls:device-transition:${transfer.id}`);if(prior){need(prior===digest,'mls_replay_conflict');return id;}
+      const group=await state(saved,id,transfer.removedDeviceId),before=roster(group.value),removed=before.find(m=>m.id===transfer.removedDeviceId);
+      need(group.row.confirmed && !saved.values[`mls:membership:${id}`],'mls_membership_pending');
+      need(String(group.value.groupContext.epoch)===transfer.previousEpoch,'mls_device_epoch_conflict');noPendingSend(saved,id);
+      need(removed?.owner===transfer.removedOwner && before.some(m=>m.id===transfer.actorDeviceId && m.owner===transfer.actorOwner)
+        && (removed.owner===transfer.actorOwner || group.records.get(`${removed.owner}/${removed.id}`)?.status==='revoked'),'mls_device_intent_rejected');
+      const after=before.filter(m=>m.id!==removed.id),add=transfer.addedDeviceId!=='';
+      const pin=add&&group.records.get(`${transfer.addedOwner}/${transfer.addedDeviceId}`);
+      if(add){need(pin?.status==='active' && !before.some(m=>m.id===pin.id),'mls_untrusted_package');after.push({owner:pin.owner,id:pin.id,fingerprint:pin.fingerprint,key:Array.from(pin.signaturePublicKey)});}
+      after.sort((a,b)=>`${a.owner}/${a.id}`<`${b.owner}/${b.id}`?-1:1);
+      need(JSON.stringify(after)===JSON.stringify(transfer.roster),'mls_device_roster_rejected');
+      const index=group.value.ratchetTree.findIndex(n=>n?.nodeType==='leaf' && equal(n.leaf.credential.identity,credential(removed).identity))/2;
+      const parsed=exact(decodeMlsMessage,transfer.commit);
+      need(parsed.wireformat==='mls_private_message' && parsed.privateMessage.contentType==='commit'
+        && decoder.decode(parsed.privateMessage.groupId)===id && String(parsed.privateMessage.epoch)===transfer.previousEpoch,'mls_device_transfer_rejected');
+      let changed,addition;
+      try {
+        changed=await processPrivateMessage(group.value,parsed.privateMessage,emptyPskIndex,suite,event=>{
+          const actor=event.kind==='commit' && group.value.ratchetTree[event.senderLeafIndex*2],who=actor?.nodeType==='leaf'&&JSON.parse(decoder.decode(actor.leaf.credential.identity));
+          const proposals=event.kind==='commit'&&event.proposals.map(p=>p.proposal),removals=proposals&&proposals.filter(p=>p.proposalType==='remove');
+          addition=proposals&&proposals.find(p=>p.proposalType==='add');
+          return who?.[2]===transfer.actorOwner && who[3]===transfer.actorDeviceId && proposals.length===(add?2:1)
+            && removals.length===1 && removals[0].remove.removed===index && (add?addition
+              && equal(addition.add.keyPackage.leafNode.credential.identity,credential(pin).identity)
+              && equal(addition.add.keyPackage.leafNode.signaturePublicKey,pin.signaturePublicKey):!addition)?'accept':'reject';
+        });
+        need(changed.kind==='newState' && changed.actionTaken==='accept' && (!add||addition
+          && await hash(encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:addition.add.keyPackage}))===transfer.packageHash)
+          && String(changed.newState.groupContext.epoch)===transfer.epoch && JSON.stringify(roster(changed.newState))===JSON.stringify(transfer.roster)
+          && equal(encodeRatchetTree(changed.newState.ratchetTree),transfer.tree),'mls_device_transfer_rejected');
+        await put(saved,{[`mls:group:${id}`]:{...group.row,multiDevice:true,bytes:encodeGroupState(changed.newState)},[`mls:device-transition:${transfer.id}`]:digest});return id;
+      }finally{wipe(changed);}
+    });
+  }
+  async function acceptDeviceChangeWelcome(peer,transfer,expected) {
+    need(transfer?.version===3 && uuid(transfer.addedDeviceId),'mls_device_intent_rejected');return acceptWelcome(peer,transfer,undefined,expected);
+  }
   async function replacePeer(conversationId, removedDeviceId, expectedEpoch, packageBytes, operationId = crypto.randomUUID()) {
     need(uuid(conversationId) && uuid(removedDeviceId) && uuid(operationId) && typeof expectedEpoch === 'string'
       && /^[1-9][0-9]*$/.test(expectedEpoch) && expectedEpoch.length <= 20
@@ -427,7 +558,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const saved = await vault.snapshot(); let identity = saved.values['mls:identity']; need(identity, 'mls_identity_required');
       const previous = saved.values[`mls:group:${id}`];
       const deviceAdmission = deviceExpected !== undefined;
-      const transferHash = deviceAdmission ? await deviceTransfer(transfer, deviceExpected, peer)
+      const transferHash = deviceAdmission ? (transfer.version===3?await deviceChangeTransfer(transfer,deviceExpected,peer):await deviceTransfer(transfer, deviceExpected, peer))
         : await hash(encoder.encode(JSON.stringify(['winga-mls-welcome',1,id,transfer.id,transfer.epoch,transfer.packageHash,
           Array.from(transfer.commit),Array.from(transfer.welcome),Array.from(transfer.tree)])));
       if (previous?.acceptedTransfer === transfer.id && previous.peer === peer) {
@@ -619,6 +750,6 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     current();return String(parsed[0].groupContext.epoch);
   }
   return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
-    retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,
+    retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,changeDevice,applyDeviceChange,acceptDeviceChangeWelcome,
     close() { closed = true; } };
 }

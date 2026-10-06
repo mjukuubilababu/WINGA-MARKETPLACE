@@ -45,7 +45,7 @@
         collection:t('chat.richCollection','Collection'),order:t('chat.richOrder','Order'),payment:t('chat.richPayment','Payment reference'),
         delivery:t('chat.richDelivery','Delivery'),location:t('chat.richLocation','Location'),contact:t('chat.richContact','Contact')};
       dialog.append(node('h3',t('chat.recovery','Encrypted history recovery')));
-      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Backups retain the latest 1,999 messages within 2 MiB; older history stays on this device. Anyone with the file can read the backup. It does not restore live chat membership.')));
+      dialog.append(node('p',t('chat.recoveryNotice','Keep the recovery file outside Winga. Anyone with the file can read the backup. History is never silently truncated; an archive exceeding 100,000 records or 64 encrypted pages is rejected. Recovery does not restore live chat membership.')));
       const status=node('p','');status.setAttribute('role','status');dialog.append(status);
       const importLabel=node('label',t('chat.recoveryImport','Recovery file')),file=document.createElement('input');file.type='file';file.accept='.json,application/json';file.dataset.recoveryFile='';importLabel.append(file);dialog.append(importLabel);
       const newKey=node('button',t('chat.recoveryCreate','Create recovery key'));newKey.type='button';newKey.className='action-btn action-btn-secondary';newKey.disabled=remote.revision!=='0';dialog.append(newKey);

@@ -359,6 +359,12 @@ No new independent cryptographic approval or production media exercise is implie
 
 ## Shopping Rooms: 171-189
 
+Latest local device/history acceptance is described in
+[conversations-device-history-acceptance-20261006.md](conversations-device-history-acceptance-20261006.md).
+It supersedes earlier statements that native Remove/expanded replacement and
+nontruncating user-key history recovery are absent. Automatic continuous history
+sync and real multi-account Shopping Rooms are still not implemented.
+
 The foundation gate remains open. The following is the next-phase contract,
 NOT an enabled room service. Room UI must not send through the pairwise path.
 

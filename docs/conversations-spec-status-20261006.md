@@ -7,6 +7,13 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 
 ## Release Being Published
 
+Latest device/history work is documented in
+[conversations-device-history-acceptance-20261006.md](conversations-device-history-acceptance-20261006.md).
+It adds native Remove/expanded replacement, paged nontruncating user-key recovery
+and explicit same-owner historical attachment grants. It does not complete
+automatic continuous history sync, Shopping Rooms or independent crypto review.
+The release and evidence paragraphs below are earlier dated checkpoints.
+
 The operator requested commit/push/deploy of all pending conversation changes:
 indefinite Mute, durable owner Archive, selected-text reporting, moderator
 evidence viewing, four-language copy, source bundle and regression tests.
@@ -80,7 +87,7 @@ Do not erase this distinction by calling the entire foundation complete.
 | 156 | One indefinite account-level mute/unmute switch; enqueue, dispatch and foreground-alert suppression; unread/history unchanged. | New production migration/complete backend rollout and authenticated acceptance. Already provider-accepted push cannot be recalled. |
 | 157 | Existing authoritative direct blocking and retained history protections. | Room-specific block/membership policy belongs to the group service. |
 | 158-159 | Explicit selected-text report consent; canonical selected-message membership checks; idempotent submission; current-role, reason-gated audited moderator evidence reads; no master key/plaintext messaging fallback. | Encrypted-media reports share a label/metadata only, not file bytes. Binary-media evidence authorization/storage, retention policy and production moderation acceptance remain. Reporter plaintext is explicitly unverified; no automatic punishment. |
-| 160-164 | Private push copy, dedupe/retries, explicit receipts, encrypted local cache, bounded history recovery and no automatic replacement trust. | Complete multi-device alert/reconciliation acceptance. Recovery does not restore native identity/live MLS state or bypass original-epoch attachment authorization. |
+| 160-164 | Private push copy, exact retries, explicit receipts, native Add/Remove/expanded replacement, sealed paged cache and full retained user-key recovery within explicit archive bounds. Historical media uses separate signed same-original-owner/current-native grants. | Automatic continuous historical sync, production/physical-device acceptance and native-specific alert reconciliation remain open. Recovery never restores native identity/live ratchets or rewrites original-epoch grants. |
 | 165 | Inbox/contact search exists; no server private-plaintext index. | On-device message-content indexing/search. |
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |

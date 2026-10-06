@@ -121,6 +121,7 @@ const MIGRATIONS = Object.freeze([
   require("./conversation-event-ledger"),
   require("./conversation-delivery-progress"),
   require("./encrypted-conversation-backups"),
+  require("./encrypted-history-pages"),
   require("./conversation-crypto-devices"),
   require("./conversation-security-mode"),
   require("./conversation-crypto-key-packages"),
@@ -130,6 +131,7 @@ const MIGRATIONS = Object.freeze([
   require("./encrypted-replacement-retirements"),
   require("./encrypted-device-delivery"),
   require("./encrypted-device-admissions"),
+  require("./encrypted-device-lifecycle"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([

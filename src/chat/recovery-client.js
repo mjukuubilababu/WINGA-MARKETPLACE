@@ -50,15 +50,20 @@
       if (before.token !== after.token || before.deviceId !== after.deviceId) fail('recovery_session_changed');
     };
     const historyOnly = values => Object.fromEntries(Object.entries(values).filter(([key]) => /^history:[A-Za-z0-9._:-]{1,128}$/.test(key)));
-    const retainedWindow = values => {
-      const entries=Object.entries(values).sort((a,b)=>String(b[1]?.timestamp || '').localeCompare(String(a[1]?.timestamp || '')));
-      const result={};let bytes=0;
-      for(const [key,value] of entries) {
-        const size=encoder.encode(JSON.stringify({[key]:value})).length;
-        if(Object.keys(result).length>=1999 || bytes+size>2*1024*1024)break;
-        result[key]=value;bytes+=size;
+    const archivePages = values => {
+      if(Object.keys(values).length>100000)fail('recovery_archive_limit');
+      const pages=[];let items={},bytes=encoder.encode(JSON.stringify({v:1,owner,items})).length,count=0;
+      for(const key of Object.keys(values).sort()) {
+        const size=encoder.encode(JSON.stringify({[key]:values[key]})).length+1;
+        if(size>2*1024*1024-256)fail('recovery_archive_limit');
+        if(count && (count>=1999 || bytes+size>2*1024*1024)) {
+          pages.push(items);items={};count=0;bytes=256;
+        }
+        items[key]=values[key];count++;bytes+=size;
       }
-      return result;
+      if(count || !pages.length)pages.push(items);
+      if(pages.length>64)fail('recovery_archive_limit');
+      return pages;
     };
     const localHistory = async revision => {
       const saved=await (vault.historySnapshot?vault.historySnapshot():vault.snapshot());
@@ -71,12 +76,55 @@
         || Object.keys(archive.items).length > 1999 || Object.keys(archive.items).some(key => !/^history:[A-Za-z0-9._:-]{1,128}$/.test(key))) fail('recovery_archive_invalid');
       return archive;
     };
+    const readManifest = bytes => {
+      const value=JSON.parse(decoder.decode(bytes));
+      if(value?.v!==2)return null;
+      if(Object.keys(value).sort().join(',')!=='count,owner,pages,v' || value.owner!==owner || !Array.isArray(value.pages)
+        || !value.pages.length || value.pages.length>64 || !Number.isInteger(value.count) || value.count<0 || value.count>100000
+        || value.pages.some(p=>!p || Object.keys(p).sort().join(',')!=='count,hash,id'
+          || typeof p.id!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(p.id) || typeof p.hash!=='string'||!/^[a-f0-9]{64}$/.test(p.hash)
+          || !Number.isInteger(p.count)||p.count<0||p.count>1999)
+        || new Set(value.pages.map(p=>p.id)).size!==value.pages.length
+        || value.pages.reduce((n,p)=>n+p.count,0)!==value.count)fail('recovery_archive_invalid');
+      return value;
+    };
+    async function openArchive(remote,key,session) {
+      const plaintext=await codec.openRecovery(remote.capsule,key,{owner,id:remote.capsule.id,generation:remote.capsule.generation});
+      let manifest;
+      try {manifest=readManifest(plaintext);if(!manifest)return readArchive(plaintext).items;}
+      finally {plaintext.fill(0);}
+      const items={};let bytes=0;
+      for(const page of manifest.pages) {
+        current(session);const result=await request('GET',undefined,session,{id:page.id,revision:remote.revision});current(session);
+        const actual=await checkpointFor(result?.capsule,remote.revision,crypto);
+        if(result.revision!==remote.revision || actual.owner!==owner || actual.hash!==page.hash || result.capsule.id!==page.id)fail('recovery_freshness_rejected');
+        const content=await codec.openRecovery(result.capsule,key,{owner,id:page.id,generation:Number(remote.revision)});
+        try {
+          bytes+=content.length;if(content.length>2*1024*1024 || bytes>128*1024*1024)fail('recovery_archive_limit');
+          const restored=readArchive(content).items;
+          if(Object.keys(restored).length!==page.count || Object.keys(restored).some(k=>Object.hasOwn(items,k)))fail('recovery_archive_invalid');
+          Object.assign(items,restored);
+        }finally{content.fill(0);}
+      }
+      return items;
+    }
+    async function clearStaging(local) {
+      if(!vault.historyPage)return local;
+      let after;
+      do {
+        const page=await vault.historyPage({prefix:'recovery:page:',after,expectedRevision:local.revision});
+        after=page.next;const deleted=Object.keys(page.values);
+        if(deleted.length){await vault.write({expectedRevision:local.revision,deleted});local=await vault.snapshot();}
+      }while(after);
+      return local;
+    }
     async function backup(key, { checkpoint, previousKey } = {}) {
       const session = context();
       return locks.request(`winga-recovery-operation:${owner}`, async () => {
         current(session); let local = await vault.snapshot(), pending = local.values['backup:pending'];
         if (!pending) {
-          let items = retainedWindow(await localHistory(local.revision));
+          local=await clearStaging(local);
+          let items = await localHistory(local.revision);
           const remote = await request('GET', undefined, session); current(session);
           if (typeof remote?.revision !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(remote.revision) || !Number.isSafeInteger(Number(remote.revision))
             || Number(remote.revision) >= Number.MAX_SAFE_INTEGER) fail('recovery_revision_invalid');
@@ -85,25 +133,45 @@
           if (retained && !remote.capsule) fail('recovery_freshness_rejected');
           if (remote.capsule) {
             await verifyCheckpoint(remote, checkpoint || retained, owner, crypto);
-            const bytes = await codec.openRecovery(remote.capsule, previousKey || key, {
-              owner, id: remote.capsule.id, generation: remote.capsule.generation });
-            try {
-              const prior = readArchive(bytes).items;
-              if (!Object.keys(items).length) fail('recovery_restore_required');
-              items = mergeHistory(prior,items);
-            } finally { bytes.fill(0); }
+            const prior=await openArchive(remote,previousKey || key,session);
+            if (!Object.keys(items).length) fail('recovery_restore_required');
+            items = mergeHistory(prior,items);
           }
-          items=retainedWindow(items);
-          const archive = encoder.encode(JSON.stringify({ v: 1, owner, items }));
+          const pages=archivePages(items),descriptors=[];
+          if(pages.length>1) {
+            if(!vault.lookup || !vault.historyPage)fail('recovery_paging_unavailable');
+            for(const values of pages) {
+              current(session);const bytes=encoder.encode(JSON.stringify({v:1,owner,items:values}));
+              try {
+                const capsule=await codec.sealRecovery(bytes,key,{owner,id:crypto.randomUUID(),generation:Number(remote.revision)+1});
+                const proof=await checkpointFor(capsule,String(capsule.generation),crypto);
+                descriptors.push({id:capsule.id,hash:proof.hash,count:Object.keys(values).length});
+                await vault.write({expectedRevision:local.revision,values:{['recovery:page:'+capsule.id]:capsule}});
+                local=await vault.snapshot();
+              }finally{bytes.fill(0);}
+            }
+          }
+          const archive = encoder.encode(JSON.stringify(descriptors.length?{v:2,owner,pages:descriptors,count:Object.keys(items).length}:{v:1,owner,items}));
           try {
             const capsule = await codec.sealRecovery(archive, key, { owner, id: crypto.randomUUID(), generation: Number(remote.revision) + 1 });
-            pending = { expectedRevision: remote.revision, capsule };
+            pending = { expectedRevision: remote.revision, capsule,...(descriptors.length?{pageIds:descriptors.map(p=>p.id)}:{}) };
             await vault.write({ expectedRevision: local.revision, values: { 'backup:pending': pending } });
           } finally { archive.fill(0); }
         } else {
           // A retry must prove the supplied recovery key opens the retained exact capsule.
           const bytes = await codec.openRecovery(pending.capsule, key, {
             owner, id: pending.capsule.id, generation: pending.capsule.generation }); bytes.fill(0);
+        }
+        let manifest;
+        const rootBytes=await codec.openRecovery(pending.capsule,key,{owner,id:pending.capsule.id,generation:pending.capsule.generation});
+        try{manifest=readManifest(rootBytes);}finally{rootBytes.fill(0);}
+        if(JSON.stringify(manifest?.pages.map(p=>p.id)||[])!==JSON.stringify(pending.pageIds||[]))fail('recovery_pending_conflict');
+        for(const id of pending.pageIds || []) {
+          current(session);const capsule=await vault.lookup('recovery:page:'+id);
+          if(!capsule || capsule.id!==id || capsule.generation!==Number(pending.expectedRevision)+1)fail('recovery_pending_conflict');
+          if((await checkpointFor(capsule,String(capsule.generation),crypto)).hash!==manifest.pages.find(p=>p.id===id)?.hash)fail('recovery_pending_conflict');
+          const bytes=await codec.openRecovery(capsule,key,{owner,id,generation:capsule.generation});bytes.fill(0);
+          await request('PUT',{expectedRevision:pending.expectedRevision,capsule},session,{id});current(session);
         }
         current(session);
         const result = await request('PUT', pending, session); current(session);
@@ -112,7 +180,7 @@
         local = await vault.snapshot();
         const retained = local.values['backup:pending'];
         if (!retained || JSON.stringify(retained) !== JSON.stringify(pending)) fail('recovery_pending_conflict');
-        await vault.write({ expectedRevision: local.revision, values: { 'recovery:checkpoint': acceptedCheckpoint }, deleted: ['backup:pending'] });
+        await vault.write({ expectedRevision: local.revision, values: { 'recovery:checkpoint': acceptedCheckpoint }, deleted: ['backup:pending',...(pending.pageIds || []).map(id=>'recovery:page:'+id)] });
         current(session); return { revision: result.revision, checkpoint: acceptedCheckpoint };
       });
     }
@@ -125,15 +193,12 @@
         if (retained && Number(checkpoint.revision) < Number(retained.revision)) fail('recovery_freshness_rejected');
         const remote = await request('GET', undefined, session); current(session);
         await verifyCheckpoint(remote, checkpoint, owner, crypto);
-        const plaintext = await codec.openRecovery(remote.capsule, key, {
-          owner, id: remote.capsule.id, generation: remote.capsule.generation });
-        let archive;
-        try { archive = readArchive(plaintext); } finally { plaintext.fill(0); }
+        const archive={items:await openArchive(remote,key,session)};
         if (local.values['backup:pending']) fail('recovery_local_history_conflict');
         const history=await localHistory(local.revision),items=mergeHistory(archive.items,
           Object.fromEntries(Object.entries(history).filter(([key])=>Object.hasOwn(archive.items,key))));
         current(session);
-        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint } });
+        await vault.write({ expectedRevision: local.revision, values: { ...items, 'recovery:checkpoint': checkpoint },historyRestore:true });
         current(session); return { restored: Object.keys(archive.items).length, revision: remote.revision };
       });
     }

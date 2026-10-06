@@ -61,6 +61,7 @@ test.beforeEach(async () => {
   await db.exec(require('../helpers/conversation-event-fixture'));
   for (const sql of migration.statements) await db.exec(sql);
   for (const sql of backupMigration.statements) await db.exec(sql);
+  for (const sql of require('../../backend/migrations/encrypted-history-pages').statements) await db.exec(sql);
   store = createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work) });
   backups = createEncryptedConversationBackupStore({ withTransaction: work => db.transaction(work) });
 });
@@ -68,8 +69,9 @@ test.afterEach(async () => { await db.close(); });
 async function prepare(page, gateway) {
   await page.exposeFunction('deviceRequest', gateway || ((method, payload, context) => method === 'GET'
     ? store.readConversationCryptoDevices(context) : store.mutateConversationCryptoDevice(context, payload)));
-  await page.exposeFunction('recoveryRequest', (method, payload, context) => method === 'GET'
-    ? backups.readEncryptedConversationBackup(context) : backups.writeEncryptedConversationBackup(context, payload));
+  await page.exposeFunction('recoveryRequest', (method, payload, context, page) => page
+    ? method==='GET'?backups.readEncryptedHistoryPage(context,page):backups.writeEncryptedHistoryPage(context,payload)
+    : method === 'GET'?backups.readEncryptedConversationBackup(context):backups.writeEncryptedConversationBackup(context,payload));
   await page.goto(origin);
 }
 const enroll = page => page.evaluate(async session => {
@@ -282,7 +284,7 @@ test('vault ciphertext corruption never yields a partially decrypted snapshot', 
   expect(result).toBe(true);
 });
 
-test('paged journal crosses 2000 records and 32 MiB without blocking ratchets, replay lookup, reload or bounded recovery',async({page})=>{
+test('paged journal crosses 2000 records and 32 MiB without truncating encrypted recovery or blocking ratchets',async({page})=>{
   test.setTimeout(120000);await prepare(page);
   const result=await page.evaluate(async session=>{
     const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
@@ -298,7 +300,8 @@ test('paged journal crosses 2000 records and 32 MiB without blocking ratchets, r
       const hot=await vault.snapshot(),cold=await vault.historySnapshot();
       const recovery=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec:await WingaSecureContent.loadSecureContent(),request:window.recoveryRequest});
       const key=(await WingaSecureContent.loadSecureContent()).generateRecoveryKey(),backup=await recovery.backup(key);
-      await recovery.restore(key);
+      const accepted=await recovery.restore(key);
+      if(accepted.restored!==2500)throw new Error('history_was_truncated');
       const restored=await vault.lookup('history:000000');
       return {hotCount:Object.keys(hot.values).length,count:Object.keys(cold.values).length,epoch:hot.values['group:ratchet'].epoch,
         replay:await vault.lookup('mls:received:000000'),olderRetained:restored.message===text,backup:backup.revision};
@@ -484,6 +487,56 @@ test('recovery resumes a lost accepted PUT after reload and rejects server rollb
   }, { session, exported });
   expect(result.first).toBe('1'); expect(result.checkpoint.revision).toBe('2');
   expect(result.rejected).toBe('recovery_freshness_rejected');
+});
+
+test('paged recovery survives lost page and root replies and restores every record atomically on a fresh device',async({page,browser})=>{
+  test.setTimeout(120000);await prepare(page);
+  let lostPage=false,lostRoot=false;
+  await page.exposeFunction('ambiguousArchiveRequest',async(method,payload,context,part)=>{
+    const result=part ? method==='GET'?await backups.readEncryptedHistoryPage(context,part):await backups.writeEncryptedHistoryPage(context,payload)
+      :method==='GET'?await backups.readEncryptedConversationBackup(context):await backups.writeEncryptedConversationBackup(context,payload);
+    if(method==='PUT' && part && !lostPage){lostPage=true;throw Error('lost_page_reply');}
+    if(method==='PUT' && !part && !lostRoot){lostRoot=true;throw Error('lost_root_reply');}
+    return result;
+  });
+  const exported=await page.evaluate(async session=>{
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session}),codec=await WingaSecureContent.loadSecureContent(),key=codec.generateRecoveryKey();
+    try {
+      let revision='0';for(let n=0;n<3000;n+=500) {
+        const values={};for(let i=n;i<n+500;i++)values['history:'+i]={id:String(i),message:'private-'+i+'x'.repeat(800),status:'sent'};
+        revision=await vault.write({expectedRevision:revision,values});
+      }
+      await vault.write({expectedRevision:revision,values:{'group:must-not-transfer':{secret:'native ratchet'}}});
+      const client=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec,request:ambiguousArchiveRequest});
+      const failures=[];for(let attempt=0;attempt<3;attempt++)try{
+        const accepted=await client.backup(key);return {key,checkpoint:accepted.checkpoint,failures};
+      }catch(e){failures.push(e.message);}
+      throw Error('exact_retry_failed');
+    }finally{vault.close();}
+  },session);
+  expect(exported.failures).toEqual(['lost_page_reply','lost_root_reply']);
+  expect((await db.query('SELECT revision FROM encrypted_conversation_backups')).rows[0].revision).toBe(1);
+  const context=await browser.newContext();
+  try {
+    const fresh=await context.newPage();await prepare(fresh);
+    const before=(await db.query('SELECT id,capsule FROM encrypted_conversation_backup_pages ORDER BY id')).rows;
+    expect(before.length).toBeGreaterThan(1);
+    const corrupted={...before[0].capsule,nonce:'A'.repeat(16)};
+    await db.query('UPDATE encrypted_conversation_backup_pages SET capsule=$1 WHERE id=$2',[JSON.stringify(corrupted),before[0].id]);
+    const check=async()=>fresh.evaluate(async({session,exported})=>{
+      const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session}),codec=await WingaSecureContent.loadSecureContent();
+      const client=WingaRecoveryClient.createRecoveryClient({owner:session.username,getSession:()=>session,vault,codec,request:recoveryRequest});
+      try {
+        let error=null,result=null;try{result=await client.restore(exported.key,{checkpoint:exported.checkpoint});}catch(e){error=e.code||e.message;}
+        const state=await vault.historySnapshot(),hot=await vault.snapshot();
+        return {error,restored:result?.restored||0,count:Object.keys(state.values).length,revision:state.revision,secretAbsent:!hot.values['group:must-not-transfer'],first:state.values['history:0']?.message.startsWith('private-0'),last:state.values['history:2999']?.message.startsWith('private-2999')};
+      }finally{vault.close();}
+    },{session,exported});
+    expect(await check()).toMatchObject({error:'recovery_freshness_rejected',count:0,revision:'0'});
+    await db.query('UPDATE encrypted_conversation_backup_pages SET capsule=$1 WHERE id=$2',[JSON.stringify(before[0].capsule),before[0].id]);
+    expect(await check()).toMatchObject({error:null,restored:3000,count:3000,secretAbsent:true,first:true,last:true});
+    await fresh.reload();expect(await check()).toMatchObject({error:null,count:3000});
+  }finally{await context.close();}
 });
 
 test('recovery retains prior archive history when a local record has been evicted', async ({ page }) => {

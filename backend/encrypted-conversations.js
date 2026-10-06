@@ -15,7 +15,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   const replacement=require('./encrypted-membership-replacement').createMembershipReplacement({access});
   const admission=require('./encrypted-device-admissions').createDeviceAdmissions({access,currentEpoch:replacement.currentEpoch,replacementFrozen:replacement.frozen});
   const frozen=async(client,id)=>await replacement.frozen(client,id) || (multiDeviceEnabled && await admission.frozen(client,id));
-  const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access,membershipFrozen:frozen});
+  const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access,membershipFrozen:frozen,historyRecoveryEnabled:multiDeviceEnabled});
   async function consumeNewConversationQuota(client, owner) {
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
     const key=digest(JSON.stringify(['winga-encrypted-new-conversations',1,owner]));
@@ -35,13 +35,14 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     assert(device && verifyDeviceSignature(device.public_key, operationBytes(context, operation), operation.signature), 403, 'encrypted_proof_rejected');
     return device;
   }
-  async function access(client, group, actor, owner, {retiringIntent=false}={}) {
+  async function access(client, group, actor, owner, {retiringIntent=false,retiringDeviceId=null}={}) {
     assert(group,403,'encrypted_membership_required');
     const roster=multiDeviceEnabled && group.status==='active' ? await admission.roster(client,group) : [];
-    const expanded=roster.length>2;
+    const expanded=roster.length>=2 && [group.creator_device,group.recipient_device].every(id=>roster.some(d=>d.id===id));
     assert(expanded?roster.some(d=>d.id===actor && d.owner===owner):((group.creator===owner && group.creator_device===actor)
       || (group.recipient===owner && group.recipient_device===actor)),403,'encrypted_membership_required');
-    const ids=expanded?roster.map(d=>d.id):[group.creator_device,group.recipient_device];
+    const ids=(expanded?roster.map(d=>d.id):[group.creator_device,group.recipient_device]).filter(id=>id!==retiringDeviceId);
+    assert(actor!==retiringDeviceId,403,'encrypted_membership_required');
     const devices = await client.query(`SELECT id FROM conversation_crypto_devices WHERE id=ANY($1::text[]) AND status='active' ORDER BY id FOR SHARE`, [ids]);
     const users = await client.query(`SELECT username FROM users WHERE username=ANY($1::text[]) AND status='active'`, [[group.creator, group.recipient]]);
     const blocked = await client.query(`SELECT 1 FROM user_blocks WHERE (blocker_username=$1 AND blocked_username=$2) OR (blocker_username=$2 AND blocked_username=$1)`, [group.creator, group.recipient]);
@@ -55,8 +56,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   }
   async function encryptedOperation(context, op) {
     assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
-      'device-reserve','device-transfer','device-accept','device-retire','sync-ack'].includes(op?.action));
-    if(op.action.startsWith('device-') || op.action==='sync-ack')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
+      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant'].includes(op?.action));
+    if(op.action.startsWith('device-') || op.action==='sync-ack' || op.action==='media-history-grant')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
     const fields={directory:['peer'],reserve:['conversationId','peer','sourceHash','targetHash'],
@@ -65,6 +66,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       'receipt-ack':['id','conversationId','epoch','hash','kind'],poll:[]};
     fields.reject=['id','conversationId','epoch','hash','reason'];
     fields['media-reserve']=['id','conversationId','messageId','bytes','sha256'];
+    fields['media-history-grant']=fields['media-reserve'];
     fields['replace-reserve']=['id','conversationId','previousEpoch','removedDeviceId','replacementDeviceId','packageHash'];
     fields['replace-retire']=fields['replace-reserve'];
     fields['replace-transfer']=[...fields.transfer,'previousEpoch','removedDeviceId','replacementDeviceId'];
@@ -73,6 +75,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields['device-retire']=fields['device-reserve'];
     fields['device-transfer']=[...fields['device-reserve'],'version','epoch','roster','commit','welcome','tree'];
     fields['device-accept']=['conversationId','transferId','epoch','transferHash'];
+    fields['device-change-reserve']=[...fields['device-reserve'],'removedOwner','removedDeviceId'];
+    fields['device-change-retire']=fields['device-change-reserve'];
+    fields['device-change-transfer']=[...fields['device-transfer'],'removedOwner','removedDeviceId'];
+    fields['device-change-accept']=fields['device-accept'];
     fields['sync-ack']=['id','conversationId','epoch','hash'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     if(op.action==='poll' && Object.hasOwn(p,'after'))fields.poll=['after'];
@@ -94,7 +100,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
           WHERE (creator=$1 AND recipient=$2) OR (creator=$2 AND recipient=$1)`,[context.owner,p.peer])).rows[0];
         const pending=group && await frozen(client,group.id),roster=group&&multiDeviceEnabled?await admission.roster(client,group):[];
         return { version: 1, packages: await packages(client, rows.rows.map(r => r.hash)),...(group?{group,canReplace:!pending&&roster.length<=2,
-          ...(multiDeviceEnabled?{roster,canAdmit:!pending&&roster.some(m=>m.id===op.actorId&&m.owner===context.owner)}:{})}: {}) };
+          ...(multiDeviceEnabled?{roster,canChange:!pending&&roster.some(m=>m.id===op.actorId&&m.owner===context.owner&&m.status==='active'),
+            canAdmit:!pending&&roster.every(m=>m.status==='active')&&roster.some(m=>m.id===op.actorId&&m.owner===context.owner)}:{})}: {}) };
       }
       if (op.action === 'reserve') {
         assert(uuid(p.conversationId) && typeof p.peer === 'string' && p.peer !== context.owner);
@@ -131,13 +138,14 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
           const a=multiDeviceEnabled && await admission.latest(client,g.id),aPending=a&&a.status!=='accepted';
           if(aPending) {
             const oldRoster=await admission.roster(client,g,a.previous_epoch);
+            if(a.removed_device===op.actorId){result.push({id:g.id,status:'blocked'});continue;}
             try {await access(client,g,a.added_device===op.actorId?a.actor_device:op.actorId,
-              a.added_device===op.actorId?oldRoster.find(m=>m.id===a.actor_device)?.owner:context.owner);}
+              a.added_device===op.actorId?oldRoster.find(m=>m.id===a.actor_device)?.owner:context.owner,{retiringDeviceId:a.removed_device||null});}
             catch(error){if(error.status===403){result.push({id:g.id,status:'blocked'});continue;}throw error;}
-            const target=(await client.query(`SELECT 1 FROM conversation_crypto_devices WHERE id=$1 AND owner_id=$2 AND status='active'`,[a.added_device,a.added_owner])).rows.length;
+            const target=!a.added_device || (await client.query(`SELECT 1 FROM conversation_crypto_devices WHERE id=$1 AND owner_id=$2 AND status='active'`,[a.added_device,a.added_owner])).rows.length;
             if(!target){result.push({id:g.id,status:'blocked'});continue;}
             const hashes=(await client.query(`SELECT DISTINCT ON(device_id) hash FROM conversation_crypto_key_packages
-              WHERE device_id=ANY($1::text[]) ORDER BY device_id,published_at DESC,hash`,[oldRoster.map(m=>m.id)])).rows.map(p=>p.hash);
+              WHERE device_id=ANY($1::text[]) ORDER BY device_id,published_at DESC,hash`,[oldRoster.filter(m=>m.id!==a.removed_device).map(m=>m.id)])).rows.map(p=>p.hash);
             result.push({...g,status:`device-${a.status}`,admission:a,roster:oldRoster,packages:await packages(client,[...hashes,a.package_hash]),messages:[],receipts:[]});continue;
           }
           const r=await replacement.latest(client,g.id),pending=r && r.status!=='accepted';
@@ -162,7 +170,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
           const roster=multiDeviceEnabled?await admission.roster(client,g):null;
           const hashes=roster?.length?(await client.query(`SELECT DISTINCT ON(device_id) hash FROM conversation_crypto_key_packages
             WHERE device_id=ANY($1::text[]) ORDER BY device_id,published_at DESC,hash`,[roster.map(m=>m.id)])).rows.map(p=>p.hash):[g.source_hash,g.target_hash];
-          result.push({...g,...(r?{replacement:r}:{}),...(a?{admission:a}:{}),...(roster?{roster}:{}),packages:await packages(client,hashes),messages,receipts});
+          result.push({...g,...(r?{replacement:r}:{}),...(a && a.epoch===g.epoch?{admission:a}:{}),...(roster?{roster}:{}),packages:await packages(client,hashes),messages,receipts});
         }
         return {version:1,groups:result,next:page.length>100?groups.at(-1).id:null};
       }
@@ -175,6 +183,11 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         return replacement.handle(client,context,op,g);
       }
       await access(client,g,op.actorId,context.owner);
+      if(op.action==='media-history-grant') {
+        assert(mediaEnabled,503,'private_media_disabled');
+        assert(!await frozen(client,g.id),409,'encrypted_membership_pending');
+        assert(uuid(p.id)&&uuid(p.messageId));return media.grantHistory(client,context,op,g);
+      }
       if(op.action==='media-reserve') {
         assert(!await frozen(client,g.id),409,'encrypted_membership_pending');
         assert(mediaEnabled,503,'private_media_disabled');assert(uuid(p.id)&&uuid(p.messageId));

@@ -11,9 +11,10 @@ const env = {
 function client(schemaOverrides = {}) {
   return { query: async sql => {
     assert.match(sql.trim(), /^SELECT/);
-    if (sql.includes("AS migrations")) return { rows: [{ migrations: 10, guards: 2, media: true, devices: true, replacements: true, retirements: true,
-      epoch_devices: true, receipt_acks: true, device_guards: 2, admissions:true,acceptances:true,device_retirements:true,sync_acks:true,...schemaOverrides }] };
-    if (sql.includes('AS "migrationApplied"')) return { rows: [{ migrationApplied: true, backupTablePresent: true }] };
+    if (sql.includes("AS migrations")) return { rows: [{ migrations: 12, guards: 2, media: true, devices: true, replacements: true, retirements: true,
+      epoch_devices: true, receipt_acks: true, device_guards: 2, admissions:true,acceptances:true,device_retirements:true,sync_acks:true,backup_pages:true,archive_grants:true,...schemaOverrides }] };
+    if (sql.includes('AS "migrationApplied"')) return { rows: [{ migrationApplied: true, backupTablePresent: true,pageMigrationApplied:true,pageTablePresent:true }] };
+    if(sql.includes('AS "unpublishedPages"'))return {rows:[{pages:0,unpublishedPages:0,missingPages:0,invalidPageCapsules:0}]};
     return { rows: [{ backups: 0, tombstones: 0, invalidCapsules: 0 }] };
   } };
 }
@@ -35,7 +36,7 @@ test("read-only readiness checks the actual migrated schema and rejects disabled
   await db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
   for (const name of ['conversation-event-ledger','conversation-crypto-devices','conversation-security-mode',
     'conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media',
-    'encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-conversation-backups']) {
+    'encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-conversation-backups','encrypted-history-pages']) {
     const migration = require(`../backend/migrations/${name}`);
     await db.transaction(async tx => { for (const sql of migration.statements) await tx.exec(sql); });
     if (migrations.includes(migration.id)) await db.query('INSERT INTO schema_migrations VALUES($1)',[migration.id]);
@@ -43,7 +44,7 @@ test("read-only readiness checks the actual migrated schema and rejects disabled
   await db.exec('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   const ready = await verifyEncryptedChatReadiness({client:db,env,privacyCheck:async()=>{}});
   await db.exec('COMMIT');
-  assert.equal(ready.ok,true); assert.equal(ready.schema.migrationsApplied,10);
+  assert.equal(ready.ok,true); assert.equal(ready.schema.migrationsApplied,12);
   assert.equal(ready.schema.guardTriggersEnabled,2);
   assert.equal(ready.schema.deviceGrantTriggersEnabled,2);
   await db.exec('ALTER TABLE encrypted_conversation_epoch_devices DISABLE TRIGGER guard_encrypted_epoch_device');

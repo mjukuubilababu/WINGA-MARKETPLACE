@@ -12,9 +12,8 @@ async function fixture(t,options={}){
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions'])
-    await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);});
-    await transaction(migrationClient,async c=>{for(const sql of require('../backend/migrations/encrypted-conversation-media').statements)await c.query(sql);}); }
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle'])
+    await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
   const members={};
   for(const [owner,token]of [['alice','a'],['bob','b1']]){
@@ -224,7 +223,7 @@ async function admissionRaceFixture(t) {
     tree:Buffer.from(encodeRatchetTree(added.newState.ratchetTree)).toString('base64url')};
   const acceptance={conversationId:f.id,transferId:intent.id,epoch:'2',transferHash:crypto.createHash('sha256').update(JSON.stringify(transfer,Object.keys(transfer).sort())).digest('hex')};
   const nodes=[0,1].map(()=>createEncryptedConversationStore({multiDeviceEnabled:true,withTransaction:async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}}}));
-  return {...f,target,intent,transfer,acceptance,nodes};
+  return {...f,target,intent,transfer,acceptance,nodes,mls,suite,expandedState:added.newState};
 }
 
 test('real PostgreSQL admission races activate one epoch once across independent stores and all endpoint acceptance retries',async t=>{
@@ -266,6 +265,57 @@ test('an independent old-epoch send waits behind admission and cannot cross the 
     assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
     assert.equal((await f.pool.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch,'1');
   } finally {release.resolve();await Promise.allSettled([freezing,waiting]);blocker.release();waiter.release();}
+});
+
+test('independent native Remove retries advance one epoch once and cannot deliver protected content to the removed endpoint',async t=>{
+  const f=await admissionRaceFixture(t),a=f.members.alice;
+  await f.nodes[0].encryptedOperation(a.context,a.sign('device-reserve',f.intent));
+  await f.nodes[0].encryptedOperation(a.context,a.sign('device-transfer',f.transfer));
+  for(const member of [a,f.members.bob,f.target])await f.nodes[0].encryptedOperation(member.context,member.sign('device-accept',f.acceptance));
+  const intent={id:crypto.randomUUID(),conversationId:f.id,previousEpoch:'2',actorOwner:'alice',actorDeviceId:a.id,
+    removedOwner:'alice',removedDeviceId:f.target.id,addedOwner:'',addedDeviceId:'',packageHash:''};
+  const index=f.expandedState.ratchetTree.findIndex(n=>n?.nodeType==='leaf'&&JSON.parse(new TextDecoder().decode(n.leaf.credential.identity))[3]===f.target.id)/2;
+  const committed=await f.mls.createCommit({state:f.expandedState,cipherSuite:f.suite},{extraProposals:[{proposalType:'remove',remove:{removed:index}}]});
+  const roster=committed.newState.ratchetTree.filter(n=>n?.nodeType==='leaf').map(n=>{const d=JSON.parse(new TextDecoder().decode(n.leaf.credential.identity));
+    return {owner:d[2],id:d[3],fingerprint:d[4],key:Array.from(n.leaf.signaturePublicKey)};}).sort((a,b)=>`${a.owner}/${a.id}`<`${b.owner}/${b.id}`?-1:1);
+  const {encodeRatchetTree}=await import('ts-mls/ratchetTree.js');
+  const payload={...intent,version:3,epoch:'3',roster:JSON.stringify(roster),commit:Buffer.from(f.mls.encodeMlsMessage(committed.commit)).toString('base64url'),welcome:'',tree:Buffer.from(encodeRatchetTree(committed.newState.ratchetTree)).toString('base64url')};
+  await Promise.all(Array.from({length:12},(_,i)=>f.nodes[i%2].encryptedOperation(a.context,a.sign('device-change-reserve',intent))));
+  await Promise.all(Array.from({length:12},(_,i)=>f.nodes[i%2].encryptedOperation(a.context,a.sign('device-change-transfer',payload))));
+  const acceptance={conversationId:f.id,transferId:intent.id,epoch:'3',transferHash:crypto.createHash('sha256').update(JSON.stringify(payload,Object.keys(payload).sort())).digest('hex')};
+  await assert.rejects(f.nodes[1].encryptedOperation(f.target.context,f.target.sign('device-change-accept',acceptance)),{code:'encrypted_membership_required'});
+  const actors=[a,f.members.bob];
+  await Promise.all(Array.from({length:20},(_,i)=>f.nodes[i%2].encryptedOperation(actors[i%2].context,actors[i%2].sign('device-change-accept',acceptance))));
+  assert.equal((await f.pool.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch,'3');
+  assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='2'")).rows[0].n,3);
+  assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='3'")).rows[0].n,2);
+  const poll=await f.nodes[1].encryptedOperation(f.target.context,f.target.sign('poll',{}));assert.equal(poll.groups.length,0);
+  const data=await f.mls.createApplicationMessage(committed.newState,new TextEncoder().encode('after native removal'),f.suite);
+  const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:data.privateMessage}));
+  const packet={id:crypto.randomUUID(),conversationId:f.id,epoch:'3',deviceId:a.id,ciphertext:bytes.toString('base64url'),hash:crypto.createHash('sha256').update(bytes).digest('hex')};
+  await f.nodes[0].encryptedOperation(a.context,a.sign('send',packet));
+  const peer=await f.nodes[1].encryptedOperation(f.members.bob.context,f.members.bob.sign('poll',{}));assert.equal(peer.groups[0].messages.length,1);
+  await assert.rejects(f.nodes[1].encryptedOperation(f.target.context,f.target.sign('send',{...packet,deviceId:f.target.id})),{code:'encrypted_membership_required'});
+  t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-native-removal',stores:2,concurrentConnections:6,reserveAttempts:12,transferAttempts:12,acceptanceAttempts:20,uniqueEpochTransitions:1,removedEndpointDenied:true,shoppingRoomsProven:false}));
+});
+
+test('real PostgreSQL archive load stages immutable pages across two stores and publishes one CAS root',async t=>{
+  const f=await fixture(t);
+  for(const name of ['encrypted-conversation-backups','encrypted-history-pages'])for(const sql of require('../backend/migrations/'+name).statements)await f.pool.query(sql);
+  const {createEncryptedConversationBackupStore}=require('../backend/encrypted-conversation-backups');
+  const nodes=[0,1].map(()=>createEncryptedConversationBackupStore({withTransaction:async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}}}));
+  const codec=await require('../src/chat/secure-content').createSecureContent(),key=codec.generateRecoveryKey(),context=f.members.bob.context,pages=[];
+  for(let n=0;n<64;n++)pages.push(await codec.sealRecovery(new TextEncoder().encode('archive-'+n+'x'.repeat(32768)),key,{owner:'bob',id:'pg-page-'+n,generation:1}));
+  const latencies=[];let accepted=0,next=0;
+  await Promise.all(Array.from({length:6},async(_,worker)=>{while(next<384){const attempt=next++,start=performance.now();
+    await nodes[worker%2].writeEncryptedHistoryPage(context,{expectedRevision:'0',capsule:pages[attempt%64]});latencies.push(performance.now()-start);accepted++;}}));
+  assert.equal(accepted,384);assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_backup_pages')).rows[0].n,64);
+  const roots=[];for(let n=0;n<2;n++)roots.push({expectedRevision:'0',pageIds:pages.map(p=>p.id),capsule:await codec.sealRecovery(new Uint8Array([n+1]),key,{owner:'bob',id:'pg-root-'+n,generation:1})});
+  const race=await Promise.allSettled(nodes.map((node,n)=>node.writeEncryptedConversationBackup(context,roots[n])));
+  assert.equal(race.filter(r=>r.status==='fulfilled').length,1);assert.equal(race.find(r=>r.status==='rejected').reason.code,'backup_revision_conflict');
+  for(let n=0;n<64;n++)assert.deepEqual((await nodes[n%2].readEncryptedHistoryPage(context,{id:pages[n].id,revision:'1'})).capsule,pages[n]);
+  latencies.sort((a,b)=>a-b);
+  t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-encrypted-history-pages',stores:2,concurrentConnections:6,uniquePages:64,writeAttempts:384,acceptedAttempts:accepted,uniqueRootRevisions:1,p50WriteMs:Math.round(latencies[Math.floor(latencies.length*.5)]),p95WriteMs:Math.round(latencies[Math.floor(latencies.length*.95)]),productionCapacityProven:false,shoppingRoomsProven:false}));
 });
 test('replacement reservations on independent connections consume only one target package and retain exact retry',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,intents=f.targets.map(f.intent);

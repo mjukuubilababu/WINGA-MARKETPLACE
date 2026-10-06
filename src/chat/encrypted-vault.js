@@ -7,8 +7,8 @@
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
-  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
-  const journalKind = value => value.startsWith('history:')?'history:':value.slice(0,value.indexOf(':',4)+1);
+  const journalId = value => /^(history:|recovery:page:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
+  const journalKind = value => value.startsWith('history:')?'history:':value.startsWith('recovery:page:')?'recovery:page:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) value += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
@@ -123,7 +123,7 @@
     }
     async function historyPage({after,limit=100,expectedRevision,prefix='history:'}={}) {
       if((after!==undefined && (typeof after!=='string' || after.length>192)) || !Number.isInteger(limit) || limit<1 || limit>100
-        || !['history:','mls:package:'].includes(prefix))fail('crypto_vault_write_invalid');
+        || !['history:','mls:package:','recovery:page:'].includes(prefix))fail('crypto_vault_write_invalid');
       const context=current();
       const saved=await transaction(['journal','metadata'],'readonly',(tx,done,abort)=>{
         const revision=tx.objectStore('metadata').get('revision'),rows=[];let bytes=0,next;
@@ -188,10 +188,11 @@
       const recent=await historyPage({expectedRevision:saved.revision});Object.assign(values,recent.values);
       assertCurrent(context); return { revision: saved.revision, values };
     }
-    async function write({ expectedRevision, values = {}, deleted = [] } = {}) {
+    async function write({ expectedRevision, values = {}, deleted = [], historyRestore = false } = {}) {
       if (!/^(0|[1-9][0-9]{0,15})$/.test(expectedRevision || '') || !Number.isSafeInteger(Number(expectedRevision))
         || Number(expectedRevision) >= Number.MAX_SAFE_INTEGER || !Array.isArray(deleted)
-        || !values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length + deleted.length > 2000
+        || !values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).length + deleted.length > (historyRestore?100001:2000)
+        || (historyRestore && (deleted.length || Object.keys(values).some(key=>!key.startsWith('history:')&&key!=='recovery:checkpoint')))
         || [...Object.keys(values), ...deleted].some(recordId => !id(recordId))) fail('crypto_vault_write_invalid');
       // Capture the complete logical write before waiting for another tab's lock.
       try { values = structuredClone(values); deleted = [...deleted]; }
@@ -204,7 +205,7 @@
           const bytes = pack(value), nonce = crypto.getRandomValues(new Uint8Array(12));
           try {
             if(journalId(recordId))journalBytes+=bytes.length+16;else changedBytes+=bytes.length+16;
-            if (changedBytes > 32 * 1024 * 1024 || journalBytes > 32 * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
+            if (changedBytes > 32 * 1024 * 1024 || journalBytes > (historyRestore?128:32) * 1024 * 1024) fail('crypto_vault_snapshot_too_large');
             records.push([recordId, { v: 1, nonce, ciphertext: new Uint8Array(await crypto.subtle.encrypt(parameters(recordId, nonce), key, bytes)) }]);
           }
           finally { bytes.fill(0); }

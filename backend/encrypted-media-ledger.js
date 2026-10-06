@@ -3,7 +3,20 @@ const { validateObject } = require('./conversation-private-media');
 const { failure } = require('./encrypted-content-contract');
 const need = (v, code='private_media_access_rejected', status=403) => { if(!v)throw failure(status,code); };
 const objectFor = row => ({id:row.id,bytes:row.bytes,sha256:row.sha256});
-function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,membershipFrozen}) {
+function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,membershipFrozen,historyRecoveryEnabled=false}) {
+  async function grantHistory(client,context,op,g) {
+    const p=op.payload;validateObject({id:p.id,bytes:p.bytes,sha256:p.sha256});
+    need(historyRecoveryEnabled && g.status==='active');
+    const row=(await client.query(`SELECT a.* FROM encrypted_conversation_media a JOIN encrypted_conversation_messages m
+      ON m.id=a.message_id AND m.media_id=a.id WHERE a.id=$1 AND a.message_id=$2 AND a.conversation_id=$3 AND a.status='attached'
+      AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices old WHERE old.conversation_id=m.conversation_id AND old.epoch=m.epoch AND old.owner_id=$4)
+      AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices live WHERE live.conversation_id=m.conversation_id AND live.epoch=$5 AND live.device_id=$6 AND live.owner_id=$4)
+      FOR UPDATE OF a`,[p.id,p.messageId,g.id,context.owner,g.epoch,op.actorId])).rows[0];
+    need(row && row.bytes===p.bytes && row.sha256===p.sha256);
+    await client.query(`INSERT INTO encrypted_conversation_media_archive_grants(media_id,device_id,owner_id,proof)
+      VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[p.id,op.actorId,context.owner,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+    return objectFor(row);
+  }
   async function reserve(client,context,op,g) {
     const p=op.payload;validateObject({id:p.id,bytes:p.bytes,sha256:p.sha256});
     need(g.status==='active','encrypted_membership_pending',409);
@@ -53,7 +66,11 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,memb
         const historical=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epoch_devices e
           ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch WHERE m.id=$1 AND m.media_id=$2
           AND e.device_id=$3 AND e.owner_id=$4`,[row.message_id,row.id,op.actorId,context.owner])).rows.length;
-        need(historical);
+        const recovered=historyRecoveryEnabled && !historical && (await client.query(`SELECT 1 FROM encrypted_conversation_media_archive_grants a
+          WHERE a.media_id=$1 AND a.device_id=$2 AND a.owner_id=$3
+          AND EXISTS(SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epoch_devices e
+            ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch WHERE m.id=$4 AND e.owner_id=a.owner_id)`,[row.id,op.actorId,context.owner,row.message_id])).rows.length;
+        need(historical || recovered);
       }
       return true;
     });
@@ -84,6 +101,6 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,memb
     return withTransaction(client=>client.query(`UPDATE encrypted_conversation_media SET status='deleted',cleanup_lease=NULL,lease_until=NULL
       WHERE id=$1 AND status='cleaning' AND cleanup_lease=$2`,[object.id,lease]));
   }
-  return {reserve,attach,authorize,uploaded,claim,finish};
+  return {reserve,attach,authorize,uploaded,claim,finish,grantHistory};
 }
 module.exports={createEncryptedMediaLedger};
