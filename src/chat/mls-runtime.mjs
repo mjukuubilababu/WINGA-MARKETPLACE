@@ -739,6 +739,15 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       await put(saved, { [`history:${p.id}`]: { ...item, status: item.status === 'read' ? 'read' : p.kind } }, [`mls:outbox:${p.id}`]);
     });
   }
+  async function applyOwnReadReceipt(p,pin) {
+    need(multiDevice&&p?.kind==='read'&&pin?.owner===owner&&pin.status==='active','mls_receipt_rejected');
+    return locked(async()=>{
+      const saved=await vault.snapshot(),item=await record(saved,`history:${p.id}`);
+      need(item&&item.owner!==owner&&item.peer===owner&&item.hash===p.hash&&item.conversationId===p.conversationId&&item.epoch===p.epoch
+        &&saved.values['mls:identity']?.id!==pin.id,'mls_receipt_rejected');
+      await put(saved,{[`history:${p.id}`]:{...item,status:'read'}});
+    });
+  }
   async function conversationId(peer) {
     current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
     need(uuid(id) && saved.values[`mls:group:${id}`]?.confirmed,'mls_group_required');return id;
@@ -750,6 +759,6 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     current();return String(parsed[0].groupContext.epoch);
   }
   return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
-    retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,changeDevice,applyDeviceChange,acceptDeviceChangeWelcome,
+    retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,changeDevice,applyDeviceChange,acceptDeviceChangeWelcome,applyOwnReadReceipt,
     close() { closed = true; } };
 }

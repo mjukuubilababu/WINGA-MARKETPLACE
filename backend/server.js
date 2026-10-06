@@ -1688,6 +1688,14 @@ async function sweepAcknowledgedConversationEvents() {
   if (!postgresStore?.pruneAcknowledgedConversationDeliveries || conversationAckSweepRunning) return;
   conversationAckSweepRunning = true;
   try {
+    if(postgresStore.pruneEncryptedNativeHistory){
+      let historyPruned=0;
+      for(let page=0;page<5;page++){
+        const result=await postgresStore.pruneEncryptedNativeHistory({batchSize:100});historyPruned+=result.pruned;
+        if(result.pruned<100)break;
+      }
+      if(historyPruned)logStructuredEvent('info','encrypted_history_retention',{privacy:'aggregate-only',pruned:historyPruned});
+    }
     let pruned = 0;
     for (let page = 0; page < 5; page += 1) {
       const result = await postgresStore.pruneAcknowledgedConversationDeliveries({

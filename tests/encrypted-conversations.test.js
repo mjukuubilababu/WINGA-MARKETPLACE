@@ -10,6 +10,7 @@ async function fixture(t,options={}) {
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   for(const sql of require('../backend/migrations/encrypted-device-admissions').statements)await db.exec(sql);
   for(const sql of require('../backend/migrations/encrypted-device-lifecycle').statements)await db.exec(sql);
+  for(const sql of require('../backend/migrations/encrypted-native-history').statements)await db.exec(sql);
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
   for(const [owner,token]of [['alice','a'],['bob','b1'],['eve','e']]) {
@@ -91,6 +92,167 @@ async function changePacket(f,actor,removed,target=null) {
     tree:Buffer.from(encodeRatchetTree(committed.newState.ratchetTree)).toString('base64url')};
   return {intent,transfer,committed,acceptance:{conversationId:f.id,transferId:intent.id,epoch:'3',transferHash:hash(JSON.stringify(transfer,Object.keys(transfer).sort()))}};
 }
+function historyVault() {
+  let revision='0',values={};
+  return {
+    snapshot:async()=>({revision,values:structuredClone(values)}),lookup:async id=>structuredClone(values[id]),
+    historySnapshot:async({filter}={})=>({revision,values:Object.fromEntries(Object.entries(structuredClone(values)).filter(([k,v])=>k.startsWith('history:')&&(!filter||filter(v,k))))}),
+    write:async input=>{assert.equal(input.expectedRevision,revision);Object.assign(values,structuredClone(input.values||{}));for(const id of input.deleted||[])delete values[id];revision=String(Number(revision)+1);return revision;}
+  };
+}
+async function historyCoordinator(f,label,vault,hooks={}) {
+  const member=f.members[label],session={username:member.context.owner,sessionId:member.context.deviceId,token:member.context.token};
+  const codec=await require('../src/chat/secure-content').createSecureContent(crypto.webcrypto);
+  const client=await require('../src/chat/native-history-client').createNativeHistoryClient({owner:session.username,deviceId:member.id,getSession:()=>session,vault,codec,crypto:crypto.webcrypto,locks:{request:async(_name,work)=>work()},
+    operation:async(action,payload)=>{const result=await f.call(label,action,payload);if(hooks.after)return hooks.after(action,result);return result;},
+    verifyProof:async(p,action)=>{const peer=Object.values(f.members).find(m=>m.id===p.actorId);assert.equal(p.owner,'alice');assert.equal(p.action,action);assert.ok(peer&&peer.context.owner==='alice');
+      assert.equal(crypto.verify(null,operationBytes({owner:p.owner,deviceId:p.sessionId},p),peer.keys.publicKey,Buffer.from(p.signature,'base64url')),true);}});
+  return {client,session};
+}
+test('native history coordinator decrypts all paged prior-epoch history, resumes lost replies and excludes live ratchets and other conversations',async t=>{
+  const f=await admittedFixture(t),source=historyVault(),target=historyVault();
+  const rows={};for(let n=0;n<1200;n++){
+    const id=crypto.randomUUID();rows['history:'+id]={id,conversationId:f.id,epoch:'1',owner:n%2?'bob':'alice',peer:n%2?'alice':'bob',deviceId:n%2?f.members.bob.id:f.members.alice.id,
+      message:'OLD PRIVATE '+n+' '+'.'.repeat(250),hash:hash('wire '+n),timestamp:new Date(Date.now()+n).toISOString(),status:n%2?'read':'sent'};
+  }
+  const live=crypto.randomUUID(),other=crypto.randomUUID();rows['history:'+live]={...Object.values(rows)[0],id:live,epoch:'2',message:'LIVE MUST USE MLS'};
+  rows['history:'+other]={...Object.values(rows)[0],id:other,conversationId:crypto.randomUUID(),message:'UNRELATED PRIVATE CONVERSATION'};
+  await source.write({expectedRevision:'0',values:rows});
+  const lost=new Set(['history-reserve','history-page-put','history-publish','history-accept']);
+  const lose=(action,result)=>{if(lost.delete(action))throw Object.assign(new TypeError('lost_reply'),{status:503});return result;};
+  let donor=await historyCoordinator(f,'alice',source,{after:lose}),receiver=await historyCoordinator(f,'next',target,{after:lose});
+  const groups=(await f.call('next','poll',{})).groups;
+  for(let attempt=0;attempt<14;attempt++){
+    try{await receiver.client.sync(groups);}catch(e){assert.equal(e.message,'lost_reply');}
+    await donor.client.sync(groups);
+    if(attempt===4){receiver.client.close();receiver=await historyCoordinator(f,'next',target,{after:lose});}
+  }
+  const restored=await target.historySnapshot();assert.equal(Object.keys(restored.values).length,1200);assert.equal(restored.values['history:'+live],undefined);assert.equal(restored.values['history:'+other],undefined);
+  assert.equal(Object.values(restored.values).filter(m=>m.status==='read').length,600);
+  assert.equal(lost.size,0);
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages`)).rows[0].n,0);
+  const transfers=(await f.db.query('SELECT * FROM encrypted_conversation_history_transfers')).rows;
+  assert.equal(transfers.every(r=>r.status==='accepted'),true);assert.equal(JSON.stringify(transfers).includes('OLD PRIVATE'),false);
+  assert.equal(JSON.stringify(transfers).includes('UNRELATED PRIVATE'),false);
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts`)).rows[0].n,0);
+  donor.client.close();receiver.client.close();
+});
+
+function historyCapsule(id,byte=1) {
+  return {version:1,algorithm:'webcrypto-aes256gcm-v1',purpose:'history-recovery',owner:'alice',id,generation:1,
+    nonce:Buffer.alloc(12,byte).toString('base64url'),ciphertext:Buffer.alloc(32,byte).toString('base64url')};
+}
+const capsuleHash=value=>hash(JSON.stringify(value,Object.keys(value).sort()));
+function historyRequest(f) {
+  const key=crypto.createECDH('prime256v1');key.generateKeys();
+  return {id:crypto.randomUUID(),conversationId:f.id,epoch:'2',donorDeviceId:f.members.alice.id,
+    publicKey:key.getPublicKey().toString('base64url'),historyHash:hash('local history digest')};
+}
+test('native history never partially imports mutated ciphertext and rejects a changed session before late writes',async t=>{
+  const f=await admittedFixture(t),source=historyVault(),target=historyVault(),id=crypto.randomUUID();
+  await source.write({expectedRevision:'0',values:{['history:'+id]:{id,conversationId:f.id,epoch:'1',owner:'alice',peer:'bob',deviceId:f.members.alice.id,
+    message:'PRIVATE ARCHIVE MUST STAY LOCAL',hash:hash('original wire'),timestamp:new Date().toISOString(),status:'sent'}}});
+  const donor=await historyCoordinator(f,'alice',source),receiver=await historyCoordinator(f,'next',target,{after:(action,r)=>{
+    if(action==='history-pages'&&r.pages.length){r=structuredClone(r);r.pages[0].capsule.ciphertext=Buffer.alloc(32,7).toString('base64url');}return r;
+  }}),groups=(await f.call('next','poll',{})).groups;
+  await receiver.client.sync(groups);await donor.client.sync(groups);await receiver.client.sync(groups);
+  assert.equal(receiver.client.state(f.id),'failed');assert.deepEqual((await target.historySnapshot()).values,{});
+  assert.equal((await f.db.query("SELECT status FROM encrypted_conversation_history_transfers WHERE recipient_device=$1",[f.members.next.id])).rows[0].status,'ready');
+  receiver.client.close();
+  const late=await historyCoordinator(f,'next',target,{after:(action,r)=>{if(action==='history-tasks')late.session.token='different-session';return r;}}),before=await target.snapshot();
+  await assert.rejects(late.client.sync(groups),{code:'history_sync_session_changed'});assert.deepEqual(await target.snapshot(),before);
+  donor.client.close();late.client.close();
+});
+
+test('restored prior-epoch Read is native authorized and acknowledged without old grants or false Delivered',async t=>{
+  const f=await fixture(t,{multiDeviceEnabled:true});await f.active();await f.call('alice','send',f.packet);
+  await f.call('bob','receipt',{id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'delivered'});
+  const next=await newMember(f,'next','bob'),a=await admissionPacket(f,next);
+  await f.call('alice','device-reserve',a.intent);await f.call('alice','device-transfer',a.transfer);
+  for(const actor of ['alice','bob','next'])await f.call(actor,'device-accept',a.acceptance);
+  const p={id:f.packet.id,conversationId:f.id,epoch:'1',hash:f.packet.hash,kind:'read'};
+  await assert.rejects(f.call('next','receipt',{...p,kind:'delivered'}),{code:'encrypted_receipt_rejected'});
+  await assert.rejects(f.call('next','archive-read',{...p,kind:'delivered'}),{code:'encrypted_receipt_rejected'});
+  await assert.rejects(f.call('alice','archive-read',p),{code:'encrypted_receipt_rejected'});
+  await assert.rejects(f.call('next','archive-read',{...p,hash:'0'.repeat(64)}),{code:'encrypted_receipt_rejected'});
+  await f.call('next','archive-read',p);await f.call('next','archive-read',p);
+  for(const actor of ['alice','bob']){
+    const proofs=(await f.call(actor,'poll',{})).groups[0].archiveReceipts;assert.equal(proofs.length,1);assert.equal(proofs[0].actorId,next.id);
+    await f.call(actor,'archive-read-ack',{...p,receiptDeviceId:next.id});await f.call(actor,'archive-read-ack',{...p,receiptDeviceId:next.id});
+    assert.equal((await f.call(actor,'poll',{})).groups[0].archiveReceipts.length,0);
+  }
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n,2);
+  const original=(await f.db.query('SELECT device_id,kind FROM encrypted_conversation_receipts')).rows;
+  assert.deepEqual(original,[{device_id:f.members.bob.id,kind:'delivered'}]);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_archive_reads')).rows[0].n,1);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_archive_read_acks')).rows[0].n,2);
+});
+
+test('native history is own-account only, immutable and exactly retryable without changing message receipts',async t=>{
+  const f=await admittedFixture(t),r=historyRequest(f);
+  await f.call('next','history-reserve',r);await f.call('next','history-reserve',r);
+  await assert.rejects(f.call('bob','history-reserve',{...r,id:crypto.randomUUID(),donorDeviceId:f.members.next.id}),{code:'encrypted_history_access_denied'});
+  assert.equal((await f.call('bob','history-tasks',{})).tasks.length,0);
+  const task=(await f.call('alice','history-tasks',{})).tasks[0];assert.equal(task.requestProof.actorId,f.members.next.id);
+  const page={id:r.id,conversationId:f.id,epoch:'2',index:0,capsule:historyCapsule(r.id+':0')};page.hash=capsuleHash(page.capsule);
+  await assert.rejects(f.call('next','history-page-put',page),{code:'encrypted_history_access_denied'});
+  await f.call('alice','history-page-put',page);await f.call('alice','history-page-put',page);
+  await assert.rejects(f.call('alice','history-page-put',{...page,capsule:historyCapsule(r.id+':0',2),hash:capsuleHash(historyCapsule(r.id+':0',2))}),{code:'encrypted_history_conflict'});
+  const key=crypto.createECDH('prime256v1');key.generateKeys();
+  const root={id:r.id,conversationId:f.id,epoch:'2',publicKey:key.getPublicKey().toString('base64url'),capsule:historyCapsule(r.id),pageCount:2};root.hash=capsuleHash(root.capsule);
+  await assert.rejects(f.call('alice','history-publish',root),{code:'encrypted_history_incomplete'});
+  root.pageCount=1;await f.call('alice','history-publish',root);await f.call('alice','history-publish',root);
+  const query={id:r.id,conversationId:f.id,epoch:'2',after:-1};
+  await assert.rejects(f.call('bob','history-pages',query),{code:'encrypted_history_access_denied'});
+  const received=await f.call('next','history-pages',query);assert.equal(received.pages.length,1);assert.equal(received.publicationProof.actorId,f.members.alice.id);
+  const accept={id:r.id,conversationId:f.id,epoch:'2',hash:root.hash};
+  await f.call('next','history-accept',accept);await f.call('next','history-accept',accept);
+  assert.equal((await f.call('alice','history-publish',root)).status,'accepted');
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages`)).rows[0].n,0);
+  const saved=(await f.db.query(`SELECT publication,publication_proof FROM encrypted_conversation_history_transfers WHERE id=$1`,[r.id])).rows[0];
+  assert.equal(Object.hasOwn(saved.publication,'capsule'),false);assert.deepEqual(saved.publication_proof,{});
+  assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts`)).rows[0].n,0);
+});
+test('native history rejects unsigned nested capsule mutation and cancelled reservation resurrection',async t=>{
+  const f=await admittedFixture(t),r=historyRequest(f);await f.call('next','history-reserve',r);
+  const capsule=historyCapsule(r.id+':0'),p={id:r.id,conversationId:f.id,epoch:'2',index:0,capsule,hash:capsuleHash(capsule)};
+  const signed=f.members.alice.sign('history-page-put',p);signed.payload.capsule={...capsule,nonce:Buffer.alloc(12,9).toString('base64url')};
+  await assert.rejects(f.store.encryptedOperation(f.members.alice.context,signed),{code:'encrypted_history_invalid'});
+  await f.call('next','history-cancel',{id:r.id,conversationId:f.id,epoch:'2'});
+  assert.equal((await f.call('next','history-reserve',r)).status,'cancelled');
+  await assert.rejects(f.call('alice','history-page-put',p),{code:'encrypted_history_cancelled'});
+  assert.equal((await f.call('alice','history-tasks',{})).tasks.length,0);
+});
+test('native history expiry cleanup is bounded and removes staging without touching accepted messages',async t=>{
+  const f=await admittedFixture(t),r=historyRequest(f);await f.call('next','history-reserve',r);
+  const capsule=historyCapsule(r.id+':0');await f.call('alice','history-page-put',{id:r.id,conversationId:f.id,epoch:'2',index:0,capsule,hash:capsuleHash(capsule)});
+  assert.deepEqual(await f.store.pruneEncryptedNativeHistory({batchSize:1}),{pruned:0});
+  await f.db.query("UPDATE encrypted_conversation_history_transfers SET expires_at=NOW()-interval '1 second' WHERE id=$1",[r.id]);
+  await assert.rejects(f.call('next','history-pages',{id:r.id,conversationId:f.id,epoch:'2',after:-1}),{code:'encrypted_history_access_denied'});
+  await assert.rejects(f.store.pruneEncryptedNativeHistory({batchSize:1001}),{code:'encrypted_history_invalid'});
+  assert.deepEqual(await f.store.pruneEncryptedNativeHistory({batchSize:1}),{pruned:1});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages')).rows[0].n,0);
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n,2);
+  assert.deepEqual(await f.store.pruneEncryptedNativeHistory({batchSize:1}),{pruned:0});
+});
+
+test('native history access is rechecked for blocks and removed membership at every page read',async t=>{
+  const f=await admittedFixture(t),r=historyRequest(f);await f.call('next','history-reserve',r);
+  const key=crypto.createECDH('prime256v1');key.generateKeys();
+  const root={id:r.id,conversationId:f.id,epoch:'2',publicKey:key.getPublicKey().toString('base64url'),capsule:historyCapsule(r.id),pageCount:0};root.hash=capsuleHash(root.capsule);
+  await f.call('alice','history-publish',root);
+  await f.db.query(`INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('alice','bob')`);
+  const query={id:r.id,conversationId:f.id,epoch:'2',after:-1};
+  await assert.rejects(f.call('next','history-pages',query),{code:'encrypted_access_denied'});
+  await f.db.query(`DELETE FROM user_blocks`);
+  const removal=await changePacket(f,'alice','next');await f.call('alice','device-change-reserve',removal.intent);
+  await assert.rejects(f.call('next','history-pages',query),{code:'encrypted_membership_pending'});
+  await f.call('alice','device-change-transfer',removal.transfer);
+  for(const actor of ['alice','bob'])await f.call(actor,'device-change-accept',removal.acceptance);
+  await assert.rejects(f.call('next','history-pages',query),{code:'encrypted_history_membership_changed'});
+  assert.equal((await f.call('alice','history-tasks',{})).tasks.length,0);
+});
+
 test('canonical Remove excludes the old endpoint, preserves historical grants and requires only retained native acceptances',async t=>{
   const f=await admittedFixture(t),r=await changePacket(f,'alice','next');
   await f.call('alice','device-change-reserve',r.intent);await f.call('alice','device-change-reserve',r.intent);

@@ -10,8 +10,10 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 Latest device/history work is documented in
 [conversations-device-history-acceptance-20261006.md](conversations-device-history-acceptance-20261006.md).
 It adds native Remove/expanded replacement, paged nontruncating user-key recovery
-and explicit same-owner historical attachment grants. It does not complete
-automatic continuous history sync, Shopping Rooms or independent crypto review.
+and explicit same-owner historical attachment grants. The subsequent candidate
+adds automatic own-native prior-epoch history reconciliation and historical Read
+without false Delivered. Production acceptance, Shopping Rooms and independent
+crypto review are not complete. The multi-device gate remains default-off.
 The release and evidence paragraphs below are earlier dated checkpoints.
 
 The operator requested commit/push/deploy of all pending conversation changes:

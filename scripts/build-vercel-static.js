@@ -153,6 +153,7 @@ const bundledModuleSources = [
   "src/chat/crypto-devices.js",
   "src/chat/device-management-ui.js",
   "src/chat/encryption-session.js",
+  "src/chat/native-history-client.js",
   "src/chat/encrypted-media-client.js",
   "src/chat/encrypted-media-ui.js",
   "src/chat/voice-ui.js",

@@ -51,7 +51,7 @@ test.beforeAll(async()=>{
     }
     const assets={'/devices.js':'src/chat/crypto-devices.js','/vault.js':'src/chat/encrypted-vault.js','/policy.js':'src/chat/encrypted-policy.js',
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
-      '/rich.js':'src/chat/rich-content.js','/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
+      '/rich.js':'src/chat/rich-content.js','/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/history-sync.js':'src/chat/native-history-client.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
     if(/^\/icons\/navigation\/(key-round|paperclip|download|eye|monitor-smartphone)\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
     if(assets[url.pathname]){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(fs.readFileSync(path.resolve(__dirname,'../..',assets[url.pathname])));return;}
     if(url.pathname==='/vendor/winga-mls-candidate.js'){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(output,'winga-mls-candidate.js')));return;}
@@ -107,7 +107,7 @@ test.beforeAll(async()=>{
       }catch(error){sendJson(res,error.status||500,{code:error.code||error.message});}
       return;
     }
-    res.setHeader('Content-Type','text/html');res.end('<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><title>Winga encrypted chat integration</title></head><body><main><button class="chat-security-control" data-chat-security="" hidden>Chat security</button><div class="messages-thread-body" data-chat-read-user=""></div><form class="messages-compose"><div class="chat-compose-footer"></div></form></main><script src="/devices.js"></script><script src="/device-ui.js"></script><script src="/vault.js"></script><script src="/policy.js"></script><script src="/content.js"></script><script src="/recovery.js"></script><script src="/recovery-ui.js"></script><script src="/media.js"></script><script src="/media-ui.js"></script><script src="/api.js"></script><script src="/session.js"></script><script src="/security-ui.js"></script><script src="/fixture.js"></script><script src="/ui.js"></script></body></html>');
+    res.setHeader('Content-Type','text/html');res.end('<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><title>Winga encrypted chat integration</title></head><body><main><button class="chat-security-control" data-chat-security="" hidden>Chat security</button><div class="messages-thread-body" data-chat-read-user=""></div><form class="messages-compose"><div class="chat-compose-footer"></div></form></main><script src="/devices.js"></script><script src="/device-ui.js"></script><script src="/vault.js"></script><script src="/policy.js"></script><script src="/content.js"></script><script src="/history-sync.js"></script><script src="/recovery.js"></script><script src="/recovery-ui.js"></script><script src="/media.js"></script><script src="/media-ui.js"></script><script src="/api.js"></script><script src="/session.js"></script><script src="/security-ui.js"></script><script src="/fixture.js"></script><script src="/ui.js"></script></body></html>');
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 });
@@ -115,7 +115,7 @@ test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await 
 async function resetStores(multidevice=false) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-conversation-backups','encrypted-history-pages'])
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const withTransaction=work=>db.transaction(work);
   devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
@@ -137,6 +137,8 @@ test('production session admits a third approved native device and converges enc
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
     const historicFile=await alice.evaluate(()=>client.sendEncryptedMedia('bob',new File(['Historic encrypted document'],'historic.txt',{type:'text/plain'}),'Historic file'));
     await bob.evaluate(()=>render());await alice.evaluate(()=>render());
+    const historicIncoming=await bob.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'Prior epoch incoming',messageType:'text'})));
+    await alice.evaluate(()=>render());await bob.evaluate(()=>render());
     const historyKit=await alice.evaluate(async()=>{
       const session=await client.createEncryptedRecovery();try{const key=session.generateKey();return await session.backup(key);}finally{session.close();}
     });
@@ -165,7 +167,13 @@ test('production session admits a third approved native device and converges enc
     await sibling.evaluate(fps=>client.verifyEncryptedConversationAdmission('bob',fps),{[aliceDevice]:ai.ownFingerprint,[bobDevice]:bi.ownFingerprint});
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
     for(const page of [alice,bob,sibling])expect((await page.evaluate(()=>client.inspectEncryptedConversation(peer))).status).toBe('active');
-    expect((await sibling.evaluate(()=>render())).some(m=>m.id===historicFile.id)).toBe(false);
+    await expect.poll(async()=>{
+      await alice.evaluate(()=>render());const rows=await sibling.evaluate(()=>render());return rows.some(m=>m.id===historicFile.id)&&rows.some(m=>m.id===historicIncoming.id);
+    },{timeout:30000}).toBe(true);
+    await sibling.bringToFront();await sibling.evaluate(id=>client.markConversationRead({withUser:'bob',messageIds:[id]}),historicIncoming.id);
+    for(const page of [alice,bob])expect((await page.evaluate(()=>render())).find(m=>m.id===historicIncoming.id).status).toBe('read');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts WHERE message_id=$1 AND device_id=$2',[historicIncoming.id,next.id])).rows[0].n).toBe(0);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_archive_reads WHERE message_id=$1',[historicIncoming.id])).rows[0].n).toBe(1);
     await sibling.evaluate(async kit=>{const session=await client.createEncryptedRecovery();try{return await session.restore(kit);}finally{session.close();}},historyKit);
     expect(await sibling.evaluate(async id=>(await client.downloadEncryptedMedia(id)).blob.text(),historicFile.id)).toBe('Historic encrypted document');
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_media_archive_grants')).rows[0].n).toBe(1);

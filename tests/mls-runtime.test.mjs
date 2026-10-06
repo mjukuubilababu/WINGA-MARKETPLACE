@@ -387,6 +387,20 @@ test('archived history and replay markers remain usable without loading them int
   await alice.runtime.prepareKeyPackage();
 });
 
+test('own-native Read updates only incoming history and cannot impersonate peer delivery',async()=>{
+  const {alice,bob}=await pair({multiDevice:true}),sibling=await participant('bob',{multiDevice:true});
+  await alice.runtime.sendMessage(message('Read on my other device'));const packet=alice.packets[0];await bob.runtime.receive('alice',packet);
+  const pin={...sibling.device,status:'active'},p={id:packet.id,conversationId:packet.conversationId,epoch:packet.epoch,hash:packet.hash,kind:'read'};
+  for(const invalid of [{...p,kind:'delivered'},{...p,hash:'0'.repeat(64)},{...p,epoch:'999'}])await assert.rejects(bob.runtime.applyOwnReadReceipt(invalid,pin),{code:'mls_receipt_rejected'});
+  await assert.rejects(bob.runtime.applyOwnReadReceipt(p,{...pin,owner:'alice'}),{code:'mls_receipt_rejected'});
+  await assert.rejects(bob.runtime.applyOwnReadReceipt(p,{...pin,status:'revoked'}),{code:'mls_receipt_rejected'});
+  await assert.rejects(bob.runtime.applyOwnReadReceipt(p,{...bob.device,status:'active'}),{code:'mls_receipt_rejected'});
+  await assert.rejects(alice.runtime.applyOwnReadReceipt(p,{...alice.device,status:'active'}),{code:'mls_receipt_rejected'});
+  await bob.runtime.applyOwnReadReceipt(p,pin);await bob.runtime.applyOwnReadReceipt(p,pin);
+  assert.equal((await bob.runtime.history('alice'))[0].status,'read');assert.equal((await alice.runtime.history('bob'))[0].status,'sent');
+  const plain=await pair();await assert.rejects(plain.bob.runtime.applyOwnReadReceipt(p,pin),{code:'mls_receipt_rejected'});
+});
+
 async function replacementFixture() {
   const old = await pair(), next = await participant('bob');
   old.alice.pins.push({ ...next.device, status: 'active' });

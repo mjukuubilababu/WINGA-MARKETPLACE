@@ -15,6 +15,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   const replacement=require('./encrypted-membership-replacement').createMembershipReplacement({access});
   const admission=require('./encrypted-device-admissions').createDeviceAdmissions({access,currentEpoch:replacement.currentEpoch,replacementFrozen:replacement.frozen});
   const frozen=async(client,id)=>await replacement.frozen(client,id) || (multiDeviceEnabled && await admission.frozen(client,id));
+  const nativeHistory=require('./encrypted-native-history').createNativeHistory({access,frozen,roster:admission.roster});
   const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,access,membershipFrozen:frozen,historyRecoveryEnabled:multiDeviceEnabled});
   async function consumeNewConversationQuota(client, owner) {
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
@@ -56,8 +57,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   }
   async function encryptedOperation(context, op) {
     assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
-      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant'].includes(op?.action));
-    if(op.action.startsWith('device-') || op.action==='sync-ack' || op.action==='media-history-grant')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
+      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields)].includes(op?.action));
+    if(op.action.startsWith('device-') || op.action.startsWith('history-') || op.action.startsWith('archive-read') || op.action==='sync-ack' || op.action==='media-history-grant')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
     const p = op.payload;
     assert(p && Buffer.byteLength(JSON.stringify(op)) <= 262144);
     const fields={directory:['peer'],reserve:['conversationId','peer','sourceHash','targetHash'],
@@ -80,6 +81,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields['device-change-transfer']=[...fields['device-transfer'],'removedOwner','removedDeviceId'];
     fields['device-change-accept']=fields['device-accept'];
     fields['sync-ack']=['id','conversationId','epoch','hash'];
+    fields['archive-read']=fields.receipt;
+    fields['archive-read-ack']=[...fields.receipt,'receiptDeviceId'];
+    Object.assign(fields,require('./encrypted-native-history').fields);
+    if(op.action==='history-tasks' && Object.hasOwn(p,'after'))fields['history-tasks']=['after'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
     if(op.action==='poll' && Object.hasOwn(p,'after'))fields.poll=['after'];
     if(op.action==='receipt-ack' && Object.hasOwn(p,'receiptDeviceId'))fields['receipt-ack']=[...fields['receipt-ack'],'receiptDeviceId'];
@@ -89,6 +94,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       // Serialize membership and message writes before authentication's user lock.
       await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
       await authorize(client, context, op);
+      if(op.action==='history-tasks') {
+        assert(p.after===undefined||uuid(p.after));return nativeHistory.handle(client,context,op);
+      }
       if (op.action === 'directory') {
         assert(typeof p.peer === 'string' && p.peer !== context.owner);
         const allowed = (await client.query(`SELECT username FROM users WHERE username=$1 AND status='active'
@@ -161,21 +169,30 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
             ${multiDeviceEnabled?'AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_sync_acks a WHERE a.message_id=m.id AND a.device_id=$2)':''}
             ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId,g.epoch])).rows;
           const receipts=(await client.query(`SELECT r.proof FROM encrypted_conversation_receipts r JOIN encrypted_conversation_messages m ON m.id=r.message_id
-            WHERE m.conversation_id=$1 AND ${multiDeviceEnabled?`EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices s
+            WHERE m.conversation_id=$1 AND ${multiDeviceEnabled?`(EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices s
               JOIN encrypted_conversation_epoch_devices o ON o.conversation_id=s.conversation_id AND o.epoch=s.epoch AND o.owner_id=s.owner_id
-              WHERE s.conversation_id=m.conversation_id AND s.epoch=m.epoch AND s.device_id=m.sender_device AND o.device_id=$2)`:'m.sender_device=$2'}
+              WHERE s.conversation_id=m.conversation_id AND s.epoch=m.epoch AND s.device_id=m.sender_device AND o.device_id=$2)
+              OR (r.kind='read' AND r.device_id<>$2 AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices e
+                WHERE e.conversation_id=m.conversation_id AND e.epoch=m.epoch AND e.device_id=r.device_id AND e.owner_id=$3)))`:'m.sender_device=$2'}
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipt_acks a WHERE a.message_id=r.message_id
               AND a.receipt_device=r.device_id AND a.kind=r.kind AND a.observer_device=$2)
-            ORDER BY m.sequence,r.device_id,r.kind LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
+            ORDER BY ${multiDeviceEnabled?'EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices d WHERE d.conversation_id=m.conversation_id AND d.epoch=$4 AND d.device_id=r.device_id) DESC,':''}
+              m.sequence,r.device_id,r.kind LIMIT 100`,multiDeviceEnabled?[g.id,op.actorId,context.owner,g.epoch]:[g.id,op.actorId])).rows.map(r=>r.proof);
+          const archiveReceipts=multiDeviceEnabled?(await client.query(`SELECT r.proof FROM encrypted_conversation_archive_reads r
+            JOIN encrypted_conversation_messages m ON m.id=r.message_id WHERE m.conversation_id=$1 AND r.device_id<>$2
+            AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_archive_read_acks a WHERE a.message_id=r.message_id AND a.receipt_device=r.device_id AND a.observer_device=$2)
+            ORDER BY EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices d WHERE d.conversation_id=m.conversation_id AND d.epoch=$3 AND d.device_id=r.device_id) DESC,
+              m.sequence,r.device_id LIMIT 100`,[g.id,op.actorId,g.epoch])).rows.map(r=>r.proof):[];
           const roster=multiDeviceEnabled?await admission.roster(client,g):null;
           const hashes=roster?.length?(await client.query(`SELECT DISTINCT ON(device_id) hash FROM conversation_crypto_key_packages
             WHERE device_id=ANY($1::text[]) ORDER BY device_id,published_at DESC,hash`,[roster.map(m=>m.id)])).rows.map(p=>p.hash):[g.source_hash,g.target_hash];
-          result.push({...g,...(r?{replacement:r}:{}),...(a && a.epoch===g.epoch?{admission:a}:{}),...(roster?{roster}:{}),packages:await packages(client,hashes),messages,receipts});
+          result.push({...g,...(r?{replacement:r}:{}),...(a && a.epoch===g.epoch?{admission:a}:{}),...(roster?{roster,archiveReceipts}:{}),packages:await packages(client,hashes),messages,receipts});
         }
         return {version:1,groups:result,next:page.length>100?groups.at(-1).id:null};
       }
       assert(uuid(p.conversationId));
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[p.conversationId])).rows[0];
+      if(op.action.startsWith('history-'))return nativeHistory.handle(client,context,op,g);
       if(op.action.startsWith('device-'))return admission.handle(client,context,op,g);
       if(op.action.startsWith('replace-')) {
         if(multiDeviceEnabled){assert(!await admission.frozen(client,g?.id),409,'encrypted_membership_pending');
@@ -234,14 +251,30 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         }
         return {id:p.id,hash:p.hash,status:'sent',createdAt:new Date(acceptedAt).toISOString()};
       }
-      assert(['receipt','receipt-ack','reject','sync-ack'].includes(op.action) && uuid(p.id)
+      assert(['receipt','receipt-ack','reject','sync-ack','archive-read','archive-read-ack'].includes(op.action) && uuid(p.id)
         && (op.action==='reject' ? p.reason==='invalid-ciphertext' : op.action==='sync-ack'||['delivered','read'].includes(p.kind)));
       const m=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1 AND conversation_id=$2',[p.id,g.id])).rows[0];
       const epochMember=m && (await client.query(`SELECT 1 FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2
         AND device_id=$3 AND owner_id=$4`,[g.id,m.epoch,op.actorId,context.owner])).rows.length;
-      assert(epochMember,403,'encrypted_receipt_rejected');
+      const epochOwner=multiDeviceEnabled&&m&&(await client.query(`SELECT 1 FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2 AND owner_id=$3 LIMIT 1`,[g.id,m.epoch,context.owner])).rows.length;
+      assert(epochMember||(op.action.startsWith('archive-read')&&epochOwner),403,'encrypted_receipt_rejected');
       const senderOwner=m && (await client.query(`SELECT owner_id FROM encrypted_conversation_epoch_devices
         WHERE conversation_id=$1 AND epoch=$2 AND device_id=$3`,[g.id,m.epoch,m.sender_device])).rows[0]?.owner_id;
+      if(op.action==='archive-read') {
+        assert(m&&p.kind==='read'&&senderOwner!==context.owner&&m.epoch===p.epoch&&m.hash===p.hash
+          &&BigInt(m.epoch)<BigInt(g.epoch),403,'encrypted_receipt_rejected');
+        const inserted=await client.query(`INSERT INTO encrypted_conversation_archive_reads(message_id,device_id,owner_id,proof) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [m.id,op.actorId,context.owner,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+        if(inserted.rowCount)await client.query(`SELECT winga_append_conversation_event($1,'message_state_changed',$2,$3,0)`,[g.canonical_id,m.id,context.owner]);
+        return {version:1,ok:true};
+      }
+      if(op.action==='archive-read-ack') {
+        assert(m&&p.kind==='read'&&m.epoch===p.epoch&&m.hash===p.hash&&uuid(p.receiptDeviceId)&&p.receiptDeviceId!==op.actorId,403,'encrypted_receipt_rejected');
+        assert((await client.query(`SELECT 1 FROM encrypted_conversation_archive_reads WHERE message_id=$1 AND device_id=$2`,[m.id,p.receiptDeviceId])).rows.length,403,'encrypted_receipt_rejected');
+        await client.query(`INSERT INTO encrypted_conversation_archive_read_acks(message_id,receipt_device,observer_device,proof) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [m.id,p.receiptDeviceId,op.actorId,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
+        return {version:1,ok:true};
+      }
       if(op.action==='sync-ack') {
         assert(senderOwner===context.owner && m.sender_device!==op.actorId && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
         await client.query(`INSERT INTO encrypted_conversation_sync_acks(message_id,device_id,proof) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
@@ -249,13 +282,14 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         return {version:1,ok:true};
       }
       if(op.action==='receipt-ack') {
-        assert(m && senderOwner===context.owner && (multiDeviceEnabled||m.sender_device===op.actorId) && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
+        const ownRead=multiDeviceEnabled&&p.kind==='read'&&senderOwner!==context.owner;
+        assert(m && (senderOwner===context.owner||ownRead) && (multiDeviceEnabled||m.sender_device===op.actorId) && m.hash===p.hash && m.epoch===p.epoch,403,'encrypted_receipt_rejected');
         assert(p.receiptDeviceId===undefined || uuid(p.receiptDeviceId));
         const receipts=(await client.query(`SELECT r.device_id FROM encrypted_conversation_receipts r
           JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=$3 AND e.epoch=$4 AND e.device_id=r.device_id
-          WHERE r.message_id=$1 AND r.kind=$2 AND e.owner_id<>$5
+          WHERE r.message_id=$1 AND r.kind=$2 AND ${ownRead?'e.owner_id=$5 AND r.device_id<>$7':'e.owner_id<>$5'}
           AND ($6::text IS NULL OR r.device_id=$6) ORDER BY r.device_id LIMIT 2`,
-          [p.id,p.kind,g.id,m.epoch,context.owner,p.receiptDeviceId || null])).rows;
+          ownRead?[p.id,p.kind,g.id,m.epoch,context.owner,p.receiptDeviceId || null,op.actorId]:[p.id,p.kind,g.id,m.epoch,context.owner,p.receiptDeviceId || null])).rows;
         // Old clients may omit the device only when exactly one authenticated receipt exists.
         assert(receipts.length===1,409,'encrypted_receipt_ack_ambiguous');
         await client.query(`INSERT INTO encrypted_conversation_receipt_acks(message_id,receipt_device,kind,observer_device,proof)
@@ -284,6 +318,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     });
   }
   return { encryptedOperation, readEncryptedConversationMode,
+    pruneEncryptedNativeHistory:({batchSize=100}={})=>multiDeviceEnabled?withTransaction(async client=>{
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))");return nativeHistory.prune(client,batchSize);
+    }):Promise.resolve({pruned:0}),
     authorizeEncryptedMedia:(context,object,action)=>{assert(mediaEnabled,503,'private_media_disabled');return media.authorize(context,object,action);},
     completeEncryptedMediaUpload:media.uploaded,claimEncryptedMediaCleanup:media.claim,finishEncryptedMediaCleanup:media.finish };
 }

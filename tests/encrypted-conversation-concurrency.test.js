@@ -12,7 +12,7 @@ async function fixture(t,options={}){
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle'])
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history'])
     await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
   const members={};
@@ -317,6 +317,41 @@ test('real PostgreSQL archive load stages immutable pages across two stores and 
   latencies.sort((a,b)=>a-b);
   t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-encrypted-history-pages',stores:2,concurrentConnections:6,uniquePages:64,writeAttempts:384,acceptedAttempts:accepted,uniqueRootRevisions:1,p50WriteMs:Math.round(latencies[Math.floor(latencies.length*.5)]),p95WriteMs:Math.round(latencies[Math.floor(latencies.length*.95)]),productionCapacityProven:false,shoppingRoomsProven:false}));
 });
+test('real PostgreSQL own-native archive retries store each encrypted page once and acknowledge one publication',async t=>{
+  const f=await admissionRaceFixture(t),a=f.members.alice,b=f.members.bob,target=f.target;
+  await f.nodes[0].encryptedOperation(a.context,a.sign('device-reserve',f.intent));
+  await f.nodes[0].encryptedOperation(a.context,a.sign('device-transfer',f.transfer));
+  for(const actor of [a,b,target])await f.nodes[0].encryptedOperation(actor.context,actor.sign('device-accept',f.acceptance));
+  const ec=crypto.createECDH('prime256v1');ec.generateKeys();
+  const request={id:crypto.randomUUID(),conversationId:f.id,epoch:'2',donorDeviceId:a.id,publicKey:ec.getPublicKey().toString('base64url'),historyHash:'0'.repeat(64)};
+  const call=(actor,action,payload,n=0)=>f.nodes[n%2].encryptedOperation(actor.context,actor.sign(action,payload));
+  await Promise.all(Array.from({length:12},(_,n)=>call(target,'history-reserve',request,n)));
+  const codec=await require('../src/chat/secure-content').createSecureContent(),key=codec.generateRecoveryKey(),pages=[];
+  for(let index=0;index<64;index++){
+    const capsule=await codec.sealRecovery(new TextEncoder().encode('SYNTHETIC PRIVATE PAGE '+index+'x'.repeat(8192)),key,{owner:'alice',id:request.id+':'+index,generation:1});
+    pages.push({...request,index,capsule,hash:crypto.createHash('sha256').update(JSON.stringify(capsule,Object.keys(capsule).sort())).digest('hex')});
+    delete pages[index].donorDeviceId;delete pages[index].publicKey;delete pages[index].historyHash;
+  }
+  let next=0;const timings=[];
+  await Promise.all(Array.from({length:6},async(_,worker)=>{while(next<256){const index=next++,start=performance.now();await call(a,'history-page-put',pages[index%64],worker);timings.push(performance.now()-start);}}));
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages')).rows[0].n,64);
+  const capsule=await codec.sealRecovery(new Uint8Array([1,2,3]),key,{owner:'alice',id:request.id,generation:1}),root={id:request.id,conversationId:f.id,epoch:'2',publicKey:request.publicKey,capsule,
+    hash:crypto.createHash('sha256').update(JSON.stringify(capsule,Object.keys(capsule).sort())).digest('hex'),pageCount:64};
+  await Promise.all(Array.from({length:12},(_,n)=>call(a,'history-publish',root,n)));
+  const stored=[];let after=-1;
+  do{const r=await call(target,'history-pages',{id:request.id,conversationId:f.id,epoch:'2',after});stored.push(...r.pages);after=r.next;}while(after!==null);
+  assert.equal(stored.length,64);for(const page of stored)assert.equal(new TextDecoder().decode(await codec.openRecovery(page.capsule,key,{owner:'alice',id:request.id+':'+page.index,generation:1})), 'SYNTHETIC PRIVATE PAGE '+page.index+'x'.repeat(8192));
+  const accept={id:request.id,conversationId:f.id,epoch:'2',hash:root.hash};
+  await Promise.all(Array.from({length:12},(_,n)=>call(target,'history-accept',accept,n)));
+  assert.equal((await call(a,'history-publish',root)).status,'accepted');
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages')).rows[0].n,0);
+  const transfers=(await f.pool.query('SELECT * FROM encrypted_conversation_history_transfers')).rows;
+  assert.equal(transfers.length,1);assert.equal(transfers[0].status,'accepted');assert.equal(JSON.stringify(transfers).includes('SYNTHETIC PRIVATE'),false);
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n,0);
+  timings.sort((a,b)=>a-b);t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-own-native-archive',stores:2,concurrentConnections:6,uniquePages:64,writeAttempts:256,
+    publicationAttempts:12,acceptanceAttempts:12,p50WriteMs:Math.round(timings[Math.floor(timings.length*.5)]),p95WriteMs:Math.round(timings[Math.floor(timings.length*.95)]),productionCapacityProven:false,shoppingRoomsProven:false}));
+});
+
 test('replacement reservations on independent connections consume only one target package and retain exact retry',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,intents=f.targets.map(f.intent);
   const results=await Promise.allSettled(intents.map(intent=>f.store.encryptedOperation(a.context,a.sign('replace-reserve',intent))));

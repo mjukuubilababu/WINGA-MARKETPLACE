@@ -4,6 +4,12 @@ Date: 2026-10-06. This is a local implementation ledger, not a production
 deployment, independent cryptographic approval or declaration of completion.
 The source remains winga-conversations-spec-110-238.txt.
 
+Latest native/history implementation and test evidence is in
+`conversations-device-history-acceptance-20261006.md`. Its later gated own-native
+archive reconciliation supersedes earlier statements here that automatic old
+history was not implemented. Earlier sections remain dated checkpoints, not a
+claim that the candidate gate is enabled or Shopping Rooms are complete.
+
 ## Direct Conversations
 
 | Section | Current implementation | Remaining acceptance or implementation |

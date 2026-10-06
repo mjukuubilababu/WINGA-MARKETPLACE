@@ -11,7 +11,9 @@
     for(const [key,value] of Object.entries(current)) {
       const old=result[key];
       if(old!==undefined && JSON.stringify(old)!==JSON.stringify(value)) {
-        const stable=v=>{const copy={...v};delete copy.status;return JSON.stringify(copy);};
+        const stable=v=>{const copy={...v};delete copy.status;delete copy.encrypted;
+          return JSON.stringify(copy,(_k,item)=>item&&typeof item==='object'&&!Array.isArray(item)
+            ?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);};
         if(!old || !value || typeof old!=='object' || typeof value!=='object' || !Object.hasOwn(rank,old.status) || !Object.hasOwn(rank,value.status)
           || stable(old)!==stable(value))fail('recovery_local_history_conflict');
         result[key]={...value,status:rank[old.status]>rank[value.status]?old.status:value.status};

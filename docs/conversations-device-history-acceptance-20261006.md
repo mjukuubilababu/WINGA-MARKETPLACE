@@ -72,9 +72,9 @@ workload measurements, not production SLO or Shopping Room capacity evidence.
 
 ## Still Open
 
-- Automatic continuous historical reconciliation between trusted devices is not
-  implemented. User-held-key recovery is explicit, not silent key escrow or an
-  automatic cross-account/group-history disclosure mechanism.
+- Automatic own-native historical reconciliation is implemented as a gated
+  candidate below; authenticated production and physical-device acceptance remain.
+  User-held-key recovery remains explicit, without server key escrow.
 - Shopping Rooms still require real multi-account canonical membership, MLS
   group routing and removal, private structured commerce state, UI and room
   concurrency/load acceptance. A direct pair with several devices is not a room.
@@ -88,3 +88,65 @@ workload measurements, not production SLO or Shopping Room capacity evidence.
 Two additive startup migrations: `2026100607_encrypted_device_lifecycle` and
 `2026100608_encrypted_history_pages`. Readiness now requires 12 crypto migrations
 and checks the archive-page and explicit attachment-grant tables.
+
+## Own-Native Automatic History Candidate
+
+The later additive migration `2026100609_encrypted_native_history` adds signed
+own-account transfer requests, immutable ciphertext pages and separate historical
+Read/ACK tables. Readiness requires 13 crypto migrations and these four tables.
+The existing multi-device flag remains default-off; publication does not enable it.
+
+Both endpoints must be approved native identities currently admitted to the same
+canonical direct conversation. Recipient and donor authenticate fresh P-256 ECDH
+public keys with pinned native signatures. HKDF-SHA256 binds the owner, request,
+conversation, epoch, both devices and both public keys. The resulting short-lived
+AES-GCM key is not sent to the server or derived from the account password.
+Recipient ephemeral private material is retained only inside its encrypted local
+vault for exact retry. Manual recovery keys and MLS identity/ratchets are excluded.
+This composition is a candidate requiring independent cryptographic review.
+
+Only prior-epoch records are archived. Current-epoch traffic still passes the
+original MLS ratchet. Bounds are 100,000 records, 1,024 pages of at most 128 KiB
+plaintext and at most 128 MiB plaintext total. Oversize archives fail rather than
+truncate. Signed publication binds the encrypted manifest digest; the manifest
+binds every page hash, count, account, conversation and native endpoint. All pages
+validate before one history-only vault transaction. Conflicting content fails;
+receipt progress merges monotonically. Derived UI flags do not create conflicts.
+
+This is an account's attested archive copy, not independent proof that the
+original peer signed an archived body. Unknown historical native signatures are
+deferred without ACK or implicit trust. Current-native receipts receive priority,
+so historical unverified proofs cannot occupy the entire next receipt batch.
+Archive Read requires current membership and original historical account scope;
+it does not rewrite old epoch grants or manufacture Delivered.
+
+Synchronization runs off the send critical path. Short owner/session and MLS locks
+protect vault writes and final import. Membership and session are rechecked after
+network I/O and before import. Approved source endpoints need to be online;
+unanswered requests rotate donors after two minutes of active reconciliation.
+Completed requests retain only bounded hash retry evidence, not archive pages.
+Requests expire after 24 hours; the existing managed conversation sweeper prunes
+expired server staging in bounded batches. This is not a promise of OS background
+execution, total local journal eviction or recovery without an approved source.
+
+Local acceptance uses actual WebCrypto ECDH/HKDF/AES and native signatures, lost
+reserve/page/publication/ACK replies, coordinator restart, 1,200 restored records,
+tampered ciphertext without partial import, session changes, block/revocation,
+historical Read and immutable original epoch grants. The real HTTP three-profile
+browser flow restores old incoming/outgoing messages automatically, downloads an
+old encrypted attachment, converges historical Read and continues live messaging
+after native removal under unchanged CSP.
+
+Real disposable PostgreSQL acceptance passed 39/39 cases. Two stores and six
+connections staged 64 unique pages from 256 attempts, retried publication and
+acceptance 12 times each and retained one accepted transfer with no pages and no
+fake message receipts. Empirical page-write p50/p95 was 75/100 ms in that local
+run; this is not production capacity, sustained soak or Shopping Room evidence.
+
+Final candidate verification: crypto 145/145, secure browser 37/37, message/report
+service 96/96, frontend core 145/145, frontend behavior 80/80, and lifecycle/metrics
+4/4. Four locale catalogs retain 1,524 matching keys with zero hardcoded debt.
+Prepared build `20261006193220` includes all 91 synchronized source modules and
+267 assets; Wrangler dry-run passed with the existing Worker and preserved vars.
+Production publication must be verified separately against the exact commit and
+asset hashes; prepared assets do not certify authenticated account acceptance.

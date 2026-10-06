@@ -16,7 +16,7 @@
   async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
-    let closed=false,runtime,media,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    let closed=false,runtime,media,nativeHistory,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
     const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
     const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
     const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
@@ -60,18 +60,32 @@
       if(!await crypto.subtle.verify('Ed25519',key,decode(proof.signature),bytes))fail('mls_receipt_rejected');
       return pin;
     }
-    async function verifyReceipt(proof) {
-      const pin=await verifyProof(proof,'receipt');
-      await runtime.applyReceipt(proof.payload,pin);
-      await operation('receipt-ack',{...proof.payload,receiptDeviceId:proof.actorId});
+    async function verifyReceipt(proof,g) {
+      // An added native endpoint cannot authenticate a historical signer it never pinned.
+      const p=proof.payload;
+      if(multiDeviceEnabled&&p?.conversationId===g.id&&typeof p.epoch==='string'&&/^[1-9][0-9]{0,19}$/.test(p.epoch)&&BigInt(p.epoch)<BigInt(g.epoch)
+        && !(await pins()).some(pin=>pin.id===proof.actorId&&pin.owner===proof.owner&&pin.status==='active'))return;
+      const archive=proof.action==='archive-read',pin=await verifyProof(proof,archive?'archive-read':'receipt');
+      if(!await vault.lookup(`history:${p.id}`))return;
+      if(multiDeviceEnabled&&pin.owner===owner&&p.kind==='read')await runtime.applyOwnReadReceipt(p,pin);
+      else await runtime.applyReceipt(p,pin);
+      await operation(archive?'archive-read-ack':'receipt-ack',{...p,receiptDeviceId:proof.actorId});
     }
     async function acknowledge(item,kind) {
-      await operation('receipt',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash,kind});
+      const archive=multiDeviceEnabled&&kind==='read'&&item.epoch!==await runtime.conversationEpoch(item.owner);
+      await operation(archive?'archive-read':'receipt',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash,kind});
     }
     try {
       runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
         publishPackage:packageRequest,trustedPins:pins,multiDevice:multiDeviceEnabled,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
       await runtime.initialize();const own=await runtime.prepareKeyPackage(),native=await identity.enroll();
+      if(multiDeviceEnabled&&globalThis.WingaNativeHistory&&globalThis.WingaSecureContent){
+        const codec=await WingaSecureContent.loadSecureContent();current();
+        nativeHistory=await WingaNativeHistory.createNativeHistoryClient({owner,deviceId:own.id,getSession,vault,codec,operation,
+          verifyProof:(p,action)=>verifyProof(p,action,p.actorId===own.id?native:undefined),onChange,
+          validateMembership:async g=>{const latest=groups.find(x=>x.id===g.id),peer=g.creator===owner?g.recipient:g.creator;
+            if(latest?.status!=='active'||latest.epoch!==g.epoch||await runtime.conversationEpoch(peer)!==g.epoch)fail('history_sync_membership_changed');}});
+      }
       const canonical=value=>JSON.stringify(value,Object.keys(value).sort());
       async function processAdmission(g) {
         const r=g.admission;if(!multiDeviceEnabled || !r)return;
@@ -241,12 +255,20 @@
             if(item.owner===owner)await operation('sync-ack',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash});
             else await acknowledge(item,'delivered');
           }
-          for(const proof of g.receipts)await verifyReceipt(proof);
+          for(const proof of g.receipts)await verifyReceipt(proof,g);
+          for(const proof of g.archiveReceipts||[])await verifyReceipt(proof,g);
         }
         if(media)for(const job of await media.list())if(groups.some(g=>g.id===job.conversationId&&g.status==='active'))await media.resume(job.id);
         for(const [key,job] of Object.entries((await vault.snapshot()).values))if(key.startsWith('mls:outbox:')
           && groups.some(g=>g.id===job.conversationId && g.status==='active')) {
           await runtime.retryMessage(job.id);queueMicrotask(onChange);
+        }
+        if(nativeHistory&&!historyTask){
+          // Archive I/O is not on the message-send critical path; vault CAS protects concurrent writes.
+          const roster=structuredClone(groups);
+          historyTask=navigator.locks.request(`winga-native-history:${owner}:${own.id}`,()=>{
+            current();return nativeHistory.sync(roster);
+          }).catch(()=>{}).finally(()=>{historyTask=null;});
         }
         current();const snapshot=JSON.stringify(groups);
         if(snapshot!==lastSnapshot){lastSnapshot=snapshot;queueMicrotask(onChange);}return groups;
@@ -515,10 +537,11 @@
             const s=await vault.snapshot();await vault.write({expectedRevision:s.revision,values:{[`history:${item.id}`]:{...item,status:'read'}}});
           }
         }),
-        close(){closed=true;runtime.close();vault.close();identity.close();}
+        historySyncState:id=>nativeHistory?.state(id)||'disabled',
+        close(){closed=true;nativeHistory?.close();runtime.close();vault.close();identity.close();}
       };
       if(initialSync!==false)await service.sync();return service;
-    }catch(error){runtime?.close();vault.close();identity.close();throw error;}
+    }catch(error){nativeHistory?.close();runtime?.close();vault.close();identity.close();throw error;}
   }
   globalThis.WingaEncryptionSession={createEncryptionSession};
 })();
