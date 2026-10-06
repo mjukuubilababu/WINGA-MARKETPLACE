@@ -5,14 +5,14 @@ const {createEncryptedConversationStore,operationBytes}=require('../backend/encr
 const connectionString=process.env.WINGA_TEST_POSTGRES_URL;
 if(!connectionString || !['localhost','127.0.0.1','[::1]'].includes(new URL(connectionString).hostname))throw new Error('Explicit disposable localhost WINGA_TEST_POSTGRES_URL is required.');
 async function transaction(client,work){await client.query('BEGIN');try{const result=await work(client);await client.query('COMMIT');return result;}catch(e){await client.query('ROLLBACK');throw e;}}
-async function fixture(t){
+async function fixture(t,options={}){
   const schema='winga_encrypted_test_'+crypto.randomBytes(10).toString('hex');
   const admin=new Client({connectionString});await admin.connect();await admin.query(`CREATE SCHEMA "${schema}"`);
   const pool=new Pool({connectionString,max:6,options:`-c search_path=${schema},public -c statement_timeout=10000 -c lock_timeout=7000`});
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery'])
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions'])
     await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);});
     await transaction(migrationClient,async c=>{for(const sql of require('../backend/migrations/encrypted-conversation-media').statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
@@ -24,7 +24,7 @@ async function fixture(t){
     const context={owner,deviceId:token,token};
     members[owner]={id,hash,context,sign(action,payload){const op={action,actorId:id,requestId:crypto.randomUUID(),issuedAt:Date.now(),payload};op.signature=crypto.sign(null,operationBytes(context,op),keys.privateKey).toString('base64url');return op;}};
   }
-  const store=createEncryptedConversationStore({mediaEnabled:true,withTransaction:async work=>{const c=await pool.connect();try{return await transaction(c,work);}finally{c.release();}}});
+  const store=createEncryptedConversationStore({mediaEnabled:true,...options,withTransaction:async work=>{const c=await pool.connect();try{return await transaction(c,work);}finally{c.release();}}});
   const id=crypto.randomUUID(),reserve={conversationId:id,peer:'bob',sourceHash:members.alice.hash,targetHash:members.bob.hash};
   return {pool,admin,members,store,id,reserve};
 }
@@ -188,6 +188,85 @@ async function replacementFixture(t) {
   const intent=target=>({id:crypto.randomUUID(),conversationId:f.id,previousEpoch:'1',removedDeviceId:f.members.bob.id,replacementDeviceId:target.id,packageHash:target.hash});
   return {...f,targets,intent};
 }
+
+async function admissionRaceFixture(t) {
+  const f=await fixture(t,{multiDeviceEnabled:true}),a=f.members.alice,b=f.members.bob;
+  await f.store.encryptedOperation(a.context,a.sign('reserve',f.reserve));
+  await f.pool.query("UPDATE encrypted_conversations SET status='active' WHERE id=$1",[f.id]);
+  await f.pool.query('INSERT INTO encrypted_conversation_epochs VALUES($1,$2,$3,$4)',[f.id,'1',a.id,b.id]);
+  const keys=crypto.generateKeyPairSync('ed25519'),raw=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32),id=crypto.randomUUID();
+  const fingerprint=crypto.createHash('sha256').update(raw).digest('hex'),context={...a.context};
+  await f.pool.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,'alice',$2,$3,'active')`,[id,raw.toString('base64url'),fingerprint]);
+  const target={id,context,sign(action,payload){const op={action,actorId:id,requestId:crypto.randomUUID(),issuedAt:Date.now(),payload};
+    op.signature=crypto.sign(null,operationBytes(context,op),keys.privateKey).toString('base64url');return op;}};
+  const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
+  const packages=[];
+  for(const member of [a,b,target]) {
+    const d=(await f.pool.query('SELECT owner_id,fingerprint FROM conversation_crypto_devices WHERE id=$1',[member.id])).rows[0];
+    const pkg=await mls.generateKeyPackage({credentialType:'basic',identity:new TextEncoder().encode(JSON.stringify(['winga-mls-device',1,d.owner_id,member.id,d.fingerprint]))},
+      mls.defaultCapabilities(),{notBefore:0n,notAfter:BigInt(Math.floor(Date.now()/1000)+86400)},[],suite);
+    const bytes=Buffer.from(mls.encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:pkg.publicPackage})),hash=crypto.createHash('sha256').update(bytes).digest('hex');
+    await f.pool.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at)
+      VALUES($1,$2,$3,$4,'{}',NOW()+INTERVAL '1 day')`,[hash,member.id,bytes.toString('base64url'),Buffer.from(pkg.publicPackage.leafNode.signaturePublicKey).toString('base64url')]);
+    packages.push(pkg);if(member===target)target.hash=hash;
+  }
+  const [ap,bp,tp]=packages;
+  let group=await mls.createGroup(new TextEncoder().encode(f.id),ap.publicPackage,ap.privatePackage,[],suite);
+  const pair=await mls.createCommit({state:group,cipherSuite:suite},{extraProposals:[{proposalType:'add',add:{keyPackage:bp.publicPackage}}]});
+  const added=await mls.createCommit({state:pair.newState,cipherSuite:suite},{extraProposals:[{proposalType:'add',add:{keyPackage:tp.publicPackage}}]});
+  const roster=added.newState.ratchetTree.filter(n=>n?.nodeType==='leaf').map(n=>{const d=JSON.parse(new TextDecoder().decode(n.leaf.credential.identity));
+    return {owner:d[2],id:d[3],fingerprint:d[4],key:Array.from(n.leaf.signaturePublicKey)};}).sort((a,b)=>`${a.owner}/${a.id}`<`${b.owner}/${b.id}`?-1:1);
+  const intent={id:crypto.randomUUID(),conversationId:f.id,previousEpoch:'1',actorOwner:'alice',actorDeviceId:a.id,
+    addedOwner:'alice',addedDeviceId:target.id,packageHash:target.hash};
+  const {encodeRatchetTree}=await import('ts-mls/ratchetTree.js');
+  const transfer={...intent,version:2,epoch:'2',roster:JSON.stringify(roster),commit:Buffer.from(mls.encodeMlsMessage(added.commit)).toString('base64url'),
+    welcome:Buffer.from(mls.encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:added.welcome})).toString('base64url'),
+    tree:Buffer.from(encodeRatchetTree(added.newState.ratchetTree)).toString('base64url')};
+  const acceptance={conversationId:f.id,transferId:intent.id,epoch:'2',transferHash:crypto.createHash('sha256').update(JSON.stringify(transfer,Object.keys(transfer).sort())).digest('hex')};
+  const nodes=[0,1].map(()=>createEncryptedConversationStore({multiDeviceEnabled:true,withTransaction:async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}}}));
+  return {...f,target,intent,transfer,acceptance,nodes};
+}
+
+test('real PostgreSQL admission races activate one epoch once across independent stores and all endpoint acceptance retries',async t=>{
+  const f=await admissionRaceFixture(t),a=f.members.alice;
+  const intents=[f.intent,{...f.intent,id:crypto.randomUUID()}];
+  const racing=await Promise.allSettled(intents.map((intent,i)=>f.nodes[i].encryptedOperation(a.context,a.sign('device-reserve',intent))));
+  assert.equal(racing.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(racing.find(r=>r.status==='rejected').reason.code,'encrypted_device_admission_conflict');
+  const winner=intents[racing.findIndex(r=>r.status==='fulfilled')];
+  const transfer={...f.transfer,id:winner.id},acceptance={...f.acceptance,transferId:winner.id,
+    transferHash:crypto.createHash('sha256').update(JSON.stringify(transfer,Object.keys(transfer).sort())).digest('hex')};
+  await Promise.all(Array.from({length:8},(_,i)=>f.nodes[i%2].encryptedOperation(a.context,a.sign('device-reserve',winner))));
+  await Promise.all(Array.from({length:8},(_,i)=>f.nodes[i%2].encryptedOperation(a.context,a.sign('device-transfer',transfer))));
+  const actors=[a,f.members.bob,f.target];
+  await Promise.all(Array.from({length:18},(_,i)=>{const member=actors[i%3];return f.nodes[i%2].encryptedOperation(member.context,member.sign('device-accept',acceptance));}));
+  assert.equal((await f.pool.query('SELECT epoch FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0].epoch,'2');
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_device_admissions')).rows[0].n,1);
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_device_acceptances')).rows[0].n,3);
+  assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='2'")).rows[0].n,3);
+  assert.equal((await f.pool.query('SELECT membership_version::int AS n FROM conversation_event_streams WHERE id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[f.id])).rows[0].n,2);
+  const events=(await f.pool.query("SELECT kind FROM conversation_events WHERE kind='access_changed'")).rows;
+  assert.equal(events.length,3);
+  t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-native-admission',stores:2,concurrentConnections:6,
+    reserveAttempts:10,transferAttempts:8,acceptanceAttempts:18,uniqueEpochTransitions:1,uniqueEndpointAcceptances:3,shoppingRoomsProven:false}));
+});
+
+test('an independent old-epoch send waits behind admission and cannot cross the committed freeze',async t=>{
+  const f=await admissionRaceFixture(t),a=f.members.alice,b=f.members.bob,blocker=await f.pool.connect(),waiter=await f.pool.connect();
+  const ready=deferred(),release=deferred();let freezing,waiting;
+  try {
+    freezing=heldStore(f,blocker,ready,release,{multiDeviceEnabled:true}).encryptedOperation(a.context,a.sign('device-reserve',f.intent));
+    await ready.promise;
+    const bytes=Buffer.from([1]),packet={id:crypto.randomUUID(),conversationId:f.id,epoch:'1',deviceId:b.id,
+      ciphertext:bytes.toString('base64url'),hash:crypto.createHash('sha256').update(bytes).digest('hex')};
+    waiting=createEncryptedConversationStore({multiDeviceEnabled:true,withTransaction:work=>transaction(waiter,work)})
+      .encryptedOperation(b.context,b.sign('send',packet)).catch(error=>error);
+    await waitBlocked(f,blocker,waiter);release.resolve();await freezing;
+    assert.equal((await waiting).code,'encrypted_membership_pending');
+    assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+    assert.equal((await f.pool.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch,'1');
+  } finally {release.resolve();await Promise.allSettled([freezing,waiting]);blocker.release();waiter.release();}
+});
 test('replacement reservations on independent connections consume only one target package and retain exact retry',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,intents=f.targets.map(f.intent);
   const results=await Promise.allSettled(intents.map(intent=>f.store.encryptedOperation(a.context,a.sign('replace-reserve',intent))));
@@ -237,8 +316,8 @@ async function mediaFixture(t) {
   await f.pool.query(`INSERT INTO encrypted_conversation_epochs(conversation_id,epoch,creator_device,recipient_device) VALUES($1,'0',$2,$3)`,[f.id,a.id,f.members.bob.id]);
   return {...f,object,context,packet};
 }
-function heldStore(f,client,ready,release) {
-  return createEncryptedConversationStore({mediaEnabled:true,withTransaction:work=>transaction(client,async c=>{
+function heldStore(f,client,ready,release,options={}) {
+  return createEncryptedConversationStore({mediaEnabled:true,...options,withTransaction:work=>transaction(client,async c=>{
     const result=await work(c);ready.resolve();await release.promise;return result;
   })});
 }

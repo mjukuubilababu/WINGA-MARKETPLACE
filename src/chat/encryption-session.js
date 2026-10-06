@@ -13,7 +13,7 @@
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -70,9 +70,57 @@
     }
     try {
       runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
-        publishPackage:packageRequest,trustedPins:pins,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
+        publishPackage:packageRequest,trustedPins:pins,multiDevice:multiDeviceEnabled,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
       await runtime.initialize();const own=await runtime.prepareKeyPackage(),native=await identity.enroll();
       const canonical=value=>JSON.stringify(value,Object.keys(value).sort());
+      async function processAdmission(g) {
+        const r=g.admission;if(!multiDeviceEnabled || !r)return;
+        const intent=r.intent,peer=g.creator===owner?g.recipient:g.creator,expectedFields=['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash'];
+        if(!intent || intent.conversationId!==g.id || intent.id!==r.id || intent.previousEpoch!==r.previous_epoch
+          || intent.actorDeviceId!==r.actor_device || intent.addedDeviceId!==r.added_device || intent.addedOwner!==r.added_owner
+          || intent.packageHash!==r.package_hash || r.reservation_proof?.owner!==intent.actorOwner
+          || r.reservation_proof.actorId!==intent.actorDeviceId || canonical(r.reservation_proof.payload)!==canonical(intent))fail('mls_device_intent_rejected');
+        let saved=await vault.snapshot();
+        for(const p of g.packages||[])if(p.deviceId===own.id)await verifyPackage(p,own.fingerprint);
+        saved=await vault.snapshot();
+        // An unverified new fingerprint pauses this one chat, never silently trusts a login.
+        if((g.packages||[]).some(p=>!saved.values[`mls:pin:${p.deviceId}`]))return;
+        await verifyProof(r.reservation_proof,'device-reserve',intent.actorDeviceId===own.id?native:undefined);
+        const expected=Object.fromEntries(expectedFields.map(k=>[k,intent[k]]));
+        if(r.status==='reserved') {
+          if(r.actor_device!==own.id)return;
+          const local=saved.values[`mls:device-admission:${peer}`];
+          if(!local || canonical(local)!==canonical(intent))fail('mls_device_intent_rejected');
+          const pkg=g.packages.find(p=>p.hash===r.package_hash && p.deviceId===r.added_device);
+          if(!pkg)fail('encrypted_package_unavailable');
+          const transfer=saved.values[`mls:membership:${g.id}`] || await runtime.addDevice(g.id,r.previous_epoch,decode(pkg.keyPackage),
+            {owner:r.added_owner,id:r.added_device},r.id);
+          await operation('device-transfer',WingaMlsCandidate.encodeDeviceAdmissionPayload(transfer),r.id);return;
+        }
+        if(!r.transfer || r.transfer_hash!==await digest(new TextEncoder().encode(canonical(r.transfer)))
+          || r.transfer_proof?.actorId!==r.actor_device || r.transfer_proof.owner!==intent.actorOwner
+          || canonical(r.transfer_proof.payload)!==canonical(r.transfer))fail('mls_device_transfer_rejected');
+        await verifyProof(r.transfer_proof,'device-transfer',r.actor_device===own.id?native:undefined);
+        const transfer=WingaMlsCandidate.decodeDeviceAdmissionPayload(r.transfer);
+        if(r.actor_device===own.id) {
+          const local=saved.values[`mls:membership:${g.id}`];
+          if(local && canonical(WingaMlsCandidate.encodeDeviceAdmissionPayload(local))!==canonical(r.transfer))fail('mls_device_transfer_rejected');
+          if(!local && await runtime.conversationEpoch(peer)!==r.epoch)fail('mls_device_epoch_conflict');
+        } else if(r.added_device===own.id)await runtime.acceptDeviceWelcome(peer,transfer,expected);
+        else await runtime.applyDeviceCommit(peer,transfer,expected);
+        const payload={conversationId:g.id,transferId:r.id,epoch:r.epoch,transferHash:r.transfer_hash};
+        if(r.status!=='accepted') {await operation('device-accept',payload,r.id);return;}
+        const required=transfer.roster.map(m=>m.id),seen=new Set();
+        for(const proof of r.acceptances||[]) {
+          const member=transfer.roster.find(m=>m.id===proof.actorId);
+          if(!member || member.owner!==proof.owner || seen.has(proof.actorId) || canonical(proof.payload)!==canonical(payload))fail('mls_membership_confirmation_rejected');
+          await verifyProof(proof,'device-accept',proof.actorId===own.id?native:undefined);seen.add(proof.actorId);
+        }
+        if(required.some(id=>!seen.has(id)))fail('mls_membership_confirmation_rejected');
+        if(r.actor_device===own.id)await runtime.confirmMembership(g.id,r.id);
+        const fresh=await vault.snapshot(),local=fresh.values[`mls:device-admission:${peer}`];
+        if(local?.id===r.id)await vault.write({expectedRevision:fresh.revision,deleted:[`mls:device-admission:${peer}`]});
+      }
       async function replacementRecovery(g,saved) {
         const r=g.replacement,peer=g.creator===owner?g.recipient:g.creator;
         if(r?.initiator_device!==own.id)return null;
@@ -128,10 +176,20 @@
           after=result.next;
         }while(after);
         groups=collected;
-        const saved=await vault.snapshot();
         for(const g of groups) {
           if(g.status==='blocked')continue;
+          if(g.admission){await processAdmission(g);if(g.status!=='active')continue;}
           const peer=g.creator===owner?g.recipient:g.creator;
+          let saved=await vault.snapshot();
+          const intent=saved.values[`mls:device-admission:${peer}`];
+          if(multiDeviceEnabled && g.status==='active' && intent && g.admission?.id!==intent.id
+            && intent.previousEpoch===g.epoch && saved.values[`mls:group:${g.id}`]?.confirmed
+            && !saved.values[`mls:membership:${g.id}`] && await runtime.conversationEpoch(peer)===g.epoch) {
+            const retired=await operation('device-retire',intent,intent.id);
+            if(retired?.id!==intent.id || retired.status!=='retired' || retired.epoch!==intent.previousEpoch)fail('mls_device_intent_rejected');
+            saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,deleted:[`mls:device-admission:${peer}`]});
+            saved=await vault.snapshot();
+          }
           const pending=saved.values[`mls:membership:${g.id}`];
           const replacement=g.replacement;
           if(replacement?.initiator_device===own.id && pending?.previousEpoch) {
@@ -164,7 +222,7 @@
             let item;
             try {
               const proof=m.proof,p=proof?.payload;
-              if(proof?.owner!==peer || proof.actorId!==m.sender_device || p?.id!==m.id || p.conversationId!==g.id || p.epoch!==m.epoch || p.hash!==m.hash || p.ciphertext!==m.ciphertext)fail('mls_envelope_binding_rejected');
+              if(!(proof?.owner===peer || (multiDeviceEnabled && proof?.owner===owner && proof.actorId!==own.id)) || proof.actorId!==m.sender_device || p?.id!==m.id || p.conversationId!==g.id || p.epoch!==m.epoch || p.hash!==m.hash || p.ciphertext!==m.ciphertext)fail('mls_envelope_binding_rejected');
               await verifyProof(proof,'send');
               item=await runtime.receive(peer,{...m,conversationId:g.id,ciphertext:decode(m.ciphertext)});
             }catch(error) {
@@ -172,7 +230,8 @@
               if(!invalid.includes(error.code))throw error;
               await operation('reject',{id:m.id,conversationId:g.id,epoch:m.epoch,hash:m.hash,reason:'invalid-ciphertext'});continue;
             }
-            await acknowledge(item,'delivered');
+            if(item.owner===owner)await operation('sync-ack',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash});
+            else await acknowledge(item,'delivered');
           }
           for(const proof of g.receipts)await verifyReceipt(proof);
         }
@@ -188,6 +247,11 @@
         return serialize(async()=>{
           await syncInternal();const localRoute=(await vault.snapshot()).values[`mls:route:${peer}`]?.conversationId;
           let g=groups.find(g=>g.id===localRoute) || groups.find(g=>g.creator===peer || g.recipient===peer);
+          if(g?.status.startsWith('device-')) {
+            const saved=await vault.snapshot();
+            return {status:g.status,ownFingerprint:own.fingerprint,group:g,multiDeviceEnabled:true,
+              verificationPackages:(g.packages||[]).filter(p=>p.deviceId!==own.id && !saved.values[`mls:pin:${p.deviceId}`])};
+          }
           if(g?.replacement && g.status.startsWith('replacement-')) {
             const recovery=await replacementRecovery(g,await vault.snapshot());
             if(recovery?.reason)return {status:'replacement-recovery-required',ownFingerprint:own.fingerprint,recoveryReason:recovery.reason};
@@ -206,10 +270,13 @@
           }
           if(!g && directory.group)g=directory.group;
           const selected=g && (g.creator===owner?g.creator_device:g.recipient_device),oldPeer=g && (g.creator===peer?g.creator_device:g.recipient_device);
-          const candidates=directory.packages.filter(p=>p.deviceId!==oldPeer);
+          const candidates=directory.packages.filter(p=>p.owner===peer && p.deviceId!==oldPeer);
           const local=await vault.snapshot(),intent=local.values[`mls:replacement:${peer}`];
           const canReplace=g?.status==='active' && selected===own.id && await runtime.isEncrypted(peer);
-          if(canReplace)return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media),canReplace:true,packages:candidates,group:g};
+          if(multiDeviceEnabled && directory.canAdmit && await runtime.isEncrypted(peer))return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media),
+            canAdmit:true,canReplace:directory.canReplace,packages:candidates,group:g,
+            admissionPackages:directory.packages.filter(p=>!directory.roster.some(m=>m.id===p.deviceId))};
+          if(canReplace)return {status:'active',ownFingerprint:own.fingerprint,mediaEnabled:Boolean(media),canReplace:directory.canReplace,packages:candidates,group:g};
           if(directory.group?.status==='active' && selected!==own.id)return {status:'rejoin-required',ownFingerprint:own.fingerprint};
           if(intent && directory.group)return {status:'replacement-reserved',ownFingerprint:own.fingerprint,canReplace:true,packages:candidates,group:directory.group};
           if(g?.status==='active')return {status:'recovery-required',ownFingerprint:own.fingerprint};
@@ -222,7 +289,7 @@
         return serialize(async()=>{
           await syncInternal();const group=groups.find(g=>g.creator===peer || g.recipient===peer);
           if(group?.status==='blocked')fail('encrypted_access_denied');
-          const candidates=group?.packages?.filter(p=>p.owner===peer) || (await operation('directory',{peer})).packages;
+          const candidates=group?.packages?.filter(p=>p.owner===peer) || (await operation('directory',{peer})).packages.filter(p=>p.owner===peer);
           const p=candidates.find(p=>p.deviceId===deviceId);if(!p)fail('encrypted_package_unavailable');
           await verifyPackage(p,expectedFingerprint);
           if(group?.replacement?.replacement_device===own.id && group.replacement.status==='pending') {
@@ -282,6 +349,39 @@
           await syncInternal();return {status:'replacement-pending'};
         });
       }
+      async function admitDevice(peer,deviceId,expectedFingerprint) {
+        return serialize(async()=>{
+          if(!multiDeviceEnabled)fail('encrypted_multidevice_disabled');
+          await syncInternal();const directory=await operation('directory',{peer}),g=directory.group;
+          if(!g || !directory.canAdmit || !await runtime.isEncrypted(peer))fail('encrypted_membership_required');
+          const p=directory.packages.find(p=>p.deviceId===deviceId);if(!p)fail('encrypted_package_unavailable');
+          await verifyPackage(p,expectedFingerprint);
+          let saved=await vault.snapshot(),intent=saved.values[`mls:device-admission:${peer}`];
+          if(!intent) {
+            if(!saved.values[`mls:group:${g.id}`]?.confirmed || Object.entries(saved.values).some(([key,job])=>
+              (key.startsWith('mls:outbox:')||key.startsWith('media:pending:'))&&job.conversationId===g.id))fail('mls_pending_send_requires_retry');
+            intent={id:crypto.randomUUID(),conversationId:g.id,previousEpoch:g.epoch,actorOwner:owner,actorDeviceId:own.id,
+              addedOwner:p.owner,addedDeviceId:p.deviceId,packageHash:p.hash};
+            await vault.write({expectedRevision:saved.revision,values:{[`mls:device-admission:${peer}`]:intent}});
+          }
+          if(intent.addedDeviceId!==p.deviceId || intent.packageHash!==p.hash)fail('mls_device_intent_rejected');
+          await operation('device-reserve',intent,intent.id);
+          try {await syncInternal();}catch(error){if(!(error instanceof TypeError)&&error.status!==503)throw error;}
+          return {status:'device-pending'};
+        });
+      }
+      async function verifyAdmission(peer,fingerprints) {
+        return serialize(async()=>{
+          if(!multiDeviceEnabled || !fingerprints || Array.isArray(fingerprints))fail('mls_device_intent_rejected');
+          await syncInternal();const g=groups.find(g=>g.creator===peer||g.recipient===peer);
+          if(!g?.admission)fail('encrypted_membership_required');
+          for(const p of g.packages||[]) {
+            const saved=await vault.snapshot(),prior=saved.values[`mls:pin:${p.deviceId}`];
+            await verifyPackage(p,p.deviceId===own.id?own.fingerprint:prior?.fingerprint||fingerprints[p.deviceId]);
+          }
+          await processAdmission(g);await syncInternal();return {status:groups.find(v=>v.id===g.id)?.status||'device-pending'};
+        });
+      }
       async function resumeReplacement(peer) {
         return serialize(async()=>{
           await syncInternal();const g=groups.find(g=>g.creator===peer || g.recipient===peer);
@@ -305,7 +405,7 @@
         const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
         if(!g)fail('encrypted_membership_required');
         if(g.status==='blocked')fail('encrypted_access_denied');
-        if(g.status!=='active' || saved.values[`mls:replacement:${peer}`])fail('encrypted_membership_pending');
+        if(g.status!=='active' || saved.values[`mls:replacement:${peer}`] || saved.values[`mls:device-admission:${peer}`])fail('encrypted_membership_pending');
         if(await runtime.conversationId(peer)!==id)fail('encrypted_membership_required');
       }
       async function wirePayload(payload) {
@@ -339,7 +439,7 @@
         queueMicrotask(onChange);return messageView(result);
       }
       const service={
-        inspect,enable,replace,resumeReplacement,sync:()=>serialize(syncInternal),
+        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
           await serialize(syncInternal);

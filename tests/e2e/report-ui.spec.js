@@ -215,8 +215,10 @@ test('moderator copy decryption waits for explicit reason and download, never re
   await fixture(page);await page.evaluate(()=>reportFixture.enableFiles());await page.locator('[data-chat-report]').click();
   await page.locator('[data-report-message="media1"]').check();await page.locator('[data-report-file="media1"]').check();
   await consent(page).check();await submit(page).click();await expect(page.locator('dialog [role=status]')).toContainText('Report received');
-  await page.getByRole('button',{name:'Close',exact:true}).click();await page.evaluate(()=>reportFixture.openFileReview());
-  await page.locator('dialog textarea').fill('Review reported attachment');await submit(page).click();
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await expect(page.locator('dialog')).toHaveCount(0);
+  await page.evaluate(()=>reportFixture.openFileReview());
+  await page.getByRole('textbox',{name:'Reason for opening this evidence',exact:true}).fill('Review reported attachment');await submit(page).click();
   const download=page.getByRole('button',{name:'Download shared file copy',exact:true});await expect(download).toBeEnabled();
   expect(await page.evaluate(()=>reportFixture.fileReads)).toHaveLength(0);
   const event=page.waitForEvent('download');await download.click();const result=await event;

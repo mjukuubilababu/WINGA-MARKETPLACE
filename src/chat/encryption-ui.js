@@ -16,7 +16,7 @@
           if(info.status==='active'&&globalThis.WingaRichUi) {
             globalThis.WingaRichUi.bind(scope,{peer,dataLayer,translate,refresh,getSession,getPeer,getMessages,actions:{...actions,mediaEnabled:info.mediaEnabled}});
           }else if(info.status==='active'&&info.mediaEnabled)globalThis.WingaEncryptedMediaUi?.bind(scope,{peer,dataLayer,translate,refresh});
-          if((info.status==='active'&&!globalThis.WingaRichUi)||['reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
+          if((info.status==='active'&&!globalThis.WingaRichUi)||['reserved','pending','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required','device-reserved','device-pending'].includes(info.status)) {
             onEncrypted();scope.querySelectorAll('[data-chat-select-product],[data-message-reply]').forEach(control=>{control.disabled=true;control.title=t('chat.encryptionTextOnly','Product cards and quoted replies are not available in encrypted chat yet.');control.classList.remove('selected');});
             scope.querySelectorAll('.context-chat-reply-bar').forEach(el=>el.remove());
           }
@@ -32,6 +32,7 @@
           const title=document.createElement('h3');title.textContent=t('chat.security','Chat security');dialog.append(title);
           const state=document.createElement('p');state.setAttribute('role','status');
           const label=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):
+            info.status.startsWith('device-')?t('chat.encryptionDevicePending','Waiting for every chat device to verify the new membership.'):
             info.status==='replacement-recovery-required'?t('chat.encryptionReplacementRecovery','Replacement cannot resume on this device. Use the original device with its saved chat keys. Recovering history alone does not restore chat keys.'):
             info.status==='rejoin-required'?t('chat.encryptionRejoinRequired','Ask your contact to replace your previous chat device, then verify their fingerprint here.'):
             info.status==='replacement-reserved'?t('chat.encryptionReplacementReserved','Device replacement reserved. Resume with the same verified device.'):
@@ -46,6 +47,39 @@
             const value=document.createElement('code');value.className='chat-fingerprint';value.textContent=info.ownFingerprint;own.append(value);dialog.append(own);
           }
           const options=info.packages || [];
+          const admissionOptions=info.admissionPackages||[],verificationOptions=info.verificationPackages||[];
+          if(info.canAdmit && admissionOptions.length) {
+            const form=document.createElement('form'),label=document.createElement('label');
+            label.textContent=t('chat.encryptionAddDevice','Add chat device');
+            const select=document.createElement('select');
+            for(const p of admissionOptions){const option=document.createElement('option');option.value=p.deviceId;option.textContent=p.owner+' / '+p.fingerprint.slice(0,16);select.append(option);}
+            label.append(select);form.append(label);
+            const fingerprintLabel=document.createElement('label');fingerprintLabel.textContent=t('chat.expectedFingerprint','Fingerprint received from your contact');
+            const input=document.createElement('input');input.required=true;input.pattern='[a-fA-F0-9 ]{64,95}';input.autocomplete='off';input.spellcheck=false;
+            fingerprintLabel.append(input);form.append(fingerprintLabel);
+            const submit=document.createElement('button');submit.type='submit';submit.className='action-btn';submit.textContent=t('chat.encryptionAddDevice','Add chat device');form.append(submit);
+            form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;try {
+              await dataLayer.admitEncryptedConversationDevice(peer,select.value,input.value.replace(/\s/g,'').toLowerCase());
+              state.textContent=t('chat.encryptionDevicePending','Waiting for every chat device to verify the new membership.');form.remove();await refresh();await update();
+            }catch(error){state.textContent=error.code==='encrypted_device_inbox_pending'?t('chat.encryptionDeviceDrain','Open this chat on its current devices before adding another device.'):
+              t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;}};
+            dialog.append(form);
+          }
+          if(info.status.startsWith('device-')) {
+            const form=document.createElement('form'),inputs=new Map();
+            for(const p of verificationOptions) {
+              const label=document.createElement('label');label.textContent=p.owner+' / '+p.fingerprint.slice(0,16);
+              const input=document.createElement('input');input.required=true;input.pattern='[a-fA-F0-9 ]{64,95}';input.autocomplete='off';input.spellcheck=false;
+              input.setAttribute('aria-label',t('chat.expectedFingerprint','Fingerprint received from your contact'));label.append(input);form.append(label);inputs.set(p.deviceId,input);
+            }
+            const submit=document.createElement('button');submit.type='submit';submit.className='action-btn';submit.textContent=t('chat.verifyAndAccept','Verify and accept');form.append(submit);
+            form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;try {
+              const result=await dataLayer.verifyEncryptedConversationAdmission(peer,Object.fromEntries([...inputs].map(([id,input])=>[id,input.value.replace(/\s/g,'').toLowerCase()])));
+              state.textContent=result.status==='active'?t('chat.encrypted','End-to-end encrypted'):t('chat.encryptionDevicePending','Waiting for every chat device to verify the new membership.');
+              form.remove();await refresh();await update();
+            }catch{state.textContent=t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;}};
+            dialog.append(form);
+          }
           if(info.canReplace || info.status==='rejoin-required' || info.status.startsWith('replacement-')) {
             const note=document.createElement('p');note.textContent=t('chat.encryptionReplacementNotice','The new device receives new messages only. Earlier history needs your recovery key.');dialog.append(note);
           }
@@ -79,7 +113,7 @@
                   :t('chat.encryptionFailed','Verification failed. No plaintext message was sent.');submit.disabled=false;
               }
             });dialog.append(form);
-          } else if(!options.length && !['active','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required'].includes(info.status)) {
+          } else if(!options.length && !['active','blocked','recovery-required','rejoin-required','replacement-reserved','replacement-pending','replacement-recovery-required','device-reserved','device-pending'].includes(info.status)) {
             state.textContent=t('chat.encryptionNoDevice','Your contact has no available encryption device yet.');
           }
           const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.close','Close');close.onclick=()=>dialog.close();dialog.append(close);

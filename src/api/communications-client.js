@@ -33,7 +33,7 @@
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
-          mediaEnabled:capabilities.mediaEnabled===true,mediaRequest:api.cryptoMediaRequest,
+          mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
@@ -479,6 +479,12 @@
       },
       resumeEncryptedConversationReplacement:async peer=>{
         const service=await ensureEncryption();if(!service)runtimeRequired();return service.resumeReplacement(peer);
+      },
+      admitEncryptedConversationDevice:async(peer,deviceId,fingerprint)=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.admitDevice(peer,deviceId,fingerprint);
+      },
+      verifyEncryptedConversationAdmission:async(peer,fingerprints)=>{
+        const service=await ensureEncryption();if(!service)runtimeRequired();return service.verifyAdmission(peer,fingerprints);
       },
       sendEncryptedMedia:async(peer,file,text,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendEncryptedMedia(peer,file,text,kind);},
       stageEncryptedMediaDraft:async(peer,file,kind)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.stageMediaDraft(peer,file,kind);},

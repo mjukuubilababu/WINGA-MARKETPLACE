@@ -122,9 +122,10 @@ copies remain visibly unavailable and automatic cross-reload resume is not claim
 ## Native Multi-Device Candidate
 
 `src/chat/mls-runtime.mjs` extends the existing MLS ratchet rather than creating a
-pairwise fanout stack. `multiDevice` defaults to false and the production encryption
-session does NOT pass it. Existing direct device selection, server actions, feature
-flags, CSP, credentials and UI activation remain unchanged.
+pairwise fanout stack. At the initial native-core publication, `multiDevice`
+defaulted to false and the production encryption session did not pass it. The
+subsequent gated canonical integration is described below; publishing source does
+not activate its default-off environment gate. CSP and credentials are unchanged.
 
 The opt-in candidate provides `addDevice`, `applyDeviceCommit` and
 `acceptDeviceWelcome`. A fresh one-time KeyPackage must match an explicitly trusted
@@ -288,10 +289,64 @@ receipts. One isolated run measured 904 ms for store attempts and 404 ms empiric
 p95 attempt latency on this machine. These are local observations including retry
 attempts, not a production SLO, end-to-end device latency or Shopping Room proof.
 
-Full simultaneous multi-device history is still OPEN. Existing approval, per-device
-replay and recovery capsules do not distribute live MLS membership or historical
-attachment authorization to every approved device. Shopping Rooms likewise remain
-OPEN and cannot be enabled by relabeling a direct creator/recipient conversation.
+Full simultaneous multi-device history is still OPEN. The gated integration below
+distributes future live membership only after all native endpoint acceptances;
+approval or recovery alone does not create historical attachment authorization.
+Shopping Rooms remain OPEN and cannot be enabled by relabeling a direct
+creator/recipient conversation.
+
+### Gated Canonical Native Admission
+
+The additive migration `2026100606_encrypted_device_admissions` adds authoritative
+reservations, per-native-device acceptances, retired-intent tombstones and separate
+own-sibling synchronization ACKs. Read-only readiness now requires ten crypto
+migrations and checks these tables. `WINGA_ENCRYPTED_MULTIDEVICE_ENABLED` defaults
+to false in the store, HTTP capabilities, browser service and environment example.
+An absent flag preserves the existing two-endpoint flow and rejects new actions.
+
+When explicitly enabled in synthetic acceptance, reservations consume one exact
+approved native KeyPackage under the existing transport transaction guard. Every
+retained endpoint must first drain old-epoch traffic. Protected text/media writes
+freeze globally while the reservation or Commit is pending. Immutable future epoch
+grants activate only after every retained native endpoint and the added native
+endpoint has durably accepted the exact signed Commit/Welcome hash. Membership
+intent, actual MLS sender leaf and the full credential roster are verified;
+unverified fingerprints require explicit confirmation, not automatic login trust.
+
+Polling and native receipt ACKs are per endpoint. Own-account message copies use
+Sync ACKs, never peer Delivered/Read. Actual peer Delivered/Read evidence converges
+on all authorized sender endpoints independently. Ciphertext creation, receipt
+changes and membership transitions append metadata-only hints to the existing
+canonical event ledger; no second transport, plaintext mirror or new Phoenix
+instance is introduced. Native identity mutation acquires the transport guard
+before account/session locks so revocation cannot race final membership acceptance.
+
+Chat security includes an explicit additional-device fingerprint form and pending
+acceptance state. Lost accepted transfer replies preserve the exact encrypted local
+journal across reload and do not advance the epoch twice. An accepted reservation
+cannot be silently abandoned. Old messages and attachments are NOT granted to a
+new endpoint. Pair replacement refuses expanded rosters instead of exporting old
+ratchets or dropping another endpoint. Expanded-roster removal/replacement,
+separately authorized old-history transfer and Shopping Rooms remain incomplete;
+keep the production gate OFF until those lifecycle requirements pass.
+
+Local final verification passed: 129 secure-content/backend tests, 36 strict-CSP
+browser tests, 96 messaging tests, 145 frontend core checks plus 80 behavior tests,
+and four 1,521-key locale catalogs with no hardcoded-UI debt. The browser acceptance
+uses the actual production session/API/store code with isolated Alice/Bob accounts
+and a third approved Alice device, real native MLS Commit/Welcome, lost HTTP reply,
+reload, ciphertext-only storage and independent Sent/Delivered/Read convergence.
+The security dialog was checked at 390px and 1440px with no horizontal overflow.
+
+All 36 real PostgreSQL regressions passed on a disposable local cluster with two
+store instances and six connections. Admission races include competing intents,
+exact reservation/transfer retries, eighteen native acceptance attempts, one epoch
+advance, three distinct acceptances, and an old-epoch writer blocked by an accepted
+reservation. The cluster stopped successfully. Existing bounded direct load covers
+64 unique messages and 74 attempts, not sustained production or Shopping Room
+capacity. No authenticated production exercise, historical-media acceptance or
+independent cryptographic approval is implied. Exact publication identity must be
+verified separately after pushing and deploying this candidate.
 
 The file-copy candidate was built as `20261006155810` with 90 synchronized
 source modules and four catalogs of 1,518 keys. Verification passed: 107 secure

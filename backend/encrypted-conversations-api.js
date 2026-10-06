@@ -1,4 +1,4 @@
-function createEncryptedConversationsApi({collectBody,sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,enabled=false,legacyOnly=false,mediaEnabled=false,metrics=require('./conversation-metrics').conversationMetrics}) {
+function createEncryptedConversationsApi({collectBody,sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,enabled=false,legacyOnly=false,mediaEnabled=false,multiDeviceEnabled=false,metrics=require('./conversation-metrics').conversationMetrics}) {
   async function handle(req,res,url) {
     if(!['/api/conversations/encrypted/capabilities','/api/conversations/encrypted/operations','/api/conversations/encrypted/mode'].includes(url.pathname)) return false;
     const headers={'Cache-Control':'private, no-store',Pragma:'no-cache'};
@@ -14,7 +14,7 @@ function createEncryptedConversationsApi({collectBody,sendJson,findSession,readA
         else if(!enabled && legacyOnly)sendJson(res,200,{version:1,mode:'legacy-plaintext'},headers);
         else sendJson(res,503,{code:'encrypted_store_unavailable'},headers);
       }
-      else if(url.pathname.endsWith('/capabilities') && req.method==='GET') sendJson(res,200,{version:1,enabled:true,mediaEnabled:enabled&&mediaEnabled},headers);
+      else if(url.pathname.endsWith('/capabilities') && req.method==='GET') sendJson(res,200,{version:1,enabled:true,mediaEnabled:enabled&&mediaEnabled,multiDeviceEnabled:enabled&&multiDeviceEnabled},headers);
       else if(url.pathname.endsWith('/operations') && req.method==='POST') {
         const store=getPostgresStore();if(!store?.encryptedOperation)throw Object.assign(new Error(),{status:503,code:'encrypted_store_unavailable'});
         const operation=await collectBody(req,{maxBytes:262144});measuredAction=operation?.action;

@@ -8038,6 +8038,7 @@ const server = http.createServer(async (req, res) => {
         getPostgresStore: () => postgresStore,
         legacyOnly: !process.env.DATABASE_URL,
         mediaEnabled:encryptedMediaEnabled(),
+        multiDeviceEnabled:process.env.WINGA_ENCRYPTED_MULTIDEVICE_ENABLED==='true',
         enabled: process.env.WINGA_ENCRYPTED_CONVERSATIONS_ENABLED === "true"
           && process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true" && process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
       });

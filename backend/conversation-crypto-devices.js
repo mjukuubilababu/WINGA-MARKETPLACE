@@ -40,6 +40,8 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
     const signed = operationBytes(context || {},payload);
     const digest = crypto.createHash('sha256').update(signed).update(payload.signature).digest('hex');
     return withTransaction(async client => {
+      // Native revocation and MLS transitions use the same lock before account locks.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
       await authenticate(client,context);
       const cached=(await client.query('SELECT digest,result FROM conversation_crypto_operations WHERE owner_id=$1 AND request_id=$2',[context.owner,payload.requestId])).rows[0];
       if (cached) { if (cached.digest!==digest) throw failure(409,'crypto_device_operation_conflict'); return cached.result; }

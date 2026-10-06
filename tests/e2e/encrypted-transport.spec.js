@@ -9,7 +9,7 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false;
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
 const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypto').randomBytes(32).toString('hex'),s]));
 test.beforeAll(async()=>{
@@ -24,7 +24,7 @@ test.beforeAll(async()=>{
   objects=new Map();
   storage=require('../../backend/conversation-private-media').createPrivateMediaStorage({
     env:{R2_ACCOUNT_ID:'a'.repeat(32),R2_BUCKET_NAME:'public-assets',R2_CONVERSATION_BUCKET_NAME:'chat-private',R2_CONVERSATION_ACCESS_KEY_ID:'fixture',R2_CONVERSATION_SECRET_ACCESS_KEY:'fixture',R2_CONVERSATION_API_TOKEN:'fixture',R2_CONVERSATION_ISOLATION_CONFIRMED:'true'},
-    privacyCheck:async()=>{},authorize:transport.authorizeEncryptedMedia,client:{send:async cmd=>{
+    privacyCheck:async()=>{},authorize:(...args)=>transport.authorizeEncryptedMedia(...args),client:{send:async cmd=>{
       const p=cmd.input;
       if(cmd.constructor.name==='PutObjectCommand'){if(objects.has(p.Key))throw {$metadata:{httpStatusCode:412}};objects.set(p.Key,Buffer.from(p.Body));return {};}
       if(cmd.constructor.name==='DeleteObjectCommand'){objects.delete(p.Key);return {};}
@@ -80,7 +80,7 @@ test.beforeAll(async()=>{
       const context={owner:session.username,deviceId:session.sessionId,token:session.token};
       try {
         const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:()=>session.token,ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
-        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true});
+        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled});
         const media=createEncryptedMediaApi({...common,getPostgresStore:()=>transport,getStorage:()=>storage});
         const backupApi=createEncryptedConversationBackupsApi({...common,getPostgresStore:()=>backups});
         if(await backupApi.handle(req,res,url))return;
@@ -88,8 +88,9 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer)){
           const body=await collectBody(req);
+          if(body.action==='device-transfer' && loseDeviceTransfer){loseDeviceTransfer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_device_transfer_reply'});return;}
           if(body.action==='replace-reserve' && rejectReplacementReserve){rejectReplacementReserve=false;sendJson(res,409,{code:'encrypted_package_unavailable'});return;}
           if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
           if(body.action==='replace-transfer' && rejectReplacementTransfer){sendJson(res,503,{code:'fixture_transfer_unavailable'});return;}
@@ -111,7 +112,71 @@ test.beforeAll(async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 });
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
+async function resetStores(multidevice=false) {
+  await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
+  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-conversation-backups'])
+    await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
+  const withTransaction=work=>db.transaction(work);
+  devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
+  transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice});
+  backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;
+}
+
+test('production session admits a third approved native device and converges encrypted messages and receipts',async({browser})=>{
+  test.setTimeout(120000);await resetStores(true);
+  const contexts=await Promise.all([browser.newContext(),browser.newContext(),browser.newContext()]);
+  try {
+    const [alice,bob,sibling]=await Promise.all(contexts.map(c=>c.newPage()));for(const p of [alice,bob,sibling])await p.goto(origin);
+    const legacyBefore=(await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n;
+    const ai=await alice.evaluate(()=>start('alice')),bi=await bob.evaluate(()=>start('bob'));
+    const bobDevice=(await db.query("SELECT id FROM conversation_crypto_devices WHERE owner_id='bob'")).rows[0].id;
+    const aliceDevice=(await db.query("SELECT id FROM conversation_crypto_devices WHERE owner_id='alice'")).rows[0].id;
+    await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('bob',id,fp),{id:bobDevice,fp:bi.ownFingerprint});
+    await bob.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:aliceDevice,fp:ai.ownFingerprint});
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    await expect(sibling.evaluate(()=>start('alice'))).rejects.toThrow();
+    const next=(await db.query("SELECT id,fingerprint FROM conversation_crypto_devices WHERE owner_id='alice' AND status='pending'")).rows[0];
+    expect(next).toBeTruthy();
+    await alice.evaluate(async({id,fp})=>{const m=await client.createCryptoDeviceManagement();try{return await m.manage('approve',id,fp);}finally{m.close();}},{id:next.id,fp:next.fingerprint});
+    await sibling.reload();await sibling.evaluate(()=>start('alice'));
+    await alice.locator('[data-chat-security]').click();
+    const add=alice.locator('dialog form').filter({has:alice.getByRole('button',{name:'Add chat device',exact:true})});
+    await add.locator('select').selectOption(next.id);await add.locator('input').fill(next.fingerprint);
+    for(const width of [390,1440]) {
+      await alice.setViewportSize({width,height:844});
+      expect(await alice.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+      await alice.screenshot({path:`test-results/encrypted-device-admission-${width}.png`});
+    }
+    loseDeviceTransfer=true;await add.getByRole('button',{name:'Add chat device',exact:true}).click();
+    await expect(alice.locator('dialog [role=status]')).toContainText('Waiting for every chat device');
+    await alice.getByRole('button',{name:'Close',exact:true}).click();
+    await alice.reload();await alice.evaluate(()=>start('alice'));
+    expect((await db.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch).toBe('1');
+    await expect(bob.evaluate(()=>client.sendMessage({receiverId:'alice',clientMessageId:crypto.randomUUID(),message:'must remain frozen',messageType:'text'}))).rejects.toThrow('encrypted_membership_pending');
+    const info=await bob.evaluate(()=>client.inspectEncryptedConversation('alice'));expect(info.status).toBe('device-pending');
+    expect(info.verificationPackages.map(p=>p.deviceId)).toContain(next.id);
+    await bob.evaluate(({id,fp})=>client.verifyEncryptedConversationAdmission('alice',{[id]:fp}),{id:next.id,fp:next.fingerprint});
+    await sibling.evaluate(fps=>client.verifyEncryptedConversationAdmission('bob',fps),{[aliceDevice]:ai.ownFingerprint,[bobDevice]:bi.ownFingerprint});
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    for(const page of [alice,bob,sibling])expect((await page.evaluate(()=>client.inspectEncryptedConversation(peer))).status).toBe('active');
+    const sent=await alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Three-device encrypted convergence',messageType:'text'})));
+    const copy=(await sibling.evaluate(()=>render())).find(m=>m.id===sent.id);expect(copy.message).toBe('Three-device encrypted convergence');expect(copy.status).toBe('sent');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_sync_acks')).rows[0].n).toBe(1);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n).toBe(0);
+    await bob.evaluate(()=>render());for(const page of [alice,sibling])expect((await page.evaluate(()=>render())).find(m=>m.id===sent.id).status).toBe('delivered');
+    await bob.bringToFront();await bob.evaluate(id=>client.markConversationRead({withUser:'alice',messageIds:[id]}),sent.id);
+    for(const page of [alice,sibling])expect((await page.evaluate(()=>render())).find(m=>m.id===sent.id).status).toBe('read');
+    await sibling.reload();await sibling.evaluate(()=>start('alice'));expect((await sibling.evaluate(()=>render())).filter(m=>m.id===sent.id)).toHaveLength(1);
+    const reverse=await sibling.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Sent by second native endpoint',messageType:'text'})));
+    expect((await bob.evaluate(()=>render())).find(m=>m.id===reverse.id).message).toBe('Sent by second native endpoint');
+    expect((await alice.evaluate(()=>render())).find(m=>m.id===reverse.id).message).toBe('Sent by second native endpoint');
+    expect(JSON.stringify((await db.query('SELECT * FROM encrypted_conversation_messages')).rows)).not.toContain('Three-device encrypted convergence');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
+  } finally {for(const c of contexts)await c.close();multiDeviceEnabled=false;}
+});
 test('HttpOnly cookie-only sessions support server membership, ciphertext-only HTTP, chat, receipts, reload and exact retry',async({browser})=>{
+  await resetStores();
   test.setTimeout(120000);
   const a=await browser.newContext(),b=await browser.newContext();
   try {
