@@ -16,6 +16,12 @@ without false Delivered. Production acceptance, Shopping Rooms and independent
 crypto review are not complete. The multi-device gate remains default-off.
 The release and evidence paragraphs below are earlier dated checkpoints.
 
+The subsequent [Shopping Room native candidate](shopping-room-native-candidate-20261006.md)
+adds real multi-account MLS membership, all-native signed activation, role-bound
+epochs and encrypted product/shortlist/poll projection. Its 35-test local suite
+and actual native browser profiles use a synthetic canonical room authority.
+Rooms remain default-off; their real server transport and integrated UI are open.
+
 The operator requested commit/push/deploy of all pending conversation changes:
 indefinite Mute, durable owner Archive, selected-text reporting, moderator
 evidence viewing, four-language copy, source bundle and regression tests.
@@ -88,19 +94,19 @@ Do not erase this distinction by calling the entire foundation complete.
 | 155 | Owner-scoped durable Archive, archived view, explicit Move to Inbox; incoming messages retain history/unread and still notify unless muted. | New production migration and authenticated/cross-device UI acceptance. Archive refresh is not instantaneous multi-device fanout. |
 | 156 | One indefinite account-level mute/unmute switch; enqueue, dispatch and foreground-alert suppression; unread/history unchanged. | New production migration/complete backend rollout and authenticated acceptance. Already provider-accepted push cannot be recalled. |
 | 157 | Existing authoritative direct blocking and retained history protections. | Room-specific block/membership policy belongs to the group service. |
-| 158-159 | Explicit selected-text report consent; canonical selected-message membership checks; idempotent submission; current-role, reason-gated audited moderator evidence reads; no master key/plaintext messaging fallback. | Encrypted-media reports share a label/metadata only, not file bytes. Binary-media evidence authorization/storage, retention policy and production moderation acceptance remain. Reporter plaintext is explicitly unverified; no automatic punishment. |
-| 160-164 | Private push copy, exact retries, explicit receipts, native Add/Remove/expanded replacement, sealed paged cache and full retained user-key recovery within explicit archive bounds. Historical media uses separate signed same-original-owner/current-native grants. | Automatic continuous historical sync, production/physical-device acceptance and native-specific alert reconciliation remain open. Recovery never restores native identity/live ratchets or rewrites original-epoch grants. |
+| 158-159 | Explicit selected-text and separately selected binary-file report consent; up to three 2 MiB files copied with independent encryption into the private report namespace; canonical membership checks, idempotency and current-role/reason-gated audited moderator evidence reads. No master key or automatic extraction of chat attachments. | Production moderation acceptance and post-case-close retention/deletion policy remain. Evidence is retained while the case is open. Reporter disclosure is explicitly unverified; no automatic punishment. |
+| 160-164 | Private push copy, exact retries, explicit receipts, native Add/Remove/expanded replacement, sealed paged cache, user-key recovery and automatic own-approved-native prior-epoch history reconciliation. Historical Read is separate from original live grants; historical media needs explicit same-original-owner/current-native grants. | Multi-device composition remains default-off pending its applicable acceptance/audit. Production/physical-device acceptance and native-specific alert reconciliation remain open. Recovery never restores native identity/live ratchets or rewrites original-epoch grants. |
 | 165 | Inbox/contact search exists; no server private-plaintext index. | On-device message-content indexing/search. |
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
-| 171-189 | Agreed room presentation/empty state, kept separate from pairwise send/ACK. | Real server-backed Shopping Rooms: lists, invitations, membership/MLS epochs, group ciphertext/receipts, product board, shortlist, polls, comparisons, seller questions and group order contracts. Read-only room UI is not an implemented group service. |
+| 171-189 | Agreed room presentation plus a default-off native multi-account MLS candidate: all-leaf acceptance, account roles bound to epochs, exact retry/removal and deterministic encrypted Products/Shortlist/Polls. Actual native browser/IndexedDB and bounded concurrent sender tests exist. | Canonical typed-room backend, durable invitations/membership, room ciphertext/receipts/media/events/push, real queryable UI, current product comparison and seller question/response service. Wallet/automatic group order/AI/public communities are future scope. A synthetic signed room authority is not an implemented production group service. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |
 | 208-209 | Existing aggregate service health and durable queue evidence. | Complete privacy-safe observability dashboard and user-centric reliability metrics. |
 | 210-221 | Existing tested message-ID, canonical ordering, auth, ciphertext/device and canonical commerce boundaries. | Fleet/failure/performance evidence and future room invariants are not proven by direct fixtures. |
-| 222-226 | Direct, crypto, store and browser suites with recorded scope; synthetic accounts/storage stay separate from production. | Room suite, independent security review and realistic measured load/soak acceptance. |
+| 222-226 | Direct, crypto, store/browser suites and native room crypto/projection/concurrent-sender tests with recorded scope; synthetic accounts/storage stay separate from production. | Real room HTTP/PostgreSQL races, independent security review and realistic measured production load/soak acceptance. |
 | 227-238 | Source principles and Definition of Done are preserved. | Formal security/product/foundation acceptance and final handoff remain open. These are acceptance criteria, not 12 additional UI features. |
 
 ## Next Work

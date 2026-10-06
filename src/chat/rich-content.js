@@ -44,7 +44,7 @@
   function contentOf(item) {
     const rich=parse(item.message);
     if(rich)return rich;
-    if(item.message?.startsWith('WINGA-MEDIA/')||item.message?.startsWith('WINGA-CONTENT/'))return null;
+    if(item.message?.startsWith('WINGA-MEDIA/')||item.message?.startsWith('WINGA-CONTENT/')||item.message?.startsWith('WINGA-ROOM/'))return null;
     try{return create('text',item.message||' ');}catch{return null;}
   }
   function canEdit(item,actor,time=Date.now()) {

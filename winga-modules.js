@@ -17027,7 +17027,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function contentOf(item) {
     const rich=parse(item.message);
     if(rich)return rich;
-    if(item.message?.startsWith('WINGA-MEDIA/')||item.message?.startsWith('WINGA-CONTENT/'))return null;
+    if(item.message?.startsWith('WINGA-MEDIA/')||item.message?.startsWith('WINGA-CONTENT/')||item.message?.startsWith('WINGA-ROOM/'))return null;
     try{return create('text',item.message||' ');}catch{return null;}
   }
   function canEdit(item,actor,time=Date.now()) {
@@ -18628,26 +18628,53 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   else root.WingaEncryptedPolicy = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const failure = code => Object.assign(new Error(code), { code });
-  let opening;
+  let opening, openingRoom;
   function names(owner, peer) {
     if (![owner, peer].every(value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)) || owner === peer) {
       throw failure('mls_policy_identity_invalid');
     }
   }
-  function database() {
+  function database(room = false) {
     if (!globalThis.indexedDB) return Promise.reject(failure('mls_policy_unavailable'));
-    if (!opening) opening = new Promise((resolve, reject) => {
-      const request = globalThis.indexedDB.open('winga-encrypted-policy-v1', 1); let blocked = false;
-      request.onupgradeneeded = () => request.result.createObjectStore('modes', { keyPath: ['owner', 'peer'] });
-      request.onerror = () => { opening = null; reject(failure('mls_policy_storage_failed')); };
-      request.onblocked = () => { blocked = true; opening = null; reject(failure('mls_policy_storage_blocked')); };
+    const cached = room ? openingRoom : opening;
+    if (cached) return cached;
+    const reset = () => { if (room) openingRoom = null; else opening = null; };
+    const pending = new Promise((resolve, reject) => {
+      const request = globalThis.indexedDB.open(room ? 'winga-encrypted-room-policy-v1' : 'winga-encrypted-policy-v1', 1); let blocked = false;
+      request.onupgradeneeded = () => request.result.createObjectStore(room ? 'rooms' : 'modes',
+        { keyPath: room ? ['owner','conversationId'] : ['owner','peer'] });
+      request.onerror = () => { reset(); reject(failure('mls_policy_storage_failed')); };
+      request.onblocked = () => { blocked = true; reset(); reject(failure('mls_policy_storage_blocked')); };
       request.onsuccess = () => {
         if (blocked) return request.result.close();
-        request.result.onversionchange = () => { request.result.close(); opening = null; };
+        request.result.onversionchange = () => { request.result.close(); reset(); };
         resolve(request.result);
       };
     });
-    return opening;
+    if (room) openingRoom = pending; else opening = pending;
+    return pending;
+  }
+  async function roomAccess(owner, conversationId, mark) {
+    if (typeof owner !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(owner)
+      || typeof conversationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(conversationId)) {
+      throw failure('mls_policy_identity_invalid');
+    }
+    const db = await database(true);
+    return new Promise((resolve, reject) => {
+      let result = false, tx;
+      try { tx = db.transaction('rooms', mark ? 'readwrite' : 'readonly', mark ? {durability:'strict'} : undefined); }
+      catch { reject(failure('mls_policy_storage_failed')); return; }
+      tx.onabort = () => reject(failure('mls_policy_storage_failed'));
+      tx.onerror = () => {};
+      tx.oncomplete = () => resolve(result);
+      const store = tx.objectStore('rooms'), read = store.get([owner, conversationId]);
+      read.onsuccess = () => {
+        if (read.result && (read.result.owner !== owner || read.result.conversationId !== conversationId
+          || read.result.kind !== 'shopping-room' || read.result.mode !== 'encrypted')) { tx.abort(); return; }
+        result = Boolean(read.result || mark);
+        if (mark && !read.result) store.add({owner,conversationId,kind:'shopping-room',mode:'encrypted'});
+      };
+    });
   }
   async function access(owner, peer, mark) {
     names(owner, peer); const db = await database();
@@ -18668,7 +18695,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   }
   // Metadata only. There is deliberately no downgrade/delete API. The encrypted
   // vault remains authoritative for keys, ratchets, messages and exact outbox.
-  return { isEncrypted: (owner, peer) => access(owner, peer, false), markEncrypted: (owner, peer) => access(owner, peer, true) };
+  return { isEncrypted: (owner, peer) => access(owner, peer, false), markEncrypted: (owner, peer) => access(owner, peer, true),
+    isRoomEncrypted: (owner, conversationId) => roomAccess(owner, conversationId, false),
+    markRoomEncrypted: (owner, conversationId) => roomAccess(owner, conversationId, true) };
 });
 
 
@@ -20482,7 +20511,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
-  const journalId = value => /^(history:|sync:page:|recovery:page:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
+  const journalId = value => /^(history:|sync:page:|recovery:page:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:|mls:room-transition:|mls:room-epoch:)/.test(value);
   const journalKind = value => value.startsWith('history:')?'history:':value.startsWith('sync:page:')?'sync:page:':value.startsWith('recovery:page:')?'recovery:page:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';

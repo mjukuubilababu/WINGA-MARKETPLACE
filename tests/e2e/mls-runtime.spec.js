@@ -21,6 +21,7 @@ test.beforeAll(async () => {
       '/api.js': path.resolve(__dirname, '../../src/api/communications-client.js'),
       '/policy.js': path.resolve(__dirname, '../../src/chat/encrypted-policy.js'),
       '/mls.js': path.join(output, 'winga-mls-candidate.js'),
+      '/room-content.mjs': path.resolve(__dirname, '../../src/chat/shopping-room-content.mjs'),
     };
     if (assets[request.url]) { response.setHeader('Content-Type', 'text/javascript'); response.end(fs.readFileSync(assets[request.url])); }
     else { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>MLS candidate integration</title><script src="/devices.js"></script><script src="/vault.js"></script><script src="/policy.js"></script><script src="/mls.js"></script><script src="/api.js"></script>'); }
@@ -41,21 +42,28 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => db.close());
 
-async function boot(page, username, { sessionId = username === 'alice' ? 'a' : 'b1', multiDevice = false } = {}) {
-  return page.evaluate(async ({ username, sessionId, multiDevice }) => {
+async function boot(page, username, { sessionId = username === 'alice' ? 'a' : 'b1', multiDevice = false, rooms = false } = {}) {
+  return page.evaluate(async ({ username, sessionId, multiDevice, rooms }) => {
     window.session = { username, sessionId, token: sessionId };
     window.pins = []; window.failTransport = false;
     window.client = WingaModules.api.communications.createCommunicationsApiClient({ baseUrl: '/api',
       getSession: () => session, createAuthHeaders: () => ({}), fetchJson: window.cryptoGateway });
-    window.runtime = await client.createEncryptedCandidate({ trustedPins: () => pins, multiDevice,
+    window.runtime = await client.createEncryptedCandidate({ trustedPins: () => pins, multiDevice, rooms,
+      ...(rooms ? {roomAuthorization:{
+        verifyIntent:value=>window.roomGateway('verify',value),
+        confirm:(value,proofs)=>window.roomGateway('confirm',{...value,commit:Array.from(value.commit),welcome:Array.from(value.welcome),tree:Array.from(value.tree),
+          proofs:proofs.map(p=>({...p,signature:Array.from(p.signature)}))}),
+        check:(id,epoch,revision)=>window.roomGateway('check',{id,epoch,revision}),
+      }} : {}),
       transport: { async send(packet) {
         await window.capturePacket({ ...packet, ciphertext: Array.from(packet.ciphertext) });
         if (window.failTransport) throw new TypeError('lost_reply');
+        if (rooms) return window.roomGateway('send',{...packet,ciphertext:Array.from(packet.ciphertext)});
         return { id: packet.id, hash: packet.hash, status: 'sent' };
       } } });
     const identity = await runtime.initialize();
     return { ...identity, keyPackage: Array.from(identity.keyPackage), signaturePublicKey: Array.from(identity.signaturePublicKey) };
-  }, { username, sessionId, multiDevice });
+  }, { username, sessionId, multiDevice, rooms });
 }
 async function prepare(page, username, captured, options = {}) {
   const sessionId = options.sessionId || (username === 'alice' ? 'a' : 'b1');
@@ -72,6 +80,102 @@ async function prepare(page, username, captured, options = {}) {
 }
 const pin = (page, value) => page.evaluate(value => { pins.push({ ...value,
   signaturePublicKey: new Uint8Array(value.signaturePublicKey), status: 'active' }); }, value);
+
+test('candidate Shopping Room uses three actual native browser identities, encrypted IndexedDB, durable replay and unchanged CSP',async({browser})=>{
+  const crypto=require('node:crypto'),keys=crypto.generateKeyPairSync('ed25519'),reservations=new Map(),active=new Map(),stored=new Map();let sequence=0;
+  const contexts=await Promise.all([browser.newContext({viewport:{width:390,height:844}}),browser.newContext(),browser.newContext()]);
+  const captured=[[],[],[]],violations=[],owners=['alice','bob','eve'],sessions=['a','b1','e'];
+  const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+  const signedIntent=value=>reservations.set(value.id,crypto.sign(null,Buffer.from(JSON.stringify(value)),keys.privateKey));
+  // Native device enrollment/key-package signatures use the existing real service.
+  // Only room canonical authorization/durable storage is synthetic until its backend is implemented.
+  const gateway=async(action,value)=>{
+    if(action==='verify')return !!reservations.get(value.id)&&crypto.verify(null,Buffer.from(JSON.stringify(value)),keys.publicKey,reservations.get(value.id));
+    if(action==='confirm') {
+      const intent=JSON.parse(value.intent),transferHash=hash(Buffer.from(JSON.stringify(['winga-mls-room-transfer',1,value.intent,value.epoch,
+        hash(Buffer.from(value.commit)),hash(Buffer.from(value.welcome)),hash(Buffer.from(value.tree))])));
+      active.set(value.conversationId,{active:true,conversationId:value.conversationId,epoch:value.epoch,revision:intent.revision});
+      return {status:'active',conversationId:value.conversationId,epoch:value.epoch,transferHash};
+    }
+    if(action==='check')return active.get(value.id)||{active:false,conversationId:value.id,epoch:'0',revision:'0'};
+    if(action==='send') {
+      const prior=stored.get(value.id);if(prior){expect(prior.hash).toBe(value.hash);return prior;}
+      const receipt={id:value.id,hash:value.hash,status:'sent',sequence:String(++sequence),createdAt:new Date().toISOString()};stored.set(value.id,receipt);return receipt;
+    }
+    throw new Error('unexpected_room_fixture_operation');
+  };
+  try {
+    const pages=await Promise.all(contexts.map(c=>c.newPage())),identities=[];
+    for(let i=0;i<pages.length;i++){
+      pages[i].on('console',entry=>{if(entry.text().includes('Content Security Policy'))violations.push(entry.text());});
+      await pages[i].exposeFunction('roomGateway',gateway);
+      identities.push(await prepare(pages[i],owners[i],captured[i],{sessionId:sessions[i],rooms:true}));
+    }
+    for(let i=0;i<pages.length;i++)for(let j=0;j<identities.length;j++)if(i!==j)await pin(pages[i],identities[j]);
+    await pages[0].evaluate(async()=>{
+      const db=await new Promise((resolve,reject)=>{const open=indexedDB.open('winga-encrypted-policy-v1',1);
+        open.onupgradeneeded=()=>open.result.createObjectStore('modes',{keyPath:['owner','peer']});
+        open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
+      try{await new Promise((resolve,reject)=>{const tx=db.transaction('modes','readwrite');
+        tx.objectStore('modes').add({owner:'alice',peer:'existing-peer',mode:'encrypted'});tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});}finally{db.close();}
+    });
+    const id=crypto.randomUUID(),roster=identities.map(d=>({owner:d.owner,id:d.id,fingerprint:d.fingerprint,key:d.signaturePublicKey}))
+      .sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+    const intent={version:1,kind:'shopping-room',id:crypto.randomUUID(),conversationId:id,previousEpoch:'0',revision:'1',actorOwner:'alice',actorDeviceId:identities[0].id,
+      roster:JSON.stringify(roster),roles:JSON.stringify(owners.map(owner=>({owner,role:owner==='alice'?'admin':'member'}))),
+      changes:JSON.stringify(identities.slice(1).map(d=>({type:'add',owner:d.owner,id:d.id,packageHash:d.hash})).sort((a,b)=>a.id<b.id?-1:1))};
+    signedIntent(intent);
+    const initial=await pages[0].evaluate(async({intent,identities})=>{
+      const t=await runtime.room.create(intent,new Map(identities.slice(1).map(d=>[d.id,new Uint8Array(d.keyPackage)])));
+      return {...t,commit:Array.from(t.commit),welcome:Array.from(t.welcome),tree:Array.from(t.tree)};
+    },{intent,identities});
+    for(const page of pages.slice(1))await page.evaluate(t=>runtime.room.acceptWelcome({...t,commit:new Uint8Array(t.commit),welcome:new Uint8Array(t.welcome),tree:new Uint8Array(t.tree)}),initial);
+    const proofs=[];for(const page of pages)proofs.push(await page.evaluate(async id=>{const p=await runtime.room.acceptance(id);return {...p,signature:Array.from(p.signature)};},id));
+    for(const page of pages)await page.evaluate(({id,proofs})=>runtime.room.confirm(id,proofs.map(p=>({...p,signature:new Uint8Array(p.signature)}))),{id,proofs});
+    const bodies=['room product secret','room poll secret','room vote secret'];
+    for(let i=0;i<pages.length;i++){
+      const sender=pages[i];await sender.evaluate(({id,message})=>runtime.room.send({conversationId:id,clientMessageId:crypto.randomUUID(),message}),{id,message:bodies[i]});
+      const packet=captured[i].at(-1),receipt=stored.get(packet.id),wire={...packet,sequence:receipt.sequence,created_at:receipt.createdAt};
+      for(let j=0;j<pages.length;j++)if(i!==j)await pages[j].evaluate(p=>runtime.room.receive({...p,ciphertext:new Uint8Array(p.ciphertext)}),wire);
+    }
+    const before=[];
+    for(let i=0;i<pages.length;i++){
+      before.push(await pages[i].evaluate(async id=>(await runtime.room.history(id)).map(v=>[v.id,v.owner,v.message,v.sequence]),id));
+      expect(await pages[i].evaluate(async({id,peer})=>({room:await WingaEncryptedPolicy.isRoomEncrypted(session.username,id),pair:await WingaEncryptedPolicy.isEncrypted(session.username,peer)}),
+        {id,peer:owners[(i+1)%3]})).toEqual({room:true,pair:false});
+      expect(await pages[i].evaluate(async()=>{
+        const db=await new Promise((resolve,reject)=>{const open=indexedDB.open('winga-encrypted-vault-v1:'+session.username);open.onsuccess=()=>resolve(open.result);open.onerror=()=>reject(open.error);});
+        try{const tx=db.transaction(['records','journal']),read=store=>new Promise((resolve,reject)=>{const req=tx.objectStore(store).getAll();req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
+          const rows=(await Promise.all([read('records'),read('journal')])).flat();return {sealed:rows.every(v=>v.v===1&&v.ciphertext instanceof Uint8Array&&!JSON.stringify(v).includes('room product secret')),
+            transition:rows.some(v=>v.kind==='mls:room-transition:'),localStorageEmpty:localStorage.length===0};}finally{db.close();}
+      })).toEqual({sealed:true,transition:true,localStorageEmpty:true});
+      expect(await pages[i].evaluate(()=>runtime.history())).toEqual([]);
+    }
+    expect(before[0]).toEqual(before[1]);expect(before[1]).toEqual(before[2]);expect(before[0]).toHaveLength(3);
+    expect(await pages[0].evaluate(()=>WingaEncryptedPolicy.isEncrypted('alice','existing-peer'))).toBe(true);
+    for(let i=0;i<pages.length;i++){
+      await pages[i].evaluate(()=>runtime.close());await pages[i].reload();await boot(pages[i],owners[i],{sessionId:sessions[i],rooms:true});
+      for(let j=0;j<identities.length;j++)if(i!==j)await pin(pages[i],identities[j]);
+      expect(await pages[i].evaluate(async id=>(await runtime.room.history(id)).map(v=>[v.id,v.owner,v.message,v.sequence]),id)).toEqual(before[i]);
+    }
+    await pages[0].evaluate(id=>runtime.room.send({conversationId:id,clientMessageId:crypto.randomUUID(),message:'after profile reload'}),id);
+    const packet=captured[0].at(-1),receipt=stored.get(packet.id);
+    for(const page of pages.slice(1))expect((await page.evaluate(p=>runtime.room.receive({...p,ciphertext:new Uint8Array(p.ciphertext)}),
+      {...packet,sequence:receipt.sequence,created_at:receipt.createdAt})).message).toBe('after profile reload');
+    const remaining=roster.filter(m=>m.owner!=='eve'),removeIntent={...intent,id:crypto.randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(remaining),
+      roles:JSON.stringify(owners.slice(0,2).map(owner=>({owner,role:owner==='alice'?'admin':'member'}))),
+      changes:JSON.stringify([{type:'remove',owner:'eve',id:identities[2].id}])};signedIntent(removeIntent);
+    const removed=await pages[0].evaluate(async v=>{const t=await runtime.room.change(v);return {...t,commit:Array.from(t.commit),welcome:Array.from(t.welcome),tree:Array.from(t.tree)};},removeIntent);
+    await pages[1].evaluate(t=>runtime.room.applyCommit({...t,commit:new Uint8Array(t.commit),welcome:new Uint8Array(t.welcome),tree:new Uint8Array(t.tree)}),removed);
+    const accepted=[];for(const page of pages.slice(0,2))accepted.push(await page.evaluate(async id=>{const p=await runtime.room.acceptance(id);return {...p,signature:Array.from(p.signature)};},id));
+    for(const page of pages.slice(0,2))await page.evaluate(({id,proofs})=>runtime.room.confirm(id,proofs.map(p=>({...p,signature:new Uint8Array(p.signature)}))),{id,proofs:accepted});
+    await pages[0].evaluate(id=>runtime.room.send({conversationId:id,clientMessageId:crypto.randomUUID(),message:'retained room secret'}),id);
+    const future=captured[0].at(-1),futureReceipt=stored.get(future.id),futureWire={...future,sequence:futureReceipt.sequence,created_at:futureReceipt.createdAt};
+    expect((await pages[1].evaluate(p=>runtime.room.receive({...p,ciphertext:new Uint8Array(p.ciphertext)}),futureWire)).message).toBe('retained room secret');
+    await expect(pages[2].evaluate(p=>runtime.room.receive({...p,ciphertext:new Uint8Array(p.ciphertext)}),futureWire)).rejects.toThrow('mls_room_access_denied');
+    expect(violations).toEqual([]);expect(stored.size).toBe(5);
+  }finally{for(const context of contexts)await context.close();}
+});
 
 test('candidate native-approved third browser device converges future history with encrypted IndexedDB and strict CSP', async ({ browser }) => {
   await db.query("INSERT INTO sessions VALUES ('a2','alice','a2',9999999999999)");

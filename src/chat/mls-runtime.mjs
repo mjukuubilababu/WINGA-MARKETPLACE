@@ -8,6 +8,8 @@ import { encodeRatchetTree, decodeRatchetTree } from 'ts-mls/ratchetTree.js';
 import { verifyKeyPackage, generateKeyPackageWithKey } from 'ts-mls/keyPackage.js';
 import { verifyLeafNodeSignatureKeyPackage } from 'ts-mls/leafNode.js';
 import { decryptSenderData } from 'ts-mls/privateMessage.js';
+import { createMlsRoomOperations } from './mls-room-operations.mjs';
+export { encodeRoomTransferPayload, decodeRoomTransferPayload } from './mls-room-operations.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -116,8 +118,10 @@ export async function inspectBoundKeyPackage(bytes,identity,now=Date.now()) {
 // durably accepted by the authorized server before confirmMembership is called.
 export async function createMlsRuntime({ getSession, vault, identityClient, publishPackage,
   trustedPins, transport, locks = globalThis.navigator?.locks, crypto = globalThis.crypto,
-  policy = globalThis.WingaEncryptedPolicy, now = Date.now, multiDevice = false } = {}) {
+  policy = globalThis.WingaEncryptedPolicy, now = Date.now, multiDevice = false, rooms = false,
+  roomAuthorization, roomMaxOwners = 12, roomMaxDevices = 24 } = {}) {
   need(typeof multiDevice === 'boolean', 'mls_runtime_unavailable');
+  need(typeof rooms === 'boolean', 'mls_runtime_unavailable');
   need(typeof getSession === 'function' && vault?.snapshot && vault?.write && identityClient?.enroll
     && identityClient?.attestKeyPackage && typeof publishPackage === 'function'
     && typeof trustedPins === 'function' && locks?.request && crypto?.subtle
@@ -170,8 +174,9 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       } } };
     return { configuration, records };
   }
-  async function state(saved, id, retiringDeviceId = null) {
+  async function state(saved, id, retiringDeviceId = null, room = false) {
     const row = saved.values[`mls:group:${id}`]; need(row && uuid(id), 'mls_group_required');
+    need((row.kind === 'shopping-room') === room && (!room || rooms), 'mls_group_scope_rejected');
     need(!row.multiDevice || multiDevice, 'mls_multidevice_disabled');
     const parsed = decodeGroupState(row.bytes, 0); need(parsed && parsed[1] === row.bytes.length, 'mls_state_invalid');
     const { configuration, records } = await config(saved);
@@ -180,11 +185,19 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const pin = records.get(`${tuple[2]}/${tuple[3]}`);
       // Only replacement may load the exact previously pinned, revoked peer leaf.
       // The MLS auth service still rejects revoked credentials in the new tree.
-      const retiring = retiringDeviceId && tuple[3] === retiringDeviceId && [owner,row.peer].includes(tuple[2])
+      const retiring = (Array.isArray(retiringDeviceId) ? retiringDeviceId.includes(tuple[3]) : retiringDeviceId && tuple[3] === retiringDeviceId)
+        && (room || [owner,row.peer].includes(tuple[2]))
         && pin?.status === 'revoked' && equal(node.leaf.credential.identity, credential(pin).identity)
         && equal(node.leaf.signaturePublicKey, pin.signaturePublicKey);
       need(retiring || await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
-      need(tuple[2] === owner || tuple[2] === row.peer, 'mls_unexpected_member');
+      need(room || tuple[2] === owner || tuple[2] === row.peer, 'mls_unexpected_member');
+    }
+    if (room) need(JSON.stringify(roster(parsed[0])) === row.roomRoster && roster(parsed[0]).some(m=>m.owner===owner
+      && m.id===saved.values['mls:identity']?.id), 'mls_room_roster_rejected');
+    if (room) {
+      const epoch = await record(saved,`mls:room-epoch:${id}:${parsed[0].groupContext.epoch}`);
+      need(epoch && epoch.roster===row.roomRoster && epoch.roles===row.roomRoles && typeof epoch.confirmed==='boolean'
+        && (!row.confirmed || epoch.confirmed), 'mls_room_roster_rejected');
     }
     need(decoder.decode(parsed[0].groupContext.groupId) === id, 'mls_state_invalid');
     return { value: { ...parsed[0], clientConfig: configuration }, row, records };
@@ -700,6 +713,10 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     const saved = await vault.snapshot(), pending = saved.values[`mls:outbox:${id}`], item = await record(saved,`history:${id}`);
     if (!pending) return null;
     need(item?.owner === owner && item.status === 'pending', 'mls_send_retry_conflict');
+    if (item.kind === 'shopping-room') {
+      need(room, 'mls_group_scope_rejected');
+      return room.send({clientMessageId:id,conversationId:item.conversationId,message:item.message});
+    }
     return sendMessage({ clientMessageId: id, receiverId: item.peer, message: item.message, messageType: 'text' });
   }
   function publicIdentity(identity) {
@@ -726,7 +743,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     return initialize();
   }
   async function history(peer) {
-    const belongs=(value,key)=>key.startsWith('history:')&&(!peer||value.owner===peer||value.peer===peer);
+    const belongs=(value,key)=>key.startsWith('history:')&&value.kind!=='shopping-room'&&(!peer||value.owner===peer||value.peer===peer);
     current(); const saved = await (vault.historySnapshot?vault.historySnapshot({filter:belongs}):vault.snapshot()); current();
     return Object.entries(saved.values).filter(([key,value]) => belongs(value,key))
       .map(([,value]) => structuredClone(value)).sort((a,b) => a.timestamp.localeCompare(b.timestamp));
@@ -758,7 +775,10 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     const parsed=decodeGroupState(row.bytes,0);need(parsed && parsed[1]===row.bytes.length && decoder.decode(parsed[0].groupContext.groupId)===id,'mls_state_invalid');
     current();return String(parsed[0].groupContext.epoch);
   }
-  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
+  const room = rooms ? createMlsRoomOperations({owner,vault,locked,put,record,state,config,roster,current,suite,hash,crypto,now,policy,transport,
+    authorization:roomAuthorization,inspectPackage:inspectBoundKeyPackage,retirePackage,wipePackage:wipePackageAdmission,wipe,noPendingSend,
+    maxOwners:roomMaxOwners,maxDevices:roomMaxDevices}) : null;
+  return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,room,
     retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,changeDevice,applyDeviceChange,acceptDeviceChangeWelcome,applyOwnReadReceipt,
     close() { closed = true; } };
 }
