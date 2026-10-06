@@ -88,12 +88,14 @@
       return structuredClone(rooms);
     }
     async function inspectOwners(names){
+      need(Array.isArray(names)&&names.every(name=>typeof name==='string'&&/^[A-Za-z0-9._:-]{1,40}$/.test(name)),'encrypted_room_usernames_invalid');
       const owners=[...new Set([owner,...names])].sort();
+      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=12,'encrypted_room_member_limit');
       const own=await runtime().prepareKeyPackage();
       const result=await operation('room-directory',{owners:JSON.stringify(owners)});need(result?.version===1&&Array.isArray(result.packages));
       directory=result.packages;
       const selected=owners.map(name=>directory.find(p=>p.owner===name&&(name!==owner||p.deviceId===own.id&&p.hash===own.hash)));
-      need(selected.every(Boolean)&&owners.length>=3,'encrypted_room_member_unavailable');return structuredClone(selected);
+      need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);
     }
     async function create(name,selected){
       need(Array.isArray(selected)&&selected.length>=3);const own=await runtime().prepareKeyPackage();

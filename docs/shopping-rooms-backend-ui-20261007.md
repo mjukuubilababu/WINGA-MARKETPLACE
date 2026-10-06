@@ -39,7 +39,7 @@ There is no plaintext fallback, fake pair identity or second messaging stack.
 
 ## Verification
 
-`npm run test:shopping-rooms` passes 42 tests, including actual backend SQL,
+`npm run test:shopping-rooms` passes 46 tests, including actual backend SQL,
 three-owner native MLS, all-signature activation, removal, immutable grants,
 generic owner-specific push, block denial and the read-only readiness verifier.
 The native-only bounded load exercises remain separately labeled synthetic
@@ -63,6 +63,16 @@ keyboard-covered Read denial and preservation of a scrolled history anchor.
 The chat UI suite had 99/100 passing with one Edge target-closed infrastructure
 failure; the entire affected rich-chat file subsequently passed 11/11 in isolation.
 Localization has four matching catalogs of 1568 keys with no new hardcoded debt.
+
+The member-review follow-up uses existing authenticated contact lookup to obtain
+canonical usernames before native package review. Self entries and case-insensitive
+duplicates do not count toward the two required other accounts. Invalid syntax or
+counts fail before package publication/directory requests. Unknown/unavailable
+accounts and accounts without a ready encrypted device have distinct localized
+errors; block/access denial stays nondisclosing. The HTTP regression covers the
+reported self-plus-room-name input, invalid/unknown accounts, an account without
+packages, mixed-case duplicates, successful native review and clearing stale errors.
+The follow-up catalogs have 1575 matching keys. No backend gate or trust rule changes.
 
 ## Rollout
 

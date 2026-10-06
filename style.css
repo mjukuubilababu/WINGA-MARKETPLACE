@@ -13038,6 +13038,10 @@ body.visual-categories-view #quick-discovery-rail{
 .room-poll-option meter { grid-column:2/4; width:100%; height:8px; }
 .room-poll-option span { overflow-wrap:anywhere; }
 .room-dialog { width:min(440px,calc(100vw - 32px)); max-height:85vh; overflow:auto; box-sizing:border-box; }
+.room-dialog > .conversation-icon-button { float:inline-end; display:grid; place-items:center; width:36px; height:36px; padding:0; border:0; border-radius:6px; background:transparent; cursor:pointer; }
+.room-dialog > .conversation-icon-button:hover { background:#f0f5f2; }
+.room-dialog > .conversation-icon-button:focus-visible { outline:2px solid #087d45; outline-offset:2px; }
+.room-dialog > h3 { min-height:36px; padding-inline-end:44px; }
 .room-dialog form { display:flex; flex-direction:column; gap:12px; }
 .room-dialog label { display:flex; flex-direction:column; gap:6px; font-size:14px; }
 .room-dialog .room-members-list { position:static; width:100%; max-height:none; padding:0; border:0; box-shadow:none; box-sizing:border-box; }

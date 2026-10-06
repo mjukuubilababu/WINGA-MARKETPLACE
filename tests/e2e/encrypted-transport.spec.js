@@ -83,6 +83,9 @@ test.beforeAll(async()=>{
       if(!session){sendJson(res,401,{code:'session_required'});return;}
       const context={owner:session.username,deviceId:session.sessionId,token:session.token};
       try {
+        const contact=url.pathname.match(/^\/api\/social\/users\/([^/]+)$/);
+        if(contact&&req.method==='GET'){const profile=(await db.query("SELECT username FROM users WHERE LOWER(username)=LOWER($1) AND status='active'",[decodeURIComponent(contact[1])])).rows[0];
+          sendJson(res,profile?200:404,profile?{profile}:{code:'social_profile_not_found'});return;}
         const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:()=>session.token,ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
         const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled,roomsEnabled});
         const media=createEncryptedMediaApi({...common,getPostgresStore:()=>transport,getStorage:()=>storage});
@@ -131,6 +134,7 @@ async function resetStores(multidevice=false,rooms=false) {
 
 test('real Rooms UI creates a three-owner native MLS room and converges encrypted text and poll votes over HTTP',async({browser})=>{
   test.setTimeout(120000);await resetStores(false,true);
+  await db.query("INSERT INTO users(username,status) VALUES('offline','active')");
   const contexts=await Promise.all([browser.newContext({viewport:{width:390,height:844}}),browser.newContext(),browser.newContext()]);
   try{
     const pages=await Promise.all(contexts.map(c=>c.newPage()));
@@ -152,8 +156,21 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
     }
     const [alice,bob,eve]=pages;
     await alice.locator('[data-room-list]').getByRole('button',{name:'New chatroom'}).click();
-    await alice.locator('input[name="name"]').fill('Winga Kariakoo');await alice.locator('textarea[name="members"]').fill('bob eve');
+    await alice.locator('input[name="name"]').fill('Winga Kariakoo');await alice.locator('textarea[name="members"]').fill('Alice Room');
+    let directoryRequests=0;alice.on('request',request=>{if(request.url().endsWith('/encrypted/operations')&&request.postDataJSON()?.action==='room-directory')directoryRequests++;});
+    await alice.getByRole('button',{name:'Review devices',exact:true}).click();await expect(alice.locator('[data-room-error]')).toHaveText('At least two other accounts are required.');
+    expect(directoryRequests).toBe(0);
+    await alice.locator('textarea[name="members"]').fill('bob eve!');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
+    await expect(alice.locator('[data-room-error]')).toHaveText('One or more usernames are invalid.');expect(directoryRequests).toBe(0);
+    await alice.locator('textarea[name="members"]').fill('bob missing');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
+    await expect(alice.locator('[data-room-error]')).toHaveText('Account missing is unavailable.');expect(directoryRequests).toBe(0);
+    await alice.locator('textarea[name="members"]').fill('bob offline');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
+    await expect(alice.locator('[data-room-error]')).toHaveText('Some members do not have a ready encrypted chat device yet.');
+    expect(await alice.locator('.room-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-shopping-rooms-member-validation.png'),fullPage:true});
+    await alice.locator('textarea[name="members"]').fill('BOB Eve bob ALICE');
     await alice.getByRole('button',{name:'Review devices',exact:true}).click();await expect(alice.locator('.room-key-review li')).toHaveCount(3);
+    await expect(alice.locator('[data-room-error]')).toHaveText('');
     loseRoomReserve=true;await alice.locator('dialog').getByRole('button',{name:'New chatroom',exact:true}).click();
     await expect(alice.locator('dialog [data-room-error]')).toContainText('Try again');
     await alice.locator('dialog').getByRole('button',{name:'Close chat',exact:true}).click();

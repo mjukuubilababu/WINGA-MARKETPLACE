@@ -19641,12 +19641,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return structuredClone(rooms);
     }
     async function inspectOwners(names){
+      need(Array.isArray(names)&&names.every(name=>typeof name==='string'&&/^[A-Za-z0-9._:-]{1,40}$/.test(name)),'encrypted_room_usernames_invalid');
       const owners=[...new Set([owner,...names])].sort();
+      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=12,'encrypted_room_member_limit');
       const own=await runtime().prepareKeyPackage();
       const result=await operation('room-directory',{owners:JSON.stringify(owners)});need(result?.version===1&&Array.isArray(result.packages));
       directory=result.packages;
       const selected=owners.map(name=>directory.find(p=>p.owner===name&&(name!==owner||p.deviceId===own.id&&p.hash===own.hash)));
-      need(selected.every(Boolean)&&owners.length>=3,'encrypted_room_member_unavailable');return structuredClone(selected);
+      need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);
     }
     async function create(name,selected){
       need(Array.isArray(selected)&&selected.length>=3);const own=await runtime().prepareKeyPackage();
@@ -19728,6 +19730,29 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const t=(key,fallback,variables={})=>Object.entries(variables).reduce((text,[name,value])=>text.replaceAll('{'+name+'}',String(value)),translate?.(key,fallback,variables)||fallback);
     const current=()=>scope.isConnected&&getSession?.()?.username===owner&&getSession?.()?.token===session.token&&getSession?.()?.sessionId===session.sessionId;
     const call=(action,...args)=>dataLayer.shoppingRoom(action,args);
+    const fail=(code,member)=>{throw Object.assign(new Error(code),{code,member});};
+    const memberNames=value=>[...new Set(value.split(/[\s,]+/).filter(Boolean).map(name=>name.toLowerCase()))].filter(name=>name!==owner.toLowerCase());
+    async function resolveMembers(value,{initial=false}={}){const names=memberNames(value);
+      if(!names.length)fail(initial?'encrypted_room_members_required':'encrypted_room_usernames_invalid');
+      if(initial&&names.length<2)fail('encrypted_room_members_required');
+      if(names.length>11)fail('encrypted_room_member_limit');
+      if(!names.every(name=>/^[A-Za-z0-9._:-]{1,40}$/.test(name)))fail('encrypted_room_usernames_invalid');
+      const resolved=[];for(const name of names){let profile;try{profile=await dataLayer.readRichContact(name);}catch(error){
+        if(error.status===404||error.code==='social_profile_not_found')fail('encrypted_room_account_unavailable',name);throw error;}
+        if(!current())fail('mls_session_changed');
+        if(typeof profile?.username!=='string'||profile.username.toLowerCase()!==name)fail('encrypted_room_account_unavailable',name);
+        resolved.push(profile.username);}
+      return [...new Set(resolved)].filter(name=>name!==owner);}
+    function errorText(error){switch(error?.code){
+      case 'encrypted_rooms_disabled':return t('rooms.unavailable','Chatrooms are unavailable.');
+      case 'encrypted_room_members_required':return t('rooms.membersRequired','At least two other accounts are required.');
+      case 'encrypted_room_usernames_invalid':return t('rooms.usernamesInvalid','One or more usernames are invalid.');
+      case 'encrypted_room_member_limit':return t('rooms.memberLimit','A chatroom can have up to 12 accounts.');
+      case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
+      case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
+      case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
+      case 'encrypted_package_unavailable':return t('rooms.packageUnavailable','A member device changed. Review devices again.');
+      default:return t('rooms.actionFailed','Unable to finish. Try again.');}}
     const memberName=id=>actions.memberName?.(id)||id;
     function memberAvatar(id){const wrap=element('span','','message-thread-avatar'),fallback=()=>wrap.replaceChildren(element('span',memberName(id).slice(0,1),'conversation-avatar-initial'));
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
@@ -19742,8 +19767,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const image=document.createElement('img');image.src='/icons/navigation/'+name+'.svg';image.width=20;image.height=20;image.alt='';b.append(image);b.onclick=()=>run(fn);return b;};
     const button=(text,fn,className='action-btn action-btn-secondary')=>{const b=control(element('button',text,className));b.type='button';b.onclick=()=>run(fn);return b;};
     const run=async fn=>{if(busy||!current())return;busy=true;status.textContent='';scope.setAttribute('aria-busy','true');
+      for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
-      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){status.textContent=error?.code==='encrypted_rooms_disabled'?t('rooms.unavailable','Chatrooms are unavailable.'):t('rooms.actionFailed','Unable to finish. Try again.');
+      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){status.textContent=errorText(error);
         const dialog=document.querySelector('.room-dialog form');if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
       finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}}};
@@ -19755,13 +19781,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function submit(form,label,fn){const b=button(label,()=>{},'action-btn buy-btn');b.type='submit';b.onclick=null;form.append(b);form.onsubmit=event=>{event.preventDefault();return run(fn);};return b;}
     function identities(form,selected){const ul=element('ul','','room-key-review');for(const p of selected){const li=element('li');li.append(element('strong',p.owner),element('code',p.fingerprint));ul.append(li);}form.append(ul);}
     async function createRoom(){const view=modal(t('rooms.create','New chatroom'));const name=input(view.form,t('rooms.name','Room name'),'name',{max:80}),members=input(view.form,t('rooms.usernames','Member usernames'),'members',{area:true,max:1536});
-      const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const names=members.value.split(/[\s,]+/).filter(Boolean);const selected=await call('inspectOwners',names);if(!current())return view.d.close();
+      const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const names=await resolveMembers(members.value,{initial:true});const selected=await call('inspectOwners',names);if(!current())return view.d.close();
         name.disabled=true;members.disabled=true;review.remove();identities(view.form,selected);submit(view.form,t('rooms.create','New chatroom'),async()=>{state.selected=await call('create',name.value,selected);state.tab='chat';view.d.close();});});}
     async function reviewRoom(room){const view=modal(t('rooms.review','Review devices')),i=JSON.parse(room.transition.intent);
       const selected=JSON.parse(i.roster).map(m=>({owner:m.owner,fingerprint:m.fingerprint}));identities(view.form,selected);
       submit(view.form,t('rooms.join','Approve and join'),async()=>{await call('join',room.id);state.selected=room.id;view.d.close();});}
     async function addMembers(room){const view=modal(t('rooms.addMembers','Add members')),names=input(view.form,t('rooms.usernames','Member usernames'),'members',{area:true,max:1536});
-      const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,names.value.split(/[\s,]+/).filter(Boolean));if(!current())return view.d.close();names.disabled=true;review.remove();identities(view.form,selected);
+      const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,await resolveMembers(names.value));if(!current())return view.d.close();names.disabled=true;review.remove();identities(view.form,selected);
         submit(view.form,t('rooms.addMembers','Add members'),async()=>{await call('change',room.id,selected,'');view.d.close();});});}
     async function members(room){const view=modal(t('chat.roomMembers','Room members')),i=JSON.parse(room.transition.intent),roles=JSON.parse(i.roles),ul=element('ul','','room-members-list');
       const admin=roles.some(r=>r.owner===owner&&r.role==='admin');
