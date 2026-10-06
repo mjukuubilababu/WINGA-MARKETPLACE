@@ -6,7 +6,7 @@ const {createEncryptedConversationsApi}=require('../backend/encrypted-conversati
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function fixture(t) {
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
-  for(const name of ['message-web-push','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements'])
+  for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements'])
     await db.transaction(async tx=>{for(const sql of require(`../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
@@ -285,11 +285,27 @@ test('encrypted sends enqueue one generic background push, authorize deep links 
   await f.db.query(`INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription,locale) VALUES($1,'bob','b1',$2,'en')`,[crypto.randomUUID(),JSON.stringify(subscription)]);
   await f.call('alice','send',f.packet);await f.call('alice','send',f.packet);
   const jobs=(await f.db.query('SELECT * FROM web_push_jobs')).rows;assert.equal(jobs.length,1);
-  const payloads=[],push=require('../backend/message-web-push').createMessageWebPushStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(work),encrypted:true,
+  const payloads=[],push=require('../backend/message-web-push').createMessageWebPushStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(tx=>work({query:(sql,params)=>sql.includes('pg_advisory_xact_lock')?{rows:[]}:tx.query(sql,params)})),encrypted:true,
     provider:{generateVAPIDKeys:()=>require('web-push').generateVAPIDKeys(),sendNotification:async(subscription,payload)=>payloads.push(JSON.parse(payload))}});
   assert.deepEqual(await push.resolveWebPush({owner:'bob',token:'b1',sessionId:'b1',id:jobs[0].id}),{withUser:'alice'});
   const result=await push.dispatchWebPushBatch();assert.equal(result.accepted,1);
   assert.deepEqual(Object.keys(payloads[0]).sort(),['id','locale','version']);assert.equal(JSON.stringify(payloads).includes('server must not receive this'),false);
+  const context={owner:'bob',token:'b1',sessionId:'b1'},payload={owner:'bob',sessionId:'b1',peer:'alice'};
+  await f.db.exec('UPDATE web_push_jobs SET completed_at=NULL');
+  const muted=await push.saveConversationMute({...context,payload:{...payload,revision:'0',muted:true}});
+  assert.equal(muted.muted,true);
+  async function nextPacket(){
+    const message=await f.mls.createApplicationMessage(f.group,new TextEncoder().encode('another private message'),f.suite);f.group=message.newState;
+    const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:message.privateMessage}));
+    return {...f.packet,id:crypto.randomUUID(),ciphertext:bytes.toString('base64url'),hash:hash(bytes)};
+  }
+  await f.call('alice','send',await nextPacket());
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,2);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM web_push_jobs WHERE completed_at IS NULL')).rows[0].n,0);
+  await push.dispatchWebPushBatch();assert.equal(payloads.length,1);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n,0);
+  await push.saveConversationMute({...context,payload:{...payload,revision:muted.revision,muted:false}});
+  await f.call('alice','send',await nextPacket());await push.dispatchWebPushBatch();assert.equal(payloads.length,2);
 });
 
 function privateStorage(f) {

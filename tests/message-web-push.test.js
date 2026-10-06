@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createECDH, randomBytes } = require('node:crypto');
 const { PGlite } = require('@electric-sql/pglite');
 const { createMessageWebPushStore, enqueueMessagePush, validateSubscription } = require('../backend/message-web-push');
-const migration = require('../backend/migrations/message-web-push');
+const migration = {statements:[...require('../backend/migrations/message-web-push').statements,...require('../backend/migrations/conversation-notification-preferences').statements,...require('../backend/migrations/conversation-archive-preferences').statements]};
 const fs = require('node:fs');
 const vm = require('node:vm');
 
@@ -136,6 +136,83 @@ function workerHarness() {
   return { shown, opened, messages, setClients(value) { clients = value; },
     async fire(type, extra) { let pending; handlers[type]({ ...extra, waitUntil: promise => { pending = promise; } }); await pending; } };
 }
+
+test('account-level mute is session-bound, revisioned and suppresses alerts without changing delivery',async()=>{
+  const db=new PGlite(),sent=[];
+  const transaction=work=>db.transaction(tx=>work({query:(sql,params)=>sql.includes('pg_advisory_xact_lock')?{rows:[]}:tx.query(sql,params)}));
+  const store=createMessageWebPushStore({query:db.query.bind(db),withTransaction:transaction,
+    provider:{generateVAPIDKeys:()=>({publicKey:'public',privateKey:'private'}),async sendNotification(sub){sent.push(sub.endpoint);}}});
+  const context={owner:'bob',token:'d1',sessionId:'d1'},otherDevice={owner:'bob',token:'d2',sessionId:'d2'};
+  const payload=(ctx=context,more={})=>({owner:ctx.owner,sessionId:ctx.sessionId,peer:'alice',...more});
+  const enqueue=id=>transaction(client=>enqueueMessagePush(client,{id,senderId:'alice',receiverId:'bob'}));
+  try {
+    await db.exec("CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT DEFAULT 'active'); INSERT INTO users VALUES('alice','active'),('bob','active'),('mallory','active'); CREATE TABLE sessions(token TEXT,username TEXT,session_id TEXT,expires_at BIGINT); INSERT INTO sessions VALUES('d1','bob','d1',9999999999999),('d2','bob','d2',9999999999999),('d3','mallory','d3',9999999999999); CREATE TABLE messages(id TEXT PRIMARY KEY,sender_id TEXT,receiver_id TEXT,is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT FALSE); INSERT INTO messages(id,sender_id,receiver_id) VALUES('m1','alice','bob'),('m2','alice','bob'),('m3','alice','bob'); CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);");
+    for(let n=0;n<2;n++)for(const sql of migration.statements)await db.exec(sql);
+    await store.saveWebPush({...context,payload:{subscription:subscription()}});
+    await store.saveWebPush({...otherDevice,payload:{subscription:subscription('https://fcm.googleapis.com/fcm/send/second')}});
+    assert.deepEqual(await store.readConversationMute({...context,payload:payload()}),{revision:'0',muted:false});
+    await enqueue('m1');
+    const muted=await store.saveConversationMute({...context,payload:payload(context,{revision:'0',muted:true})});
+    assert.deepEqual(muted,{revision:'1',muted:true});
+    assert.deepEqual(await store.readConversationMute({...otherDevice,payload:payload(otherDevice)}),muted);
+    await store.dispatchWebPushBatch();assert.equal(sent.length,0);
+    await enqueue('m2');assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM web_push_jobs WHERE message_id='m2'")).rows[0].n,0);
+    await assert.rejects(store.saveConversationMute({...otherDevice,payload:payload(otherDevice,{revision:'0',muted:false})}),{status:409});
+    for(const change of [{owner:'mallory'},{sessionId:'d2'},{peer:'bob'},{peer:' alice'},{duration:'1h'},{muted:'false'}])
+      await assert.rejects(store.saveConversationMute({...context,payload:payload(context,{revision:'1',muted:false,...change})}),{status:400});
+    await assert.rejects(store.saveConversationMute({...context,token:'wrong',payload:payload(context,{revision:'1',muted:false})}),{status:401});
+    await assert.rejects(store.saveConversationMute({...context,payload:payload(context,{peer:'unknown',revision:'0',muted:true})}),{status:404});
+    const mallory={owner:'mallory',sessionId:'d3',token:'d3'};
+    assert.equal((await store.readConversationMute({...mallory,payload:payload(mallory)})).muted,false);
+    await db.exec("UPDATE conversation_notification_preferences SET updated_at=NOW()-INTERVAL '1 year'");
+    assert.equal((await store.readConversationMute({...otherDevice,payload:payload(otherDevice)})).muted,true);
+    const state=await store.saveConversationMute({...otherDevice,payload:payload(otherDevice,{revision:muted.revision,muted:false})});
+    assert.equal(state.muted,false);
+    await enqueue('m3');await store.dispatchWebPushBatch();
+    assert.equal(sent.length,2);
+    const messages=(await db.query('SELECT * FROM messages')).rows;
+    assert.ok(messages.every(message=>!message.is_read&&!message.is_delivered));
+    assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM web_push_subscriptions')).rows[0].n,2);
+  }finally{await db.close();}
+});
+test('archive persists across devices, preserves mute and history, and new messages do not unarchive',async()=>{
+  const db=new PGlite(),sent=[];
+  const transaction=work=>db.transaction(tx=>work({query:(sql,params)=>sql.includes('pg_advisory_xact_lock')?{rows:[]}:tx.query(sql,params)}));
+  const store=createMessageWebPushStore({query:db.query.bind(db),withTransaction:transaction,
+    provider:{generateVAPIDKeys:()=>({publicKey:'public',privateKey:'private'}),async sendNotification(){sent.push(true);}}});
+  const context={owner:'bob',token:'d1',sessionId:'d1'},second={owner:'bob',token:'d2',sessionId:'d2'},other={owner:'mallory',token:'d3',sessionId:'d3'};
+  const payload=(ctx=context,more={})=>({owner:ctx.owner,sessionId:ctx.sessionId,peer:'alice',...more});
+  const list=ctx=>store.readConversationArchives({...ctx,payload:{owner:ctx.owner,sessionId:ctx.sessionId}});
+  try {
+    await db.exec("CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT DEFAULT 'active'); INSERT INTO users VALUES('alice','active'),('bob','active'),('mallory','active'); CREATE TABLE sessions(token TEXT,username TEXT,session_id TEXT,expires_at BIGINT); INSERT INTO sessions VALUES('d1','bob','d1',9999999999999),('d2','bob','d2',9999999999999),('d3','mallory','d3',9999999999999); CREATE TABLE messages(id TEXT PRIMARY KEY,sender_id TEXT,receiver_id TEXT,is_read BOOLEAN DEFAULT FALSE,is_delivered BOOLEAN DEFAULT FALSE); INSERT INTO messages(id,sender_id,receiver_id) VALUES('old','alice','bob'); CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);");
+    for(let i=0;i<2;i++)for(const sql of migration.statements)await db.exec(sql);
+    await store.saveWebPush({...context,payload:{subscription:subscription()}});
+    assert.deepEqual(await store.readConversationArchive({...context,payload:payload()}),{revision:'0',archived:false});
+    const saved=await store.saveConversationArchive({...context,payload:payload(context,{revision:'0',archived:true})});
+    assert.deepEqual(saved,{revision:'1',archived:true});
+    assert.deepEqual(await list(second),{peers:['alice']});assert.deepEqual(await list(other),{peers:[]});
+    await assert.rejects(store.saveConversationArchive({...second,payload:payload(second,{revision:'0',archived:false})}),{status:409});
+    for(const change of [{owner:'mallory'},{sessionId:'d2'},{peer:'bob'},{peer:' alice'},{archived:'true'},{extra:true}])
+      await assert.rejects(store.saveConversationArchive({...context,payload:payload(context,{revision:'1',archived:false,...change})}),{status:400});
+    await assert.rejects(list({...context,token:'bad'}),{status:401});
+    await assert.rejects(store.readConversationArchives({...context,payload:{owner:'mallory',sessionId:'d1'}}),{status:400});
+    await db.exec("INSERT INTO messages(id,sender_id,receiver_id) VALUES('new','alice','bob')");
+    await transaction(client=>enqueueMessagePush(client,{id:'new',senderId:'alice',receiverId:'bob'}));
+    await store.dispatchWebPushBatch();assert.equal(sent.length,1);assert.deepEqual(await list(second),{peers:['alice']});
+    assert.ok((await db.query('SELECT * FROM messages')).rows.every(row=>!row.is_read&&!row.is_delivered));
+    await store.saveConversationMute({...context,payload:payload(context,{revision:'1',muted:true})});
+    assert.deepEqual(await store.readConversationArchive({...second,payload:payload(second)}),{revision:'2',archived:true});
+    await store.saveConversationArchive({...second,payload:payload(second,{revision:'2',archived:false})});
+    assert.deepEqual(await list(context),{peers:[]});
+    assert.deepEqual(await store.readConversationMute({...context,payload:payload()}),{revision:'3',muted:true});
+    assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n,2);
+    await db.exec("UPDATE sessions SET expires_at=0 WHERE session_id='d2'");
+    await assert.rejects(list(second),{status:401});
+    await db.exec("UPDATE users SET status='disabled' WHERE username='bob'");
+    await assert.rejects(list(context),{status:401});
+  }finally{await db.close();}
+});
+
 test('build cache cleanup preserves canonical push registration but explicit recovery can remove it', async () => {
   const source = fs.readFileSync('app.js', 'utf8');
   const cleanup = source.slice(source.indexOf('async function purgeStaleBrowserCacheArtifacts('), source.indexOf('function hasCompletedServiceWorkerFirstRun('));

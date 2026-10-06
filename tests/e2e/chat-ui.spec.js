@@ -56,6 +56,33 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
   },{catalog,rtl});
 }
 
+for(const [width,rtl] of [[320,false],[1280,false],[390,true]])test('archived view keeps history and new-message unread state at '+width+(rtl?' RTL':''),async({page})=>{
+  await openChatUi(page,{width,rtl});
+  await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/chat/archive-ui.js'),'utf8')});
+  await page.evaluate(async()=>{
+    const f=chatUiFixture;f.state.session={username:'alice',sessionId:'archive-fixture'};
+    f.deps.getCurrentSession=()=>f.state.session;
+    const summaries=f.deps.getConversationSummaries;
+    f.deps.getConversationSummariesFiltered=filter=>WingaConversationArchive.filter(summaries(),filter,f.state.session);
+    await WingaConversationArchive.refresh({getSession:()=>f.state.session,dataLayer:{pushRequest:async()=>({peers:['rey']})}});
+    f.render();
+  });
+  await expect(page.locator('[data-conversation-user="rey"]')).toHaveCount(0);
+  await expect(page.locator('.message-thread-item')).toHaveCount(2);
+  await page.locator('[data-inbox-filter="archived"]').click();
+  await expect(page.locator('.message-thread-item')).toHaveCount(1);
+  await expect(page.locator('[data-conversation-user="rey"] .thread-badge')).toHaveText('2');
+  await page.evaluate(()=>{const rows=chatUiFixture.deps.getConversationSummaries();rows[0].latestMessage='Ujumbe mpya';rows[0].unreadCount=3;chatUiFixture.render();});
+  await expect(page.locator('[data-conversation-user="rey"] .inbox-preview')).toHaveText('Ujumbe mpya');
+  const row=await page.locator('.conversation-archive-view').boundingBox();
+  expect(await page.locator('.conversation-archive-view').evaluate(node=>getComputedStyle(node).boxShadow)).toBe('none');
+  expect(row.x).toBeGreaterThanOrEqual(0);expect(row.x+row.width).toBeLessThanOrEqual(width+1);
+  await page.screenshot({path:path.join(root,'.tmp-chat-ui','archive-view-'+width+(rtl?'-rtl':'')+'.png')});
+  await page.locator('[data-conversation-user="rey"]').click();
+  await expect(page.locator('.messages-thread-body')).toContainText('Habari! Picha imefika vizuri.');
+  expect(await page.evaluate(()=>chatUiFixture.messages.length)).toBe(3);
+});
+
 test('healthy Conversations remain visible when encrypted sync fails and explicit refresh recovers',async({page})=>{
   await openChatUi(page);
   for(const file of ['src/chat/pagination.js','src/api/communications-client.js'])await page.addScriptTag({content:fs.readFileSync(path.join(root,file),'utf8')});
@@ -223,7 +250,8 @@ test('mobile inbox navigation, search, real controller send and honest room empt
   expect(await page.locator('.conversation-search-field').evaluate(node=>node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(await page.locator('.conversation-view-tabs').evaluate(node=>node.getBoundingClientRect().top));
   await expect(page.locator('.conversation-view-tabs button')).toHaveText(['Zote','Binafsi','Chatrooms']);
   await expect(page.locator('.conversation-bottom-nav button')).toHaveText(['Chats','Chatrooms','Calls','Mimi']);
-  await expect(page.locator('[data-inbox-filter]')).toHaveCount(0);
+  await expect(page.locator('.inbox-filters')).toHaveCount(0);
+  await expect(page.locator('.conversation-archive-view[data-inbox-filter="archived"]')).toHaveCount(1);
   await expect(page.locator('.inbox-product-finder')).toHaveCount(0);
   await page.locator('[data-inbox-search]').fill('Rey');
   await expect(page.locator('.message-thread-item:visible')).toHaveCount(1);

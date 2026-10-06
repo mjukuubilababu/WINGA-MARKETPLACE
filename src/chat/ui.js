@@ -525,6 +525,7 @@
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
                   ${richActionsMarkup(message)}
+                  <button type="button" data-message-report="${deps.escapeHtml(message.id)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
                   ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
                   ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
@@ -576,6 +577,7 @@
       const emptyTitle = conversationsView === "calls" ? t("inbox.calls", "Calls") : t("inbox.rooms", "Chatrooms");
       const emptyCopy = conversationsView === "calls" ? t("inbox.callsUnavailable", "Calling is unavailable.") : t("inbox.roomsEmpty", "No chatrooms yet.");
       const profileFilter = deps.getProfileMessagesFilter?.() || "all";
+      const archiveState=deps.getCurrentSession?globalThis.WingaConversationArchive?.snapshot(deps.getCurrentSession()):null;
       const summaries = deps.getConversationSummariesFiltered
         ? deps.getConversationSummariesFiltered(profileFilter)
         : deps.getConversationSummaries();
@@ -653,6 +655,8 @@
               </details>
               ` : ""}
               ${directView || conversationsView === "tools" ? `
+              <button type="button" class="conversation-archive-view" data-inbox-filter="${profileFilter==='archived'?'all':'archived'}" aria-label="${deps.escapeHtml(profileFilter==='archived'?t('inbox.back','Back'):t('chat.archived','Archived chats'))}">${icon(profileFilter==='archived'?'arrow-left':'archive')}<span>${deps.escapeHtml(t('chat.archived','Archived chats'))}</span></button>
+              ${archiveState?.error?`<p class="empty-copy" role="status">${deps.escapeHtml(t('chat.archiveFailed','Unable to update archived chats. Try again.'))}</p><button type="button" class="action-btn action-btn-secondary" data-refresh-messages="true">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>`:''}
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
@@ -688,6 +692,10 @@
                   </div>
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-open-person-profile="${deps.escapeHtml(activeChatContext.withUser)}" data-person-profile-source="conversation">${deps.escapeHtml(t("chat.viewProfile","View profile"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
+                    <p role="status" data-chat-archive-status hidden></p>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
@@ -877,6 +885,10 @@
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">
+            <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
+            <p role="status" data-chat-archive-status hidden></p>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
             ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">Report seller</button>` : ""}
             ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
             ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}

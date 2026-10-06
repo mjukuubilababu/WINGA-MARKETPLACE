@@ -2362,6 +2362,8 @@ async loadAdminPayments(filters = {}) {
       async createReport(payload) {
         return getAdminApiClient().createReport(payload);
       },
+      async createConversationReport(payload) { return getAdminApiClient().createConversationReport(payload); },
+      async readSharedReportEvidence(payload) { return getAdminApiClient().readSharedReportEvidence(payload); },
       async loadAdminReports(filters = {}) {
         return getAdminApiClient().loadAdminReports(filters);
       },
@@ -4520,6 +4522,16 @@ async loadAdminPayments(filters) {
     async createReport(payload) {
       assertBuyerCapableAccess();
       return state.adapter.createReport ? state.adapter.createReport(payload) : null;
+    },
+    async createConversationReport(payload) {
+      assertBuyerCapableAccess();ensureAdapter();
+      if(!state.adapter.createConversationReport)throw new Error('conversation_reports_unavailable');
+      return state.adapter.createConversationReport(payload);
+    },
+    async readSharedReportEvidence(payload) {
+      assertModerationAccess();ensureAdapter();
+      if(!state.adapter.readSharedReportEvidence)throw new Error('conversation_reports_unavailable');
+      return state.adapter.readSharedReportEvidence(payload);
     },
     async loadAdminReports(filters) {
       assertModerationAccess();

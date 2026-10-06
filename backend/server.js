@@ -280,11 +280,18 @@ const RATE_LIMIT_RULES = {
   "/api/messages/device-events/poll": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/device-events/ack": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/push/subscription": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/mute": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/mute/state": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/archive": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/archive/state": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/push/archive/list": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/orders/reservations": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reviews": { limit: 10, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/promotions": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/admin/reports/evidence": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -8922,7 +8929,34 @@ const server = http.createServer(async (req, res) => {
       const reports = (store.reports || [])
         .map(normalizeReportRecord)
         .filter((report) => !statusFilter || report.status === statusFilter);
-      sendJson(res, 200, reports);
+      let sharedIds=[];
+      try {
+        if(postgresStore?.readConversationReportFlags)
+          sharedIds=await postgresStore.readConversationReportFlags({owner:session.username,token,deviceId:session.sessionId});
+      }catch(error){
+        if(![401,403].includes(error.status))throw error;
+        sendJson(res,error.status,{code:"conversation_report_rejected"},{"Cache-Control":"private, no-store"});return;
+      }
+      const shared=new Set(sharedIds);
+      sendJson(res, 200, reports.map(report=>({...report,hasSharedEvidence:shared.has(report.id)})),{"Cache-Control":"private, no-store"});
+      return;
+    }
+
+    if(req.method==="POST" && ["/api/messages/reports","/api/admin/reports/evidence"].includes(url.pathname)) {
+      const token=readAuthToken(req),session=findSession(store,token);
+      const user=ensureMarketplaceUser(store,session,res);if(!user)return;
+      if(!postgresStore?.submitConversationReport){sendJson(res,503,{code:"conversation_reports_unavailable"},{"Cache-Control":"no-store"});return;}
+      const context={owner:user.username,token,deviceId:session.sessionId};
+      try {
+        const payload=await collectBody(req,{maxBytes:65536});
+        const result=url.pathname==="/api/messages/reports"
+          ?await postgresStore.submitConversationReport(context,payload)
+          :await postgresStore.readConversationReportEvidence(context,payload);
+        sendJson(res,200,result,{"Cache-Control":"private, no-store"});
+      }catch(error){
+        if(![400,401,403,404,409,413].includes(error.status))throw error;
+        sendJson(res,error.status,{code:"conversation_report_rejected"},{"Cache-Control":"private, no-store"});
+      }
       return;
     }
 
@@ -11244,7 +11278,9 @@ const server = http.createServer(async (req, res) => {
         const session = findSession(store, token);
         const user = ensureMarketplaceUser(store, session, res);
         if (!user) return;
-        if (!postgresStore?.readWebPushConfig || process.env.WINGA_WEB_PUSH_ENABLED === "false") {
+        const muteRoute=["/api/messages/push/mute","/api/messages/push/mute/state",
+          "/api/messages/push/archive","/api/messages/push/archive/state","/api/messages/push/archive/list"].includes(url.pathname);
+        if (!postgresStore?.readWebPushConfig || (!muteRoute && process.env.WINGA_WEB_PUSH_ENABLED === "false")) {
           sendJson(res, 503, { code: "push_unavailable" }, { "Cache-Control": "no-store" });
           return;
         }
@@ -11259,6 +11295,16 @@ const server = http.createServer(async (req, res) => {
             result = await postgresStore.removeWebPush(context);
           } else if (req.method === "GET" && url.pathname === "/api/messages/push/resolve") {
             result = await postgresStore.resolveWebPush({ ...context, id: url.searchParams.get("id") });
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/mute/state") {
+            result = await postgresStore.readConversationMute({ ...context, payload: await collectBody(req) });
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/mute") {
+            result = await postgresStore.saveConversationMute({ ...context, payload: await collectBody(req) });
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/archive/state") {
+            result = await postgresStore.readConversationArchive({ ...context, payload: await collectBody(req) });
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/archive/list") {
+            result = await postgresStore.readConversationArchives({ ...context, payload: await collectBody(req) });
+          } else if (req.method === "POST" && url.pathname === "/api/messages/push/archive") {
+            result = await postgresStore.saveConversationArchive({ ...context, payload: await collectBody(req) });
           } else {
             sendJson(res, 404, { code: "push_route_not_found" });
             return;

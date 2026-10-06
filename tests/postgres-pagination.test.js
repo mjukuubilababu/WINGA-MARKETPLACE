@@ -37,6 +37,25 @@ test("PostgreSQL pool max uses a safe default and accepts positive environment o
   assert.equal(resolveDatabasePoolMax("invalid"), 20);
 });
 
+test("real SQL notification mute keeps unread history and commerce alerts visible while suppressing message alerts only",async()=>{
+  const {PGlite}=require('@electric-sql/pglite'),db=new PGlite();
+  try {
+    await db.exec(`CREATE TABLE users(username TEXT PRIMARY KEY); INSERT INTO users VALUES('alice'),('bob'),('mallory');
+      CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);
+      CREATE TABLE notifications(id TEXT PRIMARY KEY,user_id TEXT,actor_username TEXT,type TEXT,message_id TEXT,conversation_id TEXT,title TEXT,body TEXT,is_read BOOLEAN DEFAULT FALSE,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ DEFAULT NOW());
+      INSERT INTO notifications(id,user_id,actor_username,type,title) VALUES('message','bob','alice','message','Winga'),('request','bob','alice','request','Winga'),('order','bob','alice','order','Order'),('follow','bob','alice','follow','Follow'),('other-peer','bob','mallory','message','Winga');`);
+    for(const sql of require('../backend/migrations/conversation-notification-preferences').statements)await db.exec(sql);
+    await db.exec("INSERT INTO conversation_notification_preferences(owner_id,peer_id,muted) VALUES('bob','alice',TRUE)");
+    const store=createPostgresStore({databaseUrl:'postgres://test/notifications',queryClient:db});
+    const rows=await store.readUserNotifications('bob');
+    assert.equal(rows.length,5);assert.ok(rows.every(row=>row.isRead===false));
+    for(const row of rows)assert.equal(row.alertsMuted,['message','request'].includes(row.id));
+    assert.deepEqual(await store.readUserNotifications('alice'),[]);
+    await db.exec("UPDATE conversation_notification_preferences SET muted=FALSE");
+    assert.ok((await store.readUserNotifications('bob')).every(row=>row.alertsMuted===false&&row.isRead===false));
+  }finally{await db.close();}
+});
+
 test("PostgreSQL catalog reads retry one transient primary failover error", async () => {
   const attemptsByQuery = new Map();
   const queryClient = {
@@ -1375,7 +1394,7 @@ test("PostgreSQL message retry ledger preserves one acceptance, enforces ownersh
     for (const sql of require("../backend/migrations/message-dispatch-outbox").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-conversation-sequence").statements) await db.exec(sql);
     for (const sql of require("../backend/migrations/message-device-receipts").statements) await db.exec(sql);
-    for (const sql of require("../backend/migrations/message-web-push").statements) await db.exec(sql);
+    for (const sql of [...require("../backend/migrations/message-web-push").statements,...require("../backend/migrations/conversation-notification-preferences").statements]) await db.exec(sql);
     await db.exec(`CREATE TABLE sessions(session_id TEXT,username TEXT,expires_at BIGINT);
       INSERT INTO sessions VALUES('device-b','b',9999999999999);
       INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription) VALUES('push-b','b','device-b','{}');`);

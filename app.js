@@ -6416,6 +6416,7 @@ function getConversationSummaries() {
 
 function getConversationSummariesFiltered(filter = "all") {
   const summaries = getConversationSummaries();
+  if(window.WingaConversationArchive)return window.WingaConversationArchive.filter(summaries,filter,currentSession);
   if (filter === "unread") {
     return summaries.filter((summary) => summary.unreadCount > 0);
   }
@@ -8115,6 +8116,7 @@ function showInAppNotification(notification) {
   if (!notification || !notification.title) {
     return;
   }
+  if(notification.alertsMuted===true && ['message','request'].includes(notification.type))return;
 
   const notificationKey = [
     notification.id || "",
@@ -9358,12 +9360,15 @@ function connectRealtimeChannel() {
       if (notification?.type === "order" && chatUiState.isContextOpen) {
         replaceContextChatModal();
       }
-      if (notification) {
+      const canonicalNotification=currentNotifications.find(item=>item.id===notification?.id);
+      const messageAlert=notification && ['message','request'].includes(notification.type);
+      const presentedNotification=canonicalNotification || notification;
+      if (presentedNotification && (!messageAlert || typeof canonicalNotification?.alertsMuted==='boolean')) {
         showInAppNotification({
-          ...notification,
+          ...presentedNotification,
           haptic: document.visibilityState === "visible"
         });
-        if (["message", "order", "offer"].includes(String(notification.type || "").toLowerCase())) {
+        if (!presentedNotification.alertsMuted && ["message", "order", "offer"].includes(String(notification.type || "").toLowerCase())) {
           maybePromptNotificationPermission(notification.type === "order" ? "order" : "reply");
         }
       }
@@ -9676,6 +9681,10 @@ async function refreshMessagesState() {
   const user = currentUser;
   syncPendingMessageDelivery();
   try {
+    const archiveSession=currentSession;
+    void window.WingaConversationArchive?.refresh({dataLayer:window.WingaDataLayer,getSession:()=>currentSession}).then(changed=>{
+      if(changed&&user===currentUser&&archiveSession===currentSession&&currentView==="profile"&&profileDiv)replaceMessagesPanel(profileDiv);
+    }).catch(()=>{});
     const paged = await getMessagePager().refreshInbox();
     if (user !== currentUser) return;
     if (paged) {
@@ -12714,6 +12723,7 @@ const {
   ensureContextChatModal,
   renderContextChatModal
 } = window.WingaModules.chat.createChatUiModule({
+  getCurrentSession: () => currentSession,
   createElement,
   createElementFromMarkup,
   createResponsiveImage,
@@ -12836,7 +12846,7 @@ const {
     if (value === "detail" && !["chats", "private"].includes(chatUiState.conversationsView)) chatUiState.conversationsView = "chats";
   },
   setProfileMessagesFilter: (value) => {
-    chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
+    chatUiState.profileMessagesFilter = ["unread","archived"].includes(value) ? value : "all";
   },
   setProfileHasSelection: (value) => {
     chatUiState.profileHasSelection = Boolean(value);
@@ -13116,6 +13126,7 @@ function renderAnalyticsPanel(data, heading, subtitle) {
 }
 
 const { renderAdminView: renderAdminViewFromController } = window.WingaModules.admin.createAdminControllerModule({
+  getCurrentSession: () => currentSession,
   createElement,
   createSectionHeading,
   createEmptyState,
@@ -13307,7 +13318,7 @@ const {
     getActiveProfileSection,
     openProfileConnections,
     setProfileMessagesFilter: (value) => {
-      chatUiState.profileMessagesFilter = value === "unread" ? "unread" : "all";
+      chatUiState.profileMessagesFilter = ["unread","archived"].includes(value) ? value : "all";
     },
   setProfileMessagesMode: (value) => {
     chatUiState.profileMessagesMode = value === "detail" ? "detail" : "list";

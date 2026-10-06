@@ -319,8 +319,22 @@ required by this increment.
 
 The follow-on header, recovery-preview, push and telemetry audit is tracked in
 [Direct audit 151-170](conversations-direct-audit-151-170.md). That ledger keeps
-account-level Archive/Mute, selective reporting and foundation acceptance open;
+production Archive/Mute acceptance, selective reporting and foundation acceptance open;
 it does not declare the whole 151-170 range complete.
+
+The 2026-10-06 operator policy for Mute is one account-level indefinite switch:
+only the user unmutes it. Duration choices in the preserved source are superseded.
+The local implementation and release boundary are recorded in the same ledger.
+Archive is now also implemented locally with an archived view and explicit
+Move to Inbox; incoming messages stay archived, deliver normally and retain
+unread counts. Both preferences need publication and production acceptance.
+Selective text reporting is now implemented locally, including explicit
+selection/consent, server-bound message membership, idempotent submission and
+reason-gated audited moderator viewing. Media reports disclose only an
+attachment label and canonical metadata, not the private file itself.
+Binary-media evidence disclosure, evidence retention policy and production
+report acceptance remain open. Local build/test evidence and the uncommitted,
+unpublished boundary are recorded in the same ledger.
 
 - Independent crypto review/approval; passing local tests do not certify ts-mls.
 - Authenticated physical-device private media, recovery and replacement evidence

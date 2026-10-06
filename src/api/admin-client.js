@@ -133,6 +133,15 @@
       return Array.isArray(data) ? data : [];
     }
 
+    async function createConversationReport(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/messages/reports`,{method:"POST",headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
+    async function readSharedReportEvidence(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/admin/reports/evidence`,{method:"POST",headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
+
     async function reviewReport(reportId, payload) {
       requireFetcher();
       return fetchJson(`${baseUrl}/admin/reports/${encodeURIComponent(reportId)}`, {
@@ -214,6 +223,7 @@
       loadPaymentReconciliations,
       updatePaymentReconciliation,
       createReport,
+      createConversationReport,readSharedReportEvidence,
       loadAdminReports,
       reviewReport,
       loadAdminSettings,

@@ -12,6 +12,7 @@ const { appendMessageReplay, invalidateMessageReplay, createMessageReplayStore }
 const { createMessageDispatchStore } = require("./message-dispatch");
 const { createMessageDeviceReceiptsStore } = require("./message-device-receipts");
 const { createMessageWebPushStore, enqueueMessagePush } = require("./message-web-push");
+const { createConversationReportStore } = require("./conversation-reports");
 const { createConversationEventStore } = require("./conversation-event-ledger");
 const { createEncryptedConversationBackupStore } = require("./encrypted-conversation-backups");
 const { createConversationCryptoDeviceStore } = require("./conversation-crypto-devices");
@@ -4450,7 +4451,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          body,
          is_read AS "isRead",
          read_at AS "readAt",
-         created_at AS "createdAt"
+         created_at AS "createdAt",
+         (notification.type IN ('message','request') AND EXISTS(
+           SELECT 1 FROM conversation_notification_preferences preference
+           WHERE preference.owner_id=notification.user_id AND preference.peer_id=notification.actor_username
+             AND preference.muted
+         )) AS "alertsMuted"
        FROM notifications notification
        WHERE notification.user_id = $1
          AND (
@@ -10041,6 +10047,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createMessageDispatchStore({ query, withTransaction }),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
     ...createMessageWebPushStore({ query, withTransaction, encrypted: true }),
+    ...createConversationReportStore({withTransaction}),
     ...createConversationEventStore({ withTransaction }),
     ...createEncryptedConversationBackupStore({ withTransaction }),
     ...createConversationCryptoDeviceStore({ withTransaction }),

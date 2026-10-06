@@ -1096,6 +1096,13 @@
         noteInput,
         actions
       );
+      if(report.hasSharedEvidence){
+        const evidence=createActionButton(t("chat.reportViewEvidence","View shared evidence"),{});
+        evidence.onclick=()=>globalThis.WingaConversationReports?.review(card,{
+          getSession:deps.getCurrentSession,dataLayer:deps.dataLayer,translate:t
+        },report.id);
+        actions.append(evidence);
+      }
       return card;
     }
 

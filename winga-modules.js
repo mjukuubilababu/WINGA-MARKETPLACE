@@ -2487,6 +2487,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return Array.isArray(data) ? data : [];
     }
 
+    async function createConversationReport(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/messages/reports`,{method:"POST",headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
+    async function readSharedReportEvidence(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/admin/reports/evidence`,{method:"POST",headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
+
     async function reviewReport(reportId, payload) {
       requireFetcher();
       return fetchJson(`${baseUrl}/admin/reports/${encodeURIComponent(reportId)}`, {
@@ -2568,6 +2577,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       loadPaymentReconciliations,
       updatePaymentReconciliation,
       createReport,
+      createConversationReport,readSharedReportEvidence,
       loadAdminReports,
       reviewReport,
       loadAdminSettings,
@@ -17576,6 +17586,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               ${deps.getOpenChatMessageMenuId() === message.id ? `
                 <div class="message-action-menu">
                   ${richActionsMarkup(message)}
+                  <button type="button" data-message-report="${deps.escapeHtml(message.id)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
                   ${!message.encrypted ? `<button type="button" data-message-reply="${message.id}">Reply</button><button type="button" data-message-share="${message.id}">Forward</button>` : ""}
                   ${hasDownload ? `<button type="button" data-message-download="${message.id}">Download image</button>` : ""}
                   ${canDelete && !message.encrypted ? `<button type="button" data-message-delete="${message.id}">Delete</button>` : ""}
@@ -17627,6 +17638,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const emptyTitle = conversationsView === "calls" ? t("inbox.calls", "Calls") : t("inbox.rooms", "Chatrooms");
       const emptyCopy = conversationsView === "calls" ? t("inbox.callsUnavailable", "Calling is unavailable.") : t("inbox.roomsEmpty", "No chatrooms yet.");
       const profileFilter = deps.getProfileMessagesFilter?.() || "all";
+      const archiveState=deps.getCurrentSession?globalThis.WingaConversationArchive?.snapshot(deps.getCurrentSession()):null;
       const summaries = deps.getConversationSummariesFiltered
         ? deps.getConversationSummariesFiltered(profileFilter)
         : deps.getConversationSummaries();
@@ -17704,6 +17716,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               </details>
               ` : ""}
               ${directView || conversationsView === "tools" ? `
+              <button type="button" class="conversation-archive-view" data-inbox-filter="${profileFilter==='archived'?'all':'archived'}" aria-label="${deps.escapeHtml(profileFilter==='archived'?t('inbox.back','Back'):t('chat.archived','Archived chats'))}">${icon(profileFilter==='archived'?'arrow-left':'archive')}<span>${deps.escapeHtml(t('chat.archived','Archived chats'))}</span></button>
+              ${archiveState?.error?`<p class="empty-copy" role="status">${deps.escapeHtml(t('chat.archiveFailed','Unable to update archived chats. Try again.'))}</p><button type="button" class="action-btn action-btn-secondary" data-refresh-messages="true">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>`:''}
               ${summaries.length ? summaries.map((summary) => `
                 <button class="message-thread-item ${summary.unreadCount ? "is-unread" : ""} ${activeChatContext && summary.key === deps.getChatContextKey(activeChatContext) ? "active" : ""}" type="button" data-conversation-user="${deps.escapeHtml(summary.withUser)}" data-conversation-product="${deps.escapeHtml(summary.productId)}" data-conversation-name="${deps.escapeHtml(summary.productName)}">
                   <span class="message-thread-avatar">
@@ -17739,6 +17753,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                   </div>
                   <details class="inbox-conversation-menu"><summary aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</summary><div class="messages-thread-actions">
                     <button class="action-btn action-btn-secondary" type="button" data-open-person-profile="${deps.escapeHtml(activeChatContext.withUser)}" data-person-profile-source="conversation">${deps.escapeHtml(t("chat.viewProfile","View profile"))}</button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
+                    <p role="status" data-chat-archive-status hidden></p>
+                    <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
                     <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
                     ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
@@ -17928,6 +17946,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
           <div class="context-chat-actions">
+            <button class="action-btn action-btn-secondary" type="button" data-chat-notifications="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("bell")}<span>${deps.escapeHtml(t("chat.notificationSettings","Notifications"))}</span></button>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
+            <p role="status" data-chat-archive-status hidden></p>
+            <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
             ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">Report seller</button>` : ""}
             ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
             ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}
@@ -20479,6 +20501,257 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/notification-ui.js
+(() => {
+  function bind(scope,{dataLayer,getSession,getPeer,translate=(k,f)=>f,refresh=()=>{}}) {
+    if(typeof dataLayer.pushRequest!=='function')return;
+    const initial=getSession(),owner=initial?.username,sessionId=initial?.sessionId;
+    if(!owner||!sessionId)return;
+    const key=JSON.stringify([owner,sessionId,initial.token]);
+    const current=peer=>{const s=getSession();return scope.isConnected&&getPeer()===peer&&document.visibilityState==='visible'
+      &&JSON.stringify([s?.username,s?.sessionId,s?.token])===key;};
+    const t=translate;
+    const validate=value=>{
+      if(!value||typeof value.revision!=='string'||!/^(0|[1-9][0-9]{0,15})$/.test(value.revision)
+        ||typeof value.muted!=='boolean')throw Error('conversation_mute_unavailable');
+      return value;
+    };
+    for(const button of scope.querySelectorAll('[data-chat-notifications]')) {
+      if(button.dataset.muteBound)continue;button.dataset.muteBound='true';button.hidden=false;
+      button.onclick=async()=>{
+        const peer=button.dataset.chatNotifications;if(!current(peer)||button.disabled)return;
+        button.disabled=true;let dialog;
+        try {
+          let state=validate(await dataLayer.pushRequest('mute/state',{owner,sessionId,peer},'POST'));if(!current(peer))return;
+          const node=(tag,text)=>{const el=document.createElement(tag);if(text)el.textContent=text;return el;};
+          dialog=node('dialog');dialog.className='chat-security-dialog chat-notification-dialog';
+          dialog.append(node('h3',t('chat.notificationSettings','Notifications')));
+          const status=node('p');status.setAttribute('role','status');dialog.append(status);
+          const label=node('label',t('chat.muteAlerts','Mute alerts'));
+          const select=node('input');select.type='checkbox';select.setAttribute('role','switch');select.dataset.muteSetting='';
+          label.prepend(select);dialog.append(label);
+          const showState=()=>{
+            status.textContent=state.muted?t('chat.muteActive','Alerts muted'):t('chat.muteOff','Alerts on');
+            select.checked=state.muted;
+          };showState();
+          const actions=node('div');actions.className='chat-security-actions';
+          const save=node('button',t('common.save','Save')),close=node('button',t('common.close','Close'));
+          for(const control of [save,close]){control.type='button';control.className='action-btn';actions.append(control);}dialog.append(actions);
+          save.onclick=async()=>{
+            if(save.disabled||!current(peer)||!dialog.isConnected)return;save.disabled=true;select.disabled=true;
+            try {
+              const next=validate(await dataLayer.pushRequest('mute',{owner,sessionId,peer,muted:select.checked,revision:state.revision},'POST'));
+              if(!current(peer)||!dialog.isConnected)return;state=next;showState();await refresh();
+            }catch{if(current(peer)&&dialog.isConnected)status.textContent=t('chat.muteFailed','Unable to update notifications. Try again.');}
+            finally{save.disabled=false;select.disabled=false;}
+          };
+          close.onclick=()=>dialog.close();
+          const timer=setInterval(()=>{if(!current(peer))dialog.close();},250);
+          const hidden=()=>{if(!current(peer))dialog.close();};document.addEventListener('visibilitychange',hidden);
+          dialog.addEventListener('close',()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.remove();},{once:true});
+          document.body.append(dialog);dialog.showModal();
+        }catch{if(current(peer))button.title=t('chat.muteFailed','Unable to update notifications. Try again.');dialog?.remove();}
+        finally{button.disabled=false;}
+      };
+    }
+  }
+  globalThis.WingaConversationNotifications={bind};
+})();
+
+
+// src/chat/archive-ui.js
+(() => {
+  let state={key:'',peers:new Set(),ready:false,error:false},request=0;
+  const sessionKey=session=>JSON.stringify([session?.username,session?.sessionId,session?.token]);
+  function snapshot(session) {
+    const key=sessionKey(session);
+    if(state.key!==key){state={key,peers:new Set(),ready:false,error:false};request++;}
+    return {...state,peers:new Set(state.peers)};
+  }
+  function filter(items,mode,session) {
+    const saved=snapshot(session);
+    return items.filter(item=>mode==='archived'?saved.peers.has(item.withUser):
+      !saved.peers.has(item.withUser)&&(mode!=='unread'||item.unreadCount>0));
+  }
+  async function refresh({dataLayer,getSession}) {
+    const session=getSession();snapshot(session);
+    if(!session?.username||!session.sessionId||typeof dataLayer.pushRequest!=='function')return;
+    const key=sessionKey(session),version=++request;
+    try {
+      const result=await dataLayer.pushRequest('archive/list',{owner:session.username,sessionId:session.sessionId},'POST');
+      if(!Array.isArray(result?.peers)||result.peers.length>5000||result.peers.some(peer=>
+        typeof peer!=='string'||!peer||peer.length>40||peer.trim()!==peer||/[\u0000-\u001f\u007f]/.test(peer)||peer===session.username)
+        ||new Set(result.peers).size!==result.peers.length)throw Error('archive_unavailable');
+      if(key!==sessionKey(getSession())||version!==request)return;
+      const changed=!state.ready||state.error||state.peers.size!==result.peers.length
+        ||result.peers.some(peer=>!state.peers.has(peer));
+      state={key,peers:new Set(result.peers),ready:true,error:false};
+      return changed;
+    }catch{if(key===sessionKey(getSession())&&version===request){
+      const changed=!state.error;state={...state,error:true};return changed;
+    }}
+  }
+  function bind(scope,{dataLayer,getSession,getPeer,translate=(k,f)=>f,refresh:rerender=()=>{},onArchived=()=>{}}) {
+    const initial=getSession();snapshot(initial);
+    if(!initial?.username||!initial.sessionId||typeof dataLayer.pushRequest!=='function')return;
+    const key=sessionKey(initial),t=translate;
+    const current=peer=>scope.isConnected&&document.visibilityState==='visible'
+      &&sessionKey(getSession())===key&&getPeer()===peer;
+    const validate=value=>{
+      if(typeof value?.revision!=='string'||!/^(0|[1-9][0-9]{0,15})$/.test(value.revision)
+        ||typeof value.archived!=='boolean')throw Error('archive_unavailable');
+      return value;
+    };
+    for(const button of scope.querySelectorAll('[data-chat-archive]')) {
+      if(button.dataset.archiveBound)continue;button.dataset.archiveBound='true';button.hidden=false;
+      const peer=button.dataset.chatArchive;
+      const label=button.querySelector('span')||button;
+      label.textContent=state.peers.has(peer)?t('chat.unarchive','Move to Inbox'):t('chat.archive','Archive');
+      button.onclick=async()=>{
+        if(button.disabled||!current(peer))return;button.disabled=true;
+        const archived=!state.peers.has(peer);
+        const payload={owner:initial.username,sessionId:initial.sessionId,peer};
+        const status=scope.querySelector('[data-chat-archive-status]');
+        if(status){status.textContent='';status.hidden=true;}
+        try {
+          const before=validate(await dataLayer.pushRequest('archive/state',payload,'POST'));if(!current(peer))return;
+          const next=validate(await dataLayer.pushRequest('archive',{...payload,revision:before.revision,archived},'POST'));
+          if(!current(peer))return;
+          request++;if(next.archived)state.peers.add(peer);else state.peers.delete(peer);
+          label.textContent=next.archived?t('chat.unarchive','Move to Inbox'):t('chat.archive','Archive');
+          if(next.archived)onArchived();
+          await rerender();
+        }catch{if(current(peer)&&status){status.hidden=false;status.textContent=t('chat.archiveFailed','Unable to update archived chats. Try again.');}}
+        finally{button.disabled=false;}
+      };
+    }
+  }
+  globalThis.WingaConversationArchive={snapshot,filter,refresh,bind};
+})();
+
+
+// src/chat/report-ui.js
+(() => {
+  const CONSENT='share-selected-message-evidence-v1';
+  const key=session=>JSON.stringify([session?.username,session?.sessionId,session?.token,session?.role]);
+  const node=(tag,text)=>{const el=document.createElement(tag);if(text)el.textContent=text;return el;};
+  function selectedCandidates(messages,owner,peer,t) {
+    return messages.filter(item=>item&&item.status!=='pending'&&!item.eventRecord
+      &&((item.senderId===owner&&item.receiverId===peer)||(item.senderId===peer&&item.receiverId===owner)))
+      .map(item=>{
+        const rich=item.richContent||globalThis.WingaRichContent?.parse(item.message);
+        if(globalThis.WingaRichContent?.event(rich))return null;
+        let kind='text',text=rich?.text||item.message||'';
+        if(item.attachmentId){kind='media';text=t('chat.reportMediaLabel','Encrypted attachment (file not shared)');}
+        else if(rich&&rich.type!=='text'){kind='card';text=t('chat.reportCardLabel','Shared card')+(rich.text?': '+rich.text:'');}
+        if(typeof text!=='string'||!text.trim()||text.length>4096||text.startsWith('WINGA-MEDIA/')||text.startsWith('WINGA-CONTENT/'))return null;
+        return {id:item.id,kind,text};
+      }).filter(Boolean).slice(-50);
+  }
+  function shell(scope,options,title,peer) {
+    const initial=options.getSession(),identity=key(initial);
+    if(!initial?.username||!initial.sessionId||!scope.isConnected||document.visibilityState!=='visible')return null;
+    const dialog=node('dialog');dialog.className='chat-security-dialog chat-report-dialog';
+    const active=()=>dialog.isConnected&&scope.isConnected&&document.visibilityState==='visible'
+      &&key(options.getSession())===identity&&(!peer||options.getPeer()===peer);
+    dialog.append(node('h3',title));
+    const timer=setInterval(()=>{if(!active())dialog.close();},250);
+    const hidden=()=>{if(!active())dialog.close();};document.addEventListener('visibilitychange',hidden);
+    dialog.addEventListener('close',()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);dialog.replaceChildren();dialog.remove();},{once:true});
+    document.body.append(dialog);dialog.showModal();
+    return {dialog,active,initial};
+  }
+  function open(scope,options,selectedId='') {
+    const t=options.translate||((k,f)=>f),peer=options.getPeer(),session=options.getSession();
+    const loaded=options.getMessages(),candidates=selectedCandidates(loaded,session?.username,peer,t);
+    const incoming=new Set(loaded.filter(item=>item?.senderId===peer&&item.receiverId===session?.username).map(item=>item.id));
+    const view=shell(scope,options,t('chat.reportMessages','Report messages'),peer);if(!view)return;
+    const {dialog,active,initial}=view;
+    dialog.append(node('p',t('chat.reportDisclosure','Only selected message text, message IDs, participants, timestamps and your report details will be shared with Winga moderation. Files, encryption keys, recovery keys and other messages are not shared.')));
+    const selection=node('div');selection.className='chat-report-selection';dialog.append(selection);
+    const choices=candidates.map(item=>{
+      const label=node('label'),input=node('input');input.type='checkbox';input.checked=item.id===selectedId;input.dataset.reportMessage=item.id;
+      label.append(input,node('span',item.text));selection.append(label);return {input,item};
+    });
+    if(!choices.length)selection.append(node('p',t('chat.reportNoMessages','No reportable messages in this loaded history.')));
+    const reasonLabel=node('label',t('chat.reportReason','Reason')),reason=node('select');
+    for(const value of ['spam','fraud','harassment','unsafe','other']){const option=node('option',t('chat.reportReason.'+value,value));option.value=value;reason.append(option);}
+    reasonLabel.append(reason);dialog.append(reasonLabel);
+    const detailsLabel=node('label',t('chat.reportDetails','Details (optional)')),details=node('textarea');details.maxLength=500;details.rows=3;detailsLabel.append(details);dialog.append(detailsLabel);
+    const consentLabel=node('label'),consent=node('input');consent.type='checkbox';consent.dataset.reportConsent='';
+    consentLabel.append(consent,node('span',t('chat.reportConsent','I agree to share only this selected evidence.')));dialog.append(consentLabel);
+    const status=node('p');status.setAttribute('role','status');dialog.append(status);
+    const actions=node('div');actions.className='chat-security-actions';
+    const submit=node('button',t('chat.reportSubmit','Submit report')),close=node('button',t('common.close','Close'));
+    for(const control of [submit,close]){control.type='button';control.className='action-btn';actions.append(control);}dialog.append(actions);
+    let busy=false,sent=false,requestId=crypto.randomUUID(),previous='';
+    const update=()=>{
+      const count=choices.filter(choice=>choice.input.checked).length;
+      submit.disabled=busy||sent||!consent.checked||count<1||count>10
+        ||!choices.some(choice=>choice.input.checked&&incoming.has(choice.item.id));
+      for(const choice of choices)choice.input.disabled=busy||sent||count>=10&&!choice.input.checked;
+      consent.disabled=busy||sent;reason.disabled=busy||sent;details.disabled=busy||sent;
+    };
+    for(const choice of choices)choice.input.onchange=update;consent.onchange=update;update();
+    close.onclick=()=>dialog.close();
+    submit.onclick=async()=>{
+      if(submit.disabled||!active())return;
+      const selection=choices.filter(choice=>choice.input.checked).map(choice=>({...choice.item}));
+      const intent=JSON.stringify([reason.value,details.value,selection]);
+      if(previous&&previous!==intent)requestId=crypto.randomUUID();previous=intent;
+      const payload={owner:initial.username,sessionId:initial.sessionId,peer,requestId,consent:CONSENT,
+        reason:reason.value,description:details.value,selection};
+      busy=true;update();
+      try {
+        if(new TextEncoder().encode(JSON.stringify(payload)).length>65536)throw Error('report_too_large');
+        const result=await options.dataLayer.createConversationReport(payload);
+        if(!active())return;
+        if(result?.ok!==true||typeof result.id!=='string')throw Error('report_unavailable');
+        sent=true;status.textContent=t('chat.reportSent','Report received. Only the selected evidence was shared.');
+      }catch{if(active())status.textContent=t('chat.reportFailed','Unable to submit the report. Your selection is unchanged; try again.');}
+      finally{busy=false;if(active())update();}
+    };
+    dialog.addEventListener('close',()=>{candidates.splice(0);choices.splice(0);incoming.clear();previous='';},{once:true});
+  }
+  function bind(scope,options) {
+    if(typeof options.dataLayer?.createConversationReport!=='function')return;
+    for(const button of scope.querySelectorAll('[data-chat-report],[data-message-report]')){
+      if(button.dataset.reportBound)continue;button.dataset.reportBound='true';button.hidden=false;
+      button.onclick=()=>open(scope,options,button.dataset.messageReport||'');
+    }
+  }
+  function review(scope,options,reportId) {
+    const t=options.translate||((k,f)=>f);
+    const view=shell(scope,options,t('chat.reportReviewTitle','Shared report evidence'));if(!view)return;
+    const {dialog,active,initial}=view;
+    dialog.append(node('p',t('chat.reportClaimNotice','This is user-disclosed evidence. Message membership is checked, but disclosed plaintext is not cryptographically verified. Files are not shared.')));
+    const label=node('label',t('chat.reportReviewReason','Reason for opening this evidence')),reason=node('textarea');reason.maxLength=300;reason.rows=2;label.append(reason);dialog.append(label);
+    const status=node('p');status.setAttribute('role','status');dialog.append(status);
+    const content=node('div');content.className='chat-report-selection';dialog.append(content);
+    const actions=node('div');actions.className='chat-security-actions';
+    const load=node('button',t('chat.reportViewEvidence','View shared evidence')),close=node('button',t('common.close','Close'));
+    for(const button of [load,close]){button.type='button';button.className='action-btn';actions.append(button);}dialog.append(actions);
+    load.disabled=true;reason.oninput=()=>load.disabled=reason.value.trim().length<3;close.onclick=()=>dialog.close();
+    load.onclick=async()=>{
+      if(load.disabled||!active())return;load.disabled=true;reason.disabled=true;content.replaceChildren();status.textContent='';
+      try {
+        const result=await options.dataLayer.readSharedReportEvidence({owner:initial.username,sessionId:initial.sessionId,reportId,reason:reason.value.trim()});
+        if(!active())return;
+        if(result?.id!==reportId||result.plaintextVerified!==false||result.filesShared!==false
+          ||!Array.isArray(result.selection)||result.selection.length>10)throw Error('report_unavailable');
+        content.replaceChildren();
+        for(const item of result.selection){
+          if(typeof item.text!=='string'||item.text.length>4096||typeof item.sender!=='string')throw Error('report_unavailable');
+          const article=node('article');article.append(node('strong',item.sender),node('p',item.text));content.append(article);
+        }
+      }catch{if(active()){content.replaceChildren();status.textContent=t('chat.reportEvidenceFailed','Shared evidence is unavailable. Try again.');}}
+      finally{if(active()){reason.disabled=false;load.disabled=reason.value.trim().length<3;}}
+    };
+  }
+  globalThis.WingaConversationReports={selectedCandidates,bind,open,review};
+})();
+
+
 // src/chat/controller.js
 (() => {
   function createChatControllerModule(deps) {
@@ -21045,6 +21318,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
       globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
+      globalThis.WingaConversationNotifications?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationReports?.bind(modal,encryptedUiOptions(modal,async()=>{}));
+      globalThis.WingaConversationArchive?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:async()=>{await deps.refreshMessagesState();deps.replaceContextChatModal?.();}});
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -21438,6 +21714,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
+      globalThis.WingaConversationNotifications?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationReports?.bind(scope,encryptedUiOptions(scope,async()=>{}));
+      globalThis.WingaConversationArchive?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),
+        onArchived:()=>deps.setProfileMessagesMode('list'),
+        refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
       scope.querySelectorAll('[data-chat-link]').forEach(button => {
         button.onclick = () => {
           const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);
@@ -24165,6 +24446,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         noteInput,
         actions
       );
+      if(report.hasSharedEvidence){
+        const evidence=createActionButton(t("chat.reportViewEvidence","View shared evidence"),{});
+        evidence.onclick=()=>globalThis.WingaConversationReports?.review(card,{
+          getSession:deps.getCurrentSession,dataLayer:deps.dataLayer,translate:t
+        },report.id);
+        actions.append(evidence);
+      }
       return card;
     }
 

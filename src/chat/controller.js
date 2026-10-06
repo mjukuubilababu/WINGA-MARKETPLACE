@@ -563,6 +563,9 @@
       bindMessageLongPress(modal, replaceContextChatModal);
       bindConversationMessageActions(modal, replaceContextChatModal);
       globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
+      globalThis.WingaConversationNotifications?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationReports?.bind(modal,encryptedUiOptions(modal,async()=>{}));
+      globalThis.WingaConversationArchive?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:async()=>{await deps.refreshMessagesState();deps.replaceContextChatModal?.();}});
 
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
@@ -956,6 +959,11 @@
         scrollThread.scrollTop = scrollThread.scrollHeight;
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
+      globalThis.WingaConversationNotifications?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationReports?.bind(scope,encryptedUiOptions(scope,async()=>{}));
+      globalThis.WingaConversationArchive?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),
+        onArchived:()=>deps.setProfileMessagesMode('list'),
+        refresh:async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}});
       scope.querySelectorAll('[data-chat-link]').forEach(button => {
         button.onclick = () => {
           const url = window.WingaModules?.chat?.normalizeConversationLink(button.dataset.chatLink);

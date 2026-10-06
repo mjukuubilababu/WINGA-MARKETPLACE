@@ -25,7 +25,10 @@ function validateSubscription(value) {
 async function enqueueMessagePush(client, message) {
   const subscriptions = await client.query(`SELECT p.id,p.session_id FROM web_push_subscriptions p
     JOIN sessions s ON s.session_id=p.session_id AND s.username=p.owner_id
-    WHERE p.owner_id=$1 AND s.expires_at>$2 ORDER BY p.id FOR SHARE OF p`, [message.receiverId, Date.now()]);
+    WHERE p.owner_id=$1 AND s.expires_at>$2
+      AND NOT EXISTS(SELECT 1 FROM conversation_notification_preferences n
+        WHERE n.owner_id=p.owner_id AND n.peer_id=$3 AND n.muted)
+    ORDER BY p.id FOR SHARE OF p`, [message.receiverId, Date.now(), message.senderId || null]);
   for (const row of subscriptions.rows) {
     await client.query(`INSERT INTO web_push_jobs(id,subscription_id,owner_id,session_id,message_id)
       VALUES($1,$2,$3,$4,$5) ON CONFLICT(subscription_id,message_id) DO NOTHING`,
@@ -99,6 +102,46 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
     });
   }
 
+  function mutePeer(payload,owner,sessionId) {
+    if(!payload || payload.owner!==owner || payload.sessionId!==sessionId || typeof payload.peer!=='string'
+      || !payload.peer || payload.peer.length>40 || payload.peer.trim()!==payload.peer || /[\u0000-\u001f\u007f]/.test(payload.peer)
+      || payload.peer===owner)throw reject();
+    return payload.peer;
+  }
+  async function readMute(client,owner,peer) {
+    const result=await client.query(`SELECT row_version::text AS revision, muted
+      FROM conversation_notification_preferences WHERE owner_id=$1 AND peer_id=$2`,[owner,peer]);
+    const row=result.rows[0];
+    return row?{revision:row.revision,muted:row.muted}:{revision:'0',muted:false};
+  }
+  async function readConversationMute({owner,token,sessionId,payload}) {
+    const peer=mutePeer(payload,owner,sessionId);
+    return withTransaction(async client=>{await liveSession(client,owner,token,sessionId);return readMute(client,owner,peer);});
+  }
+  async function saveConversationMute({owner,token,sessionId,payload}) {
+    const peer=mutePeer(payload,owner,sessionId);
+    if(Object.keys(payload).sort().join(',')!=='muted,owner,peer,revision,sessionId' || typeof payload.muted!=='boolean' || typeof payload.revision!=='string'
+      || !/^(0|[1-9][0-9]{0,15})$/.test(payload.revision))throw reject();
+    return withTransaction(async client=>{
+      await liveSession(client,owner,token,sessionId);
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`winga-conversation-preferences:${owner}`]);
+      const before=await readMute(client,owner,peer);if(before.revision!==payload.revision)throw reject(409);
+      const user=await client.query('SELECT username FROM users WHERE username=$1',[peer]);if(!user.rows.length)throw reject(404);
+      if(before.revision==='0') {
+        const count=await client.query('SELECT COUNT(*)::int AS total FROM conversation_notification_preferences WHERE owner_id=$1',[owner]);
+        if(count.rows[0].total>=5000)throw reject(409);
+      }
+      await client.query(`INSERT INTO conversation_notification_preferences(owner_id,peer_id,muted)
+        VALUES($1,$2,$3)
+        ON CONFLICT(owner_id,peer_id) DO UPDATE SET muted=EXCLUDED.muted,
+          row_version=conversation_notification_preferences.row_version+1,updated_at=NOW()`,
+        [owner,peer,payload.muted]);
+      if(payload.muted)await client.query(`${sources} UPDATE web_push_jobs j SET completed_at=NOW(),lease_token=NULL,lease_until=NULL
+        FROM push_messages m WHERE j.owner_id=$1 AND j.message_id=m.id AND m.sender_id=$2 AND m.receiver_id=$1 AND j.completed_at IS NULL`,[owner,peer]);
+      return readMute(client,owner,peer);
+    });
+  }
+
   async function resolveWebPush({ owner, token, sessionId, id }) {
     if (!validId(id)) throw reject(404);
     return withTransaction(async client => {
@@ -112,6 +155,48 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
           (b.blocker_username=$2 AND b.blocked_username=m.sender_id))`, [id, owner, sessionId]);
       if (!result.rows.length) throw reject(404);
       return result.rows[0];
+    });
+  }
+
+  async function readArchive(client,owner,peer) {
+    const result=await client.query(`SELECT row_version::text AS revision, archived
+      FROM conversation_notification_preferences WHERE owner_id=$1 AND peer_id=$2`,[owner,peer]);
+    const row=result.rows[0];
+    return row?{revision:row.revision,archived:row.archived}:{revision:'0',archived:false};
+  }
+  async function readConversationArchives({owner,token,sessionId,payload}) {
+    if(!payload || Object.keys(payload).sort().join(',')!=='owner,sessionId'
+      || payload.owner!==owner || payload.sessionId!==sessionId)throw reject();
+    return withTransaction(async client=>{
+      await liveSession(client,owner,token,sessionId);
+      const result=await client.query(`SELECT peer_id AS peer FROM conversation_notification_preferences
+        WHERE owner_id=$1 AND archived ORDER BY peer_id LIMIT 5001`,[owner]);
+      if(result.rows.length>5000)throw reject(409);
+      return {peers:result.rows.map(row=>row.peer)};
+    });
+  }
+  async function readConversationArchive({owner,token,sessionId,payload}) {
+    const peer=mutePeer(payload,owner,sessionId);
+    return withTransaction(async client=>{await liveSession(client,owner,token,sessionId);return readArchive(client,owner,peer);});
+  }
+  async function saveConversationArchive({owner,token,sessionId,payload}) {
+    const peer=mutePeer(payload,owner,sessionId);
+    if(Object.keys(payload).sort().join(',')!=='archived,owner,peer,revision,sessionId'
+      || typeof payload.archived!=='boolean' || typeof payload.revision!=='string'
+      || !/^(0|[1-9][0-9]{0,15})$/.test(payload.revision))throw reject();
+    return withTransaction(async client=>{
+      await liveSession(client,owner,token,sessionId);
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`winga-conversation-preferences:${owner}`]);
+      const before=await readArchive(client,owner,peer);if(before.revision!==payload.revision)throw reject(409);
+      const user=await client.query('SELECT username FROM users WHERE username=$1',[peer]);if(!user.rows.length)throw reject(404);
+      if(before.revision==='0') {
+        const count=await client.query('SELECT COUNT(*)::int AS total FROM conversation_notification_preferences WHERE owner_id=$1',[owner]);
+        if(count.rows[0].total>=5000)throw reject(409);
+      }
+      await client.query(`INSERT INTO conversation_notification_preferences(owner_id,peer_id,archived)
+        VALUES($1,$2,$3) ON CONFLICT(owner_id,peer_id) DO UPDATE SET archived=EXCLUDED.archived,
+          row_version=conversation_notification_preferences.row_version+1,updated_at=NOW()`,[owner,peer,payload.archived]);
+      return readArchive(client,owner,peer);
     });
   }
 
@@ -142,7 +227,9 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
         WHERE j.id=$1 AND j.lease_token=$2 AND s.expires_at>$3 AND u.status='active' AND NOT m.is_read
         AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE
           (b.blocker_username=m.sender_id AND b.blocked_username=j.owner_id) OR
-          (b.blocker_username=j.owner_id AND b.blocked_username=m.sender_id))`, [job, lease, Date.now()]);
+          (b.blocker_username=j.owner_id AND b.blocked_username=m.sender_id))
+        AND NOT EXISTS(SELECT 1 FROM conversation_notification_preferences n WHERE n.owner_id=j.owner_id
+          AND n.peer_id=m.sender_id AND n.muted)`, [job, lease, Date.now()]);
       const row = result.rows[0];
       let retry = false;
       if (row) {
@@ -172,7 +259,8 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
   }
   return {
     async readWebPushConfig() { const keys = await identity(); return { supported: true, publicKey: keys.public_key }; },
-    saveWebPush, removeWebPush, resolveWebPush, dispatchWebPushBatch
+    saveWebPush, removeWebPush, resolveWebPush, dispatchWebPushBatch,readConversationMute,saveConversationMute,
+    readConversationArchive,saveConversationArchive,readConversationArchives
   };
 }
 
