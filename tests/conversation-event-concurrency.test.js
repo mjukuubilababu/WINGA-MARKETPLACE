@@ -13,6 +13,8 @@ const {verifyConversationEvents}=require('../backend/verify-conversation-events'
 const crypto = require('node:crypto');
 const { createConversationCryptoDeviceStore, operationBytes } = require('../backend/conversation-crypto-devices');
 const { createCryptoKeyPackageStore, packageProofBytes } = require('../backend/conversation-crypto-key-packages');
+const {createConversationReportStore,CONSENT}=require('../backend/conversation-reports');
+const {FILE_CONSENT}=require('../backend/report-file-contract');
 
 // Never fall back to DATABASE_URL: this suite writes only its own disposable local schema.
 const connectionString = process.env.WINGA_TEST_POSTGRES_URL;
@@ -303,4 +305,28 @@ test('key-package publication waiting on committed device revocation cannot publ
   await assert.rejects(pending, error => error.status === 403);
   assert.equal(parsed, false);
   assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_key_packages')).rows[0].n, 0);
+});
+
+test('real report file completion retries serialize once; committed logout rejects a waiting completion',async t=>{
+  const f=await cryptoFixture(t);
+  await f.pool.query(`INSERT INTO users(username,password,phone_number,primary_category,role,created_at)
+    VALUES('alice','synthetic','synthetic-a','general','buyer',NOW());
+    INSERT INTO messages(id,sender_id,receiver_id,message,timestamp) VALUES('reported','alice','bob','synthetic evidence',NOW());`);
+  const report=await f.live.submitConversationReport(context(),{owner:'bob',sessionId:'b1',peer:'alice',requestId:crypto.randomUUID(),consent:CONSENT,
+    reason:'other',description:'synthetic',selection:[{id:'reported',kind:'text',text:'synthetic evidence'}]});
+  const file=crypto.randomUUID();
+  // Seed a reserved synthetic copy; canonical media disclosure validation is exercised in report contract tests.
+  await f.pool.query(`INSERT INTO conversation_report_files(id,report_id,message_id,bytes,sha256,descriptor,consent)
+    VALUES($1,$2,'reported',80,$3,'{}',$4)`,[file,report.id,'a'.repeat(64),FILE_CONSENT]);
+  const proof={owner:'bob',sessionId:'b1',reportId:report.id,fileId:file};
+  await Promise.all(Array.from({length:12},()=>f.live.completeReportFile(context(),proof)));
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM conversation_report_files WHERE uploaded_at IS NOT NULL')).rows[0].n,1);
+  await f.pool.query('UPDATE conversation_report_files SET uploaded_at=NULL');
+  const blocker=await f.client(),waiter=await f.client();
+  await blocker.query('BEGIN');await blocker.query("DELETE FROM sessions WHERE session_id='b1'");
+  const store=createConversationReportStore({withTransaction:work=>transaction(waiter,work)});
+  const pending=store.completeReportFile(context(),proof);pending.catch(()=>{});
+  await f.blocked(waiter,blocker);await blocker.query('COMMIT');
+  await assert.rejects(pending,{status:401});
+  assert.equal((await f.pool.query('SELECT uploaded_at FROM conversation_report_files')).rows[0].uploaded_at,null);
 });

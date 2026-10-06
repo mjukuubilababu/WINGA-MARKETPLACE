@@ -3,6 +3,12 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "chat.reportSelectedFile": "Copie du fichier sélectionnée pour le partage",
+        "chat.reportFilesDisclosure": "Partagez uniquement les preuves choisies. Un fichier sélectionné partage une nouvelle copie chiffrée et sa clé, pas les clés du chat ou de récupération. Les copies restent pendant le dossier ouvert ; la suppression après clôture reste à définir.",
+        "chat.reportShareFile": "Partager une copie (2 Mo maximum)",
+        "chat.reportFilesPending": "Signalement reçu, mais certaines copies ne sont pas envoyées. Réessayez pour terminer ce même signalement.",
+        "chat.reportFilesReviewNotice": "Ces preuves ne sont pas une preuve cryptographique du message original. Ouvrez les copies explicitement ; les clés du chat ne sont pas divulguées.",
+        "chat.reportDownloadFile": "Télécharger la copie partagée",
         "chat.reportSubject": "Objet du signalement",
         "chat.reportSubject.conversation": "Conversation",
         "chat.reportSubject.user": "Utilisateur",

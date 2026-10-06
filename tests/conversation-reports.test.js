@@ -4,8 +4,15 @@ const {randomUUID}=require('node:crypto');
 const {PGlite}=require('@electric-sql/pglite');
 const {CONSENT,validateDisclosure,createConversationReportStore}=require('../backend/conversation-reports');
 const migration={statements:[...require('../backend/migrations/conversation-report-evidence').statements,
-  ...require('../backend/migrations/conversation-report-subject').statements]};
+  ...require('../backend/migrations/conversation-report-subject').statements,
+  ...require('../backend/migrations/conversation-report-files').statements]};
 const fs=require('node:fs'),vm=require('node:vm');
+const {webcrypto,createHash}=require('node:crypto');
+const {Readable}=require('node:stream');
+const {createSecureContent}=require('../src/chat/secure-content');
+const {FILE_CONSENT,MAX_FILE_BYTES}=require('../backend/report-file-contract');
+const {createReportFileApi}=require('../backend/report-file-api');
+const {createPrivateMediaStorage}=require('../backend/conversation-private-media');
 const alice={owner:'alice',token:'ta',deviceId:'sa'};
 const mod={owner:'mod',token:'tm',deviceId:'sm'};
 const payload=(more={})=>({owner:'alice',sessionId:'sa',peer:'bob',requestId:randomUUID(),consent:CONSENT,
@@ -150,4 +157,87 @@ test('report API adapter uses explicit authenticated JSON POST paths without put
   for(const call of calls){assert.equal(call.method,'POST');assert.equal(call.headers['Content-Type'],'application/json');
     assert.equal(call.headers['X-CSRF-Token'],'synthetic-csrf');assert.equal(call.url.includes('Reported text'),false);}
   assert.deepEqual(JSON.parse(calls[0].body),p);
+});
+
+async function fileFixture(f) {
+  const requestId=randomUUID(),fileId=randomUUID(),codec=await createSecureContent(webcrypto);
+  const binding={conversationId:'report-evidence-v1:'+requestId,attachmentId:fileId};
+  const copy=await codec.encryptMedia(new Blob(['synthetic selected file'],{type:'text/plain'}),binding,{name:'evidence.txt',mime:'text/plain'});
+  const bytes=Buffer.from(await copy.ciphertext.arrayBuffer());
+  const file={id:fileId,messageId:'media1',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),descriptor:copy.descriptor};
+  const p=payload({requestId,fileConsent:FILE_CONSENT,files:[file],selection:[{id:'media1',kind:'media',text:'Selected attachment'}]});
+  const objects=new Map(),calls=[];
+  const client={send:async command=>{
+    const input=command.input;calls.push({type:command.constructor.name,key:input.Key});
+    if(command.constructor.name==='PutObjectCommand') {
+      if(objects.has(input.Key))throw {$metadata:{httpStatusCode:412}};
+      objects.set(input.Key,Buffer.from(input.Body));return {};
+    }
+    const stored=objects.get(input.Key);if(!stored)throw Error('not found');
+    return {ContentLength:stored.length,ContentType:'application/octet-stream',Metadata:{sha256:file.sha256},Body:Readable.from([stored])};
+  }};
+  const storage=createPrivateMediaStorage({purpose:'report-evidence',client,
+    env:{R2_ACCOUNT_ID:'a'.repeat(32),R2_BUCKET_NAME:'public-market',R2_CONVERSATION_BUCKET_NAME:'private-chat',
+      R2_CONVERSATION_ACCESS_KEY_ID:'synthetic',R2_CONVERSATION_SECRET_ACCESS_KEY:'synthetic',R2_CONVERSATION_API_TOKEN:'synthetic',R2_CONVERSATION_ISOLATION_CONFIRMED:'true'},
+    privacyCheck:async()=>{},authorize:f.store.authorizeReportFile});
+  return {p,file,bytes,codec,binding,objects,calls,api:createReportFileApi({store:f.store,storage})};
+}
+
+test('real SQL plus WebCrypto: consented file copies have separate immutable storage, retry and audited decryption',async()=>{
+  const f=await fixture();try {
+    const x=await fileFixture(f),r=await f.store.submitConversationReport(alice,x.p);
+    const upload={owner:'alice',sessionId:'sa',reportId:r.id,fileId:x.file.id,ciphertext:x.bytes.toString('base64url')};
+    const read={owner:'mod',sessionId:'sm',reportId:r.id,fileId:x.file.id,reason:'Inspect selected file'};
+    await assert.rejects(x.api.download(mod,read),{status:409});assert.equal(x.calls.length,0);
+    await assert.rejects(x.api.upload({...alice,owner:'bob',token:'tb',deviceId:'sb'},{...upload,owner:'bob',sessionId:'sb'}),{status:403});
+    assert.equal(x.calls.length,0);
+    assert.deepEqual(await x.api.upload(alice,upload),{ok:true,id:x.file.id});
+    assert.deepEqual(await x.api.upload(alice,upload),{ok:true,id:x.file.id});
+    assert.equal((await f.store.submitConversationReport(alice,x.p)).replayed,true);
+    assert.equal(x.objects.size,1);assert.equal(await f.count('conversation_report_files'),1);
+    assert.ok(x.calls.every(c=>c.key.startsWith('report-evidence/v1/')));
+    const evidence=await f.store.readConversationReportEvidence(mod,{owner:'mod',sessionId:'sm',reportId:r.id,reason:'Case review'});
+    assert.equal(evidence.filesShared,true);assert.equal(evidence.files[0].available,true);
+    assert.equal(JSON.stringify(evidence).includes(x.file.descriptor.key),false);
+    const response=await x.api.download(mod,read);
+    const opened=await x.codec.decryptMedia(new Blob([Buffer.from(response.ciphertext,'base64url')]),response.descriptor,x.binding);
+    assert.equal(await opened.blob.text(),'synthetic selected file');assert.equal(opened.name,'evidence.txt');
+    assert.equal(await f.count('conversation_report_evidence_reads'),2);
+    await f.db.exec("UPDATE reports SET status='closed'");
+    await assert.rejects(x.api.upload(alice,upload),{status:403});
+    assert.equal((await x.api.download(mod,read)).ok,true);
+    await f.db.exec("UPDATE users SET role='buyer' WHERE username='mod'");
+    const calls=x.calls.length;await assert.rejects(x.api.download(mod,read),{status:403});assert.equal(x.calls.length,calls);
+  }finally{await f.db.close();}
+});
+
+test('file copy contracts reject original chat bindings, extra keys, oversize and unselected or outgoing files',async()=>{
+  const f=await fixture();try {
+    const x=await fileFixture(f),p=x.p;
+    for(const files of [[{...x.file,bytes:MAX_FILE_BYTES+1}],[{...x.file,originalKey:'secret'}],
+      [{...x.file,messageId:'m1'}],[{...x.file,descriptor:{...x.file.descriptor,conversationId:'original-chat'}}],
+      [{...x.file,descriptor:{...x.file.descriptor,key:'A'.repeat(42)+'B'}}],
+      [x.file,x.file]])assert.throws(()=>validateDisclosure(alice,{...p,files}),{status:400});
+    assert.throws(()=>validateDisclosure(alice,{...p,fileConsent:false}),{status:400});
+    assert.throws(()=>validateDisclosure(alice,{...p,fileConsent:undefined}),{status:400});
+    await f.db.exec("UPDATE encrypted_conversation_messages SET sender_device='da'; INSERT INTO conversation_crypto_devices VALUES('da','alice')");
+    await assert.rejects(f.store.submitConversationReport(alice,p),{status:403});
+    assert.equal(await f.count('conversation_report_files'),0);
+  }finally{await f.db.close();}
+});
+
+test('corrupt file uploads and revoked moderator sessions fail without exposing a copy key or unverified bytes',async()=>{
+  const f=await fixture();try {
+    const x=await fileFixture(f),r=await f.store.submitConversationReport(alice,x.p);
+    const upload={owner:'alice',sessionId:'sa',reportId:r.id,fileId:x.file.id,ciphertext:x.bytes.toString('base64url')};
+    const corrupt=Buffer.from(x.bytes);corrupt[corrupt.length-1]^=1;
+    await assert.rejects(x.api.upload(alice,{...upload,ciphertext:corrupt.toString('base64url')}),{status:400});
+    assert.equal(x.calls.length,0);assert.equal((await f.db.query('SELECT uploaded_at FROM conversation_report_files')).rows[0].uploaded_at,null);
+    await assert.rejects(x.api.upload(alice,{...upload,ciphertext:upload.ciphertext+'='}),{status:400});
+    await x.api.upload(alice,upload);
+    await f.db.exec("DELETE FROM sessions WHERE username='mod'");
+    const calls=x.calls.length;
+    await assert.rejects(x.api.download(mod,{owner:'mod',sessionId:'sm',reportId:r.id,fileId:x.file.id,reason:'Case review'}),{status:401});
+    assert.equal(x.calls.length,calls);assert.equal(await f.count('conversation_report_evidence_reads'),0);
+  }finally{await f.db.close();}
 });

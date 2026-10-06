@@ -5,8 +5,8 @@ async function fixture(page,{width=390,locale='en'}={}) {
   await page.setViewportSize({width,height:844});
   await page.route('http://localhost:4389/**',route=>{
     const url=new URL(route.request().url());
-    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body><main id="chat"><button data-chat-report hidden>Report conversation</button><button data-message-report="m1" hidden>Report one</button></main><script src="/src/chat/report-ui.js"></script></body></html>'});
-    if(!['/style.css','/src/chat/report-ui.js'].includes(url.pathname))return route.abort();
+    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body><main id="chat"><button data-chat-report hidden>Report conversation</button><button data-message-report="m1" hidden>Report one</button></main><script src="/src/chat/secure-content.js"></script><script src="/src/chat/report-ui.js"></script></body></html>'});
+    if(!['/style.css','/src/chat/report-ui.js','/src/chat/secure-content.js'].includes(url.pathname))return route.abort();
     return route.fulfill({contentType:url.pathname.endsWith('.css')?'text/css':'application/javascript',body:fs.readFileSync(path.join(root,url.pathname.slice(1)))});
   });
   await page.goto('http://localhost:4389/');
@@ -37,6 +37,33 @@ async function fixture(page,{width=390,locale='en'}={}) {
     WingaConversationReports.bind(document.getElementById('chat'),options);
     data.review=()=>{data.session.role='moderator';WingaConversationReports.review(document.getElementById('chat'),options,'report-test');};
     data.rebind=()=>WingaConversationReports.bind(document.getElementById('chat'),options);
+    data.enableFiles=()=>{
+      data.downloads=[];data.uploads=[];
+      layer.downloadEncryptedMedia=async id=>{
+        data.downloads.push(id);
+        const result={blob:new Blob(['synthetic selected evidence'],{type:'text/plain'}),name:'evidence.txt'};
+        if(data.deferDownload)return new Promise(resolve=>data.releaseDownload=()=>resolve(result));
+        return result;
+      };
+      layer.uploadReportFile=async payload=>{
+        data.uploads.push(payload);if(data.uploadFail)throw Error('PRIVATE ERROR');
+        return {ok:true,id:payload.fileId};
+      };
+      data.openFileReview=()=>{
+        data.session.role='moderator';
+        layer.readSharedReportEvidence=async payload=>{
+          data.reads.push(payload);return {id:payload.reportId,plaintextVerified:false,filesShared:true,
+            selection:[{sender:'bob',text:'Selected attachment'}],
+            files:[{id:data.calls[0].files[0].id,bytes:data.calls[0].files[0].bytes,available:true}]};
+        };
+        data.fileReads=[];
+        layer.readSharedReportFile=async payload=>{
+          data.fileReads.push(payload);return {ok:true,id:payload.fileId,
+            descriptor:data.calls[0].files[0].descriptor,ciphertext:data.uploads[0].ciphertext};
+        };
+        WingaConversationReports.review(document.getElementById('chat'),options,'report-test');
+      };
+    };
     window.reportFixture=data;
   },{messages,locale});
 }
@@ -136,8 +163,64 @@ test('failed moderator read shows a fixed error and no previous evidence',async(
   await expect(page.locator('dialog [role=status]')).toHaveText('Shared evidence is unavailable. Try again.');
 });
 for(const [width,locale]of [[320,'sw'],[1280,'en'],[390,'ar']])test('report dialog fits '+width+' '+locale,async({page},testInfo)=>{
-  await fixture(page,{width,locale});await page.getByRole('button',{name:'Report one',exact:true}).click();
+  await fixture(page,{width,locale});await page.evaluate(()=>reportFixture.enableFiles());await page.getByRole('button',{name:'Report one',exact:true}).click();
+  await page.locator('[data-report-message="media1"]').check();await page.locator('[data-report-file="media1"]').check();
   const rect=await page.locator('dialog').boundingBox();expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(width);
   expect(await page.locator('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath('report-'+width+'-'+locale+'.png')});
+});
+
+test('real WebCrypto report file selection is separate consent, opaque copy encryption and stable upload retry',async({page})=>{
+  await fixture(page);await page.evaluate(()=>{reportFixture.enableFiles();reportFixture.uploadFail=true;});
+  await page.locator('[data-chat-report]').click();
+  const file=page.locator('[data-report-file="media1"]');await expect(file).not.toBeChecked();await expect(file).toBeDisabled();
+  expect(await page.evaluate(()=>reportFixture.downloads.length)).toBe(0);
+  await page.locator('[data-report-message="media1"]').check();await file.check();await consent(page).check();await submit(page).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('some file copies are not uploaded');
+  await expect(page.locator('[data-report-message="media1"]')).toBeDisabled();await expect(submit(page)).toBeEnabled();
+  await page.evaluate(()=>reportFixture.uploadFail=false);await submit(page).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('Report received');
+  const data=await page.evaluate(async()=>{
+    const f=reportFixture,metadata=f.calls[0].files[0],raw=f.uploads[0].ciphertext;
+    const bytes=Uint8Array.from(atob(raw.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+    const codec=await WingaSecureContent.loadSecureContent();
+    const opened=await codec.decryptMedia(new Blob([bytes]),metadata.descriptor,{conversationId:metadata.descriptor.conversationId,attachmentId:metadata.id});
+    return {calls:f.calls,uploads:f.uploads,downloads:f.downloads,text:await opened.blob.text(),magic:new TextDecoder().decode(bytes.subarray(0,8))};
+  });
+  expect(data.calls).toHaveLength(1);expect(data.uploads).toHaveLength(2);expect(data.downloads).toEqual(['attachment-secret']);
+  expect(data.uploads[0]).toEqual(data.uploads[1]);expect(data.text).toBe('synthetic selected evidence');expect(data.magic).toBe('WINGAEM2');
+  expect(data.calls[0].files[0].descriptor.conversationId).toBe('report-evidence-v1:'+data.calls[0].requestId);
+  expect(JSON.stringify(data.calls)).not.toContain('attachment-secret');expect(JSON.stringify(data.uploads)).not.toContain('synthetic selected evidence');
+});
+
+test('selected media without Share file never decrypts, uploads or shares a copy key',async({page})=>{
+  await fixture(page);await page.evaluate(()=>reportFixture.enableFiles());await page.locator('[data-chat-report]').click();
+  await page.locator('[data-report-message="media1"]').check();await consent(page).check();await submit(page).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('Report received');
+  expect(await page.evaluate(()=>({downloads:reportFixture.downloads,uploads:reportFixture.uploads,files:reportFixture.calls[0].files})))
+    .toEqual({downloads:[],uploads:[],files:undefined});
+});
+
+test('late original file decryption after account change cannot submit a report or upload a copy',async({page})=>{
+  await fixture(page);await page.evaluate(()=>{reportFixture.enableFiles();reportFixture.deferDownload=true;});
+  await page.locator('[data-chat-report]').click();await page.locator('[data-report-message="media1"]').check();
+  await page.locator('[data-report-file="media1"]').check();await consent(page).check();await submit(page).click();
+  await expect.poll(()=>page.evaluate(()=>typeof reportFixture.releaseDownload)).toBe('function');
+  await page.evaluate(()=>{reportFixture.session.token='other-session';reportFixture.releaseDownload();});
+  await expect(page.locator('dialog')).toHaveCount(0);
+  expect(await page.evaluate(()=>[reportFixture.calls.length,reportFixture.uploads.length])).toEqual([0,0]);
+});
+
+test('moderator copy decryption waits for explicit reason and download, never renders HTML or auto-fetches files',async({page})=>{
+  await fixture(page);await page.evaluate(()=>reportFixture.enableFiles());await page.locator('[data-chat-report]').click();
+  await page.locator('[data-report-message="media1"]').check();await page.locator('[data-report-file="media1"]').check();
+  await consent(page).check();await submit(page).click();await expect(page.locator('dialog [role=status]')).toContainText('Report received');
+  await page.getByRole('button',{name:'Close',exact:true}).click();await page.evaluate(()=>reportFixture.openFileReview());
+  await page.locator('dialog textarea').fill('Review reported attachment');await submit(page).click();
+  const download=page.getByRole('button',{name:'Download shared file copy',exact:true});await expect(download).toBeEnabled();
+  expect(await page.evaluate(()=>reportFixture.fileReads)).toHaveLength(0);
+  const event=page.waitForEvent('download');await download.click();const result=await event;
+  expect(result.suggestedFilename()).toBe('winga-report-evidence.bin');
+  expect(await page.evaluate(()=>reportFixture.fileReads)).toHaveLength(1);
+  await expect(page.locator('dialog img,dialog iframe,dialog object')).toHaveCount(0);
 });

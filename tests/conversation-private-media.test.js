@@ -30,6 +30,14 @@ test('encrypted storage requires isolated private configuration and authorizatio
     assert.throws(() => readPrivateMediaConfig({ ...env, ...change }), error => error.code === 'private_media_configuration_required');
   }
   assert.throws(() => createPrivateMediaStorage({ env }), error => error.code === 'private_media_unavailable');
+  assert.throws(() => fixture({purpose:'../../chat'}),error=>error.code==='private_media_unavailable');
+});
+
+test('trusted report-copy namespace cannot overwrite an original conversation object with the same descriptor',async()=>{
+  const bytes=data(),object=descriptor(bytes),f=fixture({purpose:'report-evidence'});
+  await f.store.put({},object,bytes);
+  assert.ok(f.calls.every(c=>c.input.Key===`report-evidence/v1/${object.id}/${object.sha256}.bin`));
+  assert.equal(f.objects.has(`conversation-encrypted/v1/${object.id}/${object.sha256}.bin`),false);
 });
 test('upload stores only opaque ciphertext with immutable exact retry and private headers', async () => {
   const f = fixture(), bytes = data(), object = descriptor(bytes);

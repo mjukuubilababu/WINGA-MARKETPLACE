@@ -8,7 +8,7 @@ The source remains winga-conversations-spec-110-238.txt.
 
 | Section | Current implementation | Remaining acceptance or implementation |
 | --- | --- | --- |
-| 158 | Explicit user/conversation/message/media report subject; selected canonical message IDs; consent; bounded evidence; exact-request retry; audited primary-role moderator reads. | Media evidence is a label/metadata, NOT attachment bytes. Separate binary disclosure/storage/review and production moderation acceptance remain. |
+| 158 | Explicit subjects and selected canonical incoming evidence; text-only compatibility; optional separately selected encrypted file copies; independent copy keys; private report namespace; immutable retry; audited primary-role moderator downloads. | Physical-device/production moderation acceptance remains. At most 3 files of 2 MiB each. In-dialog retry is supported; interrupted copies do not automatically resume after reload. Post-close deletion policy remains undecided. |
 | 159 | No universal chat decryption key. Primary auth, signed native devices, blocks, report rate limits, membership checks and account/device revocation remain authoritative. | Reputation/abuse classification is not automatic conviction. Calibrated signals and operational review remain. |
 | 160 | Generic localized lock-screen copy only. Providers never receive private bodies, filenames or keys. Push failure never grants Read/Delivered or rolls back accepted content. | Physical-device provider/OS acceptance; no delivery promise after browser force-stop. |
 | 161 | One durable job per subscription/message. HMAC-derived opaque conversation topic and OS tag replace same-conversation alerts. Exact retries retain the same navigation job. Read/mute rechecked before dispatch. | Fleet/OS acceptance and optional active-device election. Foreground suppression is receipt-driven, not assumed from an open tab. |
@@ -18,7 +18,7 @@ The source remains winga-conversations-spec-110-238.txt.
 | 165 | Local search in both direct surfaces: projected text, product references, sender and UTC dates. No remote query/index. Max 5,000 scanned rows/100 results. | Persistent encrypted indexing and availability beyond loaded device history are future work. This is not global server search. |
 | 166-167 | Business/staff roles do not confer crypto membership or owner keys. Direct endpoints remain extensible. | Business inbox explicitly FUTURE. Shared endpoints/staff history need a separately approved authorization contract. |
 | 168-169 | Whitelisted operation/outcome/duration counters; content-free send diagnostics; authenticated no-store ops metrics. | Fleet aggregation, unique-send versus retry accounting, response latency and adoption dashboard remain open. |
-| 170 | Direct SQL, crypto, media, recovery, retry, receipt, privacy and browser regression suites exercised. | Gate OPEN: representative load/soak/dependency failure and applicable production/physical-device acceptance. Independent security approval is not replaced by fixtures. |
+| 170 | Direct SQL, crypto, media, recovery, retry, receipt, privacy and browser suites; independent real PostgreSQL races; bounded two-store/six-connection load with native MLS recipient decryption and duplicate/receipt checks. | Gate OPEN: representative sustained load/soak/dependency failure and applicable production/physical-device acceptance. The local synthetic-pair load is not fleet capacity, Shopping Room acceptance or independent security approval. |
 
 ## Notification Policy
 
@@ -85,9 +85,76 @@ an open composer or moves a remotely archived conversation out of an open chat.
 
 Operator decision: retain evidence while a case is open. The post-close deletion
 deadline is NOT decided. Closing a case therefore does not silently delete
-evidence or promise automatic erasure. This release creates no binary
-disclosures/storage credentials. Disclosed text is explicitly unverified
+evidence or promise automatic erasure. File sharing uses the already isolated
+private conversation bucket in a separate `report-evidence/v1/` namespace.
+No public URL, original attachment key, MLS secret or recovery key is shared.
+Disclosed text and files are explicitly unverified
 against ciphertext: canonical parties are checked, not truth of the claim.
+
+### Consented File Copies
+
+The reporter must independently select a file copy and consent to disclosure.
+Selecting a media message alone never downloads or shares its file. Only selected
+incoming encrypted media IDs from the canonical report participants are admissible.
+The browser decrypts the original with its existing authorization, then creates a
+fresh AES-GCM copy and random copy key using the existing secure-content codec.
+Its binding is `report-evidence-v1:<report-request-UUID>` plus a fresh attachment
+UUID, not the original conversation binding. That copy key is intentionally
+disclosed to moderation and stored in private report metadata; it is not a
+universal chat decryption key. This exception must not be called undisclosed E2EE.
+
+The transaction reserves at most three immutable objects, each at most 2 MiB
+plaintext plus authenticated metadata overhead, before R2 upload. Every storage
+operation checks current primary session/role and object identity before/after
+I/O and verifies private bucket configuration, byte length and digest. Upload
+requires the original reporter and an open case. Reads require a current primary
+moderator/admin role and an explicit audited reason; closing a case does not
+silently erase retained evidence. Listing a case does not expose a copy key.
+
+The reviewer must explicitly request each available copy. Decryption occurs in
+the reviewer's browser and downloads as a fixed-name octet-stream `.bin`; no
+automatic image/HTML/PDF rendering or embedded external content is introduced.
+Session/role/background changes invalidate late UI results. Failed uploads retry
+the same reserved report and object in the still-open dialog. Closing/reloading
+that dialog clears transient copy material, not server-retained evidence; pending
+copies remain visibly unavailable and automatic cross-reload resume is not claimed.
+
+## Verified Publication And Local Database Exercise
+
+Published release: backend commit `ba1f4dfc6f332fffbe78f476b08fcd8ae5da6fec`,
+frontend build `20261006151029`, Cloudflare Worker version
+`b014c379-af8a-4c99-8783-2539d07f45d6`. Direct and same-domain readiness both
+returned Ready and that exact backend commit. Ten published static asset hashes
+matched the release directory; unauthenticated conversation ops metrics returned
+401. File-copy changes described above were implemented after this publication;
+they must not be represented as part of that already-live commit.
+
+`scripts/run-local-conversation-db-tests.ps1` creates a fresh disposable PostgreSQL
+cluster using existing installed binaries, binds only `127.0.0.1`, sets a process-local
+explicit test URL, and stops only its own cluster in `finally`. It never reads or
+falls back to `DATABASE_URL`. Synthetic cluster directories remain ignored for
+diagnosis, rather than deleting an existing database or Windows service.
+
+The bounded load exercises 64 distinct encrypted messages and 74 attempts,
+two store instances, six connections, contiguous canonical sequences, zero
+duplicate rows, 64 independent recipient decryptions and idempotent Delivered
+receipts. One isolated run measured 904 ms for store attempts and 404 ms empirical
+p95 attempt latency on this machine. These are local observations including retry
+attempts, not a production SLO, end-to-end device latency or Shopping Room proof.
+
+Full simultaneous multi-device history is still OPEN. Existing approval, per-device
+replay and recovery capsules do not distribute live MLS membership or historical
+attachment authorization to every approved device. Shopping Rooms likewise remain
+OPEN and cannot be enabled by relabeling a direct creator/recipient conversation.
+
+The file-copy candidate was built as `20261006155810` with 90 synchronized
+source modules and four catalogs of 1,518 keys. Verification passed: 107 secure
+content/backend tests, 96 messaging tests, 34 real-browser crypto tests, 18 report
+browser tests, 145 frontend core checks plus 80 frontend behavior tests, and
+33 real PostgreSQL concurrency/load tests. The final disposable runner completed
+its shutdown successfully. Mobile 320px, desktop 1280px and Arabic RTL report
+screenshots were checked for overflow; JavaScript eval remains blocked by CSP.
+No new independent cryptographic approval or production media exercise is implied.
 
 ## Shopping Rooms: 171-189
 

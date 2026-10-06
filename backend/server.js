@@ -40,6 +40,7 @@ const { createConversationAvailabilityApi } = require("./conversation-availabili
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
 const { createEncryptedConversationBackupsApi } = require("./encrypted-conversation-backups-api");
 const { createPrivateMediaStorage } = require("./conversation-private-media");
+const { createReportFileApi } = require("./report-file-api");
 const { createEncryptedMediaApi, createEncryptedMediaCleanup } = require("./encrypted-media-api");
 const { createConversationCryptoDevicesApi } = require("./conversation-crypto-devices-api");
 const { createEncryptedConversationsApi } = require("./encrypted-conversations-api");
@@ -292,6 +293,8 @@ const RATE_LIMIT_RULES = {
   "/api/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/messages/reports": { limit: 8, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/admin/reports/evidence": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/messages/reports/files": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/admin/reports/files": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -327,11 +330,17 @@ let messageEventSubscription = null;
 let messageDispatchWorker = null;
 let webPushWorker = null;
 let encryptedMediaStorage = null;
+let reportFileStorage = null;
 let encryptedMediaCleanup = null;
 const encryptedMediaEnabled = () => ['WINGA_ENCRYPTED_CONVERSATIONS_ENABLED','WINGA_CRYPTO_DEVICES_ENABLED','WINGA_MLS_CANDIDATE_ENABLED','WINGA_ENCRYPTED_MEDIA_ENABLED'].every(key=>process.env[key]==='true');
 function getEncryptedMediaStorage() {
   if(!encryptedMediaStorage)encryptedMediaStorage=createPrivateMediaStorage({authorize:(context,object,action)=>postgresStore.authorizeEncryptedMedia(context,object,action)});
   return encryptedMediaStorage;
+}
+function getReportFileStorage() {
+  if(!reportFileStorage)reportFileStorage=createPrivateMediaStorage({purpose:'report-evidence',
+    authorize:(context,object,action)=>postgresStore.authorizeReportFile(context,object,action)});
+  return reportFileStorage;
 }
 const postgresStore = DATABASE_URL
   ? createPostgresStore({
@@ -8952,6 +8961,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if(req.method==="POST" && ["/api/messages/reports/files","/api/admin/reports/files"].includes(url.pathname)) {
+      const token=readAuthToken(req),session=findSession(store,token);
+      const user=ensureMarketplaceUser(store,session,res);if(!user)return;
+      if(!postgresStore?.prepareReportFile||!encryptedMediaEnabled()) {
+        sendJson(res,503,{code:'conversation_report_files_unavailable'},{'Cache-Control':'private, no-store'});return;
+      }
+      try {
+        const uploading=url.pathname==='/api/messages/reports/files';
+        const payload=await collectBody(req,{maxBytes:uploading?3*1024*1024:4096});
+        const api=createReportFileApi({store:postgresStore,storage:getReportFileStorage()});
+        const context={owner:user.username,token,deviceId:session.sessionId};
+        const result=uploading?await api.upload(context,payload):await api.download(context,payload);
+        sendJson(res,200,result,{'Cache-Control':'private, no-store'});
+      }catch(error){
+        const status=[400,401,403,404,409,413,503].includes(error.status)?error.status:503;
+        sendJson(res,status,{code:'conversation_report_file_rejected'},{'Cache-Control':'private, no-store'});
+      }
+      return;
+    }
+
     if(req.method==="POST" && ["/api/messages/reports","/api/admin/reports/evidence"].includes(url.pathname)) {
       const token=readAuthToken(req),session=findSession(store,token);
       const user=ensureMarketplaceUser(store,session,res);if(!user)return;
@@ -15193,6 +15222,7 @@ function shutdownServer(signal = "SIGTERM") {
     await Promise.allSettled([
       Promise.resolve(closeCache?.()),
       Promise.resolve(encryptedMediaStorage?.close?.()),
+      Promise.resolve(reportFileStorage?.close?.()),
       Promise.resolve(postgresStore?.close?.())
     ]);
     serverLifecycle.phase = "stopped";

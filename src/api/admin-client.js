@@ -141,6 +141,14 @@
       requireFetcher();
       return fetchJson(`${baseUrl}/admin/reports/evidence`,{method:"POST",headers:jsonHeaders(),body:JSON.stringify(payload)});
     }
+    async function uploadReportFile(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/messages/reports/files`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
+    async function readSharedReportFile(payload) {
+      requireFetcher();
+      return fetchJson(`${baseUrl}/admin/reports/files`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)});
+    }
 
     async function reviewReport(reportId, payload) {
       requireFetcher();
@@ -223,7 +231,7 @@
       loadPaymentReconciliations,
       updatePaymentReconciliation,
       createReport,
-      createConversationReport,readSharedReportEvidence,
+      createConversationReport,readSharedReportEvidence,uploadReportFile,readSharedReportFile,
       loadAdminReports,
       reviewReport,
       loadAdminSettings,

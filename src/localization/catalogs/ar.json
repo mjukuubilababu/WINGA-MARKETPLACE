@@ -3,6 +3,12 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "chat.reportSelectedFile": "تم تحديد نسخة الملف للمشاركة",
+        "chat.reportFilesDisclosure": "شارك الأدلة المحددة فقط. يشارك الملف المحدد نسخة مشفرة جديدة ومفتاحها، وليس مفاتيح المحادثة أو الاسترداد. تحفظ النسخ ما دام البلاغ مفتوحًا؛ لم يحدد الحذف بعد إغلاقه.",
+        "chat.reportShareFile": "مشاركة نسخة الملف (حتى 2 ميغابايت)",
+        "chat.reportFilesPending": "تم استلام البلاغ، لكن بعض النسخ لم ترفع بعد. أعد المحاولة لإكمال البلاغ نفسه.",
+        "chat.reportFilesReviewNotice": "أدلة المستخدم ليست إثباتًا تشفيريًا للرسالة الأصلية. افتح النسخ بطلب صريح؛ لا تكشف مفاتيح المحادثة.",
+        "chat.reportDownloadFile": "تنزيل نسخة الملف المشتركة",
         "chat.reportSubject": "موضوع البلاغ",
         "chat.reportSubject.conversation": "المحادثة",
         "chat.reportSubject.user": "المستخدم",

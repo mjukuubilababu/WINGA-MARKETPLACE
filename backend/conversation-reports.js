@@ -1,5 +1,6 @@
 const {createHash}=require('node:crypto');
 const {authenticateCryptoSession}=require('./conversation-crypto-auth');
+const {FILE_CONSENT,validateReportFiles}=require('./report-file-contract');
 const CONSENT='share-selected-message-evidence-v1';
 const rejected=(status=400)=>Object.assign(new Error('conversation_report_rejected'),{status});
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join(',')===keys.slice().sort().join(',');
@@ -9,6 +10,7 @@ const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3
 function validateDisclosure(context,payload) {
   const keys=['owner','sessionId','peer','requestId','consent','reason','description','selection'];
   if(Object.hasOwn(payload||{},'subject'))keys.push('subject');
+  if(Object.hasOwn(payload||{},'files'))keys.push('files','fileConsent');
   if(!exact(payload,keys)
     ||payload.owner!==context.owner||payload.sessionId!==context.deviceId
     ||!text(payload.peer,40)||!payload.peer||/[\u0000-\u001f\u007f]/.test(payload.peer)||payload.peer.trim()!==payload.peer||payload.peer===context.owner
@@ -25,7 +27,8 @@ function validateDisclosure(context,payload) {
     ||(['user','conversation'].includes(subject.type)?subject.id!==payload.peer
       :!id(subject.id)||!payload.selection.some(row=>row.id===subject.id&&(subject.type!=='media'||row.kind==='media')))))throw rejected();
   return {...(subject===undefined?{}:{subject:{type:subject.type,id:subject.id}}),peer:payload.peer,requestId:payload.requestId,consent:CONSENT,reason:payload.reason,
-    description:payload.description,selection:payload.selection.map(row=>({id:row.id,kind:row.kind,text:row.text}))};
+    description:payload.description,selection:payload.selection.map(row=>({id:row.id,kind:row.kind,text:row.text})),
+    ...(payload.files===undefined?{}:{fileConsent:FILE_CONSENT,files:validateReportFiles(payload)})};
 }
 function createConversationReportStore({withTransaction,now=Date.now}) {
   async function moderator(client,context) {
@@ -60,6 +63,8 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
       }
       if(ids.some(value=>!found.has(value))||!ids.some(value=>found.get(value).sender_id===disclosure.peer))throw rejected(403);
       if(['message','media'].includes(disclosure.subject?.type)&&found.get(disclosure.subject.id)?.sender_id!==disclosure.peer)throw rejected(403);
+      if(disclosure.files?.some(file=>found.get(file.messageId)?.sender_id!==disclosure.peer
+        ||found.get(file.messageId)?.source!=='encrypted'||!found.get(file.messageId)?.media_id))throw rejected(403);
       const selection=disclosure.selection.map(item=>{
         const row=found.get(item.id);
         if(item.kind==='media'&&!row.media_id)throw rejected();
@@ -79,6 +84,9 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
       await client.query(`INSERT INTO conversation_report_evidence(report_id,reporter_id,request_id,request_hash,consent,selection,subject)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)`,[reportId,context.owner,disclosure.requestId,hash,CONSENT,JSON.stringify(selection),
           JSON.stringify(disclosure.subject||{type:'user',id:disclosure.peer})]);
+      for(const file of disclosure.files||[])await client.query(`INSERT INTO conversation_report_files
+        (id,report_id,message_id,bytes,sha256,descriptor,consent) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+        [file.id,reportId,file.messageId,file.bytes,file.sha256,JSON.stringify(file.descriptor),FILE_CONSENT]);
       return {ok:true,id:reportId,replayed:false};
     });
   }
@@ -100,10 +108,57 @@ function createConversationReportStore({withTransaction,now=Date.now}) {
       if(!result)throw rejected(404);
       await client.query(`INSERT INTO conversation_report_evidence_reads(report_id,reviewer_id,reviewer_role,reason)
         VALUES($1,$2,$3,$4)`,[payload.reportId,context.owner,role,payload.reason.trim()]);
+      const files=(await client.query(`SELECT id,message_id,bytes,uploaded_at FROM conversation_report_files WHERE report_id=$1 ORDER BY id`,[payload.reportId])).rows
+        .map(f=>({id:f.id,messageId:f.message_id,bytes:f.bytes,available:Boolean(f.uploaded_at)}));
       return {version:1,id:result.report_id,consent:result.consent,reporter:result.reporter_id,peer:result.target_user_id,
-        reason:result.reason,subject:result.subject||{type:'user',id:result.target_user_id},selection:result.selection,plaintextVerified:false,filesShared:false};
+        reason:result.reason,subject:result.subject||{type:'user',id:result.target_user_id},selection:result.selection,plaintextVerified:false,filesShared:files.length>0,
+        ...(files.length?{files}: {})};
     });
   }
-  return {submitConversationReport,readConversationReportFlags,readConversationReportEvidence};
+  function fileRequest(context,payload,read=false) {
+    if(!exact(payload,['owner','sessionId','reportId','fileId',...(read?['reason']:[])])
+      ||payload.owner!==context.owner||payload.sessionId!==context.deviceId||!id(payload.reportId)||!uuid(payload.fileId)
+      ||read&&(!text(payload.reason,300)||payload.reason.trim().length<3))throw rejected();
+  }
+  async function fileAccess(client,context,read=false) {
+    await authenticateCryptoSession(client,context,now());
+    if(read)await moderator(client,context);
+    const row=(await client.query(`SELECT f.*,e.reporter_id,r.status FROM conversation_report_files f
+      JOIN conversation_report_evidence e ON e.report_id=f.report_id JOIN reports r ON r.id=f.report_id
+      WHERE f.id=$1 AND f.report_id=$2 FOR SHARE OF f,e,r`,[context.fileId,context.reportId])).rows[0];
+    if(!row)throw rejected(404);
+    if(!read&&(row.reporter_id!==context.owner||row.status!=='open'))throw rejected(403);
+    if(read&&!row.uploaded_at)throw rejected(409);
+    return row;
+  }
+  async function prepareReportFile(context,payload,read=false) {
+    fileRequest(context,payload,read);
+    return withTransaction(async client=>{
+      const row=await fileAccess(client,{...context,reportId:payload.reportId,fileId:payload.fileId},read);
+      if(read) {
+        const role=await moderator(client,context);
+        await client.query(`INSERT INTO conversation_report_evidence_reads(report_id,reviewer_id,reviewer_role,reason)
+          VALUES($1,$2,$3,$4)`,[payload.reportId,context.owner,role,payload.reason.trim()]);
+      }
+      return {object:{id:row.id,bytes:row.bytes,sha256:row.sha256},...(read?{descriptor:row.descriptor}:{})};
+    });
+  }
+  async function authorizeReportFile(context,object,action) {
+    if(!['upload','download'].includes(action))return false;
+    return withTransaction(async client=>{
+      const row=await fileAccess(client,context,action==='download');
+      return row.id===object.id&&row.bytes===object.bytes&&row.sha256===object.sha256;
+    });
+  }
+  async function completeReportFile(context,payload) {
+    fileRequest(context,payload);
+    return withTransaction(async client=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`winga-report-file:${payload.fileId}`]);
+      await fileAccess(client,{...context,reportId:payload.reportId,fileId:payload.fileId});
+      await client.query(`UPDATE conversation_report_files SET uploaded_at=COALESCE(uploaded_at,NOW()) WHERE id=$1 AND report_id=$2`,[payload.fileId,payload.reportId]);
+      return {ok:true,id:payload.fileId};
+    });
+  }
+  return {submitConversationReport,readConversationReportFlags,readConversationReportEvidence,prepareReportFile,authorizeReportFile,completeReportFile};
 }
 module.exports={CONSENT,validateDisclosure,createConversationReportStore};

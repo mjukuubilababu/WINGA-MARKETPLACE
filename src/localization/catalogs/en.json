@@ -3,6 +3,12 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "chat.reportSelectedFile": "File copy selected for sharing",
+        "chat.reportFilesDisclosure": "Share only selected evidence. A selected file shares a new encrypted copy and its copy key, not original chat or recovery keys. Copies remain while the case is open; deletion after closure is not yet defined.",
+        "chat.reportShareFile": "Share file copy (up to 2 MB)",
+        "chat.reportFilesPending": "Report received, but some file copies are not uploaded. Retry to finish this same report.",
+        "chat.reportFilesReviewNotice": "User-disclosed evidence is not cryptographic proof of the original message. Open shared copies explicitly; original chat keys are not disclosed.",
+        "chat.reportDownloadFile": "Download shared file copy",
         "chat.reportSubject": "Report about",
         "chat.reportSubject.conversation": "Conversation",
         "chat.reportSubject.user": "User",

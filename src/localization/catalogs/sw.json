@@ -3,6 +3,12 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "chat.reportSelectedFile": "Nakala ya faili imechaguliwa kushirikiwa",
+        "chat.reportFilesDisclosure": "Shiriki ushahidi uliochagua tu. Faili iliyochaguliwa inatoa nakala mpya iliyosimbwa na key yake, si keys za chat au recovery. Nakala zinabaki case ikiwa wazi; kufuta baada ya kufungwa bado hakujafafanuliwa.",
+        "chat.reportShareFile": "Shiriki nakala ya faili (hadi 2 MB)",
+        "chat.reportFilesPending": "Report imepokelewa, lakini baadhi ya nakala hazijapakia. Jaribu tena kukamilisha report hii.",
+        "chat.reportFilesReviewNotice": "Ushahidi wa mtumiaji si uthibitisho wa cryptography wa ujumbe wa awali. Fungua nakala zilizoshirikiwa kwa kuchagua; keys za chat hazitolewi.",
+        "chat.reportDownloadFile": "Pakua nakala ya faili iliyoshirikiwa",
         "chat.reportSubject": "Ripoti kuhusu",
         "chat.reportSubject.conversation": "Mazungumzo",
         "chat.reportSubject.user": "Mtumiaji",

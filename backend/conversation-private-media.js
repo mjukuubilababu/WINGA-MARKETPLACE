@@ -27,10 +27,15 @@ function validateObject(object) {
 }
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function createPrivateMediaStorage({ env = process.env, client, authorize, fetchImpl = globalThis.fetch,
-  privacyCheck = assertPrivateBucket, timeoutMs = 30000 } = {}) {
+  privacyCheck = assertPrivateBucket, timeoutMs = 30000, purpose = 'conversation' } = {}) {
   const config = readPrivateMediaConfig(env);
   if (typeof authorize !== 'function' || typeof privacyCheck !== 'function' || !Number.isSafeInteger(timeoutMs)
-    || timeoutMs < 1 || timeoutMs > 30000) throw failure(503, 'private_media_unavailable');
+    || timeoutMs < 1 || timeoutMs > 30000 || !['conversation','report-evidence'].includes(purpose)) throw failure(503, 'private_media_unavailable');
+  // A trusted constructor selects the namespace, never a caller-supplied object key.
+  const objectKey = object => {
+    const key = validateObject(object);
+    return purpose === 'report-evidence' ? key.replace('conversation-encrypted/v1/', 'report-evidence/v1/') : key;
+  };
   const ownedClient = !client;
   client ||= new S3Client({ region: 'auto', endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey }, maxAttempts: 2 });
@@ -65,7 +70,7 @@ function createPrivateMediaStorage({ env = process.env, client, authorize, fetch
   }
   async function put(context, object, input) {
     context = Object.freeze({ ...context }); object = Object.freeze({ ...object });
-    const key = validateObject(object);
+    const key = objectKey(object);
     if (!(input instanceof Uint8Array) || input.byteLength !== object.bytes) throw failure(400, 'private_media_invalid');
     // Copy before any await: the caller must not change the bytes after validation.
     const bytes = Buffer.from(input);
@@ -85,7 +90,7 @@ function createPrivateMediaStorage({ env = process.env, client, authorize, fetch
   }
   async function get(context, object) {
     context = Object.freeze({ ...context }); object = Object.freeze({ ...object });
-    const key = validateObject(object);
+    const key = objectKey(object);
     await allowed(context, object, 'download'); await privateBucket(); await allowed(context, object, 'download');
     let bytes;
     try {
@@ -100,7 +105,7 @@ function createPrivateMediaStorage({ env = process.env, client, authorize, fetch
     }
   }
   async function remove(context,object) {
-    context=Object.freeze({...context});object=Object.freeze({...object});const key=validateObject(object);
+    context=Object.freeze({...context});object=Object.freeze({...object});const key=objectKey(object);
     await allowed(context,object,'cleanup');await privateBucket();await allowed(context,object,'cleanup');
     try {await client.send(new DeleteObjectCommand({Bucket:config.bucket,Key:key}),{abortSignal:AbortSignal.timeout(timeoutMs)});}
     catch {throw failure(503,'private_media_unavailable');}

@@ -82,6 +82,56 @@ test('authorization is rechecked after a transaction waits for membership serial
 });
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+
+test('bounded real PostgreSQL load: two stores persist decryptable messages once with contiguous sequence and receipt convergence',async t=>{
+  const f=await fixture(t),a=f.members.alice,b=f.members.bob,count=64;
+  await f.store.encryptedOperation(a.context,a.sign('reserve',f.reserve));
+  // This load exercise starts from admitted synthetic membership, not a production admission claim.
+  const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
+  const packageFor=owner=>mls.generateKeyPackage({credentialType:'basic',identity:new TextEncoder().encode('load-fixture:'+owner)},
+    mls.defaultCapabilities(),{notBefore:0n,notAfter:BigInt(Math.floor(Date.now()/1000)+86400)},[],suite);
+  const ap=await packageFor('alice'),bp=await packageFor('bob');
+  let state=await mls.createGroup(new TextEncoder().encode(f.id),ap.publicPackage,ap.privatePackage,[],suite);
+  const add=await mls.createCommit({state,cipherSuite:suite},{extraProposals:[{proposalType:'add',add:{keyPackage:bp.publicPackage}}]});
+  state=add.newState;
+  let recipient=await mls.joinGroup(add.welcome,bp.publicPackage,bp.privatePackage,mls.emptyPskIndex,suite,state.ratchetTree);
+  const epoch=String(state.groupContext.epoch);
+  await f.pool.query("UPDATE encrypted_conversations SET status='active',epoch=$2 WHERE id=$1",[f.id,epoch]);
+  await f.pool.query('INSERT INTO encrypted_conversation_epochs(conversation_id,epoch,creator_device,recipient_device) VALUES($1,$2,$3,$4)',[f.id,epoch,a.id,b.id]);
+  const packets=[];
+  for(let i=0;i<count;i++) {
+    const sealed=await mls.createApplicationMessage(state,new TextEncoder().encode('synthetic-load-'+i),suite);state=sealed.newState;
+    const bytes=Buffer.from(mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:sealed.privateMessage}));
+    packets.push({id:crypto.randomUUID(),conversationId:f.id,epoch,deviceId:a.id,ciphertext:bytes.toString('base64url'),hash:crypto.createHash('sha256').update(bytes).digest('hex')});
+  }
+  const withTransaction=async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}};
+  const nodes=[0,1].map(()=>createEncryptedConversationStore({withTransaction}));
+  const jobs=packets.flatMap((p,i)=>i%7===0?[p,p]:[p]),latencies=[];let next=0;
+  const started=performance.now();
+  await Promise.all(Array.from({length:6},(_,worker)=>(async()=>{
+    while(next<jobs.length) {const p=jobs[next++],at=performance.now();await nodes[worker%2].encryptedOperation(a.context,a.sign('send',p));latencies.push(performance.now()-at);}
+  })()));
+  const durationMs=performance.now()-started;
+  const stored=(await f.pool.query('SELECT id,sequence::text,ciphertext,hash FROM encrypted_conversation_messages ORDER BY encrypted_conversation_messages.sequence')).rows;
+  assert.equal(stored.length,count);assert.deepEqual(stored.map(r=>r.sequence),Array.from({length:count},(_,i)=>String(i+1)));
+  const decoded=new Set();
+  for(const row of stored) {
+    const bytes=Buffer.from(row.ciphertext,'base64url'),[wire,offset]=mls.decodeMlsMessage(bytes,0);
+    assert.equal(offset,bytes.length);
+    const result=await mls.processPrivateMessage(recipient,wire.privateMessage,mls.emptyPskIndex,suite);recipient=result.newState;
+    assert.equal(result.kind,'applicationMessage');decoded.add(new TextDecoder().decode(result.message));
+    const receipt={id:row.id,conversationId:f.id,epoch,hash:row.hash,kind:'delivered'};
+    await Promise.all(nodes.map(node=>node.encryptedOperation(b.context,b.sign('receipt',receipt))));
+  }
+  assert.equal(decoded.size,count);
+  assert.equal((await f.pool.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts WHERE kind='delivered'")).rows[0].n,count);
+  const inbox=await f.store.encryptedOperation(b.context,b.sign('poll',{}));
+  assert.ok(inbox.groups.every(g=>g.messages.length===0));
+  latencies.sort((x,y)=>x-y);
+  t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-synthetic-pair',uniqueMessages:count,attempts:jobs.length,
+    concurrentConnections:6,stores:2,duplicateRows:0,recipientDecryptions:decoded.size,durationMs:Math.round(durationMs),
+    p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*0.95)-1]),productionSloProven:false,shoppingRoomsProven:false}));
+});
 test('reservation retirement and a delayed reservation serialize to exactly one durable outcome',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,intent=f.intent(f.targets[0]);
   const results=await Promise.allSettled([
