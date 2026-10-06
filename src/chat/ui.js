@@ -672,7 +672,7 @@
               `).join("") : `<p class="empty-copy">${deps.escapeHtml(profileFilter === "unread" ? t("inbox.caughtUp", "You're all caught up.") : t("inbox.empty", "Your conversations will appear here."))}</p>`}
               <p class="empty-copy" data-inbox-no-results hidden>${deps.escapeHtml(t("inbox.noResults", "No conversations found."))}</p>
               ${renderMessagePageControl("inbox")}
-              ` : `<div class="conversation-empty-state">${icon(conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(emptyTitle)}</h4><p>${deps.escapeHtml(emptyCopy)}</p></div>`}
+              ` : conversationsView==='rooms'?`<div data-room-list><p class="empty-copy">${deps.escapeHtml(emptyCopy)}</p></div>`:`<div class="conversation-empty-state">${icon(conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(emptyTitle)}</h4><p>${deps.escapeHtml(emptyCopy)}</p></div>`}
             </div>
             ` : ""}
             ${showConversationDetail ? `
@@ -737,7 +737,7 @@
                 </form>
               ` : `<p class="empty-copy">Chagua conversation au tumia Message Muuzaji kutoka kwenye bidhaa.</p>`}
             </div>
-            ` : `<div class="messages-thread-card conversation-idle"><div class="conversation-empty-state">${icon(directView || conversationsView === "tools" ? "message-circle" : conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(directView || conversationsView === "tools" ? panelSubtitle : emptyTitle)}</h4><p>${deps.escapeHtml(directView || conversationsView === "tools" ? t("inbox.selectChat", "Select a conversation") : emptyCopy)}</p></div></div>`}
+            ` : conversationsView==='rooms'?`<section class="messages-thread-card room-detail" data-room-detail><p class="empty-copy">${deps.escapeHtml(emptyCopy)}</p></section>`:`<div class="messages-thread-card conversation-idle"><div class="conversation-empty-state">${icon(directView || conversationsView === "tools" ? "message-circle" : conversationsView === "calls" ? "phone" : "users")}<h4>${deps.escapeHtml(directView || conversationsView === "tools" ? panelSubtitle : emptyTitle)}</h4><p>${deps.escapeHtml(directView || conversationsView === "tools" ? t("inbox.selectChat", "Select a conversation") : emptyCopy)}</p></div></div>`}
           </div>
           <nav class="conversation-bottom-nav" aria-label="${deps.escapeHtml(t("inbox.navigation", "Conversation navigation"))}">
             <button type="button" data-conversations-action="chats" ${directView || conversationsView === "tools" ? 'aria-current="page"' : ''}>${icon("message-circle")}<span>${deps.escapeHtml(t("inbox.chats", "Chats"))}</span></button>
@@ -753,7 +753,7 @@
       return createElementFromMarkup(renderNotificationsSection());
     }
 
-    // Presentation only: room transport and authenticated membership are not connected yet.
+    // Isolated presentation preview. Live Rooms use rooms-ui.js and the authenticated service.
     function renderChatroomLayout(room = {}) {
       room = room && typeof room === "object" ? room : {};
       const members = Array.isArray(room.members) ? room.members.filter(member => member && typeof member.username === "string").slice(0, 200) : [];

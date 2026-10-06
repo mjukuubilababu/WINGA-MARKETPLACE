@@ -32,7 +32,7 @@
       try {
         const context = await request(`resolve?id=${encodeURIComponent(id)}`);
         if (key !== sessionKey() || pendingId !== id) return;
-        if (!context?.withUser) throw new Error("Invalid push target"); // i18n-gate: allow -- internal diagnostic
+        if (!context?.withUser && !/^[a-f0-9-]{36}$/.test(context?.roomId||'')) throw new Error("Invalid push target"); // i18n-gate: allow -- internal diagnostic
         pendingId = "";
         await openConversation(context);
       } catch (error) {

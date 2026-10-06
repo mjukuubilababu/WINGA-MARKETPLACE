@@ -10,7 +10,10 @@ const eventFields = `e.id,e.conversation_id AS "conversationId",e.position::text
   e.revision::text AS revision,e.created_at AS "createdAt"`;
 const allowed = `NOT c.blocked AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE
   (b.blocker_username=c.participant_low AND b.blocked_username=c.participant_high)
-  OR (b.blocker_username=c.participant_high AND b.blocked_username=c.participant_low))`;
+  OR (b.blocker_username=c.participant_high AND b.blocked_username=c.participant_low)
+  OR (COALESCE(to_jsonb(c)->>'kind','direct')='shopping-room'
+    AND EXISTS(SELECT 1 FROM conversation_event_members x WHERE x.conversation_id=c.id AND x.owner_id=b.blocker_username)
+    AND EXISTS(SELECT 1 FROM conversation_event_members y WHERE y.conversation_id=c.id AND y.owner_id=b.blocked_username)))`;
 
 function validateEventIds(payload, deviceId) {
   if (!payload || payload.deviceId !== deviceId || !Array.isArray(payload.eventIds)

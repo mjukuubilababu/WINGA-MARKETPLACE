@@ -31,6 +31,7 @@ git-index-recovered
 .tmp-*.json
 .tmp-*.log
 .tmp-*.pid
+.tmp-shopping-rooms-*.png
 tmp_*.js
 tmp-*.mjs
 scripts/prod-*.json

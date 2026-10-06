@@ -2198,6 +2198,7 @@ async loadAdminPayments(filters) {
           return getCommunicationsApiClient().createEncryptedCandidate(options);
         },
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
+        shoppingRoom(action,args) { return getCommunicationsApiClient().shoppingRoom(action,args); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
         replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
         resumeEncryptedConversationReplacement(peer) { return getCommunicationsApiClient().resumeEncryptedConversationReplacement(peer); },
@@ -4283,6 +4284,11 @@ async loadAdminPayments() {
       },
       async inspectEncryptedConversation(peer) {
         assertBuyerCapableAccess();ensureAdapter();return state.adapter.inspectEncryptedConversation?state.adapter.inspectEncryptedConversation(peer):{status:'disabled'};
+      },
+      async shoppingRoom(action,args=[]) {
+        assertBuyerCapableAccess();ensureAdapter();
+        if(!state.adapter.shoppingRoom)throw Object.assign(new Error('encrypted_rooms_disabled'),{code:'encrypted_rooms_disabled'});
+        return state.adapter.shoppingRoom(action,args);
       },
       async sendEncryptedMedia(peer,file,text,kind) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text,kind); },
       async stageEncryptedMediaDraft(peer,file,kind) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.stageEncryptedMediaDraft(peer,file,kind); },

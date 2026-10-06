@@ -13004,3 +13004,48 @@ body.visual-categories-view #quick-discovery-rail{
 .chat-message-search-result { border-bottom: 1px solid var(--line, #e2e6e4); padding: 12px 0; overflow-wrap: anywhere; }
 .chat-message-search-result time { display: block; font-size: 12px; color: var(--muted, #647068); }
 .chat-message-search-result p { white-space: pre-wrap; margin: 6px 0; }
+/* Shopping Rooms share the existing conversation shell and native thread sizing. */
+.rooms-list-toolbar { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid #e5e7eb; }
+.rooms-list-toolbar > strong { flex:1; min-width:0; overflow-wrap:anywhere; }
+.room-detail { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.room-detail .messages-thread-head > strong { flex:1; min-width:0; overflow-wrap:anywhere; }
+.room-head-identity { flex:1; min-width:0; overflow-wrap:anywhere; }
+.room-view-tabs { display:flex; flex:none; overflow-x:auto; border-bottom:1px solid #e5e7eb; background:#fff; }
+.room-view-tab { flex:1 0 auto; padding:12px 14px; border:0; border-bottom:2px solid transparent; border-radius:0; background:#fff; color:#4b5563; font:inherit; font-size:13px; cursor:pointer; }
+.room-view-tab[aria-selected="true"] { border-bottom-color:#008c4e; color:#007d44; font-weight:700; }
+.room-view-tab:disabled { color:#9ca3af; cursor:default; }
+.room-detail .messages-compose { flex:none; border-top:1px solid #e5e7eb; padding:10px 14px; }
+.room-detail .messages-compose > label { display:block; font-size:12px; color:#6b7280; }
+.room-detail textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:42px; max-height:140px; border:1px solid #d1d5db; border-radius:8px; padding:10px 12px; font:inherit; background:#f6f7f9; color:#111827; }
+.room-thread { flex:1; min-height:160px; overflow-y:auto; padding:14px; }
+.room-thread .chatroom-message-row { display:flex; margin-bottom:12px; }
+.room-thread .chatroom-message-row > .message-thread-avatar { flex:0 0 32px; width:32px; height:32px; margin-inline-end:8px; }
+.room-thread .is-own { justify-content:flex-end; }
+.room-thread .message-bubble { max-width:min(85%,560px); overflow-wrap:anywhere; }
+.conversation-workspace .room-thread .chatroom-message-row .message-bubble { flex-shrink:1; min-width:0; max-width:min(calc(100% - 50px),560px); }
+.conversation-workspace .room-thread .chatroom-message-row.is-own .message-bubble { max-width:min(100%,560px); }
+.room-thread .message-bubble p { white-space:pre-wrap; margin:4px 0; }
+.room-operation-status:empty { display:none; }
+.room-products,.room-polls { flex:1; overflow:auto; min-height:0; padding:14px; }
+.room-product-item { display:flex; gap:12px; padding:14px 0; border-bottom:1px solid #e5e7eb; }
+.room-product-item > img { width:80px; height:80px; object-fit:cover; border-radius:6px; }
+.room-product-item > div { display:flex; flex:1; flex-direction:column; min-width:0; gap:6px; overflow-wrap:anywhere; }
+.room-product-item small { color:#6b7280; }
+.room-product-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.room-poll { margin:14px 0; padding:14px 0; border-bottom:1px solid #e5e7eb; }
+.room-poll h4 { font-size:16px; overflow-wrap:anywhere; margin:0 0 12px; }
+.room-poll-option { display:grid; grid-template-columns:20px minmax(0,1fr) 36px; gap:8px; align-items:center; padding:8px 0; font-size:14px; }
+.room-poll-option meter { grid-column:2/4; width:100%; height:8px; }
+.room-poll-option span { overflow-wrap:anywhere; }
+.room-dialog { width:min(440px,calc(100vw - 32px)); max-height:85vh; overflow:auto; box-sizing:border-box; }
+.room-dialog form { display:flex; flex-direction:column; gap:12px; }
+.room-dialog label { display:flex; flex-direction:column; gap:6px; font-size:14px; }
+.room-dialog .room-members-list { position:static; width:100%; max-height:none; padding:0; border:0; box-shadow:none; box-sizing:border-box; }
+.room-dialog input,.room-dialog textarea { width:100%; box-sizing:border-box; padding:10px; border:1px solid #d1d5db; border-radius:6px; font:inherit; }
+.room-key-review { padding:0; list-style:none; display:grid; gap:12px; }
+.room-key-review li { display:grid; gap:4px; }
+.room-key-review code { font-size:12px; word-break:break-all; color:#4b5563; }
+.room-key-review code { direction:ltr; unicode-bidi:isolate; }
+.room-product-result { padding:12px 0; border-bottom:1px solid #e5e7eb; display:grid; gap:8px; }
+.room-attachment-preview { width:100%; max-height:50vh; object-fit:contain; }
+@media(max-width:640px) { .room-view-tab { padding:11px 10px; font-size:12px; } .room-detail { min-height:calc(100dvh - 180px); } }

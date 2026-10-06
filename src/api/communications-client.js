@@ -34,6 +34,7 @@
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
           onChange:()=>encryptionChanged(),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
+          roomsEnabled:capabilities.roomsEnabled===true,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
@@ -468,6 +469,7 @@
     }
 
     return api = {
+      shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
       inspectEncryptedConversation: async peer => {
         const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
       },

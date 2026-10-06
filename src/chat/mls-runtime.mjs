@@ -715,7 +715,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     need(item?.owner === owner && item.status === 'pending', 'mls_send_retry_conflict');
     if (item.kind === 'shopping-room') {
       need(room, 'mls_group_scope_rejected');
-      return room.send({clientMessageId:id,conversationId:item.conversationId,message:item.message});
+      return room.send({clientMessageId:id,conversationId:item.conversationId,message:item.message,...(item.mediaId?{mediaId:item.mediaId}:{})});
     }
     return sendMessage({ clientMessageId: id, receiverId: item.peer, message: item.message, messageType: 'text' });
   }

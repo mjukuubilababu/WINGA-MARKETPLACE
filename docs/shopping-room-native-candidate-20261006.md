@@ -2,6 +2,10 @@
 
 ## Scope
 
+This is the historical native-only checkpoint. The subsequent
+[real backend/UI integration](shopping-rooms-backend-ui-20261007.md) supersedes
+the statements below that the room service and adapter are absent.
+
 This is a gated client/protocol implementation, not a released room service.
 `createMlsRuntime` defaults `rooms` to false. No production caller installs a
 room authorization adapter. Existing Render/Phoenix pair authorization remains

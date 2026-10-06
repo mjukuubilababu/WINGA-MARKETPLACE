@@ -47,7 +47,7 @@ export function decodeRoomTransferPayload(value) {
 
 // Reuses the native runtime's vault CAS, owner lock, pins, journal and MLS suite.
 // The authorization adapter must verify canonical server reservations and durable activation.
-// No adapter is installed in production until the corresponding room service exists.
+// The server-backed adapter is installed only behind the explicit Rooms gate.
 export function createMlsRoomOperations({owner,vault,locked,put,record,state,config,roster,current,suite,hash,crypto,now,
   policy,transport,authorization,inspectPackage,retirePackage,wipePackage,wipe,noPendingSend,maxOwners=12,maxDevices=24}) {
   need(Number.isInteger(maxOwners) && maxOwners>=3 && maxOwners<=32 && Number.isInteger(maxDevices)
@@ -308,14 +308,15 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
   }
   async function send(payload) {
     payload=structuredClone(payload);
-    need(exact(payload,['conversationId','clientMessageId','message']) && uuid(payload.conversationId) && uuid(payload.clientMessageId)
+    need(exact(payload,Object.hasOwn(payload,'mediaId')?['conversationId','clientMessageId','message','mediaId']:['conversationId','clientMessageId','message'])
+      &&(!Object.hasOwn(payload,'mediaId')||uuid(payload.mediaId)) && uuid(payload.conversationId) && uuid(payload.clientMessageId)
       && typeof payload.message==='string' && payload.message.trim() && encoder.encode(payload.message).length<=16384,'mls_content_unsupported');
     return locked(async()=>{
       let saved=await vault.snapshot();const id=payload.conversationId,g=await state(saved,id,null,true),own=saved.values['mls:identity'];await allowed(g,id);
       need(!saved.values[`mls:membership:${id}`],'mls_room_membership_pending');
       need(!Object.entries(saved.values).some(([k,j])=>k.startsWith('mls:outbox:')&&j.conversationId===id&&j.id!==payload.clientMessageId),'mls_pending_send_requires_retry');
       let job=saved.values[`mls:outbox:${payload.clientMessageId}`],item=await record(saved,`history:${payload.clientMessageId}`);
-      if(item)need(item.kind==='shopping-room'&&item.conversationId===id&&item.owner===owner&&item.message===payload.message,'mls_send_retry_conflict');
+      if(item)need(item.kind==='shopping-room'&&item.conversationId===id&&item.owner===owner&&item.message===payload.message&&(item.mediaId||null)===(payload.mediaId||null),'mls_send_retry_conflict');
       if(item&&!job)return structuredClone(item);
       if(job)need(item && item.status==='pending' && job.id===payload.clientMessageId && job.conversationId===id
         && job.epoch===String(g.value.groupContext.epoch) && job.deviceId===own.id && job.hash===item.hash
@@ -325,8 +326,8 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
         const bytes=encoder.encode(canonical({...content,signature:Array.from(signature)}));let changed;
         try{changed=await createApplicationMessage(g.value,bytes,suite);}finally{bytes.fill(0);}
         try{const ciphertext=encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:changed.privateMessage});
-          job={id:content.id,conversationId:id,epoch:content.epoch,deviceId:own.id,ciphertext,hash:await hash(ciphertext)};
-          item={...content,kind:'shopping-room',peer:'room:'+id,hash:job.hash,timestamp:new Date(now()).toISOString(),status:'pending',encrypted:true};
+          job={id:content.id,conversationId:id,epoch:content.epoch,deviceId:own.id,ciphertext,hash:await hash(ciphertext),...(payload.mediaId?{mediaId:payload.mediaId}:{})};
+          item={...content,kind:'shopping-room',peer:'room:'+id,hash:job.hash,timestamp:new Date(now()).toISOString(),status:'pending',encrypted:true,...(payload.mediaId?{mediaId:payload.mediaId}:{})};
           await put(saved,{[`mls:group:${id}`]:{...g.row,bytes:encodeGroupState(changed.newState)},[`mls:outbox:${content.id}`]:job,[`history:${content.id}`]:item});
         }finally{wipe(changed);}
       }
@@ -385,7 +386,9 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
     return locked(async()=>{
       need(uuid(id),'mls_room_membership_required');
       const belongs=(v,k)=>k.startsWith('history:')&&v.kind==='shopping-room'&&v.conversationId===id;
-      const saved=await (vault.historySnapshot?vault.historySnapshot({filter:belongs}):vault.snapshot());current();
+      const saved=await vault.snapshot();current();
+      if(vault.historySnapshot){const history=await vault.historySnapshot({filter:belongs});current();
+        need(history.revision===saved.revision,'mls_room_history_revision_conflict');Object.assign(saved.values,history.values);}
       const g=await state(saved,id,null,true),wanted=new Set([String(g.value.groupContext.epoch)]);
       for(const [key,value] of Object.entries(saved.values))if(belongs(value,key))wanted.add(value.epoch);
       need(wanted.size<=1024,'mls_room_history_epoch_limit');const result=new Map();

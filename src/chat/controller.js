@@ -27,6 +27,7 @@
           saveProduct:deps.saveConversationProduct,buyProduct:deps.buyConversationProduct,
           openOrder:deps.openConversationOrder,payOrder:deps.resumeOrderPayment,
           sanitizeImage:deps.sanitizeImageSource,formatPrice:deps.formatProductPrice,
+          getMemberProfile:deps.getMarketplaceUser,memberName:deps.getUserDisplayName,
           openContact:async username=>{
             const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.();
             const profile=await deps.dataLayer.readRichContact(username);
@@ -1740,6 +1741,7 @@
           deps.setOpenEmojiScope("");
           deps.replaceMessagesPanel(scope);
       });
+      globalThis.WingaShoppingRoomsUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
     }
 
     return {

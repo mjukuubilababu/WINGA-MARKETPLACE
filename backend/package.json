@@ -31,6 +31,7 @@
     "verify:conversation-events": "node verify-conversation-events.js",
     "verify:encrypted-conversation-backups": "node verify-encrypted-conversation-backups.js",
     "verify:encrypted-chat-readiness": "node verify-encrypted-chat-readiness.js",
+    "verify:shopping-rooms": "node verify-shopping-rooms.js",
     "test:smoke": "node api-smoke-test.js"
   }
 }

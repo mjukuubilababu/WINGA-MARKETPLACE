@@ -36,18 +36,30 @@ async function enqueueMessagePush(client, message) {
   }
 }
 
-function createMessageWebPushStore({ query, withTransaction, provider = webPush, encrypted = false }) {
+function createMessageWebPushStore({ query, withTransaction, provider = webPush, encrypted = false, roomsEnabled=false }) {
   const sources=encrypted?`WITH push_messages AS (
-    SELECT id,sender_id,receiver_id,is_read FROM messages UNION ALL
+    SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages UNION ALL
     SELECT m.id,d.owner_id,CASE WHEN d.owner_id=g.creator THEN g.recipient ELSE g.creator END,
-      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.kind='read')
+      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.kind='read'),NULL::text AS room_id
     FROM encrypted_conversation_messages m JOIN encrypted_conversations g ON g.id=m.conversation_id
     JOIN conversation_crypto_devices d ON d.id=m.sender_device AND d.status='active'
     JOIN conversation_crypto_devices a ON a.id=g.creator_device AND a.status='active'
     JOIN conversation_crypto_devices b ON b.id=g.recipient_device AND b.status='active'
     JOIN users ca ON ca.username=g.creator AND ca.status='active'
     JOIN users cb ON cb.username=g.recipient AND cb.status='active' WHERE g.status='active'
-  )`:`WITH push_messages AS (SELECT id,sender_id,receiver_id,is_read FROM messages)`;
+    ${roomsEnabled?`UNION ALL SELECT DISTINCT m.id,s.owner_id,old.owner_id,
+      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r JOIN conversation_crypto_devices d ON d.id=r.device_id
+        WHERE r.message_id=m.id AND r.kind='read' AND d.owner_id=old.owner_id),g.id
+      FROM encrypted_conversation_messages m JOIN encrypted_conversations g ON g.id=m.conversation_id AND g.kind='shopping-room' AND g.status='active'
+      JOIN conversation_crypto_devices s ON s.id=m.sender_device AND s.status='active'
+      JOIN encrypted_conversation_epoch_devices old ON old.conversation_id=g.id AND old.epoch=m.epoch AND old.owner_id<>s.owner_id
+      JOIN encrypted_conversation_epoch_devices live ON live.conversation_id=g.id AND live.epoch=g.epoch AND live.owner_id=old.owner_id
+      JOIN conversation_crypto_devices d ON d.id=live.device_id AND d.status='active'
+      JOIN users u ON u.username=old.owner_id AND u.status='active'
+      WHERE NOT EXISTS(SELECT 1 FROM encrypted_room_transitions t WHERE t.conversation_id=g.id AND t.status<>'accepted')
+      AND NOT EXISTS(SELECT 1 FROM user_blocks b JOIN conversation_event_members x ON x.owner_id=b.blocker_username AND x.conversation_id=g.canonical_id
+        JOIN conversation_event_members y ON y.owner_id=b.blocked_username AND y.conversation_id=g.canonical_id)`:''}
+  )`:`WITH push_messages AS (SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages)`;
   let identityPromise;
   function identity() {
     if (!identityPromise) identityPromise = (async () => {
@@ -146,7 +158,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
     if (!validId(id)) throw reject(404);
     return withTransaction(async client => {
       await liveSession(client, owner, token, sessionId);
-      const result = await client.query(`${sources} SELECT m.sender_id AS "withUser" FROM web_push_jobs j
+      const result = await client.query(`${sources} SELECT m.sender_id AS "withUser",m.room_id AS "roomId" FROM web_push_jobs j
         JOIN web_push_subscriptions p ON p.id=j.subscription_id AND p.session_id=j.session_id
         JOIN push_messages m ON m.id=j.message_id AND m.receiver_id=j.owner_id
         WHERE j.id=$1 AND j.owner_id=$2 AND j.session_id=$3 AND j.expires_at>NOW()
@@ -154,7 +166,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
           (b.blocker_username=m.sender_id AND b.blocked_username=$2) OR
           (b.blocker_username=$2 AND b.blocked_username=m.sender_id))`, [id, owner, sessionId]);
       if (!result.rows.length) throw reject(404);
-      return result.rows[0];
+      const target=result.rows[0];return target.roomId?target:{withUser:target.withUser};
     });
   }
 

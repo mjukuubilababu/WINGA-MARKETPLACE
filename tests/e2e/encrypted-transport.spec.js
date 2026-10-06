@@ -9,8 +9,9 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false;
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false,roomsEnabled=false,loseRoomReserve=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'}};
+const roomCatalogProduct={id:'room-fixture-product',name:'Kariakoo simu',price:850000,status:'approved',availability:'available',sellerId:'outside-seller'};
 const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypto').randomBytes(32).toString('hex'),s]));
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
@@ -51,9 +52,12 @@ test.beforeAll(async()=>{
     }
     const assets={'/devices.js':'src/chat/crypto-devices.js','/vault.js':'src/chat/encrypted-vault.js','/policy.js':'src/chat/encrypted-policy.js',
       '/api.js':'src/api/communications-client.js','/session.js':'src/chat/encryption-session.js','/security-ui.js':'src/chat/encryption-ui.js','/ui.js':'src/chat/ui.js','/style.css':'style.css',
+      '/room-session.js':'src/chat/room-session.js','/rooms-ui.js':'src/chat/rooms-ui.js','/src/chat/shopping-room-content.mjs':'src/chat/shopping-room-content.mjs',
       '/rich.js':'src/chat/rich-content.js','/media.js':'src/chat/encrypted-media-client.js','/media-ui.js':'src/chat/encrypted-media-ui.js','/content.js':'src/chat/secure-content.js','/history-sync.js':'src/chat/native-history-client.js','/recovery.js':'src/chat/recovery-client.js','/recovery-ui.js':'src/chat/recovery-ui.js','/device-ui.js':'src/chat/device-management-ui.js'};
-    if(/^\/icons\/navigation\/(key-round|paperclip|download|eye|monitor-smartphone)\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
+    if(/^\/icons\/navigation\/[a-z0-9-]+\.svg$/.test(url.pathname)){res.setHeader('Content-Type','image/svg+xml');res.end(fs.readFileSync(path.resolve(__dirname,'../../node_modules/lucide-static/icons',path.basename(url.pathname))));return;}
     if(assets[url.pathname]){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');res.end(fs.readFileSync(path.resolve(__dirname,'../..',assets[url.pathname])));return;}
+    if(url.pathname==='/room-read-visibility.js'){const app=fs.readFileSync(path.resolve(__dirname,'../../app.js'),'utf8');res.setHeader('Content-Type','text/javascript');
+      res.end(app.slice(app.indexOf('function isActiveConversationVisible()'),app.indexOf('async function markActiveConversationRead()')));return;}
     if(url.pathname==='/vendor/winga-mls-candidate.js'){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(output,'winga-mls-candidate.js')));return;}
     if(url.pathname==='/fixture.js'){
       res.setHeader('Content-Type','text/javascript');res.end(`
@@ -80,7 +84,7 @@ test.beforeAll(async()=>{
       const context={owner:session.username,deviceId:session.sessionId,token:session.token};
       try {
         const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:()=>session.token,ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
-        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled});
+        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled,roomsEnabled});
         const media=createEncryptedMediaApi({...common,getPostgresStore:()=>transport,getStorage:()=>storage});
         const backupApi=createEncryptedConversationBackupsApi({...common,getPostgresStore:()=>backups});
         if(await backupApi.handle(req,res,url))return;
@@ -88,8 +92,9 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer || loseRoomReserve)){
           const body=await collectBody(req);
+          if(body.action==='room-reserve'&&loseRoomReserve){loseRoomReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_room_reservation_reply'});return;}
           if(['device-transfer','device-change-transfer'].includes(body.action) && loseDeviceTransfer){loseDeviceTransfer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_device_transfer_reply'});return;}
           if(body.action==='replace-reserve' && rejectReplacementReserve){rejectReplacementReserve=false;sendJson(res,409,{code:'encrypted_package_unavailable'});return;}
           if(body.action==='replace-reserve' && loseReplacementReserve){loseReplacementReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_reservation_reply'});return;}
@@ -99,6 +104,7 @@ test.beforeAll(async()=>{
           sendJson(res,200,await transport.encryptedOperation(context,body));return;
         }
         if(await api.handle(req,res,url))return;
+        if(url.pathname==='/api/products'){sendJson(res,200,{items:[roomCatalogProduct].filter(p=>!url.searchParams.get('productId')||p.id===url.searchParams.get('productId'))});return;}
         if(url.pathname.endsWith('/crypto/devices')){sendJson(res,200,req.method==='POST'?await devices.mutateConversationCryptoDevice(context,await collectBody(req)):await devices.readConversationCryptoDevices(context));return;}
         if(url.pathname.endsWith('/crypto/key-packages')){sendJson(res,200,await packages.publishCryptoKeyPackage(context,await collectBody(req)));return;}
         if(url.pathname==='/api/messages'){sendJson(res,200,[]);return;}
@@ -112,16 +118,131 @@ test.beforeAll(async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 });
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
-async function resetStores(multidevice=false) {
+async function resetStores(multidevice=false,rooms=false) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages'])
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   const withTransaction=work=>db.transaction(work);
   devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
-  transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice});
-  backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;
+  transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice,roomsEnabled:rooms});
+  backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;roomsEnabled=rooms;
 }
+
+test('real Rooms UI creates a three-owner native MLS room and converges encrypted text and poll votes over HTTP',async({browser})=>{
+  test.setTimeout(120000);await resetStores(false,true);
+  const contexts=await Promise.all([browser.newContext({viewport:{width:390,height:844}}),browser.newContext(),browser.newContext()]);
+  try{
+    const pages=await Promise.all(contexts.map(c=>c.newPage()));
+    for(const [index,page] of pages.entries()){
+      page.on('response',async response=>{if(response.url().includes('/api/')&&!response.ok())console.log('room-http-diagnostic',response.status(),(await response.json().catch(()=>({}))).code);});
+      page.on('console',message=>{if(message.text().startsWith('room-ui-diagnostic'))console.log(message.text());});
+      await page.goto(origin);await page.addScriptTag({url:origin+'/room-read-visibility.js'});await page.addScriptTag({url:origin+'/room-session.js'});await page.addScriptTag({url:origin+'/rooms-ui.js'});
+      await page.evaluate(name=>start(name),['alice','bob','eve'][index]);
+      await page.evaluate(()=>{
+        const ui=WingaModules.chat.createChatUiModule({escapeHtml:v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+          getCurrentUser:()=>browserSession.username,getCurrentSession:()=>browserSession,getConversationSummaries:()=>[],getActiveChatContext:()=>null,
+          getCurrentMessageDraft:()=>'',getConversationsView:()=> 'rooms',getProfileMessagesMode:()=> 'list',getProfileMessagesFilter:()=> 'all',
+          getUserDisplayName:v=>v,getMarketplaceUser:()=>null,getProductById:()=>null,getActiveConversationMessages:()=>[],getUnreadNotifications:()=>[]});
+        const profile=document.createElement('div');profile.id='profile-div';profile.dataset.activeSection='profile-messages-panel';profile.style.display='block';
+        const shell=document.createElement('div');shell.className='profile-shell';shell.innerHTML=ui.renderMessagesSection();profile.append(shell);
+        document.querySelector('main').replaceChildren(profile);document.body.classList.add('conversations-open');
+        WingaShoppingRoomsUi.bind(document.querySelector('.conversation-workspace'),{dataLayer:client,getSession:()=>browserSession,actions:{onError:code=>console.log('room-ui-diagnostic',code)}});
+      });
+    }
+    const [alice,bob,eve]=pages;
+    await alice.locator('[data-room-list]').getByRole('button',{name:'New chatroom'}).click();
+    await alice.locator('input[name="name"]').fill('Winga Kariakoo');await alice.locator('textarea[name="members"]').fill('bob eve');
+    await alice.getByRole('button',{name:'Review devices',exact:true}).click();await expect(alice.locator('.room-key-review li')).toHaveCount(3);
+    loseRoomReserve=true;await alice.locator('dialog').getByRole('button',{name:'New chatroom',exact:true}).click();
+    await expect(alice.locator('dialog [data-room-error]')).toContainText('Try again');
+    await alice.locator('dialog').getByRole('button',{name:'Close chat',exact:true}).click();
+    await alice.locator('[data-room-list]').getByRole('button',{name:'Try again',exact:true}).click();
+    await alice.locator('[data-room-list]').getByRole('button',{name:'Try again: Winga Kariakoo',exact:true}).click();
+    await expect(alice.locator('[data-room-row]')).toHaveCount(1);
+    const id=await alice.locator('[data-room-row]').getAttribute('data-room-row');
+    for(const page of [bob,eve]){await page.evaluate(async()=>{await client.shoppingRoom('sync');});
+      await expect(page.locator('[data-room-row]')).toHaveCount(1);await page.locator('[data-room-row]').click();
+      await page.getByRole('button',{name:'Review devices',exact:true}).click();await page.getByRole('button',{name:'Approve and join'}).click();}
+    for(const page of pages)await page.evaluate(()=>client.shoppingRoom('sync'));
+    await expect(alice.locator('textarea[name="message"]')).toBeVisible({timeout:15000});
+    await expect(alice.locator('.room-head-identity')).toContainText('3 members');
+    await bob.evaluate(()=>{window.roomTestViewport=Object.getOwnPropertyDescriptor(window,'visualViewport');
+      Object.defineProperty(window,'visualViewport',{configurable:true,value:{offsetTop:0,offsetLeft:0,height:0,width:innerWidth}});});
+    await alice.locator('textarea[name="message"]').fill('Habari za Kariakoo');await alice.getByRole('button',{name:'Send message',exact:true}).click();
+    for(const page of [bob,eve]){await page.evaluate(()=>client.shoppingRoom('sync'));await expect(page.locator('.room-thread')).toContainText('Habari za Kariakoo',{timeout:15000});}
+    const firstId=await bob.evaluate(async id=>(await client.shoppingRoom('history',[id])).find(m=>m.message==='Habari za Kariakoo').id,id);
+    await bob.bringToFront();await bob.evaluate(({id,firstId})=>client.shoppingRoom('markRead',[id,[firstId]]),{id,firstId});
+    const bobReads=async()=>(await db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts r
+      JOIN conversation_crypto_devices d ON d.id=r.device_id WHERE r.message_id=$1 AND r.kind='read' AND d.owner_id='bob'`,[firstId])).rows[0].n;
+    expect(await bobReads()).toBe(0);
+    await bob.evaluate(()=>{if(window.roomTestViewport)Object.defineProperty(window,'visualViewport',window.roomTestViewport);else delete window.visualViewport;
+      window.dispatchEvent(new Event('focus'));});
+    await bob.evaluate(({id,firstId})=>client.shoppingRoom('markRead',[id,[firstId]]),{id,firstId});
+    await expect.poll(bobReads).toBe(1);
+    await alice.getByRole('button',{name:'Attach file',exact:true}).click();
+    await alice.locator('input[type=file]').setInputFiles({name:'room-note.txt',mimeType:'text/plain',buffer:Buffer.from('Private room file contents')});
+    await alice.locator('textarea[name=caption]').fill('Faili yetu');await alice.locator('dialog').getByRole('button',{name:'Send message',exact:true}).click();
+    for(const page of [bob,eve]){await page.evaluate(()=>client.shoppingRoom('sync'));await expect(page.locator('.room-thread')).toContainText('room-note.txt',{timeout:15000});}
+    await bob.getByRole('button',{name:'room-note.txt',exact:true}).click();await expect(bob.locator('dialog a[download]')).toHaveAttribute('download','room-note.txt');
+    const fileId=await bob.evaluate(async id=>(await client.shoppingRoom('history',[id])).find(m=>m.message.startsWith('WINGA-MEDIA/')).id,id);
+    expect(await bob.evaluate(async({id,fileId})=>(await client.shoppingRoom('downloadMedia',[id,fileId])).blob.text(),{id,fileId})).toBe('Private room file contents');
+    await bob.locator('dialog').getByRole('button',{name:'Close chat',exact:true}).click();
+    expect([...objects.values()].some(bytes=>bytes.includes(Buffer.from('Private room file contents')))).toBe(false);
+    await alice.getByRole('tab',{name:'Products',exact:true}).click();await alice.getByRole('button',{name:'Share product',exact:true}).click();
+    await alice.locator('input[name=query]').fill('Kariakoo');await alice.locator('dialog').getByRole('button',{name:'Search',exact:true}).click();
+    await expect(alice.locator('.room-product-result')).toContainText('Kariakoo simu');await alice.locator('.room-product-result').getByRole('button',{name:'Share product',exact:true}).click();
+    await expect(alice.locator('.room-product-item')).toContainText('850000');
+    await bob.evaluate(()=>client.shoppingRoom('sync'));await bob.getByRole('tab',{name:'Products',exact:true}).click();await expect(bob.locator('.room-product-item')).toContainText('Kariakoo simu');
+    await bob.locator('.room-product-item').getByRole('button',{name:'Shortlist',exact:true}).click();await bob.getByRole('tab',{name:'Shortlist',exact:true}).click();await expect(bob.locator('.room-product-item')).toHaveCount(1);
+    await alice.getByRole('tab',{name:'Shortlist',exact:true}).click();await expect(alice.locator('.room-product-item')).toHaveCount(0);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM conversation_event_members WHERE conversation_id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[id])).rows[0].n).toBe(3);
+    await alice.getByRole('tab',{name:'Polls',exact:true}).click();await alice.getByRole('button',{name:'New poll',exact:true}).click();
+    await alice.locator('input[name="question"]').fill('Tunachagua nini?');await alice.locator('textarea[name="options"]').fill('Simu\nLaptop');await alice.locator('dialog').getByRole('button',{name:'New poll',exact:true}).click();
+    await bob.evaluate(()=>client.shoppingRoom('sync'));await bob.getByRole('tab',{name:'Polls',exact:true}).click();await expect(bob.locator('.room-poll')).toContainText('Tunachagua nini?');
+    await bob.locator('.room-poll-option').filter({hasText:'Simu'}).locator('input').check();
+    await expect.poll(()=>bob.evaluate(id=>client.shoppingRoom('board',[id]).then(board=>board.polls[0].options[0].votes),id)).toBe(1);
+    for(const page of pages)await page.evaluate(()=>client.shoppingRoom('sync'));
+    const boards=await Promise.all(pages.map(p=>p.evaluate(id=>client.shoppingRoom('board',[id]),id)));
+    assertRoomBoards(boards);await expect(alice.locator('.room-poll-option').filter({hasText:'Simu'}).locator('strong')).toHaveText('1',{timeout:15000});
+    await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-shopping-rooms-mobile.png'),fullPage:true});
+    await alice.setViewportSize({width:1280,height:900});await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-shopping-rooms-desktop.png'),fullPage:true});
+    const overflow=await alice.evaluate(()=>document.documentElement.scrollWidth>innerWidth);expect(overflow).toBe(false);
+    await alice.setViewportSize({width:390,height:844});await alice.getByRole('tab',{name:'Chats',exact:true}).click();
+    await expect(alice.locator('.room-thread')).toContainText('Faili yetu');
+    await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-shopping-rooms-chat.png'),fullPage:true});
+    expect(await alice.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await alice.evaluate(()=>{document.documentElement.dir='rtl';document.documentElement.lang='ar';});
+    expect(await alice.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await alice.evaluate(()=>{document.documentElement.dir='ltr';document.documentElement.lang='en';});
+    await alice.locator('textarea[name=message]').fill('long-word-'+ 'x'.repeat(700));await alice.getByRole('button',{name:'Send message',exact:true}).click();
+    await bob.evaluate(()=>client.shoppingRoom('sync'));await bob.getByRole('tab',{name:'Chats',exact:true}).click();
+    await expect(bob.locator('.room-thread')).toContainText('long-word-');await bob.setViewportSize({width:390,height:844});
+    expect(await bob.locator('.room-thread').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await bob.locator('.room-thread').evaluate(el=>{el.scrollTop=0;});
+    await alice.locator('textarea[name=message]').fill('Keep the reader in place');await alice.getByRole('button',{name:'Send message',exact:true}).click();
+    await bob.evaluate(()=>client.shoppingRoom('sync'));await expect(bob.locator('.room-thread')).toContainText('Keep the reader in place');
+    expect(await bob.locator('.room-thread').evaluate(el=>el.scrollTop)).toBeLessThan(5);
+    for(const page of pages)await page.evaluate(()=>client.shoppingRoom('sync'));
+    await alice.getByRole('button',{name:'Room members',exact:true}).click();
+    expect(await alice.locator('.room-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await alice.locator('.room-members-list li').filter({hasText:'eve'}).getByRole('button',{name:'Remove',exact:true}).click();
+    await alice.locator('dialog').last().getByRole('button',{name:'Remove',exact:true}).click();
+    await bob.evaluate(()=>client.shoppingRoom('sync'));
+    await bob.getByRole('button',{name:'Review devices',exact:true}).click();await bob.getByRole('button',{name:'Approve and join'}).click();
+    for(const page of [alice,bob])await page.evaluate(()=>client.shoppingRoom('sync'));
+    await expect(alice.locator('textarea[name=message]')).toBeVisible({timeout:15000});
+    await alice.locator('textarea[name=message]').fill('Retained members only');await alice.getByRole('button',{name:'Send message',exact:true}).click();
+    const retained=await bob.evaluate(()=>client.shoppingRoom('sync'));expect(retained[0].clientError).toBeUndefined();
+    await bob.getByRole('tab',{name:'Chats',exact:true}).click();await expect(bob.locator('.room-thread')).toContainText('Retained members only',{timeout:15000});
+    await eve.evaluate(()=>client.shoppingRoom('sync'));await expect(eve.locator('[data-room-detail]')).toContainText('Access ended',{timeout:15000});
+    await expect(eve.evaluate(({id,fileId})=>client.shoppingRoom('downloadMedia',[id,fileId]),{id,fileId})).rejects.toThrow();
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2',[id,'1'])).rows[0].n).toBe(3);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2',[id,'2'])).rows[0].n).toBe(2);
+    const plain=(await db.query(`SELECT COUNT(*)::int AS n FROM messages WHERE message LIKE '%Kariakoo%'`)).rows[0].n;expect(plain).toBe(0);
+  }finally{for(const c of contexts)await c.close();roomsEnabled=false;}
+});
+function assertRoomBoards(boards){for(const board of boards){expect(board.polls).toHaveLength(1);expect(board.polls[0].options[0].votes).toBe(1);}}
 
 test('production session admits a third approved native device and converges encrypted messages and receipts',async({browser})=>{
   test.setTimeout(120000);await resetStores(true);

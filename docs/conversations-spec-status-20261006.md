@@ -20,7 +20,11 @@ The subsequent [Shopping Room native candidate](shopping-room-native-candidate-2
 adds real multi-account MLS membership, all-native signed activation, role-bound
 epochs and encrypted product/shortlist/poll projection. Its 35-test local suite
 and actual native browser profiles use a synthetic canonical room authority.
-Rooms remain default-off; their real server transport and integrated UI are open.
+The subsequent [real backend/UI integration](shopping-rooms-backend-ui-20261007.md)
+adds typed canonical room streams, authenticated membership/receipts/media/push
+and integrated creation/chat/products/shortlist/poll UI. Rooms remain default-off
+pending controlled live rollout; the synthetic native load evidence still does
+not prove PostgreSQL multi-connection or production SLO acceptance.
 
 The operator requested commit/push/deploy of all pending conversation changes:
 indefinite Mute, durable owner Archive, selected-text reporting, moderator
@@ -100,7 +104,7 @@ Do not erase this distinction by calling the entire foundation complete.
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
-| 171-189 | Agreed room presentation plus a default-off native multi-account MLS candidate: all-leaf acceptance, account roles bound to epochs, exact retry/removal and deterministic encrypted Products/Shortlist/Polls. Actual native browser/IndexedDB and bounded concurrent sender tests exist. | Canonical typed-room backend, durable invitations/membership, room ciphertext/receipts/media/events/push, real queryable UI, current product comparison and seller question/response service. Wallet/automatic group order/AI/public communities are future scope. A synthetic signed room authority is not an implemented production group service. |
+| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. | Production rollout/physical-device acceptance, actual PostgreSQL races/load, independent audit, old-room-history multi-native transfer/recovery, room-specific preferences, role/leave policy, current product comparison and correlated seller question/response. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |

@@ -13,10 +13,10 @@
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
-    let closed=false,runtime,media,nativeHistory,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
     const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
     const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
     const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
@@ -76,8 +76,19 @@
       await operation(archive?'archive-read':'receipt',{id:item.id,conversationId:item.conversationId,epoch:item.epoch,hash:item.hash,kind});
     }
     try {
+      if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,
+          mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
+            const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
+            return WingaEncryptedMedia.createMediaClient({owner,getSession,vault,identity,request:mediaRequest,onChange,
+              operation:(action,payload,requestId)=>{if(payload.conversationId!==id)fail('encrypted_group_scope_rejected');return operation(action==='media-reserve'?'room-media-reserve':action,payload,requestId);},
+              runtime:{history:async p=>{requirePeer(p);return runtime.room.history(id);},conversationId:async p=>{requirePeer(p);return id;},
+                retryMessage:messageId=>runtime.retryMessage(messageId),sendMessage:async p=>{requirePeer(p.receiverId);return runtime.room.send({conversationId:id,clientMessageId:p.clientMessageId,message:p.message,mediaId:p.mediaId});}}});
+          }:undefined});}
       runtime=await WingaMlsCandidate.createMlsRuntime({getSession,vault,identityClient:identity,
-        publishPackage:packageRequest,trustedPins:pins,multiDevice:multiDeviceEnabled,transport:{send:job=>operation('send',{...job,ciphertext:encode(job.ciphertext)},job.id)}});
+        publishPackage:packageRequest,trustedPins:pins,multiDevice:multiDeviceEnabled,rooms:roomsEnabled,roomAuthorization:roomSession?.authorization,
+        transport:{send:async job=>{const saved=await vault.snapshot();const room=saved.values[`mls:group:${job.conversationId}`]?.kind==='shopping-room';
+          return operation(room?'room-send':'send',{...job,ciphertext:encode(job.ciphertext)},job.id);}}});
       await runtime.initialize();const own=await runtime.prepareKeyPackage(),native=await identity.enroll();
       if(multiDeviceEnabled&&globalThis.WingaNativeHistory&&globalThis.WingaSecureContent){
         const codec=await WingaSecureContent.loadSecureContent();current();
@@ -188,6 +199,7 @@
         await vault.write({expectedRevision:saved.revision,deleted:[`mls:replacement:${peer}`]});
       }
       async function syncInternal() {
+        // Rooms have their own typed sync facade; a room failure must not block direct chats.
         const collected=[],seen=new Set();let after;
         do {
           const result=await operation('poll',after?{after}:{});
@@ -500,6 +512,7 @@
         queueMicrotask(onChange);return messageView(result);
       }
       const service={
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;

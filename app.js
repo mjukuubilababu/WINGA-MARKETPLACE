@@ -1850,8 +1850,13 @@ function getWebPushTools() {
   if (!webPushTools) webPushTools = window.WingaModules.notifications.createPushModule({
     getSession: () => currentUser && !isSessionRestorePending && !isStaffUser() ? currentSession : null,
     request: (...args) => window.WingaDataLayer.pushRequest(...args),
-    openConversation: async ({ withUser }) => {
+    openConversation: async ({ withUser,roomId }) => {
       openProfileSection("profile-messages-panel");
+      if(roomId&&globalThis.WingaShoppingRoomsUi){
+        WingaShoppingRoomsUi.select(currentUser,roomId);chatUiState.activeContext=null;
+        chatUiState.profileMessagesMode='list';chatUiState.conversationsView='rooms';chatUiState.profileHasSelection=false;
+        renderProfile();await refreshMessagesState();return;
+      }
       chatUiState.activeContext = { withUser, displayName: getUserDisplayName(withUser), productId: "", productName: "" };
       chatUiState.currentDraft = loadStoredChatDraft(chatUiState.activeContext);
       chatUiState.profileMessagesMode = "detail";
@@ -9232,11 +9237,17 @@ function isActiveConversationVisible() {
     && surface.getClientRects().length && window.getComputedStyle(surface).visibility === "visible");
 }
 
-function visibleIncomingMessageIds() {
-  if (!isActiveConversationVisible()) return new Set();
-  const selector = chatUiState.isContextOpen
-    ? "#context-chat-modal [data-chat-read-user]" : "#profile-messages-panel [data-chat-read-user]";
-  const surface = document.querySelector(selector);
+function visibleIncomingMessageIds(surface = null) {
+  // Rooms reuse the same viewport, clipping and occlusion contract on their own thread.
+  if (surface) {
+    if (document.visibilityState !== "visible" || !document.hasFocus() || !surface.getClientRects().length
+      || window.getComputedStyle(surface).visibility !== "visible") return new Set();
+  } else {
+    if (!isActiveConversationVisible()) return new Set();
+    const selector = chatUiState.isContextOpen
+      ? "#context-chat-modal [data-chat-read-user]" : "#profile-messages-panel [data-chat-read-user]";
+    surface = document.querySelector(selector);
+  }
   const bounds = surface.getBoundingClientRect();
   const viewport = window.visualViewport;
   const viewportTop = viewport?.offsetTop ?? 0, viewportLeft = viewport?.offsetLeft ?? 0;

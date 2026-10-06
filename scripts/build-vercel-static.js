@@ -79,7 +79,7 @@ const fileCopies = [
   ["node_modules/lucide-static/LICENSE", "icons/create/LICENSE"],
   ...["plus", "newspaper", "clapperboard", "images", "circle-plus", "video", "arrow-left", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/create/${name}.svg`]),
-  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "eye", "monitor-smartphone", "search", "users", "bell", "send", "ellipsis", "arrow-left", "square-pen", "user-round", "info", "pin", "phone", "image", "mic", "video", "shopping-bag", "credit-card", "truck", "map-pin", "bookmark", "camera", "archive", "flag", "check", "trash-2", "x"]
+  ...["menu", "house", "layout-grid", "compass", "message-circle", "plus", "sparkles", "clapperboard", "tag", "store", "chart-column", "refresh-cw", "volume-2", "volume-x", "lock-keyhole", "key-round", "paperclip", "download", "eye", "monitor-smartphone", "search", "users", "bell", "send", "ellipsis", "arrow-left", "square-pen", "user-round", "info", "pin", "phone", "image", "mic", "video", "shopping-bag", "credit-card", "truck", "map-pin", "bookmark", "bookmark-check", "list", "camera", "archive", "flag", "check", "trash-2", "x"]
     .map(name => [`node_modules/lucide-static/icons/${name}.svg`, `icons/navigation/${name}.svg`])
 ];
 
@@ -153,6 +153,8 @@ const bundledModuleSources = [
   "src/chat/crypto-devices.js",
   "src/chat/device-management-ui.js",
   "src/chat/encryption-session.js",
+  "src/chat/room-session.js",
+  "src/chat/rooms-ui.js",
   "src/chat/native-history-client.js",
   "src/chat/encrypted-media-client.js",
   "src/chat/encrypted-media-ui.js",
