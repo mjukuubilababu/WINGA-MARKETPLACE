@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { randomUUID, createHash, webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { createMlsRuntime, inspectBoundKeyPackage } from '../src/chat/mls-runtime.mjs';
+import { createMlsRuntime, inspectBoundKeyPackage, encodeDeviceAdmissionPayload, decodeDeviceAdmissionPayload } from '../src/chat/mls-runtime.mjs';
 import { verifyBoundKeyPackage } from '../backend/conversation-mls-protocol.mjs';
+import { operationBytes } from '../backend/encrypted-conversations.js';
 import { decodeGroupState, decodeMlsMessage, processPrivateMessage, emptyPskIndex, getCiphersuiteFromName, getCiphersuiteImpl,
-  createGroup, createCommit, joinGroup, createApplicationMessage, encodeGroupState } from 'ts-mls';
+  createGroup, createCommit, joinGroup, createApplicationMessage, encodeGroupState, encodeMlsMessage } from 'ts-mls';
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -29,12 +30,12 @@ function memoryVault() {
     },
   };
 }
-async function participant(owner) {
+async function participant(owner, { multiDevice = false } = {}) {
   const session = { username: owner, sessionId: randomUUID(), token: randomUUID() };
   const identity = { owner, id: randomUUID(), fingerprint: hash(webcrypto.getRandomValues(new Uint8Array(32))), status: 'active' };
   const vault = memoryVault(), pins = [], packets = [], publications = [];
   const options = {
-    getSession: () => session, vault, locks, crypto: webcrypto,
+    getSession: () => session, vault, locks, crypto: webcrypto, multiDevice,
     policy: { async markEncrypted() {} },
     identityClient: {
       async enroll() { return identity; },
@@ -54,8 +55,8 @@ async function participant(owner) {
   const runtime = await createMlsRuntime(options), device = await runtime.initialize();
   return { runtime, options, session, identity, device, vault, pins, packets, publications };
 }
-async function pair() {
-  const alice = await participant('alice'), bob = await participant('bob');
+async function pair(options) {
+  const alice = await participant('alice', options), bob = await participant('bob', options);
   for (const [a, b] of [[alice, bob], [bob, alice]]) a.pins.push({ ...b.device, status: 'active' });
   const id = await alice.runtime.createConversation('bob');
   const transfer = await alice.runtime.addPeer(id, bob.device.keyPackage);
@@ -64,6 +65,269 @@ async function pair() {
   return { alice, bob, id, transfer };
 }
 const message = text => ({ clientMessageId: randomUUID(), receiverId: 'bob', message: text, messageType: 'text' });
+
+const deviceIntent = transfer => Object.fromEntries(['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash']
+  .map(key => [key, transfer[key]]));
+async function deviceFixture() {
+  const result = await pair({ multiDevice: true }), next = await participant('alice', { multiDevice: true });
+  for (const [a, b] of [[result.alice, next], [result.bob, next], [next, result.alice], [next, result.bob]])
+    a.pins.push({ ...b.device, status: 'active' });
+  return { ...result, next };
+}
+async function admitSibling(fixture) {
+  const { alice, bob, next, id } = fixture;
+  const transfer = await alice.runtime.addDevice(id, await alice.runtime.conversationEpoch('bob'), next.device.keyPackage,
+    { owner: 'alice', id: next.device.id });
+  await bob.runtime.applyDeviceCommit('alice', transfer, deviceIntent(transfer));
+  await next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+  await alice.runtime.confirmMembership(id, transfer.id);
+  return transfer;
+}
+
+test('candidate native three-device admission converges future history in both send directions without granting old keys', async () => {
+  const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;
+  await alice.runtime.sendMessage(message('before admission'));
+  const oldPacket = alice.packets.at(-1); await bob.runtime.receive('alice', oldPacket);
+  const transfer = await admitSibling(fixture);
+  assert.equal(transfer.previousEpoch, '1'); assert.equal(transfer.epoch, '2'); assert.equal(transfer.roster.length, 3);
+  await assert.rejects(next.runtime.receive('bob', oldPacket), { code: 'mls_envelope_binding_rejected' });
+  for (const [sender, receivers, peer, body] of [
+    [alice, [bob, next], 'bob', 'from first device'],
+    [next, [bob, alice], 'bob', 'from sibling device'],
+    [bob, [alice, next], 'alice', 'from peer'],
+  ]) {
+    await sender.runtime.sendMessage({ ...message(body), receiverId: peer });
+    const packet = sender.packets.at(-1);
+    for (const recipient of receivers) {
+      const received = await recipient.runtime.receive(recipient.identity.owner === 'alice' ? 'bob' : 'alice', packet);
+      assert.equal(received.message, body);
+      assert.equal(received.status, recipient.identity.owner === sender.identity.owner ? 'sent' : 'delivered');
+      const saved = await recipient.vault.snapshot();
+      await recipient.runtime.receive(recipient.identity.owner === 'alice' ? 'bob' : 'alice', packet);
+      assert.deepEqual(await recipient.vault.snapshot(), saved);
+    }
+  }
+  const contents = async p => (await p.runtime.history()).filter(row => row.epoch === '2').map(row => [row.id,row.owner,row.peer,row.message]).sort();
+  assert.deepEqual(await contents(alice), await contents(next)); assert.deepEqual(await contents(bob), await contents(next));
+  assert.equal((await next.runtime.history()).length, 3);
+  assert.equal((await alice.runtime.history()).length, 4);
+  assert.equal(await next.runtime.conversationId('bob'), id);
+  for (const p of [alice, bob, next]) {
+    p.runtime.close(); p.runtime = await createMlsRuntime(p.options);
+    assert.equal(await p.runtime.conversationEpoch(p.identity.owner === 'alice' ? 'bob' : 'alice'), '2');
+  }
+});
+
+test('multi-device methods are disabled by default and ordinary initial admission cannot add extra leaves', async () => {
+  const { alice, bob, id } = await pair(), extra = await participant('alice');
+  const before = await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.addDevice(id, '1', extra.device.keyPackage, { owner: 'alice', id: extra.device.id }), { code: 'mls_multidevice_disabled' });
+  await assert.rejects(alice.runtime.applyDeviceCommit('bob', {}, {}), { code: 'mls_multidevice_disabled' });
+  await assert.rejects(alice.runtime.acceptDeviceWelcome('bob', {}, {}), { code: 'mls_multidevice_disabled' });
+  await assert.rejects(alice.runtime.addPeer(id, bob.device.keyPackage), { code: 'mls_initial_admission_required' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+});
+
+test('device admission rejects stale epochs, wrong target, unverified and revoked pins atomically', async () => {
+  const { alice, next, id } = await deviceFixture(), before = await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.addDevice(id, '2', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'mls_device_epoch_conflict' });
+  await assert.rejects(alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'bob', id: next.device.id }), { code: 'mls_untrusted_package' });
+  alice.pins.find(pin => pin.id === next.device.id).status = 'revoked';
+  await assert.rejects(alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'mls_untrusted_package' });
+  alice.pins.pop();
+  await assert.rejects(alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'mls_untrusted_package' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+});
+
+test('an admission freezes initiator sends, survives reload, and exact authenticated commit retries do not advance twice', async () => {
+  const { alice, bob, next, id } = await deviceFixture();
+  const transfer = await alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id });
+  await assert.rejects(alice.runtime.sendMessage(message('too early')), { code: 'mls_membership_pending' });
+  await assert.rejects(alice.runtime.addDevice(id, '2', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'mls_membership_pending' });
+  alice.runtime.close(); alice.runtime = await createMlsRuntime(alice.options);
+  assert.deepEqual((await alice.vault.snapshot()).values[`mls:membership:${id}`], transfer);
+  await bob.runtime.applyDeviceCommit('alice', transfer, deviceIntent(transfer));
+  const before = await bob.vault.snapshot();
+  await bob.runtime.applyDeviceCommit('alice', transfer, deviceIntent(transfer));
+  assert.deepEqual(await bob.vault.snapshot(), before);
+  const altered = structuredClone(transfer); altered.welcome[altered.welcome.length - 1] ^= 1;
+  await assert.rejects(bob.runtime.applyDeviceCommit('alice', altered, deviceIntent(altered)), { code: 'mls_replay_conflict' });
+  await next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+  const joined = await next.vault.snapshot();
+  await next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+  assert.deepEqual(await next.vault.snapshot(), joined);
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', altered, deviceIntent(altered)), { code: 'mls_replay_conflict' });
+  await alice.runtime.confirmMembership(id, transfer.id);
+  await alice.runtime.sendMessage(message('confirmed after reload'));
+  assert.equal((await next.runtime.receive('bob', alice.packets.at(-1))).message, 'confirmed after reload');
+});
+
+test('commit rejects forged intent, actor, roster, tree and ciphertext without ratchet or journal changes', async () => {
+  const { alice, bob, next, id } = await deviceFixture();
+  const transfer = await alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id });
+  const before = await bob.vault.snapshot();
+  await assert.rejects(bob.runtime.applyDeviceCommit('alice', transfer, { ...deviceIntent(transfer), id: randomUUID() }), { code: 'mls_device_intent_rejected' });
+  const changes = [
+    value => { value.actorOwner = 'bob'; value.actorDeviceId = bob.device.id; },
+    value => { value.roster[0].fingerprint = '0'.repeat(64); },
+    value => { value.roster.push(structuredClone(value.roster[0])); },
+    value => { value.tree[value.tree.length - 1] ^= 1; },
+    value => { value.commit[value.commit.length - 1] ^= 1; },
+    value => { value.packageHash = '0'.repeat(64); },
+    value => { value.roster.find(entry => entry.id === next.device.id).owner = 'mallory'; },
+  ];
+  for (const change of changes) {
+    const altered = structuredClone(transfer); change(altered);
+    await assert.rejects(bob.runtime.applyDeviceCommit('alice', altered, deviceIntent(altered)));
+    assert.deepEqual(await bob.vault.snapshot(), before);
+  }
+  bob.vault.rejectNext = true;
+  await assert.rejects(bob.runtime.applyDeviceCommit('alice', transfer, deviceIntent(transfer)), { code: 'storage_aborted' });
+  assert.deepEqual(await bob.vault.snapshot(), before);
+  await bob.runtime.applyDeviceCommit('alice', transfer, deviceIntent(transfer));
+});
+
+test('candidate Welcome rejects unverified roster, wrong recipient, malformed bounds and aborted persistence without consuming admission keys', async () => {
+  const { alice, bob, next, id } = await deviceFixture();
+  const transfer = await alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id });
+  const before = await next.vault.snapshot();
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', transfer, undefined), { code: 'mls_device_intent_rejected' });
+  const huge = { ...transfer, welcome: new Uint8Array(65537) };
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', huge, deviceIntent(huge)), { code: 'mls_wire_rejected' });
+  const wrong = { ...transfer, addedOwner: 'bob', addedDeviceId: bob.device.id };
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', wrong, deviceIntent(wrong)), { code: 'mls_device_intent_rejected' });
+  next.pins.find(pin => pin.id === alice.device.id).status = 'revoked';
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer)));
+  next.pins.find(pin => pin.id === alice.device.id).status = 'active';
+  assert.deepEqual(await next.vault.snapshot(), before);
+  next.vault.rejectNext = true;
+  await assert.rejects(next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer)), { code: 'storage_aborted' });
+  assert.deepEqual(await next.vault.snapshot(), before);
+  await next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+});
+
+test('a fourth native endpoint processes commits on every existing device and excludes unrelated identities', async () => {
+  const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;
+  await admitSibling(fixture);
+  const fourth = await participant('bob', { multiDevice: true });
+  for (const p of [alice, bob, next]) {
+    p.pins.push({ ...fourth.device, status: 'active' }); fourth.pins.push({ ...p.device, status: 'active' });
+  }
+  const transfer = await next.runtime.addDevice(id, '2', fourth.device.keyPackage, { owner: 'bob', id: fourth.device.id });
+  for (const p of [alice, bob]) await p.runtime.applyDeviceCommit(p.identity.owner === 'alice' ? 'bob' : 'alice', transfer, deviceIntent(transfer));
+  await fourth.runtime.acceptDeviceWelcome('alice', transfer, deviceIntent(transfer));
+  await next.runtime.confirmMembership(id, transfer.id);
+  await fourth.runtime.sendMessage({ ...message('four endpoint secret'), receiverId: 'alice' });
+  for (const p of [alice, bob, next]) assert.equal((await p.runtime.receive(p.identity.owner === 'alice' ? 'bob' : 'alice', fourth.packets[0])).message, 'four endpoint secret');
+  const stranger = await participant('mallory', { multiDevice: true });
+  alice.pins.push({ ...stranger.device, status: 'active' });
+  const before = await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.addDevice(id, '3', stranger.device.keyPackage, { owner: 'mallory', id: stranger.device.id }), { code: 'mls_untrusted_package' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+  await assert.rejects(alice.runtime.replacePeer(id, bob.device.id, '3', fourth.device.keyPackage), { code: 'mls_replacement_member_conflict' });
+});
+
+test('candidate device limit rejects a fifth endpoint for one owner without consuming the package or advancing epoch', async () => {
+  const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;
+  await admitSibling(fixture); const members = [alice, bob, next];
+  for (let index = 0; index < 2; index++) {
+    const additional = await participant('alice', { multiDevice: true });
+    for (const p of members) {
+      p.pins.push({ ...additional.device, status: 'active' }); additional.pins.push({ ...p.device, status: 'active' });
+    }
+    const transfer = await alice.runtime.addDevice(id, await alice.runtime.conversationEpoch('bob'), additional.device.keyPackage,
+      { owner: 'alice', id: additional.device.id });
+    for (const p of members.slice(1)) await p.runtime.applyDeviceCommit(p.identity.owner === 'alice' ? 'bob' : 'alice', transfer, deviceIntent(transfer));
+    await additional.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+    await alice.runtime.confirmMembership(id, transfer.id); members.push(additional);
+  }
+  const excessive = await participant('alice', { multiDevice: true });
+  alice.pins.push({ ...excessive.device, status: 'active' });
+  const before = await alice.vault.snapshot(), targetBefore = await excessive.vault.snapshot();
+  await assert.rejects(alice.runtime.addDevice(id, '4', excessive.device.keyPackage, { owner: 'alice', id: excessive.device.id }), { code: 'mls_device_roster_rejected' });
+  assert.deepEqual(await alice.vault.snapshot(), before); assert.deepEqual(await excessive.vault.snapshot(), targetBefore);
+});
+
+test('candidate admission cannot discard pending text or media, and vault abort permits an exact old-epoch send', async () => {
+  const { alice, bob, next, id } = await deviceFixture();
+  for (const prefix of ['mls:outbox:', 'media:pending:']) {
+    const key = prefix + randomUUID(), saved = await alice.vault.snapshot();
+    await alice.vault.write({ expectedRevision: saved.revision, values: { [key]: { conversationId: id } } });
+    const before = await alice.vault.snapshot();
+    await assert.rejects(alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'mls_pending_send_requires_retry' });
+    assert.deepEqual(await alice.vault.snapshot(), before);
+    await alice.vault.write({ expectedRevision: before.revision, values: {}, deleted: [key] });
+  }
+  const before = await alice.vault.snapshot(); alice.vault.rejectNext = true;
+  await assert.rejects(alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id }), { code: 'storage_aborted' });
+  assert.deepEqual(await alice.vault.snapshot(), before);
+  await alice.runtime.sendMessage(message('after admission write abort'));
+  assert.equal((await bob.runtime.receive('alice', alice.packets[0])).message, 'after admission write abort');
+});
+
+test('candidate admission checks the original session after awaits and cannot be reopened by a default runtime', async () => {
+  const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;
+  const transfer = await alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id });
+  const before = await bob.vault.snapshot(), options = { ...bob.options, trustedPins: async () => {
+    bob.session.token = randomUUID(); return bob.pins;
+  } };
+  bob.runtime.close(); const switched = await createMlsRuntime(options);
+  await assert.rejects(switched.applyDeviceCommit('alice', transfer, deviceIntent(transfer)), { code: 'mls_session_changed' });
+  assert.deepEqual(await bob.vault.snapshot(), before);
+  await next.runtime.acceptDeviceWelcome('bob', transfer, deviceIntent(transfer));
+  next.runtime.close(); const disabled = await createMlsRuntime({ ...next.options, multiDevice: false });
+  await assert.rejects(disabled.sendMessage(message('cannot silently downgrade')), { code: 'mls_multidevice_disabled' });
+});
+
+test('a member cannot wrap another device\'s valid signed content in its own MLS frame to impersonate the sender', async () => {
+  const fixture = await deviceFixture(), { alice, bob, next, id } = fixture;
+  await admitSibling(fixture);
+  await alice.runtime.sendMessage(message('authentic inner signature'));
+  const packet = alice.packets.at(-1), suite = await getCiphersuiteImpl(getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
+  const saved = (await next.vault.snapshot()).values[`mls:group:${id}`].bytes;
+  const restore = () => ({ ...decodeGroupState(saved, 0)[0], clientConfig: defaultClientConfig });
+  const opened = await processPrivateMessage(restore(), decodeMlsMessage(packet.ciphertext, 0)[0].privateMessage, emptyPskIndex, suite);
+  try {
+    const wrapped = await createApplicationMessage(restore(), opened.message, suite);
+    const ciphertext = encodeMlsMessage({ version: 'mls10', wireformat: 'mls_private_message', privateMessage: wrapped.privateMessage });
+    const before = await bob.vault.snapshot();
+    await assert.rejects(bob.runtime.receive('alice', { id: packet.id, conversationId: id, epoch: '2', ciphertext, hash: hash(ciphertext) }), { code: 'mls_sender_rejected' });
+    assert.deepEqual(await bob.vault.snapshot(), before);
+    assert.equal((await bob.runtime.receive('alice', packet)).message, 'authentic inner signature');
+    await next.runtime.sendMessage(message('authentic sibling signature'));
+    assert.equal((await bob.runtime.receive('alice', next.packets.at(-1))).message, 'authentic sibling signature');
+  } finally { opened.message.fill(0); }
+});
+
+test('replay requires the original native sender, epoch and digest metadata without advancing the receiver state', async () => {
+  const { alice, bob } = await pair();
+  await alice.runtime.sendMessage(message('strict replay metadata'));
+  const packet = alice.packets[0]; await bob.runtime.receive('alice', packet); const before = await bob.vault.snapshot();
+  for (const change of [{ deviceId: randomUUID() }, { sender_device: randomUUID() }, { epoch: '2' }, { hash: '0'.repeat(64) }])
+    await assert.rejects(bob.runtime.receive('alice', { ...packet, ...change }), { code: 'mls_envelope_binding_rejected' });
+  assert.deepEqual(await bob.vault.snapshot(), before);
+});
+
+test('native transport codec signs every roster field, rejects ambiguous wire shapes and roundtrips the exact admission', async () => {
+  const { alice, next, id } = await deviceFixture();
+  const transfer = await alice.runtime.addDevice(id, '1', next.device.keyPackage, { owner: 'alice', id: next.device.id });
+  const payload = encodeDeviceAdmissionPayload(transfer);
+  assert.equal(typeof payload.roster, 'string'); assert.deepEqual(decodeDeviceAdmissionPayload(payload), transfer);
+  const native = await webcrypto.subtle.generateKey('Ed25519', false, ['sign','verify']);
+  const context = { owner: 'alice', deviceId: 'synthetic-session' }, op = { action: 'device-transfer', actorId: alice.device.id,
+    requestId: transfer.id, issuedAt: Date.now(), payload };
+  const proof = await webcrypto.subtle.sign('Ed25519', native.privateKey, operationBytes(context, op));
+  assert.equal(await webcrypto.subtle.verify('Ed25519', native.publicKey, proof, operationBytes(context, op)), true);
+  for (const field of ['owner','id','fingerprint','key']) {
+    const altered = structuredClone(transfer);
+    altered.roster[0][field] = field === 'key' ? new Array(32).fill(0) : field === 'id' ? randomUUID() : field === 'owner' ? 'mallory' : '0'.repeat(64);
+    assert.equal(await webcrypto.subtle.verify('Ed25519', native.publicKey, proof,
+      operationBytes(context, { ...op, payload: encodeDeviceAdmissionPayload(altered) })), false);
+  }
+  for (const change of [{ roster: transfer.roster }, { roster: ' ' + payload.roster }, { commit: payload.commit + '=' },
+    { welcome: 'A' }, { tree: 'A'.repeat(87383) }, { extra: true }]) assert.throws(() => decodeDeviceAdmissionPayload({ ...payload, ...change }));
+  assert.throws(() => encodeDeviceAdmissionPayload({ ...transfer, extra: true }), { code: 'mls_device_transfer_rejected' });
+});
 
 test('archived history and replay markers remain usable without loading them into the ratchet snapshot',async()=>{
   const {alice,bob}=await pair();

@@ -12,7 +12,7 @@ The source remains winga-conversations-spec-110-238.txt.
 | 159 | No universal chat decryption key. Primary auth, signed native devices, blocks, report rate limits, membership checks and account/device revocation remain authoritative. | Reputation/abuse classification is not automatic conviction. Calibrated signals and operational review remain. |
 | 160 | Generic localized lock-screen copy only. Providers never receive private bodies, filenames or keys. Push failure never grants Read/Delivered or rolls back accepted content. | Physical-device provider/OS acceptance; no delivery promise after browser force-stop. |
 | 161 | One durable job per subscription/message. HMAC-derived opaque conversation topic and OS tag replace same-conversation alerts. Exact retries retain the same navigation job. Read/mute rechecked before dispatch. | Fleet/OS acceptance and optional active-device election. Foreground suppression is receipt-driven, not assumed from an open tab. |
-| 162 | Durable account-level mute/archive with revision checks; foreground canonical preference reconciliation; draft-preserving archive refresh; unsaved mute intent and explicit conflict retry; account/session guards; existing encrypted send/receipt/event reconciliation. | Preference reconciliation is eventual, not durable instant fanout. MLS has one selected chat endpoint per person; simultaneous three-device history convergence is NOT proven. |
+| 162 | Durable account-level mute/archive with revision checks; foreground canonical preference reconciliation; draft-preserving archive refresh; unsaved mute intent and explicit conflict retry; account/session guards; existing encrypted send/receipt/event reconciliation. Opt-in MLS candidate supports authenticated additional-device commits and future-message convergence. | Production still has one selected chat endpoint per person. Candidate convergence is not canonical backend fanout, old-history transfer, full media access or production acceptance. |
 | 163 | Exact new-device/recovery behavior below; no automatic replacement trust. | Physical-device recovery/replacement acceptance. |
 | 164 | AES-GCM owner-bound IndexedDB, nonextractable local key, atomic revisioned writes, bounded records/pages/recovery, transient plaintext UI cleanup; session-consistent history snapshots and per-page conversation filtering. | Total journal retention/quota/eviction and OS-profile backup protection remain open. A selected conversation's full history is not a bounded total-memory snapshot. Replay tombstones/live epochs cannot be silently evicted. |
 | 165 | Local search in both direct surfaces: projected text, product references, sender and UTC dates. No remote query/index. Max 5,000 scanned rows/100 results. | Persistent encrypted indexing and availability beyond loaded device history are future work. This is not global server search. |
@@ -119,6 +119,81 @@ the same reserved report and object in the still-open dialog. Closing/reloading
 that dialog clears transient copy material, not server-retained evidence; pending
 copies remain visibly unavailable and automatic cross-reload resume is not claimed.
 
+## Native Multi-Device Candidate
+
+`src/chat/mls-runtime.mjs` extends the existing MLS ratchet rather than creating a
+pairwise fanout stack. `multiDevice` defaults to false and the production encryption
+session does NOT pass it. Existing direct device selection, server actions, feature
+flags, CSP, credentials and UI activation remain unchanged.
+
+The opt-in candidate provides `addDevice`, `applyDeviceCommit` and
+`acceptDeviceWelcome`. A fresh one-time KeyPackage must match an explicitly trusted
+active native fingerprint and its MLS signing key. Only the same two accounts are
+allowed; this is NOT a multi-account Shopping Room implementation. Candidate caps
+are four endpoints per owner and eight per direct group, not a public-room policy.
+
+Every admission binds an exact expected operation ID, actor, recipient device,
+package digest, previous/new epoch, complete credential roster and MLS tree. The
+expected intent MUST come from a verified canonical reservation/native proof, not
+be copied from an untrusted transfer. Current members authenticate the Commit's
+actual sender leaf and single Add proposal before atomically persisting the new
+ratchet. Initial `addPeer` cannot be reused to bypass additional-device admission.
+
+The initiator durably freezes its sends until membership is confirmed; unresolved
+text/media journals block admission rather than being discarded. Exact Commit and
+Welcome retries retain operation digests, reject changed data, and survive reload.
+Membership replay digests use the existing encrypted journal rather than consuming
+bounded active-record slots. A failed vault write leaves the old epoch/admission
+keys usable. This local freeze is NOT an authoritative all-device server barrier.
+
+`encodeDeviceAdmissionPayload` and `decodeDeviceAdmissionPayload` produce bounded,
+canonical base64url wire fields and a single canonical roster string. The native
+transport-v1 signature helper canonicalizes flat payload keys: sending the roster
+as nested objects would omit inner fields from that helper's digest. The flat codec
+binds every credential without changing any existing production signature version.
+The codec is structural validation, not native-proof verification or authorization.
+
+Future messages from an admitted sibling populate the same owner's outgoing
+history with Sent, never falsely Delivered/Read. Incoming peer messages retain
+Delivered semantics. Signed content must match the actual authenticated MLS sender
+leaf as well as any outer sender metadata; a member cannot rewrap another member's
+valid signed body to impersonate that device. Replayed envelopes still require the
+original epoch, native sender and digest. Ratchets do not advance on rejection.
+
+The candidate tests use actual native MLS keys/commits and three/four endpoints.
+The browser harness uses three isolated profiles, real native enrollment and
+existing-device approval through the local backend fixture, a nonextractable native
+signature verified by backend code, owner-bound encrypted IndexedDB, reload, and
+unchanged strict CSP. Its membership transport is a test harness, NOT the enabled
+canonical production admission service. The new endpoint does not decrypt or gain
+automatic history from before admission; no historical attachment grants are given.
+
+### Required Before Activation
+
+- Extend the existing canonical store with revision/epoch membership and native
+  admission proofs; reserve/consume packages transactionally, enforce quotas and
+  derive every recipient from authoritative membership, never client arrays.
+- Freeze protected writes globally while a transition is pending. Reconcile all
+  accepted old-epoch traffic before allowing advancement; a creator's empty local
+  outbox alone does not prove every existing device has drained that epoch.
+- Obtain separate verified Commit ACKs from each retained endpoint and Welcome
+  acceptance from the added endpoint before activating future grants. Preserve
+  exact operation IDs across uncertain replies, crashes and retries.
+- Extend polling, event routing, push suppression, receipts and private-media
+  checks together. An own-sibling synchronization ACK is not recipient Delivered
+  or Read. Receipt acknowledgement must be per reading endpoint so one device
+  cannot drain another device's unprocessed evidence.
+- Implement multi-endpoint revocation/removal and replacement before activation.
+  Current direct replacement intentionally refuses groups with more than two
+  leaves. Native-pin revocation fails closed; it is not a complete removal flow.
+- Authorize encrypted historical transfer separately from future MLS membership;
+  preserve provenance, immutable merge/replay rules, freshness and attachment
+  authorization. Do not export old MLS ratchets or silently overwrite the latest
+  independent recovery checkpoint.
+- Add real PostgreSQL admission/ACK/removal races and representative sustained
+  dependency-failure/load tests, then authenticated production/physical-device
+  acceptance. Independent cryptographic approval remains separate and absent.
+
 ## Verified Publication And Local Database Exercise
 
 Published release: backend commit `ba1f4dfc6f332fffbe78f476b08fcd8ae5da6fec`,
@@ -128,6 +203,30 @@ returned Ready and that exact backend commit. Ten published static asset hashes
 matched the release directory; unauthenticated conversation ops metrics returned
 401. File-copy changes described above were implemented after this publication;
 they must not be represented as part of that already-live commit.
+
+Subsequent verified file-copy publication: backend commit
+`628089689f96f91b9ee4d1d71bfaa94eef55cbb8`, frontend build `20261006155810`,
+Cloudflare Worker version `2bbd4d60-0ffc-451a-893c-fdea3140401f`. Ready returned
+that exact backend SHA; eleven published static-asset digests matched the release
+directory and unauthenticated report-file requests were rejected. Authenticated
+production report-file acceptance was not exercised. The native multi-device
+candidate described above was implemented AFTER this publication. Publishing its
+source does not enable multi-device admission: production construction keeps it
+disabled until the canonical backend activation requirements are satisfied.
+
+The subsequent local multi-device candidate build is `20261006164553` (90
+synchronized modules). Final checks passed: 120 secure-content/backend tests,
+including 40 native MLS tests; all 35 strict-CSP browser crypto tests; all 33 real
+PostgreSQL concurrency/load regressions; 145 frontend core checks plus 80 frontend
+behavior tests; four catalogs of 1,518 keys with no new untranslated UI debt.
+The disposable PostgreSQL cluster stopped successfully. The local-only preview
+serves this build and the new admission codec at `http://127.0.0.1:4318/`.
+The 33 PostgreSQL tests cover the existing canonical direct/report paths, NOT a
+new multi-endpoint admission store or Shopping Room workload. No production
+deployment was performed during these local checks. The operator subsequently
+requested publishing this tested build. Exact live commit/build identity must be
+verified from release tooling; no additional instances, credentials, feature
+activation or CSP changes are authorized by source publication.
 
 `scripts/run-local-conversation-db-tests.ps1` creates a fresh disposable PostgreSQL
 cluster using existing installed binaries, binds only `127.0.0.1`, sets a process-local

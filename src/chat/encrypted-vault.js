@@ -7,7 +7,7 @@
   const failure = code => Object.assign(new Error(code), { code });
   const fail = code => { throw failure(code); };
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,160}$/.test(value);
-  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:)/.test(value);
+  const journalId = value => /^(history:|mls:received:|mls:consumed:|mls:package:|mls:device-transition:)/.test(value);
   const journalKind = value => value.startsWith('history:')?'history:':value.slice(0,value.indexOf(':',4)+1);
   const b64 = bytes => {
     let value = '';

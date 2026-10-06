@@ -7,6 +7,8 @@ const { PGlite } = require('@electric-sql/pglite');
 const { buildMlsBrowser } = require('../../scripts/build-mls-browser');
 const { createConversationCryptoDeviceStore } = require('../../backend/conversation-crypto-devices');
 const { createCryptoKeyPackageStore } = require('../../backend/conversation-crypto-key-packages');
+const { operationBytes } = require('../../backend/encrypted-conversations');
+const { verifyDeviceSignature } = require('../../backend/conversation-crypto-auth');
 let server, origin, output, db, devices, packages;
 
 test.beforeAll(async () => {
@@ -39,13 +41,13 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => db.close());
 
-async function boot(page, username) {
-  return page.evaluate(async username => {
-    window.session = { username, sessionId: username === 'alice' ? 'a' : 'b1', token: username === 'alice' ? 'a' : 'b1' };
+async function boot(page, username, { sessionId = username === 'alice' ? 'a' : 'b1', multiDevice = false } = {}) {
+  return page.evaluate(async ({ username, sessionId, multiDevice }) => {
+    window.session = { username, sessionId, token: sessionId };
     window.pins = []; window.failTransport = false;
     window.client = WingaModules.api.communications.createCommunicationsApiClient({ baseUrl: '/api',
       getSession: () => session, createAuthHeaders: () => ({}), fetchJson: window.cryptoGateway });
-    window.runtime = await client.createEncryptedCandidate({ trustedPins: () => pins,
+    window.runtime = await client.createEncryptedCandidate({ trustedPins: () => pins, multiDevice,
       transport: { async send(packet) {
         await window.capturePacket({ ...packet, ciphertext: Array.from(packet.ciphertext) });
         if (window.failTransport) throw new TypeError('lost_reply');
@@ -53,10 +55,11 @@ async function boot(page, username) {
       } } });
     const identity = await runtime.initialize();
     return { ...identity, keyPackage: Array.from(identity.keyPackage), signaturePublicKey: Array.from(identity.signaturePublicKey) };
-  }, username);
+  }, { username, sessionId, multiDevice });
 }
-async function prepare(page, username, captured) {
-  const context = { owner: username, deviceId: username === 'alice' ? 'a' : 'b1', token: username === 'alice' ? 'a' : 'b1' };
+async function prepare(page, username, captured, options = {}) {
+  const sessionId = options.sessionId || (username === 'alice' ? 'a' : 'b1');
+  const context = { owner: username, deviceId: sessionId, token: sessionId };
   await page.exposeFunction('cryptoGateway', async (url, options) => {
     const payload = options.body ? JSON.parse(options.body) : undefined;
     if (url.endsWith('/crypto/devices')) return options.method === 'POST'
@@ -65,10 +68,90 @@ async function prepare(page, username, captured) {
     throw new Error('legacy_transport_must_not_be_used');
   });
   await page.exposeFunction('capturePacket', packet => { captured.push(packet); });
-  await page.goto(origin); return boot(page, username);
+  await page.goto(origin); return boot(page, username, options);
 }
 const pin = (page, value) => page.evaluate(value => { pins.push({ ...value,
   signaturePublicKey: new Uint8Array(value.signaturePublicKey), status: 'active' }); }, value);
+
+test('candidate native-approved third browser device converges future history with encrypted IndexedDB and strict CSP', async ({ browser }) => {
+  await db.query("INSERT INTO sessions VALUES ('a2','alice','a2',9999999999999)");
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
+  const violations = [], captured = [[], [], []];
+  try {
+    const pages = await Promise.all(contexts.map(context => context.newPage())), [alice, bob, sibling] = pages;
+    for (const page of pages) page.on('console', entry => { if (entry.text().includes('Content Security Policy')) violations.push(entry.text()); });
+    const a = await prepare(alice, 'alice', captured[0], { multiDevice: true });
+    const b = await prepare(bob, 'bob', captured[1], { multiDevice: true });
+    // A second login is insufficient: admission starts only after an existing
+    // native device explicitly signs approval of the pending fingerprint.
+    await expect(prepare(sibling, 'alice', captured[2], { sessionId: 'a2', multiDevice: true })).rejects.toThrow('mls_device_not_active');
+    const pending = (await db.query("SELECT id,fingerprint,status FROM conversation_crypto_devices WHERE owner_id='alice' AND id<>$1", [a.id])).rows[0];
+    expect(pending.status).toBe('pending');
+    await alice.evaluate(async pending => {
+      const identity = await WingaCryptoDevices.createCryptoDeviceClient({ getSession: () => session, request: client.cryptoDeviceRequest });
+      try { await identity.manage('approve', pending.id, pending.fingerprint); } finally { identity.close(); }
+    }, pending);
+    const c = await boot(sibling, 'alice', { sessionId: 'a2', multiDevice: true });
+    expect(c.id).toBe(pending.id);
+    for (const [page, identity] of [[alice,b],[alice,c],[bob,a],[bob,c],[sibling,a],[sibling,b]]) await pin(page, identity);
+    const initial = await alice.evaluate(async b => {
+      const id = await runtime.createConversation('bob'), transfer = await runtime.addPeer(id, new Uint8Array(b.keyPackage));
+      return { ...transfer, commit: Array.from(transfer.commit), welcome: Array.from(transfer.welcome), tree: Array.from(transfer.tree) };
+    }, b);
+    await bob.evaluate(transfer => runtime.acceptWelcome('alice', { ...transfer,
+      commit: new Uint8Array(transfer.commit), welcome: new Uint8Array(transfer.welcome), tree: new Uint8Array(transfer.tree) }), initial);
+    await alice.evaluate(transfer => runtime.confirmMembership(transfer.conversationId, transfer.id), initial);
+    await alice.evaluate(() => runtime.sendMessage({ clientMessageId: crypto.randomUUID(), receiverId: 'bob', message: 'not automatically historical' }));
+    await bob.evaluate(packet => runtime.receive('alice', { ...packet, ciphertext: new Uint8Array(packet.ciphertext) }), captured[0][0]);
+    const proof = await alice.evaluate(async ({ id, c }) => {
+      const result = await runtime.addDevice(id, '1', new Uint8Array(c.keyPackage), { owner: 'alice', id: c.id });
+      const identity = await WingaCryptoDevices.createCryptoDeviceClient({ getSession: () => session, request: client.cryptoDeviceRequest });
+      try { return await identity.signCryptoOperation('device-transfer', WingaMlsCandidate.encodeDeviceAdmissionPayload(result), result.id); }
+      finally { identity.close(); }
+    }, { id: initial.conversationId, c });
+    const signer = (await db.query('SELECT public_key FROM conversation_crypto_devices WHERE id=$1', [a.id])).rows[0];
+    expect(proof.actorId).toBe(a.id);
+    expect(verifyDeviceSignature(signer.public_key, operationBytes({ owner: 'alice', deviceId: 'a' }, proof), proof.signature)).toBe(true);
+    const transfer = proof.payload;
+    const intent = Object.fromEntries(['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash'].map(key => [key,transfer[key]]));
+    await bob.evaluate(({ transfer, intent }) => runtime.applyDeviceCommit('alice', WingaMlsCandidate.decodeDeviceAdmissionPayload(transfer), intent), { transfer, intent });
+    await sibling.evaluate(({ transfer, intent }) => runtime.acceptDeviceWelcome('bob', WingaMlsCandidate.decodeDeviceAdmissionPayload(transfer), intent), { transfer, intent });
+    await alice.evaluate(transfer => runtime.confirmMembership(transfer.conversationId, transfer.id), transfer);
+    for (const [index, body] of [[0,'first endpoint secret'],[2,'sibling endpoint secret'],[1,'recipient endpoint secret']]) {
+      await pages[index].evaluate(({ peer, body }) => runtime.sendMessage({ clientMessageId: crypto.randomUUID(), receiverId: peer, message: body }),
+        { peer: index === 1 ? 'alice' : 'bob', body });
+      const packet = captured[index].at(-1);
+      for (let recipient = 0; recipient < pages.length; recipient++) if (recipient !== index)
+        await pages[recipient].evaluate(({ packet, peer }) => runtime.receive(peer, { ...packet, ciphertext: new Uint8Array(packet.ciphertext) }),
+          { packet, peer: recipient === 1 ? 'alice' : 'bob' });
+    }
+    const future = [];
+    for (let index = 0; index < pages.length; index++) {
+      await pages[index].reload();
+      await boot(pages[index], index === 1 ? 'bob' : 'alice', { sessionId: index === 1 ? 'b1' : index === 2 ? 'a2' : 'a', multiDevice: true });
+      for (const identity of [a,b,c]) if (identity.id !== [a,b,c][index].id) await pin(pages[index], identity);
+      future.push(await pages[index].evaluate(async () => (await runtime.history()).filter(row => row.epoch === '2').map(row => [row.id,row.owner,row.peer,row.message]).sort()));
+      const sealed = await pages[index].evaluate(async () => {
+        const db = await new Promise((resolve, reject) => { const open = indexedDB.open('winga-encrypted-vault-v1:' + session.username);
+          open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); });
+        try {
+          const tx = db.transaction(['records','journal']), read = name => new Promise((resolve, reject) => {
+            const request = tx.objectStore(name).getAll(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+          });
+          const rows = (await Promise.all([read('records'),read('journal')])).flat();
+          return { sealed: rows.length > 0 && rows.every(row => row.v === 1 && row.ciphertext instanceof Uint8Array
+            && !JSON.stringify(row).includes('endpoint secret')), localStorageEmpty: localStorage.length === 0,
+            transitionJournal: rows.some(row => row.kind === 'mls:device-transition:') };
+        } finally { db.close(); }
+      });
+      expect(sealed.sealed).toBe(true); expect(sealed.localStorageEmpty).toBe(true);
+      if (index === 1) expect(sealed.transitionJournal).toBe(true);
+    }
+    expect(future[0]).toEqual(future[1]); expect(future[1]).toEqual(future[2]); expect(future[2]).toHaveLength(3);
+    expect(await sibling.evaluate(async () => (await runtime.history()).some(row => row.epoch === '1'))).toBe(false);
+    expect(violations).toEqual([]);
+  } finally { for (const context of contexts) await context.close(); }
+});
 
 test('browser MLS replacement rotates keys under strict CSP without transferring old epoch history', async ({ page }) => {
   const violations = []; page.on('console', entry => { if (entry.text().includes('Content Security Policy')) violations.push(entry.text()); });

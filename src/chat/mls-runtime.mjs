@@ -7,6 +7,7 @@ import { defaultClientConfig } from 'ts-mls/clientConfig.js';
 import { encodeRatchetTree, decodeRatchetTree } from 'ts-mls/ratchetTree.js';
 import { verifyKeyPackage, generateKeyPackageWithKey } from 'ts-mls/keyPackage.js';
 import { verifyLeafNodeSignatureKeyPackage } from 'ts-mls/leafNode.js';
+import { decryptSenderData } from 'ts-mls/privateMessage.js';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -32,6 +33,41 @@ const wipePackageAdmission = identity => {
 };
 const contentBytes = value => encoder.encode(JSON.stringify(['winga-mls-content', 1,
   value.id, value.conversationId, value.epoch, value.owner, value.deviceId, value.peer, value.message]));
+const deviceTransferFields = ['actorDeviceId','actorOwner','addedDeviceId','addedOwner','commit','conversationId','epoch','id',
+  'packageHash','previousEpoch','roster','tree','version','welcome'];
+const encodeBase64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+// Native transport v1 canonicalizes flat payload keys. Keep the entire roster
+// in one signed string so nested credential fields cannot disappear from its hash.
+export function encodeDeviceAdmissionPayload(transfer) {
+  need(transfer?.version === 2 && Object.keys(transfer).sort().join(',') === deviceTransferFields.join(','), 'mls_device_transfer_rejected');
+  const payload = structuredClone(transfer);
+  for (const key of ['commit','welcome','tree']) {
+    need(payload[key] instanceof Uint8Array && payload[key].length > 0 && payload[key].length <= 65536, 'mls_wire_rejected');
+    payload[key] = encodeBase64(payload[key]);
+  }
+  need(Array.isArray(payload.roster) && payload.roster.length >= 3 && payload.roster.length <= 8, 'mls_device_roster_rejected');
+  payload.roster = JSON.stringify(payload.roster);
+  need(payload.roster.length <= 8192 && encoder.encode(JSON.stringify(payload)).length <= 262144, 'mls_wire_rejected');
+  return payload;
+}
+export function decodeDeviceAdmissionPayload(payload) {
+  need(payload?.version === 2 && Object.keys(payload).sort().join(',') === deviceTransferFields.join(',')
+    && typeof payload.roster === 'string' && payload.roster.length <= 8192, 'mls_device_transfer_rejected');
+  need(encoder.encode(JSON.stringify(payload)).length <= 262144, 'mls_wire_rejected');
+  const transfer = structuredClone(payload);
+  for (const key of ['commit','welcome','tree']) {
+    const text = transfer[key];
+    need(typeof text === 'string' && text.length > 0 && text.length <= 87382 && /^[A-Za-z0-9_-]+$/.test(text), 'mls_wire_rejected');
+    try { transfer[key] = Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), byte => byte.charCodeAt(0)); }
+    catch { fail('mls_wire_rejected'); }
+    need(transfer[key].length <= 65536 && encodeBase64(transfer[key]) === text, 'mls_wire_rejected');
+  }
+  try { transfer.roster = JSON.parse(transfer.roster); } catch { fail('mls_device_roster_rejected'); }
+  need(Array.isArray(transfer.roster) && transfer.roster.length >= 3 && transfer.roster.length <= 8
+    && JSON.stringify(transfer.roster) === payload.roster, 'mls_device_roster_rejected');
+  return transfer;
+}
 
 export async function inspectBoundKeyPackage(bytes,identity,now=Date.now()) {
   need(bytes instanceof Uint8Array && bytes.length<=8192 && ownerId(identity?.owner) && uuid(identity?.id)
@@ -51,7 +87,8 @@ export async function inspectBoundKeyPackage(bytes,identity,now=Date.now()) {
 // durably accepted by the authorized server before confirmMembership is called.
 export async function createMlsRuntime({ getSession, vault, identityClient, publishPackage,
   trustedPins, transport, locks = globalThis.navigator?.locks, crypto = globalThis.crypto,
-  policy = globalThis.WingaEncryptedPolicy, now = Date.now } = {}) {
+  policy = globalThis.WingaEncryptedPolicy, now = Date.now, multiDevice = false } = {}) {
+  need(typeof multiDevice === 'boolean', 'mls_runtime_unavailable');
   need(typeof getSession === 'function' && vault?.snapshot && vault?.write && identityClient?.enroll
     && identityClient?.attestKeyPackage && typeof publishPackage === 'function'
     && typeof trustedPins === 'function' && locks?.request && crypto?.subtle
@@ -106,6 +143,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
   }
   async function state(saved, id, retiringDeviceId = null) {
     const row = saved.values[`mls:group:${id}`]; need(row && uuid(id), 'mls_group_required');
+    need(!row.multiDevice || multiDevice, 'mls_multidevice_disabled');
     const parsed = decodeGroupState(row.bytes, 0); need(parsed && parsed[1] === row.bytes.length, 'mls_state_invalid');
     const { configuration, records } = await config(saved);
     for (const node of parsed[0].ratchetTree) if (node?.nodeType === 'leaf') {
@@ -181,6 +219,7 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     return locked(async () => {
       const saved = await vault.snapshot(), group = await state(saved, conversationId);
       need(!saved.values[`mls:membership:${conversationId}`], 'mls_membership_pending');
+      need(!group.row.confirmed && group.value.ratchetTree.filter(node => node?.nodeType === 'leaf').length === 1, 'mls_initial_admission_required');
       const decoded = exact(decodeMlsMessage, packageBytes); need(decoded.wireformat === 'mls_key_package', 'mls_package_invalid');
       const kp = decoded.keyPackage; validLifetime(kp);
       need(kp.version === 'mls10' && kp.cipherSuite === suite.name
@@ -199,6 +238,136 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
           [`mls:membership:${conversationId}`]: transfer }); return structuredClone(transfer);
       } finally { wipe(changed); }
     });
+  }
+  function roster(value) {
+    const entries = value.ratchetTree.flatMap(node => {
+      if (node?.nodeType !== 'leaf') return [];
+      const who = JSON.parse(decoder.decode(node.leaf.credential.identity));
+      return [{ owner: who[2], id: who[3], fingerprint: who[4], key: Array.from(node.leaf.signaturePublicKey) }];
+    });
+    return entries.sort((a, b) => `${a.owner}/${a.id}` < `${b.owner}/${b.id}` ? -1 : 1);
+  }
+  function noPendingSend(saved, id) {
+    need(!Object.entries(saved.values).some(([key, job]) => (key.startsWith('mls:outbox:') || key.startsWith('media:pending:'))
+      && job.conversationId === id), 'mls_pending_send_requires_retry');
+  }
+  function validRoster(entries, peer) {
+    need(Array.isArray(entries) && entries.length >= 3 && entries.length <= 8, 'mls_device_roster_rejected');
+    const seen = new Set(), keys = new Set(), counts = new Map();
+    for (const entry of entries) {
+      need(entry && Object.keys(entry).sort().join(',') === 'fingerprint,id,key,owner'
+        && [owner, peer].includes(entry.owner) && uuid(entry.id) && /^[a-f0-9]{64}$/.test(entry.fingerprint)
+        && Array.isArray(entry.key) && entry.key.length === 32
+        && entry.key.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255), 'mls_device_roster_rejected');
+      const key = entry.key.join(',');
+      need(!seen.has(entry.id) && !keys.has(key), 'mls_device_roster_rejected');
+      seen.add(entry.id); keys.add(key); counts.set(entry.owner, (counts.get(entry.owner) || 0) + 1);
+    }
+    need(counts.size === 2 && [...counts.values()].every(count => count <= 4), 'mls_device_roster_rejected');
+  }
+  async function deviceTransfer(transfer, expected, peer) {
+    need(multiDevice, 'mls_multidevice_disabled');
+    need(transfer && Object.keys(transfer).sort().join(',') === deviceTransferFields.join(',')
+      && transfer.version === 2 && uuid(transfer.id) && uuid(transfer.conversationId)
+      && [owner, peer].includes(transfer.actorOwner) && [owner, peer].includes(transfer.addedOwner)
+      && uuid(transfer.actorDeviceId) && uuid(transfer.addedDeviceId) && transfer.actorDeviceId !== transfer.addedDeviceId
+      && /^[a-f0-9]{64}$/.test(transfer.packageHash)
+      && typeof transfer.previousEpoch === 'string' && /^[1-9][0-9]{0,19}$/.test(transfer.previousEpoch)
+      && typeof transfer.epoch === 'string' && /^[1-9][0-9]{0,19}$/.test(transfer.epoch)
+      && BigInt(transfer.epoch) === BigInt(transfer.previousEpoch) + 1n, 'mls_device_transfer_rejected');
+    for (const bytes of [transfer.commit, transfer.welcome, transfer.tree])
+      need(bytes instanceof Uint8Array && bytes.length > 0 && bytes.length <= 65536, 'mls_wire_rejected');
+    const fields = ['id','previousEpoch','actorOwner','actorDeviceId','addedOwner','addedDeviceId','packageHash'];
+    // The caller must derive this expectation from an authenticated, authorized
+    // canonical reservation/proof, not copy the untrusted transfer into it.
+    need(expected && Object.keys(expected).sort().join(',') === [...fields].sort().join(',')
+      && fields.every(key => expected[key] === transfer[key]), 'mls_device_intent_rejected');
+    validRoster(transfer.roster, peer);
+    return hash(encoder.encode(JSON.stringify(['winga-mls-device-admission', 2,
+      transfer.conversationId, ...fields.map(key => transfer[key]), transfer.epoch, transfer.roster,
+      await hash(transfer.commit), await hash(transfer.welcome), await hash(transfer.tree)])));
+  }
+  async function addDevice(conversationId, expectedEpoch, packageBytes, target, operationId = crypto.randomUUID()) {
+    need(multiDevice, 'mls_multidevice_disabled');
+    need(uuid(conversationId) && uuid(operationId) && target && Object.keys(target).sort().join(',') === 'id,owner'
+      && ownerId(target.owner) && uuid(target.id) && typeof expectedEpoch === 'string'
+      && /^[1-9][0-9]{0,19}$/.test(expectedEpoch), 'mls_device_intent_rejected');
+    need(packageBytes instanceof Uint8Array && packageBytes.length > 0 && packageBytes.length <= 8192, 'mls_package_invalid');
+    packageBytes = packageBytes.slice(); target = structuredClone(target);
+    return locked(async () => {
+      const saved = await vault.snapshot(), group = await state(saved, conversationId), own = saved.values['mls:identity'];
+      need(group.row.confirmed && !saved.values[`mls:membership:${conversationId}`], 'mls_membership_pending');
+      need(String(group.value.groupContext.epoch) === expectedEpoch, 'mls_device_epoch_conflict');
+      noPendingSend(saved, conversationId);
+      const before = roster(group.value), pin = group.records.get(`${target.owner}/${target.id}`);
+      need([owner, group.row.peer].includes(target.owner) && pin?.status === 'active', 'mls_untrusted_package');
+      need(!before.some(entry => entry.id === target.id), 'mls_member_exists');
+      await inspectBoundKeyPackage(packageBytes, pin, now());
+      const kp = exact(decodeMlsMessage, packageBytes).keyPackage;
+      need(equal(kp.leafNode.signaturePublicKey, pin.signaturePublicKey), 'mls_untrusted_package');
+      const after = [...before, { owner: target.owner, id: target.id, fingerprint: pin.fingerprint, key: Array.from(pin.signaturePublicKey) }]
+        .sort((a, b) => `${a.owner}/${a.id}` < `${b.owner}/${b.id}` ? -1 : 1);
+      validRoster(after, group.row.peer);
+      const changed = await createCommit({ state: group.value, cipherSuite: suite }, { extraProposals: [{ proposalType: 'add', add: { keyPackage: kp } }] });
+      try {
+        need(changed.newState.groupContext.epoch === group.value.groupContext.epoch + 1n
+          && JSON.stringify(roster(changed.newState)) === JSON.stringify(after), 'mls_device_roster_rejected');
+        const transfer = { version: 2, id: operationId, conversationId, previousEpoch: expectedEpoch,
+          epoch: String(changed.newState.groupContext.epoch), actorOwner: owner, actorDeviceId: own.id,
+          addedOwner: target.owner, addedDeviceId: target.id, packageHash: await hash(packageBytes), roster: after,
+          commit: encodeMlsMessage(changed.commit), tree: encodeRatchetTree(changed.newState.ratchetTree),
+          welcome: encodeMlsMessage({ version: 'mls10', wireformat: 'mls_welcome', welcome: changed.welcome }) };
+        await put(saved, { [`mls:group:${conversationId}`]: { ...group.row, multiDevice: true, bytes: encodeGroupState(changed.newState), confirmed: false },
+          [`mls:membership:${conversationId}`]: transfer });
+        return structuredClone(transfer);
+      } finally { wipe(changed); }
+    });
+  }
+  async function applyDeviceCommit(peer, transfer, expected) {
+    transfer = structuredClone(transfer); expected = structuredClone(expected);
+    return locked(async () => {
+      need(ownerId(peer) && peer !== owner, 'mls_peer_invalid');
+      const digest = await deviceTransfer(transfer, expected, peer), saved = await vault.snapshot(), id = transfer.conversationId;
+      need(saved.values[`mls:route:${peer}`]?.conversationId === id, 'mls_peer_invalid');
+      const prior = await record(saved, `mls:device-transition:${transfer.id}`);
+      if (prior) { need(prior === digest, 'mls_replay_conflict'); return id; }
+      const group = await state(saved, id), before = roster(group.value);
+      need(group.row.confirmed && !saved.values[`mls:membership:${id}`], 'mls_membership_pending');
+      need(String(group.value.groupContext.epoch) === transfer.previousEpoch, 'mls_device_epoch_conflict');
+      noPendingSend(saved, id);
+      need(before.some(entry => entry.owner === transfer.actorOwner && entry.id === transfer.actorDeviceId)
+        && !before.some(entry => entry.id === transfer.addedDeviceId), 'mls_device_intent_rejected');
+      need(JSON.stringify(transfer.roster.filter(entry => entry.id !== transfer.addedDeviceId)) === JSON.stringify(before), 'mls_device_roster_rejected');
+      const pin = group.records.get(`${transfer.addedOwner}/${transfer.addedDeviceId}`);
+      need(pin?.status === 'active', 'mls_untrusted_package');
+      const parsed = exact(decodeMlsMessage, transfer.commit);
+      need(parsed.wireformat === 'mls_private_message' && parsed.privateMessage.contentType === 'commit'
+        && decoder.decode(parsed.privateMessage.groupId) === id && String(parsed.privateMessage.epoch) === transfer.previousEpoch, 'mls_device_transfer_rejected');
+      let changed, addition;
+      try {
+        changed = await processPrivateMessage(group.value, parsed.privateMessage, emptyPskIndex, suite, event => {
+          const actor = event.kind === 'commit' && group.value.ratchetTree[event.senderLeafIndex * 2];
+          const who = actor?.nodeType === 'leaf' && JSON.parse(decoder.decode(actor.leaf.credential.identity));
+          addition = event.kind === 'commit' && event.proposals.length === 1 && event.proposals[0].proposal;
+          return who?.[2] === transfer.actorOwner && who[3] === transfer.actorDeviceId && addition?.proposalType === 'add'
+            && equal(addition.add.keyPackage.leafNode.credential.identity, credential(pin).identity)
+            && equal(addition.add.keyPackage.leafNode.signaturePublicKey, pin.signaturePublicKey) ? 'accept' : 'reject';
+        });
+        need(changed.kind === 'newState' && changed.actionTaken === 'accept' && addition
+          && await hash(encodeMlsMessage({ version: 'mls10', wireformat: 'mls_key_package', keyPackage: addition.add.keyPackage })) === transfer.packageHash
+          && String(changed.newState.groupContext.epoch) === transfer.epoch
+          && JSON.stringify(roster(changed.newState)) === JSON.stringify(transfer.roster)
+          && equal(encodeRatchetTree(changed.newState.ratchetTree), transfer.tree), 'mls_device_transfer_rejected');
+        await put(saved, { [`mls:group:${id}`]: { ...group.row, multiDevice: true, bytes: encodeGroupState(changed.newState) },
+          [`mls:device-transition:${transfer.id}`]: digest });
+        return id;
+      } finally { wipe(changed); }
+    });
+  }
+  async function acceptDeviceWelcome(peer, transfer, expected) {
+    need(multiDevice, 'mls_multidevice_disabled');
+    need(expected && typeof expected === 'object', 'mls_device_intent_rejected');
+    return acceptWelcome(peer, transfer, undefined, expected);
   }
   async function replacePeer(conversationId, removedDeviceId, expectedEpoch, packageBytes, operationId = crypto.randomUUID()) {
     need(uuid(conversationId) && uuid(removedDeviceId) && uuid(operationId) && typeof expectedEpoch === 'string'
@@ -249,20 +418,24 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       await put(saved, { [`mls:group:${conversationId}`]: { ...group.row, confirmed: true } }, [`mls:membership:${conversationId}`]);
     });
   }
-  async function acceptWelcome(peer, transfer, expectedPeerDeviceId) {
+  async function acceptWelcome(peer, transfer, expectedPeerDeviceId, deviceExpected) {
     need(expectedPeerDeviceId === undefined || uuid(expectedPeerDeviceId), 'mls_peer_invalid');
     transfer = structuredClone(transfer);
+    deviceExpected = structuredClone(deviceExpected);
     return locked(async () => {
       const id = transfer.conversationId; need(uuid(id) && ownerId(peer) && peer !== owner, 'mls_peer_invalid');
       const saved = await vault.snapshot(); let identity = saved.values['mls:identity']; need(identity, 'mls_identity_required');
       const previous = saved.values[`mls:group:${id}`];
-      const transferHash = await hash(encoder.encode(JSON.stringify(['winga-mls-welcome',1,id,transfer.id,transfer.epoch,transfer.packageHash,
-        Array.from(transfer.commit),Array.from(transfer.welcome),Array.from(transfer.tree)])));
+      const deviceAdmission = deviceExpected !== undefined;
+      const transferHash = deviceAdmission ? await deviceTransfer(transfer, deviceExpected, peer)
+        : await hash(encoder.encode(JSON.stringify(['winga-mls-welcome',1,id,transfer.id,transfer.epoch,transfer.packageHash,
+          Array.from(transfer.commit),Array.from(transfer.welcome),Array.from(transfer.tree)])));
       if (previous?.acceptedTransfer === transfer.id && previous.peer === peer) {
         need(previous.acceptedHash === transferHash && (!expectedPeerDeviceId || previous.acceptedPeerDevice === expectedPeerDeviceId),'mls_replay_conflict');return id;
       }
       need(!previous && !saved.values[`mls:route:${peer}`], 'mls_group_exists');
       const admission = await record(saved,`mls:package:${transfer.packageHash}`) || identity;
+      if (deviceAdmission) need(transfer.addedOwner === owner && transfer.addedDeviceId === admission.id, 'mls_device_intent_rejected');
       need(!(await record(saved,`mls:consumed:${admission.hash}`)) && saved.values['mls:package-consumed'] !== admission.hash && transfer.packageHash === admission.hash, 'mls_package_consumed');
       identity = admission;
       validLifetime(identity.package.publicPackage);
@@ -272,17 +445,21 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
         emptyPskIndex, suite, exact(decodeRatchetTree, transfer.tree), undefined, configuration);
       need(decoder.decode(joined.groupContext.groupId) === id && String(joined.groupContext.epoch) === transfer.epoch, 'mls_welcome_binding_rejected');
       const leaves=joined.ratchetTree.filter(node=>node?.nodeType==='leaf');
-      need(leaves.length===2,'mls_unexpected_member');
+      need(deviceAdmission ? JSON.stringify(roster(joined)) === JSON.stringify(transfer.roster) : leaves.length===2,'mls_unexpected_member');
       let peerDevice;
       for (const node of leaves) {
         need(await configuration.authService.validateCredential(node.leaf.credential, node.leaf.signaturePublicKey), 'mls_untrusted_member');
         const who = JSON.parse(decoder.decode(node.leaf.credential.identity)); need(who[2] === owner || who[2] === peer, 'mls_unexpected_member');
-        if(who[2]===owner)need(who[3]===identity.id,'mls_unexpected_member');
-        else {need(!peerDevice && (!expectedPeerDeviceId || who[3]===expectedPeerDeviceId),'mls_unexpected_member');peerDevice=who[3];}
+        if (!deviceAdmission) {
+          if(who[2]===owner)need(who[3]===identity.id,'mls_unexpected_member');
+          else {need(!peerDevice && (!expectedPeerDeviceId || who[3]===expectedPeerDeviceId),'mls_unexpected_member');peerDevice=who[3];}
+        } else if (who[2] === peer) peerDevice = who[3];
       }
       need(peerDevice,'mls_unexpected_member');
+      if (deviceAdmission) need(leaves.some(node => equal(node.leaf.credential.identity, credential(identity).identity))
+        && transfer.roster.some(entry => entry.owner === transfer.actorOwner && entry.id === transfer.actorDeviceId), 'mls_device_roster_rejected');
       current(); await policy.markEncrypted(owner, peer); current();
-      await put(saved, { [`mls:group:${id}`]: { peer, bytes: encodeGroupState(joined), confirmed: true, acceptedTransfer: transfer.id, acceptedHash: transferHash,acceptedPeerDevice:peerDevice },
+      await put(saved, { [`mls:group:${id}`]: { peer, ...(deviceAdmission ? { multiDevice: true } : {}), bytes: encodeGroupState(joined), confirmed: true, acceptedTransfer: transfer.id, acceptedHash: transferHash,acceptedPeerDevice:peerDevice },
         [`mls:route:${peer}`]: { conversationId: id }, 'mls:package-consumed': identity.hash,
         [`mls:consumed:${identity.hash}`]: true,
         [`mls:package:${identity.hash}`]: retirePackage(identity),
@@ -347,33 +524,44 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const saved = await vault.snapshot(), id = saved.values[`mls:route:${peer}`]?.conversationId;
       need(id === envelope.conversationId, 'mls_peer_invalid');
       const digest = await hash(envelope.ciphertext), prior = await record(saved,`mls:received:${envelope.id}`);
-      if (prior) { need(prior === digest, 'mls_replay_conflict'); return await record(saved,`history:${envelope.id}`); }
+      if (prior) {
+        need(prior === digest, 'mls_replay_conflict'); const item = await record(saved,`history:${envelope.id}`);
+        need((!envelope.hash || envelope.hash === digest) && item?.epoch === envelope.epoch && (!envelope.deviceId || envelope.deviceId === item.deviceId)
+          && (!envelope.sender_device || envelope.sender_device === item.deviceId), 'mls_envelope_binding_rejected');
+        return item;
+      }
       if(envelope.hash)need(envelope.hash===digest,'mls_envelope_binding_rejected');
       need(!(await record(saved,`history:${envelope.id}`)), 'mls_message_id_conflict');
       const group = await state(saved, id), parsed = exact(decodeMlsMessage, envelope.ciphertext);
       need(group.row.confirmed && parsed.wireformat === 'mls_private_message'
         && decoder.decode(parsed.privateMessage.groupId) === id && String(parsed.privateMessage.epoch) === envelope.epoch
         && parsed.privateMessage.epoch === group.value.groupContext.epoch, 'mls_envelope_binding_rejected');
-      let result;
+      let result, sender;
       try {
-        try { result = await processPrivateMessage(group.value, parsed.privateMessage, emptyPskIndex, suite, () => 'reject'); }
+        try {
+          sender = await decryptSenderData(parsed.privateMessage, group.value.keySchedule.senderDataSecret, suite);
+          result = await processPrivateMessage(group.value, parsed.privateMessage, emptyPskIndex, suite, () => 'reject');
+        }
         catch { fail('mls_ciphertext_rejected'); }
         need(result.kind === 'applicationMessage', 'mls_application_required');
         let content;try { content = JSON.parse(decoder.decode(result.message)); }catch{fail('mls_content_binding_rejected');}
         need(content && Object.keys(content).sort().join(',') === 'conversationId,deviceId,epoch,id,message,owner,peer,signature'
           && content.id === envelope.id && content.conversationId === id && content.epoch === envelope.epoch
-          && content.owner === peer && content.peer === owner && typeof content.message === 'string'
+          && ((content.owner === peer && content.peer === owner) || (multiDevice && group.row.multiDevice
+            && content.owner === owner && content.peer === peer && content.deviceId !== saved.values['mls:identity'].id)) && typeof content.message === 'string'
           && content.message.trim().length && encoder.encode(content.message).length <= 16384
           && Array.isArray(content.signature) && content.signature.length === 64
           && content.signature.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255), 'mls_content_binding_rejected');
-        const pin = group.records.get(`${peer}/${content.deviceId}`);
-        need(pin?.status === 'active' && group.value.ratchetTree.some(node => node?.nodeType === 'leaf'
-          && equal(node.leaf.signaturePublicKey, pin.signaturePublicKey))
+        const pin = group.records.get(`${content.owner}/${content.deviceId}`);
+        const leaf = Number.isInteger(sender?.leafIndex) && group.value.ratchetTree[sender.leafIndex * 2];
+        need(pin?.status === 'active' && leaf?.nodeType === 'leaf'
+          && equal(leaf.leaf.credential.identity, credential(pin).identity) && equal(leaf.leaf.signaturePublicKey, pin.signaturePublicKey)
+          && (!envelope.deviceId || envelope.deviceId === content.deviceId) && (!envelope.sender_device || envelope.sender_device === content.deviceId)
           && await suite.signature.verify(pin.signaturePublicKey, contentBytes(content), new Uint8Array(content.signature)), 'mls_sender_rejected');
-        const history = { ...content, hash: digest, timestamp: envelope.created_at || new Date(now()).toISOString(), status: 'delivered', encrypted: true }; delete history.signature;
+        const history = { ...content, hash: digest, timestamp: envelope.created_at || new Date(now()).toISOString(), status: content.owner === owner ? 'sent' : 'delivered', encrypted: true }; delete history.signature;
         await put(saved, { [`mls:group:${id}`]: { ...group.row, bytes: encodeGroupState(result.newState) },
           [`history:${envelope.id}`]: history, [`mls:received:${envelope.id}`]: digest }); return history;
-      } finally { if (result?.message) result.message.fill(0); wipe(result); }
+      } finally { if (result?.message) result.message.fill(0); if (sender?.reuseGuard) sender.reuseGuard.fill(0); wipe(result); }
     });
   }
   async function retryMessage(id) {
@@ -431,6 +619,6 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     current();return String(parsed[0].groupContext.epoch);
   }
   return { initialize, prepareKeyPackage, history, applyReceipt, createConversation, addPeer, replacePeer, confirmMembership, acceptWelcome, isEncrypted, sendMessage, receive,conversationId,
-    retryMessage,conversationEpoch,
+    retryMessage,conversationEpoch,addDevice,applyDeviceCommit,acceptDeviceWelcome,
     close() { closed = true; } };
 }
