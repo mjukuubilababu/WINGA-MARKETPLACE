@@ -144,6 +144,48 @@ async function resetStores(multidevice=false,rooms=false,limits) {
   backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;roomsEnabled=rooms;
 }
 
+test('Room own-device archive synchronization, recovery and encrypted old attachment download work over real HTTP',async({browser})=>{
+  test.setTimeout(120000);await resetStores(true,true);
+  const contexts=await Promise.all(Array.from({length:4},()=>browser.newContext({viewport:{width:390,height:844}})));
+  try{
+    const [alice,bob,eve,sibling]=await Promise.all(contexts.map(c=>c.newPage()));
+    async function startRoom(page,owner){await page.goto(origin);await page.addScriptTag({url:origin+'/room-session.js'});return page.evaluate(name=>start(name),owner);}
+    for(const [page,owner] of [[alice,'alice'],[bob,'bob'],[eve,'eve']])await startRoom(page,owner);
+    const selected=await alice.evaluate(()=>client.shoppingRoom('inspectOwners',[['bob','eve']]));
+    const id=await alice.evaluate(p=>client.shoppingRoom('create',['History Room',p]),selected);
+    for(const p of [bob,eve])await p.evaluate(id=>client.shoppingRoom('join',[id]),id);
+    for(let n=0;n<2;n++)for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    const old=await bob.evaluate(id=>client.shoppingRoom('send',[id,'Old private Room text']),id);
+    const file=await alice.evaluate(id=>client.shoppingRoom('sendMedia',[id,new File(['Old encrypted Room file'],'historic-room.txt',{type:'text/plain'}),'History file']),id);
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    const kit=await alice.evaluate(async()=>{const r=await client.createEncryptedRecovery();try{return await r.backup(r.generateKey());}finally{r.close();}});
+    await expect(startRoom(sibling,'alice')).rejects.toThrow();
+    const next=(await db.query("SELECT id,fingerprint FROM conversation_crypto_devices WHERE owner_id='alice' AND status='pending'")).rows[0];
+    await alice.evaluate(async d=>{const m=await client.createCryptoDeviceManagement();try{await m.manage('approve',d.id,d.fingerprint);}finally{m.close();}},next);
+    await startRoom(sibling,'alice');
+    const added=await alice.evaluate(id=>client.shoppingRoom('inspectChange',[id,['alice']]),id);expect(added).toHaveLength(1);expect(added[0].deviceId).toBe(next.id);
+    await alice.evaluate(({id,added})=>client.shoppingRoom('change',[id,added]),{id,added});
+    for(const p of [bob,eve,sibling])await p.evaluate(id=>client.shoppingRoom('join',[id]),id);
+    await expect.poll(async()=>{
+      for(const p of [alice,bob,eve,sibling])await p.evaluate(()=>client.shoppingRoom('sync'));
+      return (await sibling.evaluate(id=>client.shoppingRoom('history',[id]),id)).map(m=>m.id);
+    },{timeout:30000}).toEqual([old.id,file.id]);
+    const board=await sibling.evaluate(id=>client.shoppingRoom('board',[id]),id);expect(board.conversationId).toBe(id);expect(board.rejected).toEqual([]);
+    expect(await sibling.evaluate(async({id,fileId})=>(await client.shoppingRoom('downloadMedia',[id,fileId])).blob.text(),{id,fileId:file.id})).toBe('Old encrypted Room file');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_media_archive_grants WHERE device_id=$1',[next.id])).rows[0].n).toBe(1);
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch='1'",[id])).rows[0].n).toBe(3);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts WHERE device_id=$1 AND message_id=ANY($2::text[])',[next.id,[old.id,file.id]])).rows[0].n).toBe(0);
+    await sibling.evaluate(async kit=>{const r=await client.createEncryptedRecovery();try{await r.restore(kit);}finally{r.close();}},kit);
+    await sibling.reload();await sibling.addScriptTag({url:origin+'/room-session.js'});await sibling.evaluate(()=>start('alice'));
+    await sibling.evaluate(()=>client.shoppingRoom('sync'));expect((await sibling.evaluate(id=>client.shoppingRoom('board',[id]),id)).rejected).toEqual([]);
+    expect((await sibling.evaluate(id=>client.shoppingRoom('history',[id]),id)).map(m=>m.id)).toEqual([old.id,file.id]);
+    const fresh=await sibling.evaluate(id=>client.shoppingRoom('send',[id,'Live Room message after restored history']),id);
+    for(const p of [alice,bob,eve])await p.evaluate(()=>client.shoppingRoom('sync'));
+    expect((await bob.evaluate(id=>client.shoppingRoom('history',[id]),id)).filter(m=>m.id===fresh.id)).toHaveLength(1);
+    expect([...objects.values()].some(bytes=>bytes.includes(Buffer.from('Old encrypted Room file')))).toBe(false);
+  }finally{for(const c of contexts)await c.close();}
+});
+
 test('real Rooms UI creates a three-owner native MLS room and converges encrypted text and poll votes over HTTP',async({browser})=>{
   test.setTimeout(120000);await resetStores(false,true,{maxOwners:3,maxDevices:3});
   await db.query("INSERT INTO users(username,status) VALUES('offline','active')");

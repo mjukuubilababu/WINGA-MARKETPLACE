@@ -14,6 +14,10 @@ const fields=Object.freeze({
   'room-check':['conversationId','epoch','revision'],'room-poll':['after'],
   'room-preferences':['conversationId'],
   'room-preference-save':['conversationId','revision','field','value'],
+  'room-history-epoch':['conversationId','epoch'],
+  'room-archive-read':['id','conversationId','epoch','hash','kind'],
+  'room-archive-read-ack':['id','conversationId','epoch','hash','kind','receiptDeviceId'],
+  'room-media-history-grant':['id','conversationId','messageId','bytes','sha256'],
   'room-send':['id','conversationId','epoch','deviceId','ciphertext','hash'],
   'room-receipt':['id','conversationId','epoch','hash','kind'],
   'room-receipt-ack':['id','conversationId','epoch','hash','kind','receiptDeviceId'],
@@ -45,7 +49,7 @@ function parseIntent(text) {
   return {i,roster,roles,changes,owners:[...owners.keys()]};
 }
 const transferHash=p=>hash(JSON.stringify(['winga-mls-room-transfer',1,p.intent,p.epoch,...['commit','welcome','tree'].map(k=>hash(Buffer.from(p[k],'base64url')))]));
-function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabled=false,roomLimits}) {
+function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabled=false,multiDeviceEnabled=false,roomLimits}) {
   const policy=require('./encrypted-room-limits'),limits=policy.roomLimits(roomLimits);
   const size=parsed=>({maxOwners:parsed.owners.length,maxDevices:parsed.roster.length});
   // Admission bounds do not reinterpret immutable rosters or exact accepted retries.
@@ -82,6 +86,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
   }
   async function handle(client,c,op){
     const p=op.payload;need(exact(p,op.action==='room-send'&&Object.hasOwn(p,'mediaId')?[...fields['room-send'],'mediaId']:fields[op.action]));
+    if(['room-history-epoch','room-archive-read','room-archive-read-ack','room-media-history-grant'].includes(op.action))need(multiDeviceEnabled,'encrypted_multidevice_disabled',503);
     if(op.action==='room-directory'){
       let owners;try{owners=JSON.parse(p.owners);}catch{need(false);}
       need(Array.isArray(owners)&&JSON.stringify(owners)===p.owners&&owners.length>=2&&owners.length<=12&&owners.every(owner)
@@ -159,6 +164,12 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
           WHERE m.conversation_id=$1 AND m.sender_device=$2 AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipt_acks a
             WHERE a.message_id=r.message_id AND a.receipt_device=r.device_id AND a.kind=r.kind AND a.observer_device=$2)
           ORDER BY m.sequence,r.device_id,r.kind LIMIT 100`,[g.id,op.actorId])).rows.map(r=>r.proof);
+        r.archiveReceipts=multiDeviceEnabled&&info.t.status==='accepted'?(await client.query(`SELECT a.proof FROM encrypted_conversation_archive_reads a
+          JOIN encrypted_conversation_messages m ON m.id=a.message_id WHERE m.conversation_id=$1 AND m.epoch::numeric<$3::numeric
+          AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices e WHERE e.conversation_id=m.conversation_id AND e.epoch=m.epoch AND e.owner_id=$4)
+          AND a.device_id<>$2 AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_archive_read_acks x
+            WHERE x.message_id=a.message_id AND x.receipt_device=a.device_id AND x.observer_device=$2)
+          ORDER BY m.sequence,a.device_id LIMIT 100`,[g.id,op.actorId,g.epoch,c.owner])).rows.map(a=>a.proof):[];
         rooms.push(r);
       }
       return {version:1,rooms,next:page.length>100?page[99].id:null};
@@ -166,6 +177,41 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     need(uuid(p.conversationId));
     const g=(await client.query(`SELECT g.*,r.name,r.revision::text FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id WHERE g.id=$1 FOR UPDATE OF g`,[p.conversationId])).rows[0];
     const info=await member(client,c,op.actorId,g),{t}=info;
+    if(op.action==='room-history-epoch'){
+      await member(client,c,op.actorId,g,{pending:false});
+      need(decimal(p.epoch)&&p.epoch!=='0'&&BigInt(p.epoch)<=BigInt(g.epoch),'encrypted_room_history_access_denied',403);
+      const epoch=(await client.query(`SELECT e.*,t.id,t.intent FROM encrypted_room_epochs e JOIN encrypted_room_transitions t
+        ON t.conversation_id=e.conversation_id AND t.epoch=e.epoch AND t.status='accepted'
+        WHERE e.conversation_id=$1 AND e.epoch=$2 AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices d
+          WHERE d.conversation_id=e.conversation_id AND d.epoch=e.epoch AND d.owner_id=$3)`,[g.id,p.epoch,c.owner])).rows[0];
+      need(epoch,'encrypted_room_history_access_denied',403);
+      const acceptances=(await client.query(`SELECT owner_id AS owner,device_id AS "deviceId",signature FROM encrypted_room_acceptances WHERE transition_id=$1 ORDER BY owner_id,device_id`,[epoch.id])).rows;
+      return {version:1,conversationId:g.id,epoch:p.epoch,intent:epoch.intent,transferHash:epoch.transfer_hash,acceptances};
+    }
+    if(op.action==='room-media-history-grant'){
+      need(mediaEnabled,'private_media_disabled',503);await member(client,c,op.actorId,g,{pending:false});return media.grantHistory(client,c,op,g);
+    }
+    if(op.action.startsWith('room-archive-read')){
+      await member(client,c,op.actorId,g,{pending:false});
+      const m=(await client.query(`SELECT m.*,e.owner_id AS sender_owner FROM encrypted_conversation_messages m
+        JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch AND e.device_id=m.sender_device
+        WHERE m.id=$1 AND m.conversation_id=$2 AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices old
+          WHERE old.conversation_id=m.conversation_id AND old.epoch=m.epoch AND old.owner_id=$3)`,[p.id,g.id,c.owner])).rows[0];
+      need(m&&p.kind==='read'&&m.epoch===p.epoch&&m.hash===p.hash&&BigInt(m.epoch)<BigInt(g.epoch),'encrypted_room_receipt_rejected',403);
+      if(op.action==='room-archive-read'){
+        need(m.sender_owner!==c.owner,'encrypted_room_receipt_rejected',403);
+        const r=await client.query(`INSERT INTO encrypted_conversation_archive_reads(message_id,device_id,owner_id,proof)
+          VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[m.id,op.actorId,c.owner,JSON.stringify(proof(c,op))]);
+        if(r.rowCount)await client.query(`SELECT winga_append_conversation_event($1,'message_state_changed',$2,$3,0)`,[g.canonical_id,m.id,c.owner]);
+      }else{
+        need(uuid(p.receiptDeviceId)&&p.receiptDeviceId!==op.actorId&&(await client.query(`SELECT 1 FROM encrypted_conversation_archive_reads a
+          WHERE a.message_id=$1 AND a.device_id=$2 AND EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices d
+            WHERE d.conversation_id=$3 AND d.epoch=$4 AND d.owner_id=a.owner_id)`,[m.id,p.receiptDeviceId,g.id,m.epoch])).rows.length,'encrypted_room_receipt_rejected',403);
+        await client.query(`INSERT INTO encrypted_conversation_archive_read_acks(message_id,receipt_device,observer_device,proof)
+          VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[m.id,p.receiptDeviceId,op.actorId,JSON.stringify(proof(c,op))]);
+      }
+      return {version:1,ok:true};
+    }
     if(op.action==='room-preferences')return preference(await readPreference(client,c.owner,g.id));
     if(op.action==='room-preference-save'){
       need(decimal(p.revision)&&['muted','archived'].includes(p.field)&&typeof p.value==='boolean');

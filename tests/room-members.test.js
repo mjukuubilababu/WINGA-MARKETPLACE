@@ -13,6 +13,19 @@ function fixture(packages=[],roomLimits){
   return {room,calls};
 }
 
+test('visible old Room Read preserves original receipts when archive composition is disabled',async()=>{
+  for(const enabled of [false,true]){
+    const id='11111111-1111-4111-8111-111111111111',message={id:'22222222-2222-4222-8222-222222222222',conversationId:id,epoch:'1',owner:'bob',status:'delivered',hash:'a'.repeat(64)},thread={};
+    const context=vm.createContext({structuredClone,document:{visibilityState:'visible',hasFocus:()=>true,querySelectorAll:()=>[{dataset:{roomId:id},getClientRects:()=>[{}],querySelector:()=>thread}]},visibleIncomingMessageIds:()=>new Set([message.id])});
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../src/chat/room-session.js'),'utf8'),context);
+    const calls=[],writes=[];
+    const room=context.WingaRoomSession.createRoomSession({owner:'alice',historyRecoveryEnabled:enabled,runtime:()=>({room:{history:async()=>[message]}}),vault:{snapshot:async()=>({revision:'0'}),write:async p=>writes.push(p)},
+      operation:async(action,payload)=>{calls.push({action,payload});return action==='room-poll'?{version:1,rooms:[{id,epoch:'2'}]}:{ok:true};}});
+    await room.list();await room.markRead(id,[message.id]);
+    assert.equal(calls[1].action,enabled?'room-archive-read':'room-receipt');assert.equal(calls[1].payload.kind,'read');assert.equal(writes[0].values['history:'+message.id].status,'read');
+  }
+});
+
 test('room review requires two distinct other accounts before any device or directory work',async()=>{
   for(const names of [[],['alice'],['bob'],['alice','bob','bob']]){
     const f=fixture();await assert.rejects(f.room.inspectOwners(names),{code:'encrypted_room_members_required'});

@@ -6,7 +6,7 @@
   const bytes=v=>Uint8Array.from(atob(v.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
   const encoded=v=>{let s='';for(let i=0;i<v.length;i+=8192)s+=String.fromCharCode(...v.subarray(i,i+8192));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
   const rank={pending:0,sent:1,delivered:2,read:3};
-  async function createNativeHistoryClient({owner,deviceId,getSession,vault,codec,operation,verifyProof,crypto=globalThis.crypto,locks=globalThis.navigator?.locks,now=Date.now,onChange=()=>{},validateMembership=async()=>{}}){
+  async function createNativeHistoryClient({owner,deviceId,getSession,vault,codec,operation,verifyProof,crypto=globalThis.crypto,locks=globalThis.navigator?.locks,now=Date.now,onChange=()=>{},validateMembership=async()=>{},validateRoomHistory=async()=>{need(false,'history_sync_room_unavailable');}}){
     need(owner&&uuid(deviceId)&&vault?.historySnapshot&&vault?.lookup&&vault?.write&&codec?.sealRecovery&&codec?.openRecovery&&typeof verifyProof==='function'&&locks?.request);
     const initial={...getSession()};let closed=false,states={};
     const current=()=>{const s=getSession();need(!closed&&s?.username===owner&&s.sessionId===initial.sessionId&&s.token===initial.token,'history_sync_session_changed');};
@@ -21,8 +21,14 @@
       need(item&&uuid(item.id)&&item.conversationId===g.id&&uuid(item.deviceId)&&typeof item.epoch==='string'&&/^[1-9][0-9]{0,19}$/.test(item.epoch)
         &&BigInt(item.epoch)<=BigInt(g.epoch)&&typeof item.message==='string'&&encoder.encode(item.message).length<=65536
         &&typeof item.hash==='string'&&/^[a-f0-9]{64}$/.test(item.hash)&&typeof item.timestamp==='string'&&Number.isFinite(Date.parse(item.timestamp))
-        &&Object.hasOwn(rank,item.status)&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
-      return Object.fromEntries(['id','conversationId','epoch','owner','deviceId','peer','message','hash','timestamp','status'].map(k=>[k,item[k]]));
+        &&Object.hasOwn(rank,item.status));
+      const fields=['id','conversationId','epoch','owner','deviceId','peer','message','hash','timestamp','status'];
+      if(g.kind==='shopping-room'){
+        need(item.kind==='shopping-room'&&item.peer==='room:'+g.id&&typeof item.owner==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(item.owner)
+          &&typeof item.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(item.sequence));fields.push('kind','sequence');
+        if(item.mediaId!==undefined){need(uuid(item.mediaId));fields.push('mediaId');}
+      }else need(item.kind!=='shopping-room'&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
+      return Object.fromEntries(fields.map(k=>[k,item[k]]));
     }
     async function history(g){
       current();const s=await vault.historySnapshot({filter:item=>item?.conversationId===g.id});current();
@@ -34,7 +40,8 @@
           if(BigInt(item.epoch)<BigInt(g.epoch))items[key]=item;
         }
       }
-      need(Object.keys(items).length<=100000,'history_sync_limit');return items;
+      need(Object.keys(items).length<=100000,'history_sync_limit');
+      if(g.kind==='shopping-room')await validateRoomHistory(g,items);current();return items;
     }
     const historyHash=items=>digest(JSON.stringify(Object.keys(items).sort().map(k=>[k,items[k]])));
     function packPages(items){
@@ -172,6 +179,7 @@
         if(manifest.mode==='snapshot')need(await historyHash(items)===manifest.sourceHash);
         await serialized(async()=>{
         await validateMembership(g);current();
+        if(g.kind==='shopping-room')await validateRoomHistory(g,items);current();
         const local=await vault.historySnapshot({filter:item=>item?.conversationId===g.id});current();
         for(const [id,item] of Object.entries(items)){
           const old=local.values[id];if(old){

@@ -4,13 +4,13 @@
   const decode=text=>Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
-  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
+  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,verifyArchiveProof=verifyProof,mediaFactory,historyRecoveryEnabled=false,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
     if(!roomLimits||typeof roomLimits!=='object'||Array.isArray(roomLimits)||Object.keys(roomLimits).sort().join(',')!=='maxDevices,maxOwners'
       ||!Number.isInteger(roomLimits.maxOwners)||roomLimits.maxOwners<3||roomLimits.maxOwners>12
       ||!Number.isInteger(roomLimits.maxDevices)||roomLimits.maxDevices<roomLimits.maxOwners||roomLimits.maxDevices>24)fail('encrypted_room_limits_invalid');
     const limits=()=>({maxOwners:roomLimits.maxOwners,maxDevices:roomLimits.maxDevices});
     roomLimits=Object.freeze(limits());
-    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
+    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map(),epochCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
     function preference(value){need(value&&Object.keys(value).sort().join(',')==='archived,muted,revision'
@@ -19,6 +19,34 @@
     async function preferences(id){return preference(await operation('room-preferences',{conversationId:id}));}
     async function setPreference(id,revision,field,value){need(['muted','archived'].includes(field)&&typeof value==='boolean');
       return preference(await operation('room-preference-save',{conversationId:id,revision,field,value}));}
+    async function historyEpoch(id,epoch,fresh=false){
+      const key=id+':'+epoch;if(!fresh&&epochCache.has(key))return structuredClone(epochCache.get(key));
+      const r=await operation('room-history-epoch',{conversationId:id,epoch});
+      need(r&&Object.keys(r).sort().join(',')==='acceptances,conversationId,epoch,intent,transferHash,version'
+        &&r.version===1&&r.conversationId===id&&r.epoch===epoch&&typeof r.intent==='string'&&r.intent.length<=65536
+        &&typeof r.transferHash==='string'&&/^[a-f0-9]{64}$/.test(r.transferHash)&&Array.isArray(r.acceptances)&&r.acceptances.length<=24);
+      epochCache.set(key,structuredClone(r));if(epochCache.size>1024)epochCache.delete(epochCache.keys().next().value);return r;
+    }
+    function historyGroups(){return rooms.filter(r=>r.status==='active'&&r.transition?.status==='accepted'&&!r.clientError)
+      .map(r=>({...r,roster:JSON.parse(JSON.parse(r.transition.intent).roster).map(m=>({...m,status:'active'}))}));}
+    async function validateHistoryMembership(g){
+      const latest=historyGroups().find(r=>r.id===g.id),s=await vault.snapshot(),local=s.values[`mls:group:${g.id}`];
+      need(latest?.epoch===g.epoch&&local?.kind==='shopping-room'&&local.confirmed&&local.roomRevision===latest.revision
+        &&!s.values[`mls:membership:${g.id}`],'history_sync_membership_changed');
+      const check=await operation('room-check',{conversationId:g.id,epoch:g.epoch,revision:latest.revision});
+      need(check.active===true&&check.conversationId===g.id&&check.epoch===g.epoch,'history_sync_membership_changed');
+    }
+    async function validateHistory(g,items){
+      const epochs=new Map();
+      for(const item of Object.values(items)){
+        if(!epochs.has(item.epoch)){
+          need(epochs.size<1024,'history_sync_limit');const r=await historyEpoch(g.id,item.epoch,true),i=JSON.parse(r.intent),members=JSON.parse(i.roster);
+          need(i.kind==='shopping-room'&&i.conversationId===g.id&&String(BigInt(i.previousEpoch)+1n)===item.epoch
+            &&members.some(m=>m.owner===owner),'history_sync_room_membership_rejected');epochs.set(item.epoch,members);
+        }
+        need(epochs.get(item.epoch).some(m=>m.id===item.deviceId&&m.owner===item.owner),'history_sync_room_sender_rejected');
+      }
+    }
     async function readIntent(i){
       const r=await operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});
       const t=r?.room?.transition;
@@ -29,6 +57,7 @@
     const authorization={
       async verifyIntent(i){await readIntent(i);return true;},
       async check(id,epoch,revision){return operation('room-check',{conversationId:id,epoch,revision});},
+      historyEpoch,
       async confirm(t){const room=await readIntent(JSON.parse(t.intent));need(room.transition.status==='accepted');
         const h=await transferHash(t);need(room.transition.transfer_hash===h);
         return {status:'active',conversationId:t.conversationId,epoch:t.epoch,transferHash:h};}
@@ -92,6 +121,24 @@
           const rank={sent:0,delivered:1,read:2},status=rank[item.status]>rank[calculated]?item.status:calculated;
           await vault.write({expectedRevision:saved.revision,values:{[key]:observed,[`history:${item.id}`]:{...item,status}}});
           await operation('room-receipt-ack',{...p,receiptDeviceId:proof.actorId});
+        }
+        for(const proof of room.archiveReceipts||[]){
+          const p=proof.payload,item=await vault.lookup?.(`history:${p?.id}`);if(!item)continue;
+          if(!await verifyArchiveProof(proof,'room-archive-read'))continue;
+          need(item.kind==='shopping-room'&&item.conversationId===room.id&&item.hash===p.hash&&item.epoch===p.epoch
+            &&p.kind==='read'&&BigInt(item.epoch)<BigInt(room.epoch));
+          const members=(await runtime().room.epochs(room.id)).get(item.epoch);
+          need(members?.some(m=>m.owner===proof.owner));
+          const s=await vault.snapshot(),values={};
+          if(proof.owner===owner&&item.owner!==owner)values[`history:${item.id}`]={...item,status:'read'};
+          else if(item.owner===owner){
+            const key=`room:receipts:${item.id}`,observed=await vault.lookup?.(key)||{};observed[proof.owner]='read';
+            const others=[...new Set(members.map(m=>m.owner))].filter(o=>o!==owner);
+            // An archived Read cannot invent original live Delivered acknowledgements.
+            values[key]=observed;if(others.every(o=>observed[o]==='read'))values[`history:${item.id}`]={...item,status:'read'};
+          }
+          if(Object.keys(values).length)await vault.write({expectedRevision:s.revision,values});
+          await operation('room-archive-read-ack',{...p,receiptDeviceId:proof.actorId});
         }
         }catch(error){if(error.status===401||['crypto_vault_session_required','crypto_device_session_required'].includes(error.code))throw error;
           room.clientError=/^[a-z0-9_]{1,80}$/.test(error.code||'')?error.code:'room_sync_failed';}
@@ -190,7 +237,8 @@
       const detail=[...document.querySelectorAll('[data-room-id]')].find(el=>el.dataset.roomId===id&&el.getClientRects().length),thread=detail?.querySelector('.room-thread');
       if(!thread||typeof globalThis.visibleIncomingMessageIds!=='function')return;
       for(const item of await history(id))if(item.owner!==owner&&ids.includes(item.id)&&item.status!=='read'&&globalThis.visibleIncomingMessageIds(thread).has(item.id)){
-        await operation('room-receipt',{id:item.id,conversationId:id,epoch:item.epoch,hash:item.hash,kind:'read'});
+        const currentRoom=rooms.find(r=>r.id===id),archive=historyRecoveryEnabled&&currentRoom&&BigInt(item.epoch)<BigInt(currentRoom.epoch);
+        await operation(archive?'room-archive-read':'room-receipt',{id:item.id,conversationId:id,epoch:item.epoch,hash:item.hash,kind:'read'});
           const saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`history:${item.id}`]:{...item,status:'read'}}});}
     }
     async function media(id){need(typeof mediaFactory==='function','private_media_disabled');if(!mediaClients.has(id))mediaClients.set(id,await mediaFactory(id));return mediaClients.get(id);}
@@ -201,7 +249,7 @@
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();

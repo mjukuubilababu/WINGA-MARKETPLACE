@@ -16,11 +16,13 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   const replacement=require('./encrypted-membership-replacement').createMembershipReplacement({access});
   const admission=require('./encrypted-device-admissions').createDeviceAdmissions({access,currentEpoch:replacement.currentEpoch,replacementFrozen:replacement.frozen});
   const frozen=async(client,id)=>await replacement.frozen(client,id) || (multiDeviceEnabled && await admission.frozen(client,id));
-  const nativeHistory=require('./encrypted-native-history').createNativeHistory({access,frozen,roster:admission.roster});
+  const nativeHistory=require('./encrypted-native-history').createNativeHistory({
+    access:async(client,g,actor,owner)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner);},
+    frozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),roster:admission.roster});
   const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,
     access:async(client,g,actor,owner,options)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner,options);},
     membershipFrozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),historyRecoveryEnabled:multiDeviceEnabled});
-  const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,roomLimits});
+  const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,multiDeviceEnabled,roomLimits});
   const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
   async function consumeNewConversationQuota(client, owner) {
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
@@ -206,8 +208,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       }
       assert(uuid(p.conversationId));
       const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[p.conversationId])).rows[0];
-      assert(!g?.kind || g.kind==='direct',403,'encrypted_group_scope_rejected');
       if(op.action.startsWith('history-'))return nativeHistory.handle(client,context,op,g);
+      assert(!g?.kind || g.kind==='direct',403,'encrypted_group_scope_rejected');
       if(op.action.startsWith('device-'))return admission.handle(client,context,op,g);
       if(op.action.startsWith('replace-')) {
         if(multiDeviceEnabled){assert(!await admission.frozen(client,g?.id),409,'encrypted_membership_pending');

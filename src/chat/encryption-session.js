@@ -77,11 +77,12 @@
     }
     try {
       if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
-        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,historyRecoveryEnabled:multiDeviceEnabled,
+          verifyArchiveProof:async(p,action)=>{const pin=(await pins()).find(v=>v.id===p.actorId&&v.owner===p.owner&&v.status==='active');return pin?verifyProof(p,action,pin):null;},
           mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
             const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
-            return WingaEncryptedMedia.createMediaClient({owner,getSession,vault,identity,request:mediaRequest,onChange,
-              operation:(action,payload,requestId)=>{if(payload.conversationId!==id)fail('encrypted_group_scope_rejected');return operation(action==='media-reserve'?'room-media-reserve':action,payload,requestId);},
+            return WingaEncryptedMedia.createMediaClient({owner,getSession,vault,identity,request:mediaRequest,onChange,historyRecoveryEnabled:multiDeviceEnabled,
+              operation:(action,payload,requestId)=>{if(payload.conversationId!==id)fail('encrypted_group_scope_rejected');return operation(action==='media-reserve'?'room-media-reserve':action==='media-history-grant'?'room-media-history-grant':action,payload,requestId);},
               runtime:{history:async p=>{requirePeer(p);return runtime.room.history(id);},conversationId:async p=>{requirePeer(p);return id;},
                 retryMessage:messageId=>runtime.retryMessage(messageId),sendMessage:async p=>{requirePeer(p.receiverId);return runtime.room.send({conversationId:id,clientMessageId:p.clientMessageId,message:p.message,mediaId:p.mediaId});}}});
           }:undefined});}
@@ -94,8 +95,17 @@
         const codec=await WingaSecureContent.loadSecureContent();current();
         nativeHistory=await WingaNativeHistory.createNativeHistoryClient({owner,deviceId:own.id,getSession,vault,codec,operation,
           verifyProof:(p,action)=>verifyProof(p,action,p.actorId===own.id?native:undefined),onChange,
-          validateMembership:async g=>{const latest=groups.find(x=>x.id===g.id),peer=g.creator===owner?g.recipient:g.creator;
+          validateRoomHistory:(g,items)=>roomSession.validateHistory(g,items),
+          validateMembership:async g=>{if(g.kind==='shopping-room')return roomSession.validateHistoryMembership(g);
+            const latest=groups.find(x=>x.id===g.id),peer=g.creator===owner?g.recipient:g.creator;
             if(latest?.status!=='active'||latest.epoch!==g.epoch||await runtime.conversationEpoch(peer)!==g.epoch)fail('history_sync_membership_changed');}});
+      }
+      function startHistorySync(){
+        if(!nativeHistory||historyTask)return;
+        const roster=structuredClone([...groups,...(roomSession?.historyGroups()||[])]);
+        historyTask=navigator.locks.request(`winga-native-history:${owner}:${own.id}`,()=>{
+          current();return nativeHistory.sync(roster);
+        }).catch(()=>{}).finally(()=>{historyTask=null;});
       }
       const canonical=value=>JSON.stringify(value,Object.keys(value).sort());
       async function processAdmission(g) {
@@ -284,13 +294,8 @@
           && groups.some(g=>g.id===job.conversationId && g.status==='active')) {
           await runtime.retryMessage(job.id);queueMicrotask(onChange);
         }
-        if(nativeHistory&&!historyTask){
-          // Archive I/O is not on the message-send critical path; vault CAS protects concurrent writes.
-          const roster=structuredClone(groups);
-          historyTask=navigator.locks.request(`winga-native-history:${owner}:${own.id}`,()=>{
-            current();return nativeHistory.sync(roster);
-          }).catch(()=>{}).finally(()=>{historyTask=null;});
-        }
+        // Archive I/O is not on the message-send critical path; vault CAS protects concurrent writes.
+        startHistorySync();
         current();const snapshot=JSON.stringify(groups);
         if(snapshot!==lastSnapshot){lastSnapshot=snapshot;queueMicrotask(onChange);}return groups;
       }
@@ -587,7 +592,7 @@
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;

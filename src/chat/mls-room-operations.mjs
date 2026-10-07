@@ -393,7 +393,25 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
       for(const [key,value] of Object.entries(saved.values))if(belongs(value,key))wanted.add(value.epoch);
       need(wanted.size<=1024,'mls_room_history_epoch_limit');const result=new Map();
       for(const epoch of wanted){need(decimal(epoch)&&epoch!=='0','mls_room_roster_rejected');
-        const binding=await record(saved,`mls:room-epoch:${id}:${epoch}`);current();
+        let binding=await record(saved,`mls:room-epoch:${id}:${epoch}`);current();
+        if(!binding&&authorization.historyEpoch){
+          const archived=await authorization.historyEpoch(id,epoch);current();
+          need(exact(archived,['version','conversationId','epoch','intent','transferHash','acceptances'])&&archived.version===1
+            &&archived.conversationId===id&&archived.epoch===epoch&&typeof archived.intent==='string'&&archived.intent.length<=65536
+            &&typeof archived.transferHash==='string'&&/^[a-f0-9]{64}$/.test(archived.transferHash),'mls_room_archive_rejected');
+          let intent;try{intent=JSON.parse(archived.intent);}catch{need(false,'mls_room_archive_rejected');}
+          const parsed=parseIntent(intent);
+          need(canonical(intent)===archived.intent&&intent.conversationId===id&&String(BigInt(intent.previousEpoch)+1n)===epoch
+            &&parsed.members.some(m=>m.owner===owner)&&Array.isArray(archived.acceptances)&&archived.acceptances.length===parsed.members.length,'mls_room_archive_rejected');
+          const seen=new Set();
+          for(const a of archived.acceptances){const member=parsed.members.find(m=>m.id===a.deviceId&&m.owner===a.owner);
+            need(exact(a,['owner','deviceId','signature'])&&member&&!seen.has(a.deviceId)&&typeof a.signature==='string'&&/^[A-Za-z0-9_-]{86}$/.test(a.signature),'mls_room_archive_rejected');
+            const sig=Uint8Array.from(atob(a.signature.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+            need(base64(sig)===a.signature&&await suite.signature.verify(new Uint8Array(member.key),acceptanceBytes({conversationId:id,epoch},archived.transferHash,a.owner,a.deviceId),sig),'mls_room_archive_rejected');seen.add(a.deviceId);
+          }
+          // Public, owner-scoped disclosure metadata only; never restore MLS state or old secrets.
+          binding={roster:intent.roster,roles:intent.roles,confirmed:true};
+        }
         need(binding,'mls_room_roster_rejected');if(!binding.confirmed)continue;
         const roles=JSON.parse(binding.roles),members=JSON.parse(binding.roster);
         result.set(epoch,members.map(m=>({owner:m.owner,id:m.id,role:roles.find(r=>r.owner===m.owner)?.role})));

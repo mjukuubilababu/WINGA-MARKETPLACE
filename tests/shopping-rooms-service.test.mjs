@@ -1,34 +1,40 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID,randomBytes,createECDH,createHash,generateKeyPairSync,sign,webcrypto} from 'node:crypto';
+import {randomUUID,randomBytes,createECDH,createHash,generateKeyPairSync,sign,verify,webcrypto} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {PGlite} from '@electric-sql/pglite';
 import {createMlsRuntime,encodeRoomTransferPayload,decodeRoomTransferPayload} from '../src/chat/mls-runtime.mjs';
 const require=createRequire(import.meta.url),{createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Buffer.from(b,'base64url'));
-async function fixture(t,{four=false,roomLimits}={}){
+async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits}={}){
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
     'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
-  const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
+  const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
   let store=createEncryptedConversationStore(options);
+  let tamperHistoryEpoch=false;
   const setLimits=value=>{store=createEncryptedConversationStore({...options,roomLimits:value});};
   if(four)await db.exec("INSERT INTO users(username) VALUES('dave'); INSERT INTO sessions VALUES('d','dave','d',9999999999999)");
+  if(sibling)await db.exec("INSERT INTO sessions VALUES('a2','alice','a2',9999999999999)");
   const people=[];
-  for(const [owner,token] of [['alice','a'],['bob','b1'],['eve','e'],...(four?[['dave','d']]:[])]){
+  for(const [owner,token] of [['alice','a'],['bob','b1'],['eve','e'],...(four?[['dave','d']]:[]),...(sibling?[['alice','a2']]:[])]){
     const keys=generateKeyPairSync('ed25519'),publicKey=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32);
     const native={owner,id:randomUUID(),fingerprint:hash(publicKey),publicKey:encode(publicKey),status:'active'},context={owner,token,deviceId:token};
     await db.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,$2,$3,$4,'active')`,[native.id,owner,native.publicKey,native.fingerprint]);
-    let values={},revision=0;const vault={async snapshot(){return {revision:String(revision),values:structuredClone(values)};},async write(p){assert.equal(p.expectedRevision,String(revision));for(const k of p.deleted||[])delete values[k];Object.assign(values,structuredClone(p.values));return String(++revision);}};
-    const p={owner,native,context,vault,pins:[]};
+    let values={},revision=0;const vault={async snapshot(){return {revision:String(revision),values:structuredClone(values)};},async lookup(k){return structuredClone(values[k]);},
+      async historySnapshot({filter}={}){return {revision:String(revision),values:Object.fromEntries(Object.entries(structuredClone(values)).filter(([k,v])=>k.startsWith('history:')&&(!filter||filter(v,k))))};},
+      async write(p){assert.equal(p.expectedRevision,String(revision));for(const k of p.deleted||[])delete values[k];Object.assign(values,structuredClone(p.values));return String(++revision);}};
+    const p={owner,native,context,vault,pins:[],keys};
     p.signed=(action,payload,requestId=randomUUID(),session=context)=>{const op={action,actorId:native.id,requestId,issuedAt:Date.now(),payload};op.signature=encode(sign(null,operationBytes(session,op),keys.privateKey));return op;};
     p.operation=async(action,payload)=>store.encryptedOperation(context,p.signed(action,payload));
     const authorization={
       async verifyIntent(i){const r=await p.operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});assert.equal(r.room.transition.intent,JSON.stringify(i));return true;},
       async check(conversationId,epoch,revision){return p.operation('room-check',{conversationId,epoch,revision});},
+      historyEpoch:async(conversationId,epoch)=>{const r=await p.operation('room-history-epoch',{conversationId,epoch});
+        if(tamperHistoryEpoch)r.acceptances[0].signature=encode(randomBytes(64));return r;},
       async confirm(t){const r=await p.operation('room-intent',{conversationId:t.conversationId,transitionId:JSON.parse(t.intent).id});
         return {status:r.room.transition.status==='accepted'?'active':'pending',conversationId:t.conversationId,epoch:t.epoch,transferHash:r.room.transition.transfer_hash};}
     };
@@ -43,17 +49,123 @@ async function fixture(t,{four=false,roomLimits}={}){
     p.device=await p.runtime.initialize();people.push(p);
   }
   for(const a of people)for(const b of people)if(a!==b)a.pins.push({...b.device,status:'active'});
-  const id=randomUUID(),[alice,bob,eve]=people,roster=people.map(p=>({owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)})).sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+  const members=people.filter(p=>p.context.deviceId!=='a2');
+  const id=randomUUID(),[alice,bob,eve]=people,roster=members.map(p=>({owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)})).sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
   const intent={version:1,kind:'shopping-room',id:randomUUID(),conversationId:id,previousEpoch:'0',revision:'1',actorOwner:'alice',actorDeviceId:alice.device.id,roster:JSON.stringify(roster),
-    roles:JSON.stringify(people.map(p=>({owner:p.owner,role:p===alice?'admin':'member'})).sort((a,b)=>a.owner<b.owner?-1:1)),changes:JSON.stringify(people.slice(1).map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
+    roles:JSON.stringify(members.map(p=>({owner:p.owner,role:p===alice?'admin':'member'})).sort((a,b)=>a.owner<b.owner?-1:1)),changes:JSON.stringify(members.slice(1).map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
   const reserve=()=>alice.operation('room-reserve',{intent:JSON.stringify(intent),name:'Shopping',sourceHash:alice.device.hash});
-  async function transfer(){await reserve();const tr=await alice.runtime.room.create(intent,new Map(people.slice(1).map(p=>[p.device.id,p.device.keyPackage])));
-    await alice.operation('room-transfer',encodeRoomTransferPayload(tr));for(const p of people.slice(1))await p.runtime.room.acceptWelcome(tr);return tr;}
-  async function activate(){const tr=await transfer(),proofs=[];for(const p of people){const a=await p.runtime.room.acceptance(id);proofs.push(a);
+  async function transfer(){await reserve();const tr=await alice.runtime.room.create(intent,new Map(members.slice(1).map(p=>[p.device.id,p.device.keyPackage])));
+    await alice.operation('room-transfer',encodeRoomTransferPayload(tr));for(const p of members.slice(1))await p.runtime.room.acceptWelcome(tr);return tr;}
+  async function activate(){const tr=await transfer(),proofs=[];for(const p of members){const a=await p.runtime.room.acceptance(id);proofs.push(a);
       const r=await p.operation('room-intent',{conversationId:id,transitionId:intent.id});await p.operation('room-accept',{conversationId:id,transitionId:intent.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
-    for(const p of people)await p.runtime.room.confirm(id,proofs);return tr;}
-  return {db,store,setLimits,people,alice,bob,eve,id,intent,reserve,transfer,activate,pushes};
+    for(const p of members)await p.runtime.room.confirm(id,proofs);return tr;}
+  return {db,store,setLimits,tamperHistoryEpoch(){tamperHistoryEpoch=true;},people,alice,bob,eve,sibling:people.find(p=>p.context.deviceId==='a2'),id,intent,reserve,transfer,activate,pushes};
 }
+
+async function addSibling(f){
+  const p=f.sibling,roster=[...JSON.parse(f.intent.roster),{owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)}].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+  const i={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(roster),changes:JSON.stringify([{type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash}])};
+  await f.alice.operation('room-reserve',{intent:JSON.stringify(i),name:'Shopping',sourceHash:''});
+  const tr=await f.alice.runtime.room.change(i,new Map([[p.device.id,p.device.keyPackage]]));await f.alice.operation('room-transfer',encodeRoomTransferPayload(tr));
+  for(const other of [f.bob,f.eve])await other.runtime.room.applyCommit(tr);await p.runtime.room.acceptWelcome(tr);
+  const r=await f.alice.operation('room-intent',{conversationId:f.id,transitionId:i.id}),proofs=[];
+  for(const member of f.people){const a=await member.runtime.room.acceptance(f.id);proofs.push(a);await member.operation('room-accept',{conversationId:f.id,transitionId:i.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
+  for(const member of f.people)await member.runtime.room.confirm(f.id,proofs);return i;
+}
+async function receiveAll(f,sender,sent){
+  for(const p of f.people.filter(p=>p!==sender&&p!==f.sibling)){
+    const m=(await p.operation('room-poll',{after:null})).rooms[0].messages.find(m=>m.id===sent.id);
+    await p.runtime.room.receive({...m,deviceId:m.sender_device,conversationId:f.id,ciphertext:decode(m.ciphertext)});
+    await p.operation('room-receipt',{id:m.id,conversationId:f.id,epoch:m.epoch,hash:m.hash,kind:'delivered'});
+  }
+}
+async function roomHistoryCoordinator(f,p,hooks={}){
+  const codec=await require('../src/chat/secure-content').createSecureContent(webcrypto),session={username:p.owner,sessionId:p.context.deviceId,token:p.context.token};
+  return require('../src/chat/native-history-client').createNativeHistoryClient({owner:p.owner,deviceId:p.device.id,getSession:()=>session,vault:p.vault,codec,crypto:webcrypto,locks:{request:(_,work)=>work()},
+    operation:async(action,payload)=>{const r=await p.operation(action,payload);return hooks.after?hooks.after(action,r):r;},
+    verifyProof:async(proof,action)=>{const signer=f.people.find(p=>p.device.id===proof.actorId);assert.equal(proof.owner,p.owner);assert.equal(proof.action,action);
+      assert.equal(verify(null,operationBytes({owner:proof.owner,deviceId:proof.sessionId},proof),signer.keys.publicKey,Buffer.from(proof.signature,'base64url')),true);},
+    validateRoomHistory:async(g,items)=>{const epochs=new Map();for(const item of Object.values(items)){
+      if(!epochs.has(item.epoch)){const r=await p.operation('room-history-epoch',{conversationId:g.id,epoch:item.epoch});epochs.set(item.epoch,JSON.parse(JSON.parse(r.intent).roster));}
+      assert.ok(epochs.get(item.epoch).some(m=>m.owner===item.owner&&m.id===item.deviceId));}},
+    validateMembership:async g=>{assert.equal((await p.operation('room-check',{conversationId:g.id,epoch:g.epoch,revision:'2'})).active,true);}});
+}
+async function roomHistoryGroups(f,p){return (await p.operation('room-poll',{after:null})).rooms.map(r=>({...r,roster:JSON.parse(JSON.parse(r.transition.intent).roster).map(m=>({...m,status:'active'}))}));}
+
+test('approved same-owner native Room history transfers prior epochs only and projects public roles without restoring ratchets',async t=>{
+  const f=await fixture(t,{sibling:true});await f.activate();
+  const old=await f.bob.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'private old room text'});await receiveAll(f,f.bob,old);
+  await addSibling(f);const target=f.sibling;
+  const live=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'live epoch uses MLS'});
+  const before=await target.vault.snapshot(),oldGrants=(await f.db.query("SELECT * FROM encrypted_conversation_epoch_devices WHERE epoch='1' ORDER BY device_id")).rows;
+  const donor=await roomHistoryCoordinator(f,f.alice),receiver=await roomHistoryCoordinator(f,target),groups=await roomHistoryGroups(f,target);
+  for(let n=0;n<5;n++){await receiver.sync(groups);await donor.sync(groups);}
+  const history=await target.runtime.room.history(f.id);assert.equal(history.length,1);assert.equal(history[0].message,old.message);
+  assert.equal(history[0].kind,'shopping-room');assert.equal(history[0].sequence,old.sequence);assert.equal(history[0].peer,'room:'+f.id);assert.equal(history[0].id,old.id);
+  assert.equal(history.some(m=>m.id===live.id),false);assert.equal((await target.vault.snapshot()).values[`mls:group:${f.id}`].bytes.toString(),before.values[`mls:group:${f.id}`].bytes.toString());
+  const epochs=await target.runtime.room.epochs(f.id);assert.equal(epochs.get('1').find(m=>m.owner==='alice').role,'admin');
+  assert.deepEqual((await f.db.query("SELECT * FROM encrypted_conversation_epoch_devices WHERE epoch='1' ORDER BY device_id")).rows,oldGrants);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages')).rows[0].n,0);
+  assert.equal(JSON.stringify((await f.db.query('SELECT * FROM encrypted_conversation_history_transfers')).rows).includes(old.message),false);
+  const original=(await f.db.query('SELECT * FROM encrypted_conversation_receipts')).rows;
+  await target.operation('room-archive-read',{id:old.id,conversationId:f.id,epoch:'1',hash:old.hash,kind:'read'});
+  await assert.rejects(target.operation('room-receipt',{id:old.id,conversationId:f.id,epoch:'1',hash:old.hash,kind:'delivered'}),{code:'encrypted_room_receipt_rejected'});
+  await assert.rejects(target.operation('room-archive-read',{id:old.id,conversationId:f.id,epoch:'1',hash:old.hash,kind:'delivered'}),{code:'encrypted_room_receipt_rejected'});
+  assert.deepEqual((await f.db.query('SELECT * FROM encrypted_conversation_receipts')).rows,original);
+  const reads=(await f.alice.operation('room-poll',{after:null})).rooms[0].archiveReceipts;assert.equal(reads.length,1);
+  await f.alice.operation('room-archive-read-ack',{...reads[0].payload,receiptDeviceId:target.device.id});
+  assert.equal((await f.alice.operation('room-poll',{after:null})).rooms[0].archiveReceipts.length,0);
+  donor.close();receiver.close();
+});
+
+test('Room archive transfer denies another owner, unadmitted device, membership freeze and disabled features',async t=>{
+  const f=await fixture(t,{sibling:true});await f.activate();const key=createECDH('prime256v1');key.generateKeys();
+  const request={id:randomUUID(),conversationId:f.id,epoch:'1',donorDeviceId:f.alice.device.id,publicKey:encode(key.getPublicKey()),historyHash:hash('empty')};
+  await assert.rejects(f.sibling.operation('history-reserve',request),{code:'encrypted_room_membership_required'});
+  await assert.rejects(f.bob.operation('history-reserve',request),{code:'encrypted_history_access_denied'});
+  await addSibling(f);request.epoch='2';await f.sibling.operation('history-reserve',request);
+  const remove={...f.intent,id:randomUUID(),previousEpoch:'2',revision:'3',roster:JSON.parse((await f.alice.operation('room-poll',{after:null})).rooms[0].transition.intent).roster,changes:JSON.stringify([{type:'remove',owner:'eve',id:f.eve.device.id}])};
+  remove.roster=JSON.stringify(JSON.parse(remove.roster).filter(m=>m.owner!=='eve'));remove.roles=JSON.stringify(JSON.parse(f.intent.roles).filter(m=>m.owner!=='eve'));
+  await f.alice.operation('room-reserve',{intent:JSON.stringify(remove),name:'Shopping',sourceHash:''});
+  assert.equal((await f.sibling.operation('history-tasks',{})).tasks.length,0);
+  await assert.rejects(f.sibling.operation('history-reserve',{...request,id:randomUUID()}),{code:'encrypted_room_membership_pending'});
+  const disabled=createEncryptedConversationStore({withTransaction:work=>f.db.transaction(work),multiDeviceEnabled:true});
+  await assert.rejects(disabled.encryptedOperation(f.sibling.context,f.sibling.signed('history-reserve',request)),{code:'encrypted_rooms_disabled'});
+  const single=createEncryptedConversationStore({withTransaction:work=>f.db.transaction(work),roomsEnabled:true});
+  await assert.rejects(single.encryptedOperation(f.alice.context,f.alice.signed('room-history-epoch',{conversationId:f.id,epoch:'1'})),{code:'encrypted_multidevice_disabled'});
+});
+
+test('Room history rejects mutated pages and unsigned historical role bindings without partial imports',async t=>{
+  const f=await fixture(t,{sibling:true});await f.activate();
+  const old=await f.bob.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'OLD ROOM DATA stays encrypted'});await receiveAll(f,f.bob,old);await addSibling(f);
+  const donor=await roomHistoryCoordinator(f,f.alice),target=await roomHistoryCoordinator(f,f.sibling,{after:(action,r)=>{
+    if(action==='history-pages'&&r.pages.length){r=structuredClone(r);r.pages[0].capsule.ciphertext=encode(randomBytes(32));}return r;
+  }}),groups=await roomHistoryGroups(f,f.sibling);
+  await target.sync(groups);await donor.sync(groups);await target.sync(groups);
+  assert.equal(target.state(f.id),'failed');assert.deepEqual((await f.sibling.vault.historySnapshot()).values,{});
+  const local=await f.sibling.vault.snapshot();await f.sibling.vault.write({expectedRevision:local.revision,values:{['history:'+old.id]:(await f.alice.runtime.room.history(f.id))[0]},historyRestore:true});
+  await assert.rejects(f.db.query(`UPDATE encrypted_room_acceptances SET signature=$1 WHERE transition_id=$2 AND owner_id='bob'`,[encode(randomBytes(64)),f.intent.id]),{code:'23514'});
+  f.tamperHistoryEpoch();
+  await assert.rejects(f.sibling.runtime.room.epochs(f.id),{code:'mls_room_archive_rejected'});
+  donor.close();target.close();
+});
+
+test('a removed native Room endpoint cannot retrieve staged archive pages or original epoch metadata',async t=>{
+  const f=await fixture(t,{sibling:true});await f.activate();const i=await addSibling(f),key=createECDH('prime256v1');key.generateKeys();
+  const request={id:randomUUID(),conversationId:f.id,epoch:'2',donorDeviceId:f.alice.device.id,publicKey:encode(key.getPublicKey()),historyHash:hash('empty')};
+  await f.sibling.operation('history-reserve',request);
+  const next={...i,id:randomUUID(),previousEpoch:'2',revision:'3',roster:JSON.stringify(JSON.parse(i.roster).filter(m=>m.id!==f.sibling.device.id)),
+    changes:JSON.stringify([{type:'remove',owner:'alice',id:f.sibling.device.id}])};
+  await f.alice.operation('room-reserve',{intent:JSON.stringify(next),name:'Shopping',sourceHash:''});
+  const tr=await f.alice.runtime.room.change(next,new Map());await f.alice.operation('room-transfer',encodeRoomTransferPayload(tr));
+  for(const p of [f.bob,f.eve])await p.runtime.room.applyCommit(tr);
+  const r=await f.alice.operation('room-intent',{conversationId:f.id,transitionId:next.id}),proofs=[];
+  for(const p of [f.alice,f.bob,f.eve]){const a=await p.runtime.room.acceptance(f.id);proofs.push(a);await p.operation('room-accept',{conversationId:f.id,transitionId:next.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
+  for(const p of [f.alice,f.bob,f.eve])await p.runtime.room.confirm(f.id,proofs);
+  assert.equal((await f.sibling.operation('history-tasks',{})).tasks.length,0);
+  await assert.rejects(f.sibling.operation('history-pages',{id:request.id,conversationId:f.id,epoch:'3',after:-1}),{code:'encrypted_room_membership_required'});
+  await assert.rejects(f.sibling.operation('room-history-epoch',{conversationId:f.id,epoch:'1'}),{code:'encrypted_room_membership_required'});
+});
 
 test('configured owner limits reject real signed directory and creation work before reservation or package consumption',async t=>{
   const f=await fixture(t,{four:true,roomLimits:{maxOwners:3,maxDevices:3}});
