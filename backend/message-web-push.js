@@ -26,9 +26,9 @@ async function enqueueMessagePush(client, message) {
   const subscriptions = await client.query(`SELECT p.id,p.session_id FROM web_push_subscriptions p
     JOIN sessions s ON s.session_id=p.session_id AND s.username=p.owner_id
     WHERE p.owner_id=$1 AND s.expires_at>$2
-      AND NOT EXISTS(SELECT 1 FROM conversation_notification_preferences n
-        WHERE n.owner_id=p.owner_id AND n.peer_id=$3 AND n.muted)
-    ORDER BY p.id FOR SHARE OF p`, [message.receiverId, Date.now(), message.senderId || null]);
+      AND NOT EXISTS(SELECT 1 FROM ${message.roomId?'encrypted_room_preferences':'conversation_notification_preferences'} n
+        WHERE n.owner_id=p.owner_id AND n.${message.roomId?'conversation_id':'peer_id'}=$3 AND n.muted)
+    ORDER BY p.id FOR SHARE OF p`, [message.receiverId, Date.now(), message.roomId || message.senderId || null]);
   for (const row of subscriptions.rows) {
     await client.query(`INSERT INTO web_push_jobs(id,subscription_id,owner_id,session_id,message_id)
       VALUES($1,$2,$3,$4,$5) ON CONFLICT(subscription_id,message_id) DO NOTHING`,
@@ -149,7 +149,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
           row_version=conversation_notification_preferences.row_version+1,updated_at=NOW()`,
         [owner,peer,payload.muted]);
       if(payload.muted)await client.query(`${sources} UPDATE web_push_jobs j SET completed_at=NOW(),lease_token=NULL,lease_until=NULL
-        FROM push_messages m WHERE j.owner_id=$1 AND j.message_id=m.id AND m.sender_id=$2 AND m.receiver_id=$1 AND j.completed_at IS NULL`,[owner,peer]);
+        FROM push_messages m WHERE j.owner_id=$1 AND j.message_id=m.id AND m.sender_id=$2 AND m.receiver_id=$1 AND m.room_id IS NULL AND j.completed_at IS NULL`,[owner,peer]);
       return readMute(client,owner,peer);
     });
   }
@@ -230,7 +230,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
         return id;
       });
       if (!job) break;
-      const result = await query(`${sources} SELECT j.id,j.attempts,j.owner_id,m.sender_id,p.id AS subscription_id,p.subscription,p.locale
+      const result = await query(`${sources} SELECT j.id,j.attempts,j.owner_id,m.sender_id,m.room_id,p.id AS subscription_id,p.subscription,p.locale
         FROM web_push_jobs j JOIN web_push_subscriptions p ON p.id=j.subscription_id
           AND p.session_id=j.session_id AND p.owner_id=j.owner_id
         JOIN sessions s ON s.session_id=j.session_id AND s.username=j.owner_id
@@ -241,14 +241,16 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
           (b.blocker_username=m.sender_id AND b.blocked_username=j.owner_id) OR
           (b.blocker_username=j.owner_id AND b.blocked_username=m.sender_id))
         AND NOT EXISTS(SELECT 1 FROM conversation_notification_preferences n WHERE n.owner_id=j.owner_id
-          AND n.peer_id=m.sender_id AND n.muted)`, [job, lease, Date.now()]);
+          AND m.room_id IS NULL AND n.peer_id=m.sender_id AND n.muted)
+        ${roomsEnabled?`AND NOT EXISTS(SELECT 1 FROM encrypted_room_preferences n WHERE n.owner_id=j.owner_id
+          AND n.conversation_id=m.room_id AND n.muted)`:''}`, [job, lease, Date.now()]);
       const row = result.rows[0];
       let retry = false;
       if (row) {
         try {
           const keys = await identity();
           // Opaque grouping; owner/peer identifiers never enter provider payloads.
-          const topic=createHmac('sha256',keys.private_key).update(JSON.stringify(['winga-alert-v1',row.owner_id,row.sender_id])).digest('base64url').slice(0,32);
+          const topic=createHmac('sha256',keys.private_key).update(JSON.stringify(['winga-alert-v1',row.owner_id,row.room_id?'room:'+row.room_id:row.sender_id])).digest('base64url').slice(0,32);
           await provider.sendNotification(validateSubscription(row.subscription), JSON.stringify({ version: 1, id: job, locale: row.locale, group:topic }), {
             vapidDetails: { subject: "https://wingamarket.com", publicKey: keys.public_key, privateKey: keys.private_key },
             TTL: 86400, timeout: 10000, urgency: "high", topic

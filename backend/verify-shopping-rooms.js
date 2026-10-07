@@ -1,4 +1,5 @@
 const migrationId = '2026100610_encrypted_shopping_rooms';
+const preferencesMigrationId = require('./migrations/encrypted-room-preferences').id;
 
 async function verifyShoppingRooms(client, env = process.env) {
   const limits=require('./encrypted-room-limits').readRoomLimits(env);
@@ -9,6 +10,7 @@ async function verifyShoppingRooms(client, env = process.env) {
     cryptographicAuditApproved: false };
   const schema = (await client.query(`SELECT
     EXISTS(SELECT 1 FROM schema_migrations WHERE migration_id=$1) AS migration,
+    EXISTS(SELECT 1 FROM schema_migrations WHERE migration_id=$2) AND to_regclass('encrypted_room_preferences') IS NOT NULL AS preferences,
     to_regclass('encrypted_shopping_rooms') IS NOT NULL AS rooms,
     to_regclass('encrypted_room_transitions') IS NOT NULL AS transitions,
     to_regclass('encrypted_room_acceptances') IS NOT NULL AS acceptances,
@@ -18,8 +20,9 @@ async function verifyShoppingRooms(client, env = process.env) {
        (tgname='immutable_room_acceptance' AND tgrelid=to_regclass('encrypted_room_acceptances')) OR
        (tgname='immutable_room_epoch' AND tgrelid=to_regclass('encrypted_room_epochs')) OR
        (tgname='guard_encrypted_epoch_shape' AND tgrelid=to_regclass('encrypted_conversation_epochs')) OR
-       (tgname='immutable_encrypted_group_kind' AND tgrelid=to_regclass('encrypted_conversations')))) AS guards`, [migrationId])).rows[0];
-  result.schemaReady = Boolean(schema.migration && schema.rooms && schema.transitions && schema.acceptances && schema.epochs && schema.guards === 5);
+       (tgname='immutable_encrypted_group_kind' AND tgrelid=to_regclass('encrypted_conversations')))) AS guards`, [migrationId,preferencesMigrationId])).rows[0];
+  result.preferencesReady = Boolean(schema.preferences);
+  result.schemaReady = Boolean(schema.migration && schema.preferences && schema.rooms && schema.transitions && schema.acceptances && schema.epochs && schema.guards === 5);
   result.guardTriggersEnabled = schema.guards;
   if (!result.schemaReady) return result;
   result.health = (await client.query(`SELECT
@@ -70,4 +73,4 @@ async function main() {
   } finally { await client.end().catch(() => {}); }
 }
 if (require.main === module) main();
-module.exports = { verifyShoppingRooms, migrationId };
+module.exports = { verifyShoppingRooms, migrationId, preferencesMigrationId };

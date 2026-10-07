@@ -12,6 +12,8 @@ const fields=Object.freeze({
   'room-transfer':['version','conversationId','intent','epoch','commit','welcome','tree'],
   'room-accept':['conversationId','transitionId','transferHash','signature'],
   'room-check':['conversationId','epoch','revision'],'room-poll':['after'],
+  'room-preferences':['conversationId'],
+  'room-preference-save':['conversationId','revision','field','value'],
   'room-send':['id','conversationId','epoch','deviceId','ciphertext','hash'],
   'room-receipt':['id','conversationId','epoch','hash','kind'],
   'room-receipt-ack':['id','conversationId','epoch','hash','kind','receiptDeviceId'],
@@ -51,6 +53,9 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     need(next.maxOwners<=limits.maxOwners||(old&&next.maxOwners<=old.maxOwners),'encrypted_room_member_limit',409);
     need(next.maxDevices<=limits.maxDevices||(old&&next.maxDevices<=old.maxDevices),'encrypted_room_device_limit',409);}
   async function latest(client,id){return (await client.query(`SELECT * FROM encrypted_room_transitions WHERE conversation_id=$1 ORDER BY revision DESC LIMIT 1`,[id])).rows[0];}
+  const preference=row=>({revision:row?.row_version?String(row.row_version):'0',muted:row?.muted===true,archived:row?.archived===true});
+  async function readPreference(client,owner,id){return (await client.query(`SELECT row_version::text,muted,archived,last_request_id,last_request_hash
+    FROM encrypted_room_preferences WHERE owner_id=$1 AND conversation_id=$2`,[owner,id])).rows[0];}
   async function activeOwners(client,members){
     const owners=[...new Set(members.map(m=>m.owner))];
     need((await client.query(`SELECT username FROM users WHERE username=ANY($1::text[]) AND status='active'`,[owners])).rows.length===owners.length,'encrypted_room_access_denied',403);
@@ -142,8 +147,8 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
           WHERE t.conversation_id=g.id AND m->>'id'=$2 AND m->>'owner'=$3) ORDER BY g.id LIMIT 101`,[p.after,op.actorId,c.owner])).rows;
       const rooms=[];
       for(const g of page.slice(0,100)){
-        let info;try{info=await member(client,c,op.actorId,g);}catch(e){if(e.status!==403)throw e;rooms.push({id:g.id,name:g.name,status:'removed',kind:'shopping-room'});continue;}
-        const r=await snapshot(client,g,info.t);r.messages=[];r.receipts=[];
+        let info;try{info=await member(client,c,op.actorId,g);}catch(e){if(e.status!==403)throw e;rooms.push({id:g.id,name:g.name,status:'removed',kind:'shopping-room',preferences:preference(await readPreference(client,c.owner,g.id))});continue;}
+        const r=await snapshot(client,g,info.t);r.preferences=preference(await readPreference(client,c.owner,g.id));r.messages=[];r.receipts=[];
         if(info.t.status==='accepted')r.messages=(await client.query(`SELECT m.*,m.sequence::text FROM encrypted_conversation_messages m
           JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch AND e.device_id=$2
           WHERE m.conversation_id=$1 AND m.epoch=$3 AND m.sender_device<>$2
@@ -161,6 +166,21 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     need(uuid(p.conversationId));
     const g=(await client.query(`SELECT g.*,r.name,r.revision::text FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id WHERE g.id=$1 FOR UPDATE OF g`,[p.conversationId])).rows[0];
     const info=await member(client,c,op.actorId,g),{t}=info;
+    if(op.action==='room-preferences')return preference(await readPreference(client,c.owner,g.id));
+    if(op.action==='room-preference-save'){
+      need(decimal(p.revision)&&['muted','archived'].includes(p.field)&&typeof p.value==='boolean');
+      const before=await readPreference(client,c.owner,g.id),requestHash=hash(JSON.stringify(p));
+      if(before?.last_request_id===op.requestId){need(before.last_request_hash===requestHash,'encrypted_room_preference_conflict',409);return preference(before);}
+      need(preference(before).revision===p.revision,'encrypted_room_preference_conflict',409);
+      const next={...preference(before),[p.field]:p.value};
+      await client.query(`INSERT INTO encrypted_room_preferences(owner_id,conversation_id,muted,archived,last_request_id,last_request_hash)
+        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(owner_id,conversation_id) DO UPDATE SET muted=EXCLUDED.muted,archived=EXCLUDED.archived,
+        row_version=encrypted_room_preferences.row_version+1,last_request_id=EXCLUDED.last_request_id,last_request_hash=EXCLUDED.last_request_hash,updated_at=NOW()`,
+        [c.owner,g.id,next.muted,next.archived,op.requestId,requestHash]);
+      if(p.field==='muted'&&p.value)await client.query(`UPDATE web_push_jobs j SET completed_at=NOW(),lease_token=NULL,lease_until=NULL
+        FROM encrypted_conversation_messages m WHERE j.owner_id=$1 AND j.message_id=m.id AND m.conversation_id=$2 AND j.completed_at IS NULL`,[c.owner,g.id]);
+      return preference(await readPreference(client,c.owner,g.id));
+    }
     if(op.action==='room-intent'){need(uuid(p.transitionId));
       const chosen=(await client.query(`SELECT * FROM encrypted_room_transitions WHERE conversation_id=$1 AND id=$2`,[g.id,p.transitionId])).rows[0];
       need(chosen&&chosen.id===t.id,'encrypted_room_conflict',409);return {version:1,room:await snapshot(client,g,chosen)};}
@@ -217,7 +237,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         m=(await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[p.id,g.id,op.actorId,p.epoch,seq,p.ciphertext,p.hash,JSON.stringify(proof(c,op))])).rows[0];
         await media.attach(client,g,op,p);
-        for(const o of info.owners.filter(o=>o!==c.owner))await enqueuePush(client,{id:p.id,senderId:c.owner,receiverId:o});
+        for(const o of info.owners.filter(o=>o!==c.owner))await enqueuePush(client,{id:p.id,senderId:c.owner,receiverId:o,roomId:g.id});
         await client.query(`SELECT winga_append_conversation_event($1,'message_created',$2,$3,0)`,[g.canonical_id,p.id,c.owner]);}
       return {id:m.id,hash:m.hash,status:'sent',sequence:String(m.sequence),createdAt:new Date(m.created_at).toISOString()};
     }

@@ -13,6 +13,12 @@
     let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
+    function preference(value){need(value&&Object.keys(value).sort().join(',')==='archived,muted,revision'
+      &&typeof value.revision==='string'&&/^(0|[1-9][0-9]{0,18})$/.test(value.revision)
+      &&typeof value.muted==='boolean'&&typeof value.archived==='boolean');return structuredClone(value);}
+    async function preferences(id){return preference(await operation('room-preferences',{conversationId:id}));}
+    async function setPreference(id,revision,field,value){need(['muted','archived'].includes(field)&&typeof value==='boolean');
+      return preference(await operation('room-preference-save',{conversationId:id,revision,field,value}));}
     async function readIntent(i){
       const r=await operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});
       const t=r?.room?.transition;
@@ -52,7 +58,7 @@
     async function list(){
       const collected=[],seen=new Set();let after=null;
       do{const r=await operation('room-poll',{after});need(r?.version===1&&Array.isArray(r.rooms)&&r.rooms.length<=100);
-        for(const room of r.rooms){need(!seen.has(room.id));seen.add(room.id);collected.push(room);}
+        for(const room of r.rooms){need(!seen.has(room.id));if(room.preferences!==undefined)room.preferences=preference(room.preferences);seen.add(room.id);collected.push(room);}
         if(r.next)need(r.next===r.rooms.at(-1)?.id&&(!after||r.next>after));after=r.next;
       }while(after);rooms=collected;return structuredClone(rooms);
     }
@@ -195,7 +201,7 @@
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,limits,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();

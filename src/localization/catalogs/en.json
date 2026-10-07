@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "rooms.preferenceConflict": "Settings changed on another device. Try again.",
         "rooms.votes": "Votes",
         "rooms.compare": "Compare products",
         "rooms.compareProduct": "Compare {name}",

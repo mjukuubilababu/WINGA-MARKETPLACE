@@ -19584,7 +19584,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
@@ -19648,6 +19648,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
+    function preference(value){need(value&&Object.keys(value).sort().join(',')==='archived,muted,revision'
+      &&typeof value.revision==='string'&&/^(0|[1-9][0-9]{0,18})$/.test(value.revision)
+      &&typeof value.muted==='boolean'&&typeof value.archived==='boolean');return structuredClone(value);}
+    async function preferences(id){return preference(await operation('room-preferences',{conversationId:id}));}
+    async function setPreference(id,revision,field,value){need(['muted','archived'].includes(field)&&typeof value==='boolean');
+      return preference(await operation('room-preference-save',{conversationId:id,revision,field,value}));}
     async function readIntent(i){
       const r=await operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});
       const t=r?.room?.transition;
@@ -19687,7 +19693,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function list(){
       const collected=[],seen=new Set();let after=null;
       do{const r=await operation('room-poll',{after});need(r?.version===1&&Array.isArray(r.rooms)&&r.rooms.length<=100);
-        for(const room of r.rooms){need(!seen.has(room.id));seen.add(room.id);collected.push(room);}
+        for(const room of r.rooms){need(!seen.has(room.id));if(room.preferences!==undefined)room.preferences=preference(room.preferences);seen.add(room.id);collected.push(room);}
         if(r.next)need(r.next===r.rooms.at(-1)?.id&&(!after||r.next>after));after=r.next;
       }while(after);rooms=collected;return structuredClone(rooms);
     }
@@ -19830,7 +19836,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,limits,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();
@@ -19867,6 +19873,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       case 'encrypted_room_usernames_invalid':return t('rooms.usernamesInvalid','One or more usernames are invalid.');
       case 'encrypted_room_member_limit':return t('rooms.configuredMemberLimit','A chatroom can have up to {limit} accounts.',{limit:roomLimits.maxOwners});
       case 'encrypted_room_device_limit':return t('rooms.deviceLimit','A chatroom can have up to {limit} devices.',{limit:roomLimits.maxDevices});
+      case 'encrypted_room_preference_conflict':return t('rooms.preferenceConflict','Settings changed on another device. Try again.');
       case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
@@ -19880,7 +19887,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
     state.comparison=state.comparison||new Map();
-    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
+    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -19919,17 +19926,30 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(admin&&r.owner!==owner)li.append(button(t('rooms.remove','Remove'),async()=>{const confirm=modal(t('rooms.removeMember','Remove member?'));confirm.form.append(element('p',r.owner));
           submit(confirm.form,t('rooms.remove','Remove'),async()=>{await call('change',room.id,[],r.owner);confirm.d.close();view.d.close();});}));ul.append(li);}
       view.form.append(ul);if(admin)view.form.append(button(t('rooms.addMembers','Add members'),()=>{view.d.close();return addMembers(room);}));}
-    function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',t('inbox.rooms','Chatrooms')),
-      iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));list.append(toolbar);
+    async function roomSettings(room){let prefs=await call('preferences',room.id);if(!current())return;
+      const view=modal(room.name),label=element('label','','room-consent'),mute=control(document.createElement('input'));
+      mute.type='checkbox';label.append(mute,element('span',t('chat.muteAlerts','Mute alerts')));view.form.append(label);
+      const notificationStatus=element('p','','empty-copy');notificationStatus.setAttribute('role','status');view.form.append(notificationStatus);
+      const archive=button('',async()=>{await call('setPreference',room.id,prefs.revision,'archived',!prefs.archived);state.selected='';state.showArchived=false;view.d.close();});view.form.append(archive);
+      const update=next=>{prefs=next;mute.checked=prefs.muted;notificationStatus.textContent=prefs.muted?t('chat.muteActive','Alerts muted'):t('chat.muteOff','Alerts on');
+        archive.textContent=prefs.archived?t('chat.unarchive','Move to Inbox'):t('chat.archive','Archive');};update(prefs);
+      mute.onchange=()=>run(async()=>{const value=mute.checked;try{update(await call('setPreference',room.id,prefs.revision,'muted',value));}catch(error){update(prefs);throw error;}});
+      preferenceViews.set(room.id,update);view.d.addEventListener('close',()=>preferenceViews.delete(room.id),{once:true});
+    }
+    function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',state.showArchived?t('chat.archived','Archived chats'):t('inbox.rooms','Chatrooms')),
+      iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));
+      if(rooms.some(r=>r.preferences)){const archived=iconButton('archive',t('chat.archived','Archived chats'),async()=>{state.showArchived=!state.showArchived;state.selected='';});
+        archived.setAttribute('aria-pressed',String(Boolean(state.showArchived)));toolbar.append(archived);}list.append(toolbar);
       const search=scope.querySelector('[data-inbox-search]');if(search){search.value=state.query;search.oninput=()=>{state.query=search.value;listView();};}
-      const visible=rooms.filter(r=>r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
+      const visible=rooms.filter(r=>Boolean(r.preferences?.archived)===Boolean(state.showArchived)&&r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
       for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':'resumeChange',draft.id);state.tab='chat';}));
       for(const room of visible){const b=button('',async()=>{state.selected=room.id;state.shown=100;state.tab='chat';},'message-thread-item'+(state.selected===room.id?' active':''));
         b.dataset.roomRow=room.id;const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
         const meta=element('span','','message-thread-meta');meta.append(element('strong',room.name));
         const history=state.history.get(room.id)||[],last=history.filter(m=>!m.message.startsWith('WINGA-ROOM/')).at(-1);
         const preview=last?.message.startsWith('WINGA-MEDIA/')?t('rooms.attachment','Attachment'):last?.message;
-        meta.append(element('small',room.clientError?t('rooms.actionFailed','Unable to finish. Try again.'):room.status==='removed'?t('rooms.removed','Access ended'):room.transition?.status!=='accepted'?t('rooms.pending','Waiting for member approval'):preview||t('rooms.encrypted','Encrypted chatroom'),'inbox-preview'));b.append(avatar,meta);list.append(b);}
+        meta.append(element('small',room.clientError?t('rooms.actionFailed','Unable to finish. Try again.'):room.status==='removed'?t('rooms.removed','Access ended'):room.transition?.status!=='accepted'?t('rooms.pending','Waiting for member approval'):preview||t('rooms.encrypted','Encrypted chatroom'),'inbox-preview'));
+        if(room.preferences?.muted)meta.append(element('small',t('chat.muteActive','Alerts muted')));b.append(avatar,meta);list.append(b);}
       if(!visible.length)list.append(element('p',t('inbox.roomsEmpty','No chatrooms yet.'),'empty-copy'));
     }
     async function productSearch(room){const view=modal(t('chat.productFinder','Find a product')),query=input(view.form,t('chat.productFinder','Find a product'),'query');
@@ -20032,7 +20052,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       detail.dataset.roomId=room.id;const head=element('div','','messages-thread-head'),identity=element('div','','room-head-identity');identity.append(element('strong',room.name));
       if(room.transition?.status==='accepted')identity.append(element('p',t('chat.roomMemberCount','{count} members',{count:JSON.parse(JSON.parse(room.transition.intent).roles).length})));
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);
-      if(room.status!=='removed')head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));detail.append(head);
+      if(room.status!=='removed'){head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));
+        if(room.preferences)head.append(iconButton('ellipsis',t('menu.settings','Settings'),()=>roomSettings(room)));}detail.append(head);
       if(room.status==='removed'){detail.append(element('p',t('rooms.removed','Access ended'),'empty-copy'));return;}
       if(room.clientError){detail.append(element('p',t('rooms.actionFailed','Unable to finish. Try again.'),'empty-copy'),button(t('inbox.retry','Try again'),()=>refresh(true)));return;}
       const i=JSON.parse(room.transition.intent),accepted=room.acceptances?.length||0,count=JSON.parse(i.roster).length;
@@ -20078,6 +20099,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function refresh(force=false){if(!current())return;
       roomLimits=await call('limits');if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
+      for(const [id,update]of preferenceViews){const room=rooms.find(r=>r.id===id);if(room?.preferences)update(room.preferences);}
       pendingTransitions=await call('pendingTransitions');if(!current())return;
       pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;
       if(['encrypted_membership_required','encrypted_membership_pending'].includes(lastError)&&!pendingQuestions.length){lastError='';status.textContent='';}
@@ -20088,7 +20110,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
       pendingFiles=[];if(state.selected)try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,pendingFiles,pendingTransitions,pendingQuestions]);
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
     }

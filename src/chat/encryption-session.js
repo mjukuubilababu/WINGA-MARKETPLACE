@@ -587,7 +587,7 @@
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;

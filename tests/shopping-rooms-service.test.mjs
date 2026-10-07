@@ -10,7 +10,7 @@ const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Bu
 async function fixture(t,{four=false,roomLimits}={}){
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
-    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms'])
+    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
@@ -24,7 +24,8 @@ async function fixture(t,{four=false,roomLimits}={}){
     await db.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,$2,$3,$4,'active')`,[native.id,owner,native.publicKey,native.fingerprint]);
     let values={},revision=0;const vault={async snapshot(){return {revision:String(revision),values:structuredClone(values)};},async write(p){assert.equal(p.expectedRevision,String(revision));for(const k of p.deleted||[])delete values[k];Object.assign(values,structuredClone(p.values));return String(++revision);}};
     const p={owner,native,context,vault,pins:[]};
-    p.operation=async(action,payload)=>{const op={action,actorId:native.id,requestId:randomUUID(),issuedAt:Date.now(),payload};op.signature=encode(sign(null,operationBytes(context,op),keys.privateKey));return store.encryptedOperation(context,op);};
+    p.signed=(action,payload,requestId=randomUUID(),session=context)=>{const op={action,actorId:native.id,requestId,issuedAt:Date.now(),payload};op.signature=encode(sign(null,operationBytes(session,op),keys.privateKey));return op;};
+    p.operation=async(action,payload)=>store.encryptedOperation(context,p.signed(action,payload));
     const authorization={
       async verifyIntent(i){const r=await p.operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});assert.equal(r.room.transition.intent,JSON.stringify(i));return true;},
       async check(conversationId,epoch,revision){return p.operation('room-check',{conversationId,epoch,revision});},
@@ -72,8 +73,8 @@ test('configured device limits reject an excess native roster independently of o
 test('lowering configured limits preserves accepted reservation retries, encrypted traffic and shrinking membership',async t=>{
   const f=await fixture(t,{four:true});await f.reserve();f.setLimits({maxOwners:3,maxDevices:3});await f.activate();
   assert.equal((await f.alice.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'})).active,true);
-  const {verifyShoppingRooms,migrationId}=require('../backend/verify-shopping-rooms');
-  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1)',[migrationId]);
+  const {verifyShoppingRooms,migrationId,preferencesMigrationId}=require('../backend/verify-shopping-rooms');
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2)',[migrationId,preferencesMigrationId]);
   const health=await verifyShoppingRooms(f.db,{WINGA_ENCRYPTED_ROOM_MAX_OWNERS:'3',WINGA_ENCRYPTED_ROOM_MAX_DEVICES:'3'});
   assert.equal(health.ok,true);assert.equal(health.health.roomsAboveConfiguredOwnerLimit,1);assert.equal(health.health.roomsAboveConfiguredDeviceLimit,1);
   for(const [extraOwner,code]of [['frank','encrypted_room_member_limit'],['bob','encrypted_room_device_limit']]){
@@ -120,6 +121,64 @@ test('durable real-service sends reach both members once, retain exact retries a
   assert.equal(f.pushes.length,2);assert.deepEqual(await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:id,message:'encrypted room text'}),sent);
   await assert.rejects(f.alice.operation('send',{id:randomUUID(),conversationId:f.id,epoch:'1',deviceId:f.alice.device.id,ciphertext:'x',hash:'x'}),{code:'encrypted_group_scope_rejected'});
 });
+
+test('Room preferences are owner-scoped, revisioned and replay-safe across authenticated sessions',async t=>{
+  const f=await fixture(t);await f.activate();const payload={conversationId:f.id,revision:'0',field:'muted',value:true};
+  const op=f.bob.signed('room-preference-save',payload);
+  assert.deepEqual(await f.bob.operation('room-preferences',{conversationId:f.id}),{revision:'0',muted:false,archived:false});
+  const saved=await f.store.encryptedOperation(f.bob.context,op);assert.deepEqual(saved,{revision:'1',muted:true,archived:false});
+  assert.deepEqual(await f.store.encryptedOperation(f.bob.context,op),saved);
+  await assert.rejects(f.store.encryptedOperation(f.bob.context,f.bob.signed('room-preference-save',{...payload,value:false},op.requestId)),{code:'encrypted_room_preference_conflict'});
+  const other={owner:'bob',token:'b2',deviceId:'b2'};
+  assert.deepEqual(await f.store.encryptedOperation(other,f.bob.signed('room-preferences',{conversationId:f.id},randomUUID(),other)),saved);
+  assert.deepEqual((await f.alice.operation('room-poll',{after:null})).rooms[0].preferences,{revision:'0',muted:false,archived:false});
+  await assert.rejects(f.eve.operation('room-preferences',{conversationId:f.id,owner:'bob'}),{status:400});
+  await assert.rejects(f.bob.operation('room-preference-save',{...payload,field:'notificationDuration'}),{status:400});
+  await f.bob.operation('room-preference-save',{...payload,revision:'1',field:'archived'});
+  await assert.rejects(f.store.encryptedOperation(f.bob.context,op),{code:'encrypted_room_preference_conflict'});
+  await assert.rejects(f.store.encryptedOperation(other,f.bob.signed('room-preference-save',{...payload,revision:'1',value:false},randomUUID(),other)),{code:'encrypted_room_preference_conflict'});
+  assert.deepEqual((await f.bob.operation('room-poll',{after:null})).rooms[0].preferences,{revision:'2',muted:true,archived:true});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_preferences')).rows[0].n,1);
+  for(const sql of require('../backend/migrations/encrypted-room-preferences').statements)await f.db.exec(sql);
+  assert.deepEqual(await f.bob.operation('room-preferences',{conversationId:f.id}),{revision:'2',muted:true,archived:true});
+});
+
+test('Room mute suppresses queued and future push without suppressing encrypted delivery; archive only changes presentation',async t=>{
+  const f=await fixture(t);await f.activate();const sent=[];
+  const {createMessageWebPushStore}=require('../backend/message-web-push');
+  const push=createMessageWebPushStore({query:f.db.query.bind(f.db),withTransaction:work=>f.db.transaction(work),encrypted:true,roomsEnabled:true,
+    provider:{generateVAPIDKeys:()=>({publicKey:'test-public',privateKey:'test-private'}),async sendNotification(sub,body){sent.push({endpoint:sub.endpoint,body:JSON.parse(body)});}}});
+  for(const p of [f.bob,f.eve]){const ec=createECDH('prime256v1');ec.generateKeys();await push.saveWebPush({owner:p.owner,token:p.context.token,sessionId:p.context.deviceId,payload:{subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/'+p.owner,keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});}
+  const first=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'queued before mute'});
+  await f.bob.operation('room-preference-save',{conversationId:f.id,revision:'0',field:'muted',value:true});
+  await f.bob.operation('room-preference-save',{conversationId:f.id,revision:'1',field:'archived',value:true});
+  await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'arrives while muted and archived'});
+  await push.dispatchWebPushBatch();assert.equal(sent.length,2);assert(sent.every(p=>p.endpoint.endsWith('/eve')));
+  assert.equal(sent[0].body.group,sent[1].body.group);
+  const poll=(await f.bob.operation('room-poll',{after:null})).rooms[0];assert.equal(poll.messages.length,2);assert.equal(poll.preferences.archived,true);
+  for(const m of poll.messages)assert((await f.bob.runtime.room.receive({...m,deviceId:m.sender_device,conversationId:f.id,ciphertext:decode(m.ciphertext)})).message.length>0);
+  const m=poll.messages.find(m=>m.id===first.id);await f.bob.operation('room-receipt',{id:m.id,conversationId:f.id,epoch:m.epoch,hash:m.hash,kind:'read'});
+  await f.bob.operation('room-preference-save',{conversationId:f.id,revision:'2',field:'muted',value:false});
+  await push.saveConversationMute({owner:'bob',token:'b1',sessionId:'b1',payload:{owner:'bob',sessionId:'b1',peer:'alice',revision:'0',muted:true}});
+  await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'archived only still notifies'});
+  await push.dispatchWebPushBatch();assert.equal(sent.length,4);assert(sent.slice(2).some(p=>p.endpoint.endsWith('/bob')));
+  await f.bob.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'another sender in the same Room'});
+  await push.dispatchWebPushBatch();assert.equal(sent.length,5);
+  assert.equal(new Set(sent.filter(p=>p.endpoint.endsWith('/eve')).map(p=>p.body.group)).size,1);
+  assert.equal((await f.bob.operation('room-preferences',{conversationId:f.id})).archived,true);
+  assert.equal(JSON.stringify(sent).includes(f.id),false);assert.equal(JSON.stringify(sent).includes('archived only'),false);
+});
+
+test('push dispatch rechecks Room mute even when a pending job was inserted before the preference change',async t=>{
+  const f=await fixture(t);await f.activate();const ec=createECDH('prime256v1');ec.generateKeys();let accepted=0;
+  const push=require('../backend/message-web-push').createMessageWebPushStore({query:f.db.query.bind(f.db),withTransaction:work=>f.db.transaction(work),encrypted:true,roomsEnabled:true,
+    provider:{generateVAPIDKeys:()=>({publicKey:'test-public',privateKey:'test-private'}),async sendNotification(){accepted++;}}});
+  await push.saveWebPush({owner:'bob',token:'b1',sessionId:'b1',payload:{subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/bob',keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});
+  await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'pending push'});
+  await f.bob.operation('room-preference-save',{conversationId:f.id,revision:'0',field:'muted',value:true});
+  await f.db.exec('UPDATE web_push_jobs SET completed_at=NULL');
+  const result=await push.dispatchWebPushBatch();assert.equal(accepted,0);assert.equal(result.skipped,1);
+});
 test('blocked accounts and revoked native devices cannot read or acknowledge a room',async t=>{
   const f=await fixture(t);await f.activate();await f.db.query(`INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('eve','alice')`);
   await assert.rejects(f.alice.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'}),{status:403});
@@ -138,6 +197,7 @@ test('default gate rejects room operations and identity/epoch membership cannot 
 
 test('Room removal rotates the real native epoch and never rewrites the original three-owner grant',async t=>{
   const f=await fixture(t);await f.activate();const old=JSON.parse(f.intent.roster),removed=old.find(m=>m.owner==='eve');
+  await f.eve.operation('room-preference-save',{conversationId:f.id,revision:'0',field:'archived',value:true});
   const next={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(old.filter(m=>m!==removed)),
     roles:JSON.stringify(JSON.parse(f.intent.roles).filter(m=>m.owner!=='eve')),changes:JSON.stringify([{type:'remove',owner:'eve',id:removed.id}])};
   await assert.rejects(f.bob.operation('room-reserve',{intent:JSON.stringify({...next,actorOwner:'bob',actorDeviceId:f.bob.device.id}),name:'Shopping',sourceHash:''}),{code:'encrypted_room_admin_required'});
@@ -147,7 +207,10 @@ test('Room removal rotates the real native epoch and never rewrites the original
   for(const p of [f.alice,f.bob]){const a=await p.runtime.room.acceptance(f.id);acks.push(a);await p.operation('room-accept',{conversationId:f.id,transitionId:next.id,transferHash:snapshot.room.transition.transfer_hash,signature:encode(a.signature)});}
   for(const p of [f.alice,f.bob])await p.runtime.room.confirm(f.id,acks);
   await assert.rejects(f.eve.operation('room-check',{conversationId:f.id,epoch:'2',revision:'2'}),{code:'encrypted_room_membership_required'});
+  await assert.rejects(f.eve.operation('room-preferences',{conversationId:f.id}),{code:'encrypted_room_membership_required'});
+  await assert.rejects(f.eve.operation('room-preference-save',{conversationId:f.id,revision:'0',field:'muted',value:true}),{code:'encrypted_room_membership_required'});
   assert.equal((await f.eve.operation('room-poll',{after:null})).rooms[0].status,'removed');
+  assert.equal((await f.eve.operation('room-poll',{after:null})).rooms[0].preferences.archived,true);
   const sent=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'after removal'});
   const message=(await f.bob.operation('room-poll',{after:null})).rooms[0].messages[0];assert.equal(message.id,sent.id);
   assert.equal((await f.bob.runtime.room.receive({...message,deviceId:message.sender_device,conversationId:f.id,ciphertext:decode(message.ciphertext)})).message,'after removal');
@@ -170,9 +233,11 @@ test('real Room push fanout is owner-specific, generic, and bound to current mem
 });
 
 test('aggregate Room readiness is read-only and detects missing historical native grants',async t=>{
-  const f=await fixture(t);await f.activate();const {verifyShoppingRooms,migrationId}=require('../backend/verify-shopping-rooms');
-  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1)',[migrationId]);
-  const ready=await verifyShoppingRooms(f.db,{});assert.equal(ready.ok,true);assert.equal(ready.databaseChanged,false);assert.equal(ready.authenticatedRoomFlowVerified,false);
+  const f=await fixture(t);await f.activate();const {verifyShoppingRooms,migrationId,preferencesMigrationId}=require('../backend/verify-shopping-rooms');
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2)',[migrationId,preferencesMigrationId]);
+  const ready=await verifyShoppingRooms(f.db,{});assert.equal(ready.ok,true);assert.equal(ready.preferencesReady,true);assert.equal(ready.databaseChanged,false);assert.equal(ready.authenticatedRoomFlowVerified,false);
+  await f.db.query('DELETE FROM schema_migrations WHERE migration_id=$1',[preferencesMigrationId]);assert.equal((await verifyShoppingRooms(f.db,{})).preferencesReady,false);
+  await f.db.query('INSERT INTO schema_migrations VALUES($1)',[preferencesMigrationId]);
   await f.db.exec('ALTER TABLE encrypted_conversation_epoch_devices DISABLE TRIGGER guard_encrypted_epoch_device');
   await f.db.query('DELETE FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND device_id=$2',[f.id,f.eve.device.id]);
   assert.equal((await verifyShoppingRooms(f.db,{})).health.invalidEpochGrants,1);

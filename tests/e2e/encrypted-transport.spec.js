@@ -131,8 +131,8 @@ test.beforeAll(async()=>{
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
 async function resetStores(multidevice=false,rooms=false,limits) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers'])
+  for(const name of ['message-web-push','conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers','encrypted-room-preferences'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   await db.exec(`INSERT INTO users(username) VALUES('outside-seller');INSERT INTO sessions VALUES('s','outside-seller','s',9999999999999);
     CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
@@ -214,6 +214,26 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
       window.dispatchEvent(new Event('focus'));});
     await bob.evaluate(({id,firstId})=>client.shoppingRoom('markRead',[id,[firstId]]),{id,firstId});
     await expect.poll(bobReads).toBe(1);
+    await bob.setViewportSize({width:390,height:844});
+    await bob.getByRole('button',{name:'Settings',exact:true}).click();
+    await bob.getByRole('checkbox',{name:'Mute alerts',exact:true}).check();
+    await expect.poll(()=>bob.evaluate(id=>client.shoppingRoom('preferences',[id]),id)).toEqual({revision:'1',muted:true,archived:false});
+    expect(await bob.locator('.room-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await bob.screenshot({path:path.resolve(__dirname,'../../.tmp-room-preferences.png'),fullPage:true});
+    expect(await eve.evaluate(id=>client.shoppingRoom('preferences',[id]),id)).toEqual({revision:'0',muted:false,archived:false});
+    await bob.locator('dialog').getByRole('button',{name:'Archive',exact:true}).click();
+    await expect(bob.locator('[data-room-row]')).toHaveCount(0);
+    await alice.locator('textarea[name="message"]').fill('Arrives in the archived room');await alice.getByRole('button',{name:'Send message',exact:true}).click();
+    await bob.evaluate(()=>client.shoppingRoom('sync'));await expect(bob.locator('[data-room-row]')).toHaveCount(0);
+    await bob.getByRole('button',{name:'Archived chats',exact:true}).click();await expect(bob.getByRole('button',{name:'Archived chats',exact:true})).toHaveAttribute('aria-pressed','true');
+    await bob.locator('[data-room-row]').click();await expect(bob.locator('.room-thread')).toContainText('Arrives in the archived room');
+    await bob.getByRole('button',{name:'Settings',exact:true}).click();await expect(bob.getByRole('checkbox',{name:'Mute alerts',exact:true})).toBeChecked();
+    await bob.evaluate(async id=>{const before=await client.shoppingRoom('preferences',[id]);await client.shoppingRoom('setPreference',[id,before.revision,'muted',false]);},id);
+    await expect(bob.getByRole('checkbox',{name:'Mute alerts',exact:true})).not.toBeChecked({timeout:15000});
+    await bob.locator('dialog').getByRole('button',{name:'Move to Inbox',exact:true}).click();
+    await expect(bob.getByRole('button',{name:'Archived chats',exact:true})).toHaveAttribute('aria-pressed','false');
+    await bob.locator('[data-room-row]').click();await expect(bob.locator('.room-thread')).toContainText('Habari za Kariakoo');
+    expect(await bob.evaluate(id=>client.shoppingRoom('preferences',[id]),id)).toEqual({revision:'4',muted:false,archived:false});
     await alice.getByRole('button',{name:'Attach file',exact:true}).click();
     await alice.locator('input[type=file]').setInputFiles({name:'room-note.txt',mimeType:'text/plain',buffer:Buffer.from('Private room file contents')});
     await alice.locator('textarea[name=caption]').fill('Faili yetu');await alice.locator('dialog').getByRole('button',{name:'Send message',exact:true}).click();

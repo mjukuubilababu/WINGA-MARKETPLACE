@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "rooms.preferenceConflict": "Mipangilio imebadilishwa kwenye kifaa kingine. Jaribu tena.",
         "rooms.votes": "Kura",
         "rooms.compare": "Linganisha bidhaa",
         "rooms.compareProduct": "Linganisha {name}",
