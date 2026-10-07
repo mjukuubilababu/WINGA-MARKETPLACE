@@ -29,6 +29,9 @@
       case 'encrypted_room_member_limit':return t('rooms.configuredMemberLimit','A chatroom can have up to {limit} accounts.',{limit:roomLimits.maxOwners});
       case 'encrypted_room_device_limit':return t('rooms.deviceLimit','A chatroom can have up to {limit} devices.',{limit:roomLimits.maxDevices});
       case 'encrypted_room_preference_conflict':return t('rooms.preferenceConflict','Settings changed on another device. Try again.');
+      case 'encrypted_room_last_admin':return t('rooms.lastAdmin','Transfer admin before leaving.');
+      case 'encrypted_room_departure_pending':return t('rooms.rotationPending','Messages are paused while member keys rotate.');
+      case 'encrypted_room_inbox_pending':return t('rooms.inboxPending','Waiting for remaining devices to receive earlier messages.');
       case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
@@ -55,7 +58,7 @@
       for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
       try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
-        const dialog=document.querySelector('.room-dialog form');if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
+        const dialog=[...document.querySelectorAll('.room-dialog form')].at(-1);if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
       finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}
         for(const [b,ready]of readyControls){if(b.isConnected)ready();else readyControls.delete(b);}}};
@@ -78,6 +81,9 @@
     async function members(room){const view=modal(t('chat.roomMembers','Room members')),i=JSON.parse(room.transition.intent),roles=JSON.parse(i.roles),ul=element('ul','','room-members-list');
       const admin=roles.some(r=>r.owner===owner&&r.role==='admin');
       for(const r of roles){const li=element('li');li.append(element('strong',memberName(r.owner)),element('small',r.role==='admin'?t('chat.roomAdmin','Admin'):t('rooms.member','Member')));
+        if(admin&&r.owner!==owner&&r.role==='member')li.append(button(t('rooms.transferAdmin','Transfer admin'),async()=>{const confirm=modal(t('rooms.transferAdmin','Transfer admin'));
+          confirm.form.append(element('p',t('rooms.transferAdminConfirm','Make {member} admin? You will become a member.',{member:memberName(r.owner)})));
+          submit(confirm.form,t('rooms.transferAdmin','Transfer admin'),async()=>{await call('transferAdmin',room.id,r.owner);confirm.d.close();view.d.close();});}));
         if(admin&&r.owner!==owner)li.append(button(t('rooms.remove','Remove'),async()=>{const confirm=modal(t('rooms.removeMember','Remove member?'));confirm.form.append(element('p',r.owner));
           submit(confirm.form,t('rooms.remove','Remove'),async()=>{await call('change',room.id,[],r.owner);confirm.d.close();view.d.close();});}));ul.append(li);}
       view.form.append(ul);if(admin)view.form.append(button(t('rooms.addMembers','Add members'),()=>{view.d.close();return addMembers(room);}));}
@@ -90,14 +96,18 @@
         archive.textContent=prefs.archived?t('chat.unarchive','Move to Inbox'):t('chat.archive','Archive');};update(prefs);
       mute.onchange=()=>run(async()=>{const value=mute.checked;try{update(await call('setPreference',room.id,prefs.revision,'muted',value));}catch(error){update(prefs);throw error;}});
       preferenceViews.set(room.id,update);view.d.addEventListener('close',()=>preferenceViews.delete(room.id),{once:true});
+      view.form.append(button(t('rooms.leave','Leave chatroom'),()=>leaveRoom(room,view)));
     }
+    async function leaveRoom(room,parent){const confirm=modal(t('rooms.leave','Leave chatroom'));
+      confirm.form.append(element('p',t('rooms.leaveConfirm','Leave {room}? Saved history and business obligations will not be deleted.',{room:room.name})));
+      submit(confirm.form,t('rooms.leave','Leave chatroom'),async()=>{await call('leave',room.id);confirm.d.close();parent?.d.close();});}
     function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',state.showArchived?t('chat.archived','Archived chats'):t('inbox.rooms','Chatrooms')),
       iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));
       if(rooms.some(r=>r.preferences)){const archived=iconButton('archive',t('chat.archived','Archived chats'),async()=>{state.showArchived=!state.showArchived;state.selected='';});
         archived.setAttribute('aria-pressed',String(Boolean(state.showArchived)));toolbar.append(archived);}list.append(toolbar);
       const search=scope.querySelector('[data-inbox-search]');if(search){search.value=state.query;search.oninput=()=>{state.query=search.value;listView();};}
       const visible=rooms.filter(r=>Boolean(r.preferences?.archived)===Boolean(state.showArchived)&&r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
-      for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':'resumeChange',draft.id);state.tab='chat';}));
+      for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':draft.kind==='leave'?'resumeLeave':'resumeChange',draft.id);state.tab='chat';}));
       for(const room of visible){const b=button('',async()=>{state.selected=room.id;state.shown=100;state.tab='chat';},'message-thread-item'+(state.selected===room.id?' active':''));
         b.dataset.roomRow=room.id;const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
         const meta=element('span','','message-thread-meta');meta.append(element('strong',room.name));
@@ -209,7 +219,14 @@
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);
       if(room.status!=='removed'){head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));
         if(room.preferences)head.append(iconButton('ellipsis',t('menu.settings','Settings'),()=>roomSettings(room)));}detail.append(head);
-      if(room.status==='removed'){detail.append(element('p',t('rooms.removed','Access ended'),'empty-copy'));return;}
+      if(room.status==='removed'){
+        detail.append(element('p',room.rotationPending?t('rooms.leftRotationPending','You left. Key rotation is pending.'):t('rooms.removed','Access ended'),'empty-copy'));
+        if(room.leaveScope)detail.append(button(t('rooms.leave','Leave chatroom'),()=>leaveRoom(room)));
+        const history=state.history.get(room.id)||[];if(history.length){const thread=element('div','','messages-thread-body room-thread');
+          for(const m of history.slice(-state.shown)){const row=element('div','','message-bubble '+(m.owner===owner?'outgoing':'incoming'));
+            row.append(element('strong',memberName(m.owner)),element('p',m.message.startsWith('WINGA-MEDIA/')?t('rooms.attachment','Attachment'):m.message.startsWith('WINGA-ROOM/')?t('rooms.sharedActivity','Shared activity'):m.message));thread.append(row);}detail.append(thread);}
+        return;
+      }
       if(room.clientError){detail.append(element('p',t('rooms.actionFailed','Unable to finish. Try again.'),'empty-copy'),button(t('inbox.retry','Try again'),()=>refresh(true)));return;}
       const i=JSON.parse(room.transition.intent),accepted=room.acceptances?.length||0,count=JSON.parse(i.roster).length;
       if(room.transition.status!=='accepted'||!state.boards.has(room.id)){
@@ -219,6 +236,7 @@
         const b=button(label,async()=>{state.tab=value;state.shown=100;},'room-view-tab');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(state.tab===value));
         if(value==='orders'){b.disabled=true;delete b.dataset.roomBusyDisabled;}tabs.append(b);}detail.append(tabs);
       const board=state.boards.get(room.id),history=state.history.get(room.id)||[];
+      if(room.departures?.length)detail.append(element('p',t('rooms.rotationPending','Messages are paused while member keys rotate.'),'empty-copy'));
       if(state.tab==='products'||state.tab==='shortlist')detail.append(productView(room,board,state.tab==='shortlist'));
       else if(state.tab==='polls')detail.append(pollsView(room,board));
       else if(state.tab==='orders')detail.append(element('p',t('rooms.noOrders','No shared orders.'),'empty-copy'));
@@ -250,6 +268,8 @@
           thread.scrollTop=restored?restored.getBoundingClientRect().top-thread.getBoundingClientRect().top-anchorOffset:oldScroll;
         }else thread.scrollTop=thread.scrollHeight;
         thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();}
+      if(room.departures?.length){for(const control of detail.querySelectorAll('button,input,textarea')){
+        if(head.contains(control)||tabs.contains(control))continue;control.disabled=true;delete control.dataset.roomBusyDisabled;}}
     }
     async function refresh(force=false){if(!current())return;
       roomLimits=await call('limits');if(!current())return;
@@ -258,14 +278,15 @@
       pendingTransitions=await call('pendingTransitions');if(!current())return;
       pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;
       if(['encrypted_membership_required','encrypted_membership_pending'].includes(lastError)&&!pendingQuestions.length){lastError='';status.textContent='';}
-      for(const room of rooms){if(room.status==='removed'||room.clientError)continue;
+      for(const room of rooms){if(room.clientError)continue;
         const history=await call('history',room.id);if(!current())return;state.history.set(room.id,history);
+        if(room.status==='removed')continue;
         try{const board=await call('board',room.id);if(!current())return;state.boards.set(room.id,board);
           if(room.id===state.selected&&['products','shortlist'].includes(state.tab))for(const p of board.products.slice(0,state.shown)){const cached=state.catalog.get(p.productId);if(cached&&Date.now()-cached.at<30000)continue;
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
-      pendingFiles=[];if(state.selected)try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
+      pendingFiles=[];if(state.selected&&rooms.find(r=>r.id===state.selected)?.status!=='removed')try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences,r.departures,r.rotationPending,r.leaveScope]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
     }

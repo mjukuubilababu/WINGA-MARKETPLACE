@@ -132,7 +132,7 @@ test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await 
 async function resetStores(multidevice=false,rooms=false,limits) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers','encrypted-room-preferences'])
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers','encrypted-room-preferences','encrypted-room-departures'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   await db.exec(`INSERT INTO users(username) VALUES('outside-seller');INSERT INTO sessions VALUES('s','outside-seller','s',9999999999999);
     CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
@@ -324,8 +324,11 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
     expect(await alice.locator('.room-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
     await alice.locator('.room-members-list li').filter({hasText:'eve'}).getByRole('button',{name:'Remove',exact:true}).click();
     await alice.locator('dialog').last().getByRole('button',{name:'Remove',exact:true}).click();
+    await expect(alice.locator('dialog')).toHaveCount(0);
     await bob.evaluate(()=>client.shoppingRoom('sync'));
-    await bob.getByRole('button',{name:'Review devices',exact:true}).click();await bob.getByRole('button',{name:'Approve and join'}).click();
+    // Retained pinned members reconcile removal without a new-admission prompt.
+    const reconciled=await bob.evaluate(()=>client.shoppingRoom('sync'));
+    expect(reconciled[0].clientError).toBeUndefined();expect(retainedMembership(reconciled)).toBe(true);
     for(const page of [alice,bob])await page.evaluate(()=>client.shoppingRoom('sync'));
     await expect(alice.locator('textarea[name=message]')).toBeVisible({timeout:15000});
     await alice.locator('textarea[name=message]').fill('Retained members only');await alice.getByRole('button',{name:'Send message',exact:true}).click();
@@ -336,9 +339,43 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2',[id,'1'])).rows[0].n).toBe(3);
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND epoch=$2',[id,'2'])).rows[0].n).toBe(2);
     const plain=(await db.query(`SELECT COUNT(*)::int AS n FROM messages WHERE message LIKE '%Kariakoo%'`)).rows[0].n;expect(plain).toBe(0);
-  }finally{for(const c of contexts)await c.close();roomsEnabled=false;}
+    await alice.getByRole('button',{name:'Settings',exact:true}).click();await alice.getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    await alice.locator('dialog').last().getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    await expect(alice.locator('dialog').last().locator('[data-room-error]')).toHaveText('Transfer admin before leaving.');
+    await alice.keyboard.press('Escape');await expect(alice.locator('.room-dialog')).toHaveCount(1);
+    await alice.keyboard.press('Escape');await expect(alice.locator('.room-dialog')).toHaveCount(0);
+    console.log('room-lifecycle: last-admin guard verified, confirmations closed');
+    await alice.getByRole('button',{name:'Room members',exact:true}).click({timeout:10000});
+    await alice.locator('.room-members-list li').filter({hasText:'bob'}).getByRole('button',{name:'Transfer admin',exact:true}).click({timeout:10000});
+    await expect(alice.locator('dialog').last()).toContainText('You will become a member');
+    await expect(alice.locator('dialog').last().getByRole('button',{name:'Transfer admin',exact:true})).toBeEnabled();
+    expect(await alice.locator('dialog').last().evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-room-admin-transfer-390.png'),fullPage:true});
+    await alice.setViewportSize({width:1280,height:900});
+    await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-room-admin-transfer-1280.png'),fullPage:true});
+    await alice.locator('dialog').last().getByRole('button',{name:'Transfer admin',exact:true}).click();
+    await expect(alice.locator('dialog')).toHaveCount(0);
+    console.log('room-lifecycle: admin handoff submitted');
+    for(let n=0;n<2;n++)for(const p of [bob,alice])await p.evaluate(()=>client.shoppingRoom('sync'));
+    await expect.poll(async()=>(await db.query('SELECT epoch FROM encrypted_conversations WHERE id=$1',[id])).rows[0].epoch).toBe('3');
+    console.log('room-lifecycle: admin handoff accepted');
+    await alice.getByRole('button',{name:'Settings',exact:true}).click();await alice.getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    await expect(alice.locator('dialog').last()).toContainText('business obligations will not be deleted');
+    await alice.locator('dialog').last().getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    for(let n=0;n<2;n++)await bob.evaluate(()=>client.shoppingRoom('sync'));
+    await expect.poll(async()=>(await db.query('SELECT epoch FROM encrypted_conversations WHERE id=$1',[id])).rows[0].epoch).toBe('4');
+    await expect(alice.locator('[data-room-detail]')).toContainText('Access ended',{timeout:15000});
+    await expect(alice.locator('[data-room-detail]')).toContainText('Habari za Kariakoo');
+    await expect(alice.locator('textarea[name=message]')).toHaveCount(0);
+    const remaining=(await bob.evaluate(()=>client.shoppingRoom('sync')))[0];expect(JSON.parse(JSON.parse(remaining.transition.intent).roles)).toEqual([{owner:'bob',role:'admin'}]);
+    await bob.getByRole('button',{name:'Settings',exact:true}).click();await bob.getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    await bob.locator('dialog').last().getByRole('button',{name:'Leave chatroom',exact:true}).click();
+    await expect(bob.locator('[data-room-detail]')).toContainText('Access ended');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM conversation_event_members WHERE conversation_id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[id])).rows[0].n).toBe(0);
+  }finally{for(const c of contexts)await c.close().catch(()=>{});roomsEnabled=false;}
 });
 function assertRoomBoards(boards){for(const board of boards){expect(board.polls).toHaveLength(1);expect(board.polls[0].options[0].votes).toBe(1);}}
+function retainedMembership(rooms){return rooms[0]?.transition?.status==='accepted'&&!rooms[0].clientError;}
 
 test('spec 180 and 181 compare canonical products and relay an outside seller signed encrypted response without Room access',async({browser})=>{
   test.setTimeout(180000);await resetStores(false,true);

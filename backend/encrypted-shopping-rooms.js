@@ -14,6 +14,7 @@ const fields=Object.freeze({
   'room-check':['conversationId','epoch','revision'],'room-poll':['after'],
   'room-preferences':['conversationId'],
   'room-preference-save':['conversationId','revision','field','value'],
+  'room-leave':['conversationId','epoch','revision'],
   'room-history-epoch':['conversationId','epoch'],
   'room-archive-read':['id','conversationId','epoch','hash','kind'],
   'room-archive-read-ack':['id','conversationId','epoch','hash','kind','receiptDeviceId'],
@@ -34,18 +35,19 @@ function parseIntent(text) {
   for(const key of ['roster','roles','changes']){need(typeof i[key]==='string'&&Buffer.byteLength(i[key])<=32768);
     try{arrays[key]=JSON.parse(i[key]);}catch{need(false);}need(Array.isArray(arrays[key])&&JSON.stringify(arrays[key])===i[key]);}
   const {roster,roles,changes}=arrays,owners=new Map(),ids=new Set(),keys=new Set();let prev='';
-  need(roster.length>=2&&roster.length<=24);
+  need(roster.length>=1&&roster.length<=24);
   for(const m of roster){const order=m.owner+'/'+m.id;
     need(exact(m,['owner','id','fingerprint','key'])&&owner(m.owner)&&uuid(m.id)&&/^[a-f0-9]{64}$/.test(m.fingerprint)
       &&Array.isArray(m.key)&&m.key.length===32&&m.key.every(n=>Number.isInteger(n)&&n>=0&&n<=255)
       &&order>prev&&!ids.has(m.id)&&!keys.has(JSON.stringify(m.key)));
     prev=order;ids.add(m.id);keys.add(JSON.stringify(m.key));owners.set(m.owner,(owners.get(m.owner)||0)+1);}
-  need(owners.size>=2&&owners.size<=12&&[...owners.values()].every(n=>n<=4)&&roles.length===owners.size);prev='';
+  need(owners.size>=1&&owners.size<=12&&[...owners.values()].every(n=>n<=4)&&roles.length===owners.size);prev='';
   for(const r of roles){need(exact(r,['owner','role'])&&owners.has(r.owner)&&r.owner>prev&&['admin','member'].includes(r.role));prev=r.owner;}
   need(roles.some(r=>r.role==='admin')&&roster.some(m=>m.owner===i.actorOwner&&m.id===i.actorDeviceId));
   need(changes.length>=1&&changes.length<=24);prev='';
-  for(const c of changes){need(exact(c,c.type==='add'?['type','owner','id','packageHash']:['type','owner','id'])&&['add','remove'].includes(c.type)
-    &&owner(c.owner)&&uuid(c.id)&&c.id!==i.actorDeviceId&&c.id>prev&&(c.type!=='add'||/^[a-f0-9]{64}$/.test(c.packageHash)));prev=c.id;}
+  for(const c of changes){need(exact(c,c.type==='add'?['type','owner','id','packageHash']:c.type==='role'?['type','owner','id','role']:['type','owner','id'])&&['add','remove','role'].includes(c.type)
+    &&owner(c.owner)&&uuid(c.id)&&(c.type==='role'||c.id!==i.actorDeviceId)&&c.id>prev&&(c.type!=='add'||/^[a-f0-9]{64}$/.test(c.packageHash))
+    &&(c.type!=='role'||['admin','member'].includes(c.role)));prev=c.id;}
   return {i,roster,roles,changes,owners:[...owners.keys()]};
 }
 const transferHash=p=>hash(JSON.stringify(['winga-mls-room-transfer',1,p.intent,p.epoch,...['commit','welcome','tree'].map(k=>hash(Buffer.from(p[k],'base64url')))]));
@@ -57,6 +59,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     need(next.maxOwners<=limits.maxOwners||(old&&next.maxOwners<=old.maxOwners),'encrypted_room_member_limit',409);
     need(next.maxDevices<=limits.maxDevices||(old&&next.maxDevices<=old.maxDevices),'encrypted_room_device_limit',409);}
   async function latest(client,id){return (await client.query(`SELECT * FROM encrypted_room_transitions WHERE conversation_id=$1 ORDER BY revision DESC LIMIT 1`,[id])).rows[0];}
+  async function departures(client,id){return (await client.query(`SELECT * FROM encrypted_room_departures WHERE conversation_id=$1 AND status='pending' ORDER BY owner_id`,[id])).rows;}
   const preference=row=>({revision:row?.row_version?String(row.row_version):'0',muted:row?.muted===true,archived:row?.archived===true});
   async function readPreference(client,owner,id){return (await client.query(`SELECT row_version::text,muted,archived,last_request_id,last_request_hash
     FROM encrypted_room_preferences WHERE owner_id=$1 AND conversation_id=$2`,[owner,id])).rows[0];}
@@ -67,13 +70,17 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     const ds=(await client.query(`SELECT id,owner_id,fingerprint FROM conversation_crypto_devices WHERE id=ANY($1::text[]) AND status='active' FOR SHARE`,[members.map(m=>m.id)])).rows;
     need(ds.length===members.length&&members.every(m=>ds.some(d=>d.id===m.id&&d.owner_id===m.owner&&d.fingerprint===m.fingerprint)),'encrypted_room_device_revoked',403);
   }
-  async function member(client,c,actor,g,{pending=true,retiring=[]}={}) {
+  async function member(client,c,actor,g,{pending=true,retiring=[],allowDeparture=false,selfLeave=false}={}) {
     need(g?.kind==='shopping-room','encrypted_room_membership_required',403);
     const t=await latest(client,g.id);need(t,'encrypted_room_membership_required',403);
     const parsed=parseIntent(t.intent);
     need(parsed.roster.some(m=>m.owner===c.owner&&m.id===actor),'encrypted_room_membership_required',403);
-    await activeOwners(client,parsed.roster.filter(m=>!retiring.includes(m.id)));
+    need(!(await client.query(`SELECT 1 FROM encrypted_room_departures WHERE conversation_id=$1 AND owner_id=$2
+      AND (status='pending' OR (transition_id IS NULL AND status='completed' AND epoch=$3))`,[g.id,c.owner,g.epoch])).rows.length,'encrypted_room_membership_required',403);
+    const leaving=await departures(client,g.id);
+    await activeOwners(client,parsed.roster.filter(m=>!retiring.includes(m.id)&&!leaving.some(d=>d.owner_id===m.owner)&&(!selfLeave||m.owner===c.owner&&m.id===actor)));
     if(!pending)need(t.status==='accepted'&&g.status==='active'&&g.epoch===t.epoch,'encrypted_room_membership_pending',409);
+    if(!pending&&!allowDeparture)need(!(await departures(client,g.id)).length,'encrypted_room_membership_pending',409);
     return {t,...parsed};
   }
   async function snapshot(client,g,t){
@@ -82,7 +89,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     const current=(await client.query(`SELECT DISTINCT ON(device_id) hash FROM conversation_crypto_key_packages WHERE device_id=ANY($1::text[]) ORDER BY device_id,published_at DESC,hash`,[roster.map(m=>m.id)])).rows;
     hashes.push(...current.map(p=>p.hash));
     const acceptances=(await client.query(`SELECT owner_id AS owner,device_id AS "deviceId",signature FROM encrypted_room_acceptances WHERE transition_id=$1 ORDER BY owner_id,device_id`,[t.id])).rows;
-    return {...g,transition:t,packages:await packages(client,[...new Set(hashes)]),acceptances,mediaEnabled};
+    return {...g,transition:t,packages:await packages(client,[...new Set(hashes)]),acceptances,mediaEnabled,departures:await departures(client,g.id)};
   }
   async function handle(client,c,op){
     const p=op.payload;need(exact(p,op.action==='room-send'&&Object.hasOwn(p,'mediaId')?[...fields['room-send'],'mediaId']:fields[op.action]));
@@ -111,7 +118,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         need(!g&&i.revision==='1'&&parsed.owners.length>=3&&roles.some(r=>r.owner===c.owner&&r.role==='admin')&&/^[a-f0-9]{64}$/.test(p.sourceHash));
         need(changes.length===roster.length-1&&changes.every(ch=>ch.type==='add'&&roster.some(m=>m.id===ch.id&&m.owner===ch.owner)));
       }else{
-        const before=await member(client,c,op.actorId,g,{pending:false,retiring:changes.filter(ch=>ch.type==='remove').map(ch=>ch.id)});
+        const before=await member(client,c,op.actorId,g,{pending:false,allowDeparture:true,retiring:changes.filter(ch=>ch.type==='remove').map(ch=>ch.id)});
         need(g.epoch===i.previousEpoch&&BigInt(i.revision)===BigInt(before.i.revision)+1n&&p.sourceHash===''&&before.roles.some(r=>r.owner===c.owner&&r.role==='admin'),'encrypted_room_admin_required',403);
         admission(parsed,before);
         const room=(await client.query(`SELECT name FROM encrypted_shopping_rooms WHERE conversation_id=$1`,[g.id])).rows[0];need(room.name===p.name);
@@ -120,7 +127,17 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         need(before.roster.length-remaining.length===removed.length);
         for(const ch of changes.filter(ch=>ch.type==='add')){need(!before.roster.some(m=>m.id===ch.id));const m=roster.find(m=>m.id===ch.id&&m.owner===ch.owner);need(m);remaining.push(m);}
         remaining.sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
-        need(JSON.stringify(remaining)===i.roster&&roles.every(r=>!before.roles.some(b=>b.owner===r.owner)||before.roles.find(b=>b.owner===r.owner).role===r.role));
+        need(JSON.stringify(remaining)===i.roster);
+        const roleChanges=changes.filter(ch=>ch.type==='role');
+        if(roleChanges.length){
+          const own=roleChanges.find(ch=>ch.owner===c.owner&&ch.role==='member'),target=roleChanges.find(ch=>ch.owner!==c.owner&&ch.role==='admin');
+          need(roleChanges.length===2&&changes.length===2&&own&&target&&i.roster===before.i.roster
+            &&before.roles.some(r=>r.owner===target.owner&&r.role==='member')
+            &&roleChanges.every(ch=>before.roster.some(m=>m.owner===ch.owner&&m.id===ch.id))
+            &&roles.every(r=>r.role===(r.owner===c.owner?'member':r.owner===target.owner?'admin':before.roles.find(b=>b.owner===r.owner)?.role)),
+            'encrypted_room_role_transfer_rejected',403);
+        }else need(roles.every(r=>!before.roles.some(b=>b.owner===r.owner)||before.roles.find(b=>b.owner===r.owner).role===r.role));
+        need((await departures(client,g.id)).every(d=>!roster.some(m=>m.owner===d.owner_id)),'encrypted_room_departure_pending',409);
         const waiting=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch
           WHERE m.conversation_id=$1 AND m.epoch=$2 AND e.device_id<>m.sender_device AND NOT(e.device_id=ANY($3::text[]))
           AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.device_id=e.device_id AND r.kind='delivered')
@@ -152,7 +169,11 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
           WHERE t.conversation_id=g.id AND m->>'id'=$2 AND m->>'owner'=$3) ORDER BY g.id LIMIT 101`,[p.after,op.actorId,c.owner])).rows;
       const rooms=[];
       for(const g of page.slice(0,100)){
-        let info;try{info=await member(client,c,op.actorId,g);}catch(e){if(e.status!==403)throw e;rooms.push({id:g.id,name:g.name,status:'removed',kind:'shopping-room',preferences:preference(await readPreference(client,c.owner,g.id))});continue;}
+        let info;try{info=await member(client,c,op.actorId,g);}catch(e){if(e.status!==403)throw e;
+          let leaveScope;try{await member(client,c,op.actorId,g,{pending:false,allowDeparture:true,selfLeave:true});leaveScope={epoch:g.epoch,revision:g.revision};}
+          catch(error){if(![403,409].includes(error.status))throw error;}
+          rooms.push({id:g.id,name:g.name,status:'removed',kind:'shopping-room',rotationPending:(await departures(client,g.id)).some(d=>d.owner_id===c.owner),
+            ...(leaveScope?{leaveScope}:{}),preferences:preference(await readPreference(client,c.owner,g.id))});continue;}
         const r=await snapshot(client,g,info.t);r.preferences=preference(await readPreference(client,c.owner,g.id));r.messages=[];r.receipts=[];
         if(info.t.status==='accepted')r.messages=(await client.query(`SELECT m.*,m.sequence::text FROM encrypted_conversation_messages m
           JOIN encrypted_conversation_epoch_devices e ON e.conversation_id=m.conversation_id AND e.epoch=m.epoch AND e.device_id=$2
@@ -176,7 +197,31 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     }
     need(uuid(p.conversationId));
     const g=(await client.query(`SELECT g.*,r.name,r.revision::text FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id WHERE g.id=$1 FOR UPDATE OF g`,[p.conversationId])).rows[0];
-    const info=await member(client,c,op.actorId,g),{t}=info;
+    if(op.action==='room-leave'){
+      const prior=(await client.query(`SELECT * FROM encrypted_room_departures WHERE conversation_id=$1 AND owner_id=$2 AND
+        (id=$3 OR status='pending') ORDER BY created_at DESC LIMIT 1`,[g?.id,c.owner,op.requestId])).rows[0];
+      if(prior){need(prior.epoch===p.epoch&&String(prior.revision)===p.revision,'encrypted_room_conflict',409);
+        const current=parseIntent((await latest(client,g.id)).intent);
+        need(prior.status==='pending'||!current.roster.some(m=>m.owner===c.owner)||g.epoch===prior.epoch,'encrypted_room_conflict',409);
+        return {version:1,left:true,rotationPending:prior.status==='pending'};}
+    }
+    const info=await member(client,c,op.actorId,g,{selfLeave:op.action==='room-leave'}),{t}=info;
+    if(op.action==='room-leave'){
+      need(decimal(p.epoch)&&decimal(p.revision)&&p.epoch===g.epoch&&p.revision===g.revision&&t.status==='accepted','encrypted_room_conflict',409);
+      const leaving=await departures(client,g.id);
+      need(info.owners.length===1||info.roles.some(r=>r.owner!==c.owner&&r.role==='admin'&&!leaving.some(d=>d.owner_id===r.owner)),'encrypted_room_last_admin',409);
+      const alone=info.owners.length===1;
+      await client.query(`INSERT INTO encrypted_room_departures(id,conversation_id,owner_id,actor_device,epoch,revision,proof,status,completed_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $9 THEN NOW() ELSE NULL END)`,[op.requestId,g.id,c.owner,op.actorId,g.epoch,g.revision,JSON.stringify(proof(c,op)),alone?'completed':'pending',alone]);
+      await client.query(`UPDATE web_push_jobs j SET completed_at=NOW(),lease_token=NULL,lease_until=NULL FROM encrypted_conversation_messages m
+        WHERE j.owner_id=$1 AND j.message_id=m.id AND m.conversation_id=$2 AND j.completed_at IS NULL`,[c.owner,g.id]);
+      await client.query(`DELETE FROM conversation_event_members WHERE conversation_id=$1 AND owner_id=$2`,[g.canonical_id,c.owner]);
+      await client.query(`UPDATE conversation_device_deliveries SET cancelled_at=COALESCE(cancelled_at,NOW()) WHERE owner_id=$1 AND acknowledged_at IS NULL
+        AND event_id IN(SELECT id FROM conversation_events WHERE conversation_id=$2)`,[c.owner,g.canonical_id]);
+      await client.query(`UPDATE conversation_event_streams SET membership_version=membership_version+1 WHERE id=$1`,[g.canonical_id]);
+      await client.query(`SELECT winga_append_conversation_event($1,'access_changed',NULL,$2,0)`,[g.canonical_id,c.owner]);
+      return {version:1,left:true,rotationPending:!alone};
+    }
     if(op.action==='room-history-epoch'){
       await member(client,c,op.actorId,g,{pending:false});
       need(decimal(p.epoch)&&p.epoch!=='0'&&BigInt(p.epoch)<=BigInt(g.epoch),'encrypted_room_history_access_denied',403);
@@ -263,12 +308,14 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         await client.query(`UPDATE encrypted_room_transitions SET status='accepted' WHERE id=$1`,[t.id]);
         await client.query(`UPDATE encrypted_conversations SET epoch=$2,status='active' WHERE id=$1`,[g.id,t.epoch]);
         await client.query(`UPDATE encrypted_shopping_rooms SET revision=$2 WHERE conversation_id=$1`,[g.id,info.i.revision]);
+        await client.query(`UPDATE encrypted_room_departures SET status='completed',transition_id=$3,completed_at=NOW()
+          WHERE conversation_id=$1 AND status='pending' AND NOT(owner_id=ANY($2::text[]))`,[g.id,owners,t.id]);
         await client.query(`UPDATE conversation_event_streams SET membership_version=membership_version+1 WHERE id=$1`,[g.canonical_id]);
         await client.query(`SELECT winga_append_conversation_event($1,'access_changed',NULL,$2,0)`,[g.canonical_id,c.owner]);
       }
       return {version:1,status:count===info.roster.length?'active':'pending',conversationId:g.id,epoch:t.epoch,transferHash:t.transfer_hash};
     }
-    await member(client,c,op.actorId,g,{pending:false});
+    await member(client,c,op.actorId,g,{pending:false,allowDeparture:['room-receipt','room-receipt-ack','room-reject'].includes(op.action)});
     if(op.action==='room-media-reserve'){need(mediaEnabled,'private_media_disabled',503);need(uuid(p.id)&&uuid(p.messageId));return media.reserve(client,c,op,g);}
     if(op.action==='room-send'){
       if(Object.hasOwn(p,'mediaId'))need(mediaEnabled&&uuid(p.mediaId),'private_media_disabled',503);
@@ -300,6 +347,6 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
     else{need(['delivered','read'].includes(p.kind));await client.query(`INSERT INTO encrypted_conversation_receipts(message_id,device_id,kind,proof) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[m.id,op.actorId,p.kind,JSON.stringify(proof(c,op))]);}
     return {version:1,ok:true};
   }
-  return {handle,access:member,frozen:async(client,id)=>{const t=await latest(client,id);return Boolean(t&&t.status!=='accepted');}};
+  return {handle,access:member,frozen:async(client,id)=>{const t=await latest(client,id);return Boolean(t&&t.status!=='accepted')||(await departures(client,id)).length>0;}};
 }
 module.exports={createShoppingRooms,fields,parseIntent,transferHash};

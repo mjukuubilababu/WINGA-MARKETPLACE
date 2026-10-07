@@ -19589,7 +19589,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
@@ -19667,7 +19667,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         &&typeof r.transferHash==='string'&&/^[a-f0-9]{64}$/.test(r.transferHash)&&Array.isArray(r.acceptances)&&r.acceptances.length<=24);
       epochCache.set(key,structuredClone(r));if(epochCache.size>1024)epochCache.delete(epochCache.keys().next().value);return r;
     }
-    function historyGroups(){return rooms.filter(r=>r.status==='active'&&r.transition?.status==='accepted'&&!r.clientError)
+    function historyGroups(){return rooms.filter(r=>r.status==='active'&&r.transition?.status==='accepted'&&!r.clientError&&!r.departures?.length)
       .map(r=>({...r,roster:JSON.parse(JSON.parse(r.transition.intent).roster).map(m=>({...m,status:'active'}))}));}
     async function validateHistoryMembership(g){
       const latest=historyGroups().find(r=>r.id===g.id),s=await vault.snapshot(),local=s.values[`mls:group:${g.id}`];
@@ -19735,7 +19735,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       await list();
       for(const room of rooms){if(room.status==='removed')continue;
         try{
-        const saved=await vault.snapshot(),trusted=saved.values[`room:approved:${room.transition.id}`];
+        let saved=await vault.snapshot(),trusted=saved.values[`room:approved:${room.transition.id}`];
+        const local=saved.values[`mls:group:${room.id}`],intent=JSON.parse(room.transition.intent),changes=JSON.parse(intent.changes);
+        // Existing pinned members can reconcile removals and role handoffs, never new admissions.
+        if(!trusted&&local?.confirmed&&String(BigInt(local.roomRevision)+1n)===intent.revision
+          &&changes.every(c=>['remove','role'].includes(c.type))){
+          await approve(room);saved=await vault.snapshot();
+          await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${intent.id}`]:true}});trusted=true;
+        }
         if(!trusted)continue;
         await accept(room);
         const current=await vault.snapshot();if(!current.values[`mls:group:${room.id}`]?.confirmed)continue;
@@ -19779,6 +19786,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           }
           if(Object.keys(values).length)await vault.write({expectedRevision:s.revision,values});
           await operation('room-archive-read-ack',{...p,receiptDeviceId:proof.actorId});
+        }
+        if(room.departures?.length&&JSON.parse(intent.roles).some(r=>r.owner===owner&&r.role==='admin')){
+          const roster=JSON.parse(intent.roster);
+          for(const departure of room.departures){const p=departure.proof,payload=p?.payload;
+            need(departure.status==='pending'&&departure.conversation_id===room.id&&departure.epoch===room.epoch
+              &&String(departure.revision)===room.revision&&p?.requestId===departure.id&&p.owner===departure.owner_id
+              &&p.actorId===departure.actor_device&&payload?.conversationId===room.id&&payload.epoch===room.epoch
+              &&payload.revision===room.revision&&roster.some(m=>m.owner===p.owner&&m.id===p.actorId));
+            await verifyProof(p,'room-leave');
+          }
+          // Drain the retained inbox first; the server enforces the same boundary under its lock.
+          if(saved.values[`room:change:${room.id}`])await resumeChange(room.id);
+          else await change(room.id,[],room.departures.map(d=>d.owner_id));
+          return structuredClone(rooms);
         }
         }catch(error){if(error.status===401||['crypto_vault_session_required','crypto_device_session_required'].includes(error.code))throw error;
           room.clientError=/^[a-z0-9_]{1,80}$/.test(error.code||'')?error.code:'room_sync_failed';}
@@ -19827,16 +19848,51 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const before=JSON.parse(i.roster),selected=names.map(name=>directory.find(p=>p.owner===name&&!before.some(m=>m.id===p.deviceId)));need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);}
     async function change(id,selected=[],removedOwner=''){
       await list();const room=rooms.find(r=>r.id===id);need(room?.transition.status==='accepted');const old=JSON.parse(room.transition.intent),own=await runtime().initialize();
-      need(JSON.parse(old.roles).some(r=>r.owner===owner&&r.role==='admin')&&removedOwner!==owner,'encrypted_room_admin_required');
+      const removedOwners=Array.isArray(removedOwner)?removedOwner:removedOwner?[removedOwner]:[];
+      need(JSON.parse(old.roles).some(r=>r.owner===owner&&r.role==='admin')&&!removedOwners.includes(owner),'encrypted_room_admin_required');
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
-      const before=JSON.parse(old.roster),removed=before.filter(m=>m.owner===removedOwner),roster=[...before.filter(m=>m.owner!==removedOwner),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+      const before=JSON.parse(old.roster),removed=before.filter(m=>removedOwners.includes(m.owner)),roster=[...before.filter(m=>!removedOwners.includes(m.owner)),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
       const roles=[...new Set(roster.map(m=>m.owner))].sort().map(o=>JSON.parse(old.roles).find(r=>r.owner===o)||{owner:o,role:'member'});
       need(roles.length<=roomLimits.maxOwners||roles.length<=new Set(before.map(m=>m.owner)).size,'encrypted_room_member_limit');
       need(roster.length<=roomLimits.maxDevices||roster.length<=before.length,'encrypted_room_device_limit');
       const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,roster:JSON.stringify(roster),roles:JSON.stringify(roles),
         changes:JSON.stringify([...removed.map(m=>({type:'remove',owner:m.owner,id:m.id})),...selected.map(p=>({type:'add',owner:p.owner,id:p.deviceId,packageHash:p.hash}))].sort((a,b)=>a.id<b.id?-1:1))};
       const payload={intent:JSON.stringify(i),name:room.name,sourceHash:''};
-      let saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload,selected}}});return resumeChange(id);
+      let saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload,selected}}});return resumeChange(id);
+    }
+    async function transferAdmin(id,targetOwner){
+      await list();const room=rooms.find(r=>r.id===id);need(room?.transition?.status==='accepted'&&!room.departures?.length);
+      const old=JSON.parse(room.transition.intent),roles=JSON.parse(old.roles),roster=JSON.parse(old.roster),own=await runtime().initialize();
+      need(roles.some(r=>r.owner===owner&&r.role==='admin')&&roles.some(r=>r.owner===targetOwner&&r.role==='member')&&targetOwner!==owner,'encrypted_room_admin_required');
+      const changes=[{type:'role',owner,id:own.id,role:'member'},
+        {type:'role',owner:targetOwner,id:roster.find(m=>m.owner===targetOwner).id,role:'admin'}].sort((a,b)=>a.id<b.id?-1:1);
+      const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,
+        roles:JSON.stringify(roles.map(r=>({...r,role:r.owner===owner?'member':r.owner===targetOwner?'admin':r.role}))),changes:JSON.stringify(changes)};
+      const saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload:{intent:JSON.stringify(i),name:room.name,sourceHash:''},selected:[]}}});
+      return resumeChange(id);
+    }
+    async function leave(id){
+      let saved=await vault.snapshot();if(saved.values[`room:leave:${id}`])return resumeLeave(id);
+      await list();const room=rooms.find(r=>r.id===id);need(room?.transition?.status==='accepted'||room?.leaveScope,'encrypted_room_membership_pending');
+      if(room.transition){const roles=JSON.parse(JSON.parse(room.transition.intent).roles);
+        need(roles.length===1||roles.some(r=>r.owner!==owner&&r.role==='admin'),'encrypted_room_last_admin');}
+      const epoch=room.leaveScope?.epoch||room.epoch,revision=room.leaveScope?.revision||room.revision;
+      need(typeof epoch==='string'&&/^[1-9][0-9]{0,18}$/.test(epoch)&&typeof revision==='string'&&/^[1-9][0-9]{0,18}$/.test(revision));
+      saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:leave:${id}`]:{requestId:crypto.randomUUID(),name:room.name,
+        payload:{conversationId:id,epoch,revision}}}});return resumeLeave(id);
+    }
+    async function resumeLeave(id){
+      let saved=await vault.snapshot();const draft=saved.values[`room:leave:${id}`];need(draft,'encrypted_room_draft_missing');
+      let r;try{r=await operation('room-leave',draft.payload,draft.requestId);}catch(error){
+        if(['encrypted_room_last_admin','encrypted_room_conflict','encrypted_room_membership_required'].includes(error.code)){
+          saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{},deleted:[`room:leave:${id}`]});}
+        throw error;
+      }need(r?.version===1&&r.left===true&&typeof r.rotationPending==='boolean');
+      saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{},deleted:[`room:leave:${id}`]});
+      await list();return id;
     }
     async function resumeChange(id){let saved=await vault.snapshot();const draft=saved.values[`room:change:${id}`];need(draft,'encrypted_room_draft_missing');
       const {payload,selected}=draft,i=JSON.parse(payload.intent);await operation('room-reserve',payload,i.id);
@@ -19870,6 +19926,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }catch(error){if(error.status===401||error.code==='mls_session_changed')throw error;}}
       return codec.projectRoomContent(items,{conversationId:id,epochs:await runtime().room.epochs(id),sellerEvidence:evidence});}
     async function send(id,message,clientMessageId=crypto.randomUUID()){
+      await list();const room=rooms.find(r=>r.id===id);need(room&&room.status!=='removed'&&!room.departures?.length,'encrypted_room_departure_pending');
       const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();return result;
     }
     async function command(id,type,data,clientMessageId){const codec=await module();return send(id,codec.encodeRoomContent(type,data),clientMessageId);}
@@ -19887,9 +19944,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function downloadMedia(id,messageId){return (await media(id)).download(messageId);}
     async function pendingMedia(id){return (await (await media(id)).list()).filter(j=>j.conversationId===id).map(j=>({id:j.id,name:j.attachment.name,kind:j.attachment.kind}));}
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
-      .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
-      .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+      .filter(([key])=>['room:create:','room:change:','room:leave:'].some(prefix=>key.startsWith(prefix)))
+      .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.name||value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
+    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,transferAdmin,leave,resumeLeave,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();
@@ -19927,6 +19984,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       case 'encrypted_room_member_limit':return t('rooms.configuredMemberLimit','A chatroom can have up to {limit} accounts.',{limit:roomLimits.maxOwners});
       case 'encrypted_room_device_limit':return t('rooms.deviceLimit','A chatroom can have up to {limit} devices.',{limit:roomLimits.maxDevices});
       case 'encrypted_room_preference_conflict':return t('rooms.preferenceConflict','Settings changed on another device. Try again.');
+      case 'encrypted_room_last_admin':return t('rooms.lastAdmin','Transfer admin before leaving.');
+      case 'encrypted_room_departure_pending':return t('rooms.rotationPending','Messages are paused while member keys rotate.');
+      case 'encrypted_room_inbox_pending':return t('rooms.inboxPending','Waiting for remaining devices to receive earlier messages.');
       case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
@@ -19953,7 +20013,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
       try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
-        const dialog=document.querySelector('.room-dialog form');if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
+        const dialog=[...document.querySelectorAll('.room-dialog form')].at(-1);if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
       finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}
         for(const [b,ready]of readyControls){if(b.isConnected)ready();else readyControls.delete(b);}}};
@@ -19976,6 +20036,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function members(room){const view=modal(t('chat.roomMembers','Room members')),i=JSON.parse(room.transition.intent),roles=JSON.parse(i.roles),ul=element('ul','','room-members-list');
       const admin=roles.some(r=>r.owner===owner&&r.role==='admin');
       for(const r of roles){const li=element('li');li.append(element('strong',memberName(r.owner)),element('small',r.role==='admin'?t('chat.roomAdmin','Admin'):t('rooms.member','Member')));
+        if(admin&&r.owner!==owner&&r.role==='member')li.append(button(t('rooms.transferAdmin','Transfer admin'),async()=>{const confirm=modal(t('rooms.transferAdmin','Transfer admin'));
+          confirm.form.append(element('p',t('rooms.transferAdminConfirm','Make {member} admin? You will become a member.',{member:memberName(r.owner)})));
+          submit(confirm.form,t('rooms.transferAdmin','Transfer admin'),async()=>{await call('transferAdmin',room.id,r.owner);confirm.d.close();view.d.close();});}));
         if(admin&&r.owner!==owner)li.append(button(t('rooms.remove','Remove'),async()=>{const confirm=modal(t('rooms.removeMember','Remove member?'));confirm.form.append(element('p',r.owner));
           submit(confirm.form,t('rooms.remove','Remove'),async()=>{await call('change',room.id,[],r.owner);confirm.d.close();view.d.close();});}));ul.append(li);}
       view.form.append(ul);if(admin)view.form.append(button(t('rooms.addMembers','Add members'),()=>{view.d.close();return addMembers(room);}));}
@@ -19988,14 +20051,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         archive.textContent=prefs.archived?t('chat.unarchive','Move to Inbox'):t('chat.archive','Archive');};update(prefs);
       mute.onchange=()=>run(async()=>{const value=mute.checked;try{update(await call('setPreference',room.id,prefs.revision,'muted',value));}catch(error){update(prefs);throw error;}});
       preferenceViews.set(room.id,update);view.d.addEventListener('close',()=>preferenceViews.delete(room.id),{once:true});
+      view.form.append(button(t('rooms.leave','Leave chatroom'),()=>leaveRoom(room,view)));
     }
+    async function leaveRoom(room,parent){const confirm=modal(t('rooms.leave','Leave chatroom'));
+      confirm.form.append(element('p',t('rooms.leaveConfirm','Leave {room}? Saved history and business obligations will not be deleted.',{room:room.name})));
+      submit(confirm.form,t('rooms.leave','Leave chatroom'),async()=>{await call('leave',room.id);confirm.d.close();parent?.d.close();});}
     function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',state.showArchived?t('chat.archived','Archived chats'):t('inbox.rooms','Chatrooms')),
       iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));
       if(rooms.some(r=>r.preferences)){const archived=iconButton('archive',t('chat.archived','Archived chats'),async()=>{state.showArchived=!state.showArchived;state.selected='';});
         archived.setAttribute('aria-pressed',String(Boolean(state.showArchived)));toolbar.append(archived);}list.append(toolbar);
       const search=scope.querySelector('[data-inbox-search]');if(search){search.value=state.query;search.oninput=()=>{state.query=search.value;listView();};}
       const visible=rooms.filter(r=>Boolean(r.preferences?.archived)===Boolean(state.showArchived)&&r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
-      for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':'resumeChange',draft.id);state.tab='chat';}));
+      for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':draft.kind==='leave'?'resumeLeave':'resumeChange',draft.id);state.tab='chat';}));
       for(const room of visible){const b=button('',async()=>{state.selected=room.id;state.shown=100;state.tab='chat';},'message-thread-item'+(state.selected===room.id?' active':''));
         b.dataset.roomRow=room.id;const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
         const meta=element('span','','message-thread-meta');meta.append(element('strong',room.name));
@@ -20107,7 +20174,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);
       if(room.status!=='removed'){head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));
         if(room.preferences)head.append(iconButton('ellipsis',t('menu.settings','Settings'),()=>roomSettings(room)));}detail.append(head);
-      if(room.status==='removed'){detail.append(element('p',t('rooms.removed','Access ended'),'empty-copy'));return;}
+      if(room.status==='removed'){
+        detail.append(element('p',room.rotationPending?t('rooms.leftRotationPending','You left. Key rotation is pending.'):t('rooms.removed','Access ended'),'empty-copy'));
+        if(room.leaveScope)detail.append(button(t('rooms.leave','Leave chatroom'),()=>leaveRoom(room)));
+        const history=state.history.get(room.id)||[];if(history.length){const thread=element('div','','messages-thread-body room-thread');
+          for(const m of history.slice(-state.shown)){const row=element('div','','message-bubble '+(m.owner===owner?'outgoing':'incoming'));
+            row.append(element('strong',memberName(m.owner)),element('p',m.message.startsWith('WINGA-MEDIA/')?t('rooms.attachment','Attachment'):m.message.startsWith('WINGA-ROOM/')?t('rooms.sharedActivity','Shared activity'):m.message));thread.append(row);}detail.append(thread);}
+        return;
+      }
       if(room.clientError){detail.append(element('p',t('rooms.actionFailed','Unable to finish. Try again.'),'empty-copy'),button(t('inbox.retry','Try again'),()=>refresh(true)));return;}
       const i=JSON.parse(room.transition.intent),accepted=room.acceptances?.length||0,count=JSON.parse(i.roster).length;
       if(room.transition.status!=='accepted'||!state.boards.has(room.id)){
@@ -20117,6 +20191,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const b=button(label,async()=>{state.tab=value;state.shown=100;},'room-view-tab');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(state.tab===value));
         if(value==='orders'){b.disabled=true;delete b.dataset.roomBusyDisabled;}tabs.append(b);}detail.append(tabs);
       const board=state.boards.get(room.id),history=state.history.get(room.id)||[];
+      if(room.departures?.length)detail.append(element('p',t('rooms.rotationPending','Messages are paused while member keys rotate.'),'empty-copy'));
       if(state.tab==='products'||state.tab==='shortlist')detail.append(productView(room,board,state.tab==='shortlist'));
       else if(state.tab==='polls')detail.append(pollsView(room,board));
       else if(state.tab==='orders')detail.append(element('p',t('rooms.noOrders','No shared orders.'),'empty-copy'));
@@ -20148,6 +20223,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           thread.scrollTop=restored?restored.getBoundingClientRect().top-thread.getBoundingClientRect().top-anchorOffset:oldScroll;
         }else thread.scrollTop=thread.scrollHeight;
         thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();}
+      if(room.departures?.length){for(const control of detail.querySelectorAll('button,input,textarea')){
+        if(head.contains(control)||tabs.contains(control))continue;control.disabled=true;delete control.dataset.roomBusyDisabled;}}
     }
     async function refresh(force=false){if(!current())return;
       roomLimits=await call('limits');if(!current())return;
@@ -20156,14 +20233,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       pendingTransitions=await call('pendingTransitions');if(!current())return;
       pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;
       if(['encrypted_membership_required','encrypted_membership_pending'].includes(lastError)&&!pendingQuestions.length){lastError='';status.textContent='';}
-      for(const room of rooms){if(room.status==='removed'||room.clientError)continue;
+      for(const room of rooms){if(room.clientError)continue;
         const history=await call('history',room.id);if(!current())return;state.history.set(room.id,history);
+        if(room.status==='removed')continue;
         try{const board=await call('board',room.id);if(!current())return;state.boards.set(room.id,board);
           if(room.id===state.selected&&['products','shortlist'].includes(state.tab))for(const p of board.products.slice(0,state.shown)){const cached=state.catalog.get(p.productId);if(cached&&Date.now()-cached.at<30000)continue;
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
-      pendingFiles=[];if(state.selected)try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
+      pendingFiles=[];if(state.selected&&rooms.find(r=>r.id===state.selected)?.status!=='removed')try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences,r.departures,r.rotationPending,r.leaveScope]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
     }

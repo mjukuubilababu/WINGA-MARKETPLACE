@@ -27,7 +27,7 @@
         &&typeof r.transferHash==='string'&&/^[a-f0-9]{64}$/.test(r.transferHash)&&Array.isArray(r.acceptances)&&r.acceptances.length<=24);
       epochCache.set(key,structuredClone(r));if(epochCache.size>1024)epochCache.delete(epochCache.keys().next().value);return r;
     }
-    function historyGroups(){return rooms.filter(r=>r.status==='active'&&r.transition?.status==='accepted'&&!r.clientError)
+    function historyGroups(){return rooms.filter(r=>r.status==='active'&&r.transition?.status==='accepted'&&!r.clientError&&!r.departures?.length)
       .map(r=>({...r,roster:JSON.parse(JSON.parse(r.transition.intent).roster).map(m=>({...m,status:'active'}))}));}
     async function validateHistoryMembership(g){
       const latest=historyGroups().find(r=>r.id===g.id),s=await vault.snapshot(),local=s.values[`mls:group:${g.id}`];
@@ -95,7 +95,14 @@
       await list();
       for(const room of rooms){if(room.status==='removed')continue;
         try{
-        const saved=await vault.snapshot(),trusted=saved.values[`room:approved:${room.transition.id}`];
+        let saved=await vault.snapshot(),trusted=saved.values[`room:approved:${room.transition.id}`];
+        const local=saved.values[`mls:group:${room.id}`],intent=JSON.parse(room.transition.intent),changes=JSON.parse(intent.changes);
+        // Existing pinned members can reconcile removals and role handoffs, never new admissions.
+        if(!trusted&&local?.confirmed&&String(BigInt(local.roomRevision)+1n)===intent.revision
+          &&changes.every(c=>['remove','role'].includes(c.type))){
+          await approve(room);saved=await vault.snapshot();
+          await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${intent.id}`]:true}});trusted=true;
+        }
         if(!trusted)continue;
         await accept(room);
         const current=await vault.snapshot();if(!current.values[`mls:group:${room.id}`]?.confirmed)continue;
@@ -139,6 +146,20 @@
           }
           if(Object.keys(values).length)await vault.write({expectedRevision:s.revision,values});
           await operation('room-archive-read-ack',{...p,receiptDeviceId:proof.actorId});
+        }
+        if(room.departures?.length&&JSON.parse(intent.roles).some(r=>r.owner===owner&&r.role==='admin')){
+          const roster=JSON.parse(intent.roster);
+          for(const departure of room.departures){const p=departure.proof,payload=p?.payload;
+            need(departure.status==='pending'&&departure.conversation_id===room.id&&departure.epoch===room.epoch
+              &&String(departure.revision)===room.revision&&p?.requestId===departure.id&&p.owner===departure.owner_id
+              &&p.actorId===departure.actor_device&&payload?.conversationId===room.id&&payload.epoch===room.epoch
+              &&payload.revision===room.revision&&roster.some(m=>m.owner===p.owner&&m.id===p.actorId));
+            await verifyProof(p,'room-leave');
+          }
+          // Drain the retained inbox first; the server enforces the same boundary under its lock.
+          if(saved.values[`room:change:${room.id}`])await resumeChange(room.id);
+          else await change(room.id,[],room.departures.map(d=>d.owner_id));
+          return structuredClone(rooms);
         }
         }catch(error){if(error.status===401||['crypto_vault_session_required','crypto_device_session_required'].includes(error.code))throw error;
           room.clientError=/^[a-z0-9_]{1,80}$/.test(error.code||'')?error.code:'room_sync_failed';}
@@ -187,16 +208,51 @@
       const before=JSON.parse(i.roster),selected=names.map(name=>directory.find(p=>p.owner===name&&!before.some(m=>m.id===p.deviceId)));need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);}
     async function change(id,selected=[],removedOwner=''){
       await list();const room=rooms.find(r=>r.id===id);need(room?.transition.status==='accepted');const old=JSON.parse(room.transition.intent),own=await runtime().initialize();
-      need(JSON.parse(old.roles).some(r=>r.owner===owner&&r.role==='admin')&&removedOwner!==owner,'encrypted_room_admin_required');
+      const removedOwners=Array.isArray(removedOwner)?removedOwner:removedOwner?[removedOwner]:[];
+      need(JSON.parse(old.roles).some(r=>r.owner===owner&&r.role==='admin')&&!removedOwners.includes(owner),'encrypted_room_admin_required');
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
-      const before=JSON.parse(old.roster),removed=before.filter(m=>m.owner===removedOwner),roster=[...before.filter(m=>m.owner!==removedOwner),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+      const before=JSON.parse(old.roster),removed=before.filter(m=>removedOwners.includes(m.owner)),roster=[...before.filter(m=>!removedOwners.includes(m.owner)),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
       const roles=[...new Set(roster.map(m=>m.owner))].sort().map(o=>JSON.parse(old.roles).find(r=>r.owner===o)||{owner:o,role:'member'});
       need(roles.length<=roomLimits.maxOwners||roles.length<=new Set(before.map(m=>m.owner)).size,'encrypted_room_member_limit');
       need(roster.length<=roomLimits.maxDevices||roster.length<=before.length,'encrypted_room_device_limit');
       const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,roster:JSON.stringify(roster),roles:JSON.stringify(roles),
         changes:JSON.stringify([...removed.map(m=>({type:'remove',owner:m.owner,id:m.id})),...selected.map(p=>({type:'add',owner:p.owner,id:p.deviceId,packageHash:p.hash}))].sort((a,b)=>a.id<b.id?-1:1))};
       const payload={intent:JSON.stringify(i),name:room.name,sourceHash:''};
-      let saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload,selected}}});return resumeChange(id);
+      let saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload,selected}}});return resumeChange(id);
+    }
+    async function transferAdmin(id,targetOwner){
+      await list();const room=rooms.find(r=>r.id===id);need(room?.transition?.status==='accepted'&&!room.departures?.length);
+      const old=JSON.parse(room.transition.intent),roles=JSON.parse(old.roles),roster=JSON.parse(old.roster),own=await runtime().initialize();
+      need(roles.some(r=>r.owner===owner&&r.role==='admin')&&roles.some(r=>r.owner===targetOwner&&r.role==='member')&&targetOwner!==owner,'encrypted_room_admin_required');
+      const changes=[{type:'role',owner,id:own.id,role:'member'},
+        {type:'role',owner:targetOwner,id:roster.find(m=>m.owner===targetOwner).id,role:'admin'}].sort((a,b)=>a.id<b.id?-1:1);
+      const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,
+        roles:JSON.stringify(roles.map(r=>({...r,role:r.owner===owner?'member':r.owner===targetOwner?'admin':r.role}))),changes:JSON.stringify(changes)};
+      const saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:change:${id}`]:{payload:{intent:JSON.stringify(i),name:room.name,sourceHash:''},selected:[]}}});
+      return resumeChange(id);
+    }
+    async function leave(id){
+      let saved=await vault.snapshot();if(saved.values[`room:leave:${id}`])return resumeLeave(id);
+      await list();const room=rooms.find(r=>r.id===id);need(room?.transition?.status==='accepted'||room?.leaveScope,'encrypted_room_membership_pending');
+      if(room.transition){const roles=JSON.parse(JSON.parse(room.transition.intent).roles);
+        need(roles.length===1||roles.some(r=>r.owner!==owner&&r.role==='admin'),'encrypted_room_last_admin');}
+      const epoch=room.leaveScope?.epoch||room.epoch,revision=room.leaveScope?.revision||room.revision;
+      need(typeof epoch==='string'&&/^[1-9][0-9]{0,18}$/.test(epoch)&&typeof revision==='string'&&/^[1-9][0-9]{0,18}$/.test(revision));
+      saved=await vault.snapshot();need(!saved.values[`room:change:${id}`],'encrypted_room_conflict');
+      await vault.write({expectedRevision:saved.revision,values:{[`room:leave:${id}`]:{requestId:crypto.randomUUID(),name:room.name,
+        payload:{conversationId:id,epoch,revision}}}});return resumeLeave(id);
+    }
+    async function resumeLeave(id){
+      let saved=await vault.snapshot();const draft=saved.values[`room:leave:${id}`];need(draft,'encrypted_room_draft_missing');
+      let r;try{r=await operation('room-leave',draft.payload,draft.requestId);}catch(error){
+        if(['encrypted_room_last_admin','encrypted_room_conflict','encrypted_room_membership_required'].includes(error.code)){
+          saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{},deleted:[`room:leave:${id}`]});}
+        throw error;
+      }need(r?.version===1&&r.left===true&&typeof r.rotationPending==='boolean');
+      saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{},deleted:[`room:leave:${id}`]});
+      await list();return id;
     }
     async function resumeChange(id){let saved=await vault.snapshot();const draft=saved.values[`room:change:${id}`];need(draft,'encrypted_room_draft_missing');
       const {payload,selected}=draft,i=JSON.parse(payload.intent);await operation('room-reserve',payload,i.id);
@@ -230,6 +286,7 @@
       }catch(error){if(error.status===401||error.code==='mls_session_changed')throw error;}}
       return codec.projectRoomContent(items,{conversationId:id,epochs:await runtime().room.epochs(id),sellerEvidence:evidence});}
     async function send(id,message,clientMessageId=crypto.randomUUID()){
+      await list();const room=rooms.find(r=>r.id===id);need(room&&room.status!=='removed'&&!room.departures?.length,'encrypted_room_departure_pending');
       const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();return result;
     }
     async function command(id,type,data,clientMessageId){const codec=await module();return send(id,codec.encodeRoomContent(type,data),clientMessageId);}
@@ -247,9 +304,9 @@
     async function downloadMedia(id,messageId){return (await media(id)).download(messageId);}
     async function pendingMedia(id){return (await (await media(id)).list()).filter(j=>j.conversationId===id).map(j=>({id:j.id,name:j.attachment.name,kind:j.attachment.kind}));}
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
-      .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
-      .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+      .filter(([key])=>['room:create:','room:change:','room:leave:'].some(prefix=>key.startsWith(prefix)))
+      .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.name||value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
+    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,transferAdmin,leave,resumeLeave,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();

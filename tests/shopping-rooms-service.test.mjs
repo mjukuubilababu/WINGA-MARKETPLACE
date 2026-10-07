@@ -11,7 +11,7 @@ const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Bu
 async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits}={}){
   const db=await roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
-    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences'])
+    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
@@ -30,7 +30,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
       async write(p){assert.equal(p.expectedRevision,String(revision));for(const k of p.deleted||[])delete values[k];Object.assign(values,structuredClone(p.values));return String(++revision);}};
     const p={owner,native,context,vault,pins:[],keys};
     p.signed=(action,payload,requestId=randomUUID(),session=context)=>{const op={action,actorId:native.id,requestId,issuedAt:Date.now(),payload};op.signature=encode(sign(null,operationBytes(session,op),keys.privateKey));return op;};
-    p.operation=async(action,payload)=>store.encryptedOperation(context,p.signed(action,payload));
+    p.operation=async(action,payload,requestId)=>store.encryptedOperation(context,p.signed(action,payload,requestId));
     const authorization={
       async verifyIntent(i){const r=await p.operation('room-intent',{conversationId:i.conversationId,transitionId:i.id});assert.equal(r.room.transition.intent,JSON.stringify(i));return true;},
       async check(conversationId,epoch,revision){return p.operation('room-check',{conversationId,epoch,revision});},
@@ -69,6 +69,125 @@ async function parallelJobs(jobs,work,width=6){
   })()));
   if(failure)throw failure;
 }
+async function lifecycleSessions(f,hooks={}){
+  await import('../src/chat/room-session.js');globalThis.WingaMlsCandidate={encodeRoomTransferPayload,decodeRoomTransferPayload};
+  const sessions=[];
+  for(const p of f.people){const saved=await p.vault.snapshot();
+    await p.vault.write({expectedRevision:saved.revision,values:{[`room:approved:${f.intent.id}`]:true}});
+    sessions.push(globalThis.WingaRoomSession.createRoomSession({owner:p.owner,runtime:()=>p.runtime,vault:p.vault,
+      operation:async(action,payload,requestId)=>{const result=await p.operation(action,payload,requestId);return hooks.after?hooks.after(p,action,result):result;},
+      verifyPackage:async(pkg,fingerprint)=>{assert.ok(f.people.some(m=>m.device.id===pkg.deviceId&&m.owner===pkg.owner&&m.native.fingerprint===fingerprint));},
+      verifyProof:async(proof,action)=>{const signer=f.people.find(m=>m.native.id===proof.actorId);assert.ok(signer);assert.equal(proof.owner,signer.owner);assert.equal(proof.action,action);
+        assert.equal(verify(null,operationBytes({owner:proof.owner,deviceId:proof.sessionId},proof),signer.keys.publicKey,Buffer.from(proof.signature,'base64url')),true);}}));
+  }return sessions;
+}
+
+test('Room admin handoff uses a real zero-proposal MLS commit and rejects silent promotion or privilege reuse',async t=>{
+  const f=await fixture(t);await f.activate();const [alice,bob,eve]=await lifecycleSessions(f);
+  const bad={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',
+    roles:JSON.stringify([{owner:'alice',role:'admin'},{owner:'bob',role:'admin'},{owner:'eve',role:'member'}]),
+    changes:JSON.stringify([{type:'role',owner:'bob',id:f.bob.device.id,role:'admin'}])};
+  await assert.rejects(f.alice.operation('room-reserve',{intent:JSON.stringify(bad),name:'Shopping',sourceHash:''}),{code:'encrypted_room_role_transfer_rejected'});
+  await alice.transferAdmin(f.id,'bob');assert.equal((await f.db.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch,'1');
+  for(let n=0;n<2;n++)for(const s of [bob,eve,alice])await s.sync();
+  const room=(await bob.list())[0];assert.equal(room.epoch,'2');assert.equal(room.transition.status,'accepted');
+  assert.deepEqual(JSON.parse(JSON.parse(room.transition.intent).roles),[{owner:'alice',role:'member'},{owner:'bob',role:'admin'},{owner:'eve',role:'member'}]);
+  assert.equal((await f.db.query("SELECT roles FROM encrypted_room_epochs WHERE epoch='1'")).rows[0].roles,f.intent.roles);
+  await assert.rejects(alice.transferAdmin(f.id,'eve'),{code:'encrypted_room_admin_required'});
+  await assert.rejects(bob.leave(f.id),{code:'encrypted_room_last_admin'});
+  const sent=await bob.send(f.id,'new admin can still chat');await alice.sync();await eve.sync();
+  assert.equal((await alice.history(f.id)).find(m=>m.id===sent.id).message,'new admin can still chat');
+});
+
+test('Room self-leave immediately ends account access, drains retained inbox and automatically rotates to a singleton without deleting history',async t=>{
+  const f=await fixture(t,{mediaEnabled:true});await f.activate();const [alice,bob,eve]=await lifecycleSessions(f);
+  const old=await alice.send(f.id,'history must remain');await bob.sync();
+  const before=(await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n;
+  await bob.leave(f.id);const left=(await bob.list())[0];assert.equal(left.status,'removed');assert.equal(left.rotationPending,true);
+  await assert.rejects(f.bob.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'}),{code:'encrypted_room_membership_required'});
+  const packet=await prepareRoomPacket(f,f.eve,'cannot send across pending departure');
+  await assert.rejects(f.eve.operation('room-send',packet.packet),{code:'encrypted_room_membership_pending'});
+  const p=packet.packet;
+  await assert.rejects(f.db.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof)
+    VALUES($1,$2,$3,$4,2,$5,$6,$7)`,[p.id,f.id,p.deviceId,p.epoch,p.ciphertext,p.hash,JSON.stringify(f.eve.signed('room-send',p))]),{code:'23514'});
+  await alice.sync();assert.equal((await alice.list())[0].departures.length,1); // Eve has not drained the old inbox yet.
+  await eve.sync();await alice.sync();await eve.sync();await alice.sync();
+  assert.equal((await alice.list())[0].epoch,'2');assert.equal((await bob.list())[0].rotationPending,false);
+  assert.equal((await bob.history(f.id)).find(m=>m.id===old.id).message,'history must remain');
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,before);
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n,3);
+  await eve.leave(f.id);await alice.sync();assert.equal((await alice.list())[0].epoch,'3');
+  assert.deepEqual(JSON.parse(JSON.parse((await alice.list())[0].transition.intent).roles),[{owner:'alice',role:'admin'}]);
+  await alice.leave(f.id);assert.equal((await alice.list())[0].status,'removed');
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM conversation_event_members WHERE conversation_id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[f.id])).rows[0].n,0);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_epochs')).rows[0].n,3);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,before);
+});
+
+test('Room leave journal retries the exact accepted request after a lost response and departure evidence cannot be rewritten',async t=>{
+  const f=await fixture(t);await f.activate();let lose=true;
+  await f.db.query("INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('bob','eve')");
+  const [alice,bob,eve]=await lifecycleSessions(f,{after(p,action,r){if(p===f.bob&&action==='room-leave'&&lose){lose=false;throw Object.assign(new Error('lost'),{code:'test_response_lost'});}return r;}});
+  const blocked=(await bob.list())[0];assert.equal(blocked.status,'removed');assert.deepEqual(blocked.leaveScope,{epoch:'1',revision:'1'});assert.equal(blocked.messages,undefined);
+  await assert.rejects(bob.leave(f.id),{code:'test_response_lost'});assert.equal((await bob.pendingTransitions())[0].kind,'leave');
+  const original=(await f.db.query('SELECT * FROM encrypted_room_departures')).rows[0];await bob.resumeLeave(f.id);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_departures')).rows[0].n,1);assert.deepEqual(await bob.pendingTransitions(),[]);
+  await assert.rejects(f.db.query("UPDATE encrypted_room_departures SET proof='{}'"));
+  await assert.rejects(f.db.query("UPDATE encrypted_room_departures SET status='completed',completed_at=NOW()"));
+  await assert.rejects(f.db.query('DELETE FROM encrypted_room_departures'));
+  await alice.sync();await eve.sync();await alice.sync();const done=(await f.db.query('SELECT * FROM encrypted_room_departures')).rows[0];
+  assert.equal(done.status,'completed');assert.deepEqual(done.proof,original.proof);assert.ok(done.transition_id);
+  await assert.rejects(f.db.query("UPDATE encrypted_room_departures SET status='pending',completed_at=NULL,transition_id=NULL"));
+  const retry=await f.bob.operation('room-leave',{conversationId:f.id,epoch:'1',revision:'1'},original.id);assert.equal(retry.rotationPending,false);
+});
+
+test('Room departed accounts cannot receive a push job inserted after leave cancellation',async t=>{
+  const f=await fixture(t);await f.activate();const [alice,bob]=await lifecycleSessions(f);
+  const {createMessageWebPushStore}=require('../backend/message-web-push');let notifications=0;
+  const store=createMessageWebPushStore({query:(...args)=>f.db.query(...args),withTransaction:fn=>f.db.transaction(fn),encrypted:true,roomsEnabled:true,
+    provider:{generateVAPIDKeys:()=>({publicKey:'test-key',privateKey:'test-private'}),setVapidDetails(){},async sendNotification(){notifications++;}}});
+  const ec=createECDH('prime256v1');ec.generateKeys();await store.saveWebPush({owner:'bob',token:'b1',sessionId:'b1',payload:{subscription:{
+    endpoint:'https://fcm.googleapis.com/fcm/send/bob',keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});
+  const sent=await alice.send(f.id,'No notification after departure');await bob.leave(f.id);
+  await f.db.query('UPDATE web_push_jobs SET completed_at=NULL WHERE message_id=$1',[sent.id]);
+  await store.dispatchWebPushBatch();assert.equal(notifications,0);
+});
+
+test('PostgreSQL Rooms: concurrent leave retries preserve one proof and one access change across two stores',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const p=f.bob,nodes=[f.newStore({}),f.newStore({})],payload={conversationId:f.id,epoch:'1',revision:'1'};
+  const op=p.signed('room-leave',payload),before=(await f.db.query('SELECT membership_version FROM conversation_event_streams WHERE id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[f.id])).rows[0].membership_version;
+  await parallelJobs(Array.from({length:24},(_,i)=>i),async i=>{assert.equal((await nodes[i%2].encryptedOperation(p.context,op)).left,true);});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_departures')).rows[0].n,1);
+  assert.equal(BigInt((await f.db.query('SELECT membership_version FROM conversation_event_streams WHERE id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[f.id])).rows[0].membership_version),BigInt(before)+1n);
+  assert.equal((await p.operation('room-poll',{after:null})).rooms[0].status,'removed');
+});
+
+test('Room coordinator rejects altered departure proof before creating any removal transition',async t=>{
+  const f=await fixture(t);await f.activate();const [alice,bob]=await lifecycleSessions(f,{after(p,action,r){
+    if(p===f.alice&&action==='room-poll'&&r.rooms[0]?.departures?.length)r.rooms[0].departures[0].proof.payload.epoch='999';return r;}});
+  await bob.leave(f.id);assert.equal((await alice.sync())[0].clientError,'encrypted_room_transport_rejected');
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_transitions')).rows[0].n,1);
+  assert.equal((await f.db.query('SELECT epoch FROM encrypted_conversations')).rows[0].epoch,'1');
+});
+
+test('PostgreSQL Rooms: a send waiting behind leave cannot cross the committed departure boundary',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const {packet}=await prepareRoomPacket(f,f.eve,'blocked by committed leave');
+  const blocker=await f.db.pool.connect(),waiter=await f.db.pool.connect();let release,ready;
+  const held=new Promise(r=>{release=r;}),acquired=new Promise(r=>{ready=r;});let leaving,sending;
+  try{
+    const node=f.newStore({withTransaction:work=>f.db.transactionOn(blocker,async c=>{const r=await work(c);ready();await held;return r;})});
+    leaving=node.encryptedOperation(f.bob.context,f.bob.signed('room-leave',{conversationId:f.id,epoch:'1',revision:'1'}));
+    await Promise.race([acquired,leaving]);
+    sending=f.newStore({withTransaction:work=>f.db.transactionOn(waiter,work)}).encryptedOperation(f.eve.context,f.eve.signed('room-send',packet));
+    const rejected=assert.rejects(sending,{code:'encrypted_room_membership_pending'});let blocked=false;
+    for(let i=0;i<100;i++){const r=await f.db.admin.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked',[blocker.processID,waiter.processID]);
+      if(r.rows[0].blocked){blocked=true;break;}await new Promise(r=>setTimeout(r,20));}
+    assert.equal(blocked,true);release();await leaving;await rejected;
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+    assert.equal((await f.db.query('SELECT next_sequence::text FROM encrypted_conversations')).rows[0].next_sequence,'0');
+    assert.equal((await f.bob.operation('room-poll',{after:null})).rooms[0].status,'removed');
+  }finally{release();await Promise.allSettled([leaving,sending]);blocker.release();waiter.release();}
+});
 async function prepareRoomPacket(f,p,message,id=randomUUID()){
   let packet;
   // Retain the real MLS ratchet advance, but simulate an unavailable transport.
@@ -315,8 +434,8 @@ test('configured device limits reject an excess native roster independently of o
 test('lowering configured limits preserves accepted reservation retries, encrypted traffic and shrinking membership',async t=>{
   const f=await fixture(t,{four:true});await f.reserve();f.setLimits({maxOwners:3,maxDevices:3});await f.activate();
   assert.equal((await f.alice.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'})).active,true);
-  const {verifyShoppingRooms,migrationId,preferencesMigrationId}=require('../backend/verify-shopping-rooms');
-  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2)',[migrationId,preferencesMigrationId]);
+  const {verifyShoppingRooms,migrationId,preferencesMigrationId,departuresMigrationId}=require('../backend/verify-shopping-rooms');
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2),($3)',[migrationId,preferencesMigrationId,departuresMigrationId]);
   const health=await verifyShoppingRooms(f.db,{WINGA_ENCRYPTED_ROOM_MAX_OWNERS:'3',WINGA_ENCRYPTED_ROOM_MAX_DEVICES:'3'});
   assert.equal(health.ok,true);assert.equal(health.health.roomsAboveConfiguredOwnerLimit,1);assert.equal(health.health.roomsAboveConfiguredDeviceLimit,1);
   for(const [extraOwner,code]of [['frank','encrypted_room_member_limit'],['bob','encrypted_room_device_limit']]){
@@ -475,11 +594,14 @@ test('real Room push fanout is owner-specific, generic, and bound to current mem
 });
 
 test('aggregate Room readiness is read-only and detects missing historical native grants',async t=>{
-  const f=await fixture(t);await f.activate();const {verifyShoppingRooms,migrationId,preferencesMigrationId}=require('../backend/verify-shopping-rooms');
-  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2)',[migrationId,preferencesMigrationId]);
+  const f=await fixture(t);await f.activate();const {verifyShoppingRooms,migrationId,preferencesMigrationId,departuresMigrationId}=require('../backend/verify-shopping-rooms');
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1),($2),($3)',[migrationId,preferencesMigrationId,departuresMigrationId]);
   const ready=await verifyShoppingRooms(f.db,{});assert.equal(ready.ok,true);assert.equal(ready.preferencesReady,true);assert.equal(ready.databaseChanged,false);assert.equal(ready.authenticatedRoomFlowVerified,false);
   await f.db.query('DELETE FROM schema_migrations WHERE migration_id=$1',[preferencesMigrationId]);assert.equal((await verifyShoppingRooms(f.db,{})).preferencesReady,false);
   await f.db.query('INSERT INTO schema_migrations VALUES($1)',[preferencesMigrationId]);
+  await f.db.exec('ALTER TABLE encrypted_conversation_messages DISABLE TRIGGER guard_room_departure_message');
+  assert.equal((await verifyShoppingRooms(f.db,{})).schemaReady,false);
+  await f.db.exec('ALTER TABLE encrypted_conversation_messages ENABLE TRIGGER guard_room_departure_message');
   await f.db.exec('ALTER TABLE encrypted_conversation_epoch_devices DISABLE TRIGGER guard_encrypted_epoch_device');
   await f.db.query('DELETE FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND device_id=$2',[f.id,f.eve.device.id]);
   assert.equal((await verifyShoppingRooms(f.db,{})).health.invalidEpochGrants,1);

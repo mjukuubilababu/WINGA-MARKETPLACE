@@ -62,7 +62,7 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
       && typeof value.roles==='string' && value.roles.length<=8192
       && typeof value.changes==='string' && value.changes.length<=32768);
     let members,changes;try{members=JSON.parse(value.roster);changes=JSON.parse(value.changes);}catch{need(false);}
-    need(Array.isArray(members) && canonical(members)===value.roster && members.length>=2 && members.length<=maxDevices);
+    need(Array.isArray(members) && canonical(members)===value.roster && members.length>=1 && members.length<=maxDevices);
     const ids=new Set(),keys=new Set(),owners=new Map();let previous='';
     for(const m of members) {
       need(exact(m,['owner','id','fingerprint','key']) && ownerId(m.owner) && uuid(m.id) && /^[a-f0-9]{64}$/.test(m.fingerprint)
@@ -71,7 +71,7 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
       need(!ids.has(m.id) && !keys.has(key) && order>previous,'mls_room_roster_rejected');
       previous=order;ids.add(m.id);keys.add(key);owners.set(m.owner,(owners.get(m.owner)||0)+1);
     }
-    need(owners.size>=2 && owners.size<=maxOwners && [...owners.values()].every(n=>n<=4),'mls_room_roster_rejected');
+    need(owners.size>=1 && owners.size<=maxOwners && [...owners.values()].every(n=>n<=4),'mls_room_roster_rejected');
     let roles;try{roles=JSON.parse(value.roles);}catch{need(false,'mls_room_roles_rejected');}
     need(Array.isArray(roles) && canonical(roles)===value.roles && roles.length===owners.size,'mls_room_roles_rejected');
     previous='';
@@ -80,10 +80,10 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
     need(Array.isArray(changes) && changes.length>=1 && changes.length<=maxDevices && canonical(changes)===value.changes);
     const changed=new Set();previous='';
     for(const change of changes) {
-      need(exact(change,change.type==='add'?['type','owner','id','packageHash']:['type','owner','id'])
-        && ['add','remove'].includes(change.type) && ownerId(change.owner) && uuid(change.id)
-        && change.id!==value.actorDeviceId && !changed.has(change.id) && change.id>previous
-        && (change.type!=='add'||/^[a-f0-9]{64}$/.test(change.packageHash)));
+      need(exact(change,change.type==='add'?['type','owner','id','packageHash']:change.type==='role'?['type','owner','id','role']:['type','owner','id'])
+        && ['add','remove','role'].includes(change.type) && ownerId(change.owner) && uuid(change.id)
+        && (change.type==='role'||change.id!==value.actorDeviceId) && !changed.has(change.id) && change.id>previous
+        && (change.type!=='add'||/^[a-f0-9]{64}$/.test(change.packageHash))&& (change.type!=='role'||['admin','member'].includes(change.role)));
       changed.add(change.id);previous=change.id;
     }
     need(members.some(m=>m.owner===value.actorOwner && m.id===value.actorDeviceId),'mls_room_roster_rejected');
@@ -139,7 +139,13 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
   function unchangedRoles(group,reservation) {
     const before=JSON.parse(group.roomRoles),after=JSON.parse(reservation.roles);
     need(before.some(r=>r.owner===reservation.actorOwner&&r.role==='admin'),'mls_room_admin_required');
-    need(after.every(r=>!before.some(b=>b.owner===r.owner) || before.find(b=>b.owner===r.owner).role===r.role),'mls_room_roles_rejected');
+    const changes=JSON.parse(reservation.changes),roles=changes.filter(c=>c.type==='role');
+    if(roles.length){const own=roles.find(c=>c.owner===reservation.actorOwner&&c.role==='member'),target=roles.find(c=>c.owner!==reservation.actorOwner&&c.role==='admin'),members=JSON.parse(group.roomRoster);
+      need(roles.length===2&&changes.length===2&&own&&target&&group.roomRoster===reservation.roster
+        &&before.some(r=>r.owner===target.owner&&r.role==='member')&&roles.every(c=>members.some(m=>m.owner===c.owner&&m.id===c.id))
+        &&after.every(r=>r.role===(r.owner===reservation.actorOwner?'member':r.owner===target.owner?'admin':before.find(b=>b.owner===r.owner)?.role)),
+        'mls_room_roles_rejected');
+    }else need(after.every(r=>!before.some(b=>b.owner===r.owner) || before.find(b=>b.owner===r.owner).role===r.role),'mls_room_roles_rejected');
   }
   async function create(reservation,packages) {
     reservation=structuredClone(reservation);packages=structuredClone(packages);
@@ -242,7 +248,7 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
       let changed, additions=[];
       try {
         changed=await processPrivateMessage(g.value,packet.privateMessage,emptyPskIndex,suite,event=>{
-          if(event.kind!=='commit' || event.proposals.length!==t.changes.length)return 'reject';
+          if(event.kind!=='commit' || event.proposals.length!==t.changes.filter(c=>c.type!=='role').length)return 'reject';
           const leaf=g.value.ratchetTree[event.senderLeafIndex*2],who=leaf?.nodeType==='leaf'&&JSON.parse(decoder.decode(leaf.leaf.credential.identity));
           if(who?.[2]!==t.reservation.actorOwner || who[3]!==t.reservation.actorDeviceId)return 'reject';
           const seen=new Set();additions=[];

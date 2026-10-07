@@ -28,6 +28,13 @@ pending controlled live rollout. The subsequent
 adds bounded six-connection/two-store Room races and encrypted board load.
 Synthetic native tests and local PostgreSQL tests do not prove production SLOs.
 
+The [Room lifecycle follow-up](conversations-room-lifecycle-20261008.md) adds
+operator-approved admin handoff, voluntary account-wide leave, immediate access
+and push revocation, retained-device MLS rotation and read-only local history.
+It closes the previously undecided role/leave implementation policy, not
+production rollout or independent security acceptance. Final local Room evidence
+is 49/49 native/projection checks and 28/28 genuine PostgreSQL service checks.
+
 The operator requested commit/push/deploy of all pending conversation changes:
 indefinite Mute, durable owner Archive, selected-text reporting, moderator
 evidence viewing, four-language copy, source bundle and regression tests.
@@ -106,7 +113,7 @@ Do not erase this distinction by calling the entire foundation complete.
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
-| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge. Room-specific account-level mute/archive, archived view and Move to Inbox are implemented. The 2026-10-08 follow-up adds approved own-native prior-epoch history transfer, recovered board roles, historical Read and explicit old-attachment grants. Real PostgreSQL acceptance adds six-connection/two-store admission, preferences, membership-freeze races and encrypted product/poll load. | Production rollout/physical-device acceptance, sustained fleet load/failure evidence, independent audit and role/leave policy. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
+| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge. Room-specific account-level mute/archive, archived view and Move to Inbox are implemented. The 2026-10-08 follow-up adds approved own-native prior-epoch history transfer, recovered board roles, historical Read and explicit old-attachment grants. Real PostgreSQL acceptance adds six-connection/two-store admission, preferences, membership-freeze races and encrypted product/poll load. Approved admin transfer and voluntary account-wide leave now include immediate access/push revocation, retained-device MLS rotation and read-only saved history. | Production rollout/physical-device acceptance, sustained fleet load/failure evidence, independent audit and complete rollout acceptance. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |

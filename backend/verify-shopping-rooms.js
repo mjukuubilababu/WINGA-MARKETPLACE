@@ -1,5 +1,6 @@
 const migrationId = '2026100610_encrypted_shopping_rooms';
 const preferencesMigrationId = require('./migrations/encrypted-room-preferences').id;
+const departuresMigrationId = require('./migrations/encrypted-room-departures').id;
 
 async function verifyShoppingRooms(client, env = process.env) {
   const limits=require('./encrypted-room-limits').readRoomLimits(env);
@@ -11,6 +12,7 @@ async function verifyShoppingRooms(client, env = process.env) {
   const schema = (await client.query(`SELECT
     EXISTS(SELECT 1 FROM schema_migrations WHERE migration_id=$1) AS migration,
     EXISTS(SELECT 1 FROM schema_migrations WHERE migration_id=$2) AND to_regclass('encrypted_room_preferences') IS NOT NULL AS preferences,
+    EXISTS(SELECT 1 FROM schema_migrations WHERE migration_id=$3) AND to_regclass('encrypted_room_departures') IS NOT NULL AS departures,
     to_regclass('encrypted_shopping_rooms') IS NOT NULL AS rooms,
     to_regclass('encrypted_room_transitions') IS NOT NULL AS transitions,
     to_regclass('encrypted_room_acceptances') IS NOT NULL AS acceptances,
@@ -20,9 +22,12 @@ async function verifyShoppingRooms(client, env = process.env) {
        (tgname='immutable_room_acceptance' AND tgrelid=to_regclass('encrypted_room_acceptances')) OR
        (tgname='immutable_room_epoch' AND tgrelid=to_regclass('encrypted_room_epochs')) OR
        (tgname='guard_encrypted_epoch_shape' AND tgrelid=to_regclass('encrypted_conversation_epochs')) OR
-       (tgname='immutable_encrypted_group_kind' AND tgrelid=to_regclass('encrypted_conversations')))) AS guards`, [migrationId,preferencesMigrationId])).rows[0];
+       (tgname='immutable_encrypted_group_kind' AND tgrelid=to_regclass('encrypted_conversations')) OR
+       (tgname='guard_room_departure' AND tgrelid=to_regclass('encrypted_room_departures')) OR
+       (tgname='guard_room_departure_message' AND tgrelid=to_regclass('encrypted_conversation_messages')))) AS guards`, [migrationId,preferencesMigrationId,departuresMigrationId])).rows[0];
   result.preferencesReady = Boolean(schema.preferences);
-  result.schemaReady = Boolean(schema.migration && schema.preferences && schema.rooms && schema.transitions && schema.acceptances && schema.epochs && schema.guards === 5);
+  result.departuresReady = Boolean(schema.departures);
+  result.schemaReady = Boolean(schema.migration && schema.preferences && schema.departures && schema.rooms && schema.transitions && schema.acceptances && schema.epochs && schema.guards === 7);
   result.guardTriggersEnabled = schema.guards;
   if (!result.schemaReady) return result;
   result.health = (await client.query(`SELECT
@@ -32,6 +37,12 @@ async function verifyShoppingRooms(client, env = process.env) {
     (SELECT COUNT(*)::int FROM encrypted_room_epochs e JOIN encrypted_conversations g ON g.id=e.conversation_id AND g.epoch=e.epoch
       WHERE jsonb_array_length(e.roster::jsonb)>$2) AS "roomsAboveConfiguredDeviceLimit",
     (SELECT COUNT(*)::int FROM encrypted_room_transitions WHERE status<>'accepted') AS "pendingTransitions",
+    (SELECT COUNT(*)::int FROM encrypted_room_departures WHERE status='pending') AS "pendingDepartures",
+    (SELECT COUNT(*)::int FROM encrypted_room_departures d JOIN encrypted_conversations g ON g.id=d.conversation_id
+      WHERE (d.status='pending' AND EXISTS(SELECT 1 FROM conversation_event_members m WHERE m.conversation_id=g.canonical_id AND m.owner_id=d.owner_id))
+        OR (d.status='completed' AND d.transition_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM encrypted_room_transitions t
+          WHERE t.id=d.transition_id AND t.conversation_id=d.conversation_id AND t.status='accepted'
+            AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements((t.intent::jsonb->>'roster')::jsonb) m WHERE m->>'owner'=d.owner_id)))) AS "invalidDepartures",
     (SELECT COUNT(*)::int FROM encrypted_room_epochs) AS epochs,
     (SELECT COUNT(*)::int FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id
       LEFT JOIN conversation_event_streams c ON c.id=g.canonical_id WHERE g.kind<>'shopping-room' OR c.id IS NULL
@@ -50,7 +61,7 @@ async function verifyShoppingRooms(client, env = process.env) {
     (SELECT COUNT(*)::int FROM encrypted_shopping_rooms r JOIN encrypted_conversations g ON g.id=r.conversation_id
       LEFT JOIN encrypted_room_epochs e ON e.conversation_id=g.id AND e.epoch=g.epoch
       WHERE g.status='active' AND (e.epoch IS NULL OR e.revision<>r.revision)) AS "invalidActiveEpochs"`,[limits.maxOwners,limits.maxDevices])).rows[0];
-  result.ok = ['invalidCanonicalStreams','invalidEpochGrants','invalidAcceptances','invalidActiveEpochs'].every(key => result.health[key] === 0);
+  result.ok = ['invalidCanonicalStreams','invalidEpochGrants','invalidAcceptances','invalidActiveEpochs','invalidDepartures'].every(key => result.health[key] === 0);
   return result;
 }
 
@@ -73,4 +84,4 @@ async function main() {
   } finally { await client.end().catch(() => {}); }
 }
 if (require.main === module) main();
-module.exports = { verifyShoppingRooms, migrationId, preferencesMigrationId };
+module.exports = { verifyShoppingRooms, migrationId, preferencesMigrationId, departuresMigrationId };

@@ -57,6 +57,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
       JOIN conversation_crypto_devices d ON d.id=live.device_id AND d.status='active'
       JOIN users u ON u.username=old.owner_id AND u.status='active'
       WHERE NOT EXISTS(SELECT 1 FROM encrypted_room_transitions t WHERE t.conversation_id=g.id AND t.status<>'accepted')
+      AND EXISTS(SELECT 1 FROM conversation_event_members member WHERE member.conversation_id=g.canonical_id AND member.owner_id=old.owner_id)
       AND NOT EXISTS(SELECT 1 FROM user_blocks b JOIN conversation_event_members x ON x.owner_id=b.blocker_username AND x.conversation_id=g.canonical_id
         JOIN conversation_event_members y ON y.owner_id=b.blocked_username AND y.conversation_id=g.canonical_id)`:''}
   )`:`WITH push_messages AS (SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages)`;
