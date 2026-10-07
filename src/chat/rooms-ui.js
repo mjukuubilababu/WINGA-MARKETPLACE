@@ -11,9 +11,10 @@
     const fail=(code,member)=>{throw Object.assign(new Error(code),{code,member});};
     const memberNames=value=>[...new Set(value.split(/[\s,]+/).filter(Boolean).map(name=>name.toLowerCase()))].filter(name=>name!==owner.toLowerCase());
     async function resolveMembers(value,{initial=false}={}){const names=memberNames(value);
+      roomLimits=await call('limits');if(!current())fail('mls_session_changed');
       if(!names.length)fail(initial?'encrypted_room_members_required':'encrypted_room_usernames_invalid');
       if(initial&&names.length<2)fail('encrypted_room_members_required');
-      if(names.length>11)fail('encrypted_room_member_limit');
+      if(names.length>=roomLimits.maxOwners)fail('encrypted_room_member_limit');
       if(!names.every(name=>/^[A-Za-z0-9._:-]{1,40}$/.test(name)))fail('encrypted_room_usernames_invalid');
       const resolved=[];for(const name of names){let profile;try{profile=await dataLayer.readRichContact(name);}catch(error){
         if(error.status===404||error.code==='social_profile_not_found')fail('encrypted_room_account_unavailable',name);throw error;}
@@ -25,7 +26,8 @@
       case 'encrypted_rooms_disabled':return t('rooms.unavailable','Chatrooms are unavailable.');
       case 'encrypted_room_members_required':return t('rooms.membersRequired','At least two other accounts are required.');
       case 'encrypted_room_usernames_invalid':return t('rooms.usernamesInvalid','One or more usernames are invalid.');
-      case 'encrypted_room_member_limit':return t('rooms.memberLimit','A chatroom can have up to 12 accounts.');
+      case 'encrypted_room_member_limit':return t('rooms.configuredMemberLimit','A chatroom can have up to {limit} accounts.',{limit:roomLimits.maxOwners});
+      case 'encrypted_room_device_limit':return t('rooms.deviceLimit','A chatroom can have up to {limit} devices.',{limit:roomLimits.maxDevices});
       case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
@@ -39,7 +41,7 @@
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
     state.comparison=state.comparison||new Map();
-    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
+    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -235,6 +237,7 @@
         thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();}
     }
     async function refresh(force=false){if(!current())return;
+      roomLimits=await call('limits');if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
       pendingTransitions=await call('pendingTransitions');if(!current())return;
       pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;

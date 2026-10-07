@@ -4,7 +4,12 @@
   const decode=text=>Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
-  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,onChange=()=>{}}){
+  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
+    if(!roomLimits||typeof roomLimits!=='object'||Array.isArray(roomLimits)||Object.keys(roomLimits).sort().join(',')!=='maxDevices,maxOwners'
+      ||!Number.isInteger(roomLimits.maxOwners)||roomLimits.maxOwners<3||roomLimits.maxOwners>12
+      ||!Number.isInteger(roomLimits.maxDevices)||roomLimits.maxDevices<roomLimits.maxOwners||roomLimits.maxDevices>24)fail('encrypted_room_limits_invalid');
+    const limits=()=>({maxOwners:roomLimits.maxOwners,maxDevices:roomLimits.maxDevices});
+    roomLimits=Object.freeze(limits());
     let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
@@ -90,7 +95,7 @@
     async function inspectOwners(names){
       need(Array.isArray(names)&&names.every(name=>typeof name==='string'&&/^[A-Za-z0-9._:-]{1,40}$/.test(name)),'encrypted_room_usernames_invalid');
       const owners=[...new Set([owner,...names])].sort();
-      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=12,'encrypted_room_member_limit');
+      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=roomLimits.maxOwners,'encrypted_room_member_limit');
       const own=await runtime().prepareKeyPackage();
       const result=await operation('room-directory',{owners:JSON.stringify(owners)});need(result?.version===1&&Array.isArray(result.packages));
       directory=result.packages;
@@ -98,7 +103,9 @@
       need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);
     }
     async function create(name,selected){
-      need(Array.isArray(selected)&&selected.length>=3);const own=await runtime().prepareKeyPackage();
+      need(Array.isArray(selected)&&selected.length>=3);
+      need(new Set(selected.map(p=>p.owner)).size<=roomLimits.maxOwners,'encrypted_room_member_limit');
+      need(selected.length<=roomLimits.maxDevices,'encrypted_room_device_limit');const own=await runtime().prepareKeyPackage();
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
       const roster=selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))
         .sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
@@ -122,6 +129,7 @@
       await approve(room);const saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${room.transition.id}`]:true}});await sync();}
     async function inspectChange(id,names){await list();const room=rooms.find(r=>r.id===id);need(room?.transition.status==='accepted');
       const i=JSON.parse(room.transition.intent),owners=[...new Set([...JSON.parse(i.roster).map(m=>m.owner),...names])].sort();
+      need(owners.length<=roomLimits.maxOwners,'encrypted_room_member_limit');
       const r=await operation('room-directory',{owners:JSON.stringify(owners)});need(r?.version===1);directory=r.packages;
       const before=JSON.parse(i.roster),selected=names.map(name=>directory.find(p=>p.owner===name&&!before.some(m=>m.id===p.deviceId)));need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);}
     async function change(id,selected=[],removedOwner=''){
@@ -130,6 +138,8 @@
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
       const before=JSON.parse(old.roster),removed=before.filter(m=>m.owner===removedOwner),roster=[...before.filter(m=>m.owner!==removedOwner),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
       const roles=[...new Set(roster.map(m=>m.owner))].sort().map(o=>JSON.parse(old.roles).find(r=>r.owner===o)||{owner:o,role:'member'});
+      need(roles.length<=roomLimits.maxOwners||roles.length<=new Set(before.map(m=>m.owner)).size,'encrypted_room_member_limit');
+      need(roster.length<=roomLimits.maxDevices||roster.length<=before.length,'encrypted_room_device_limit');
       const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,roster:JSON.stringify(roster),roles:JSON.stringify(roles),
         changes:JSON.stringify([...removed.map(m=>({type:'remove',owner:m.owner,id:m.id})),...selected.map(p=>({type:'add',owner:p.owner,id:p.deviceId,packageHash:p.hash}))].sort((a,b)=>a.id<b.id?-1:1))};
       const payload={intent:JSON.stringify(i),name:room.name,sourceHash:''};
@@ -185,7 +195,7 @@
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,limits,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();

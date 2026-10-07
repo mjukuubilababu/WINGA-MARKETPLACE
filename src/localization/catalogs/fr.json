@@ -40,6 +40,8 @@
         "rooms.membersRequired": "Au moins deux autres comptes sont requis.",
         "rooms.usernamesInvalid": "Un ou plusieurs noms d'utilisateur sont invalides.",
         "rooms.memberLimit": "Un salon peut contenir jusqu'a 12 comptes.",
+        "rooms.configuredMemberLimit": "Un salon peut contenir jusqu'a {limit} comptes.",
+        "rooms.deviceLimit": "Un salon peut contenir jusqu'a {limit} appareils.",
         "rooms.accountUnavailable": "Le compte {member} est indisponible.",
         "rooms.devicesUnavailable": "Certains membres n'ont pas encore d'appareil pret pour le chat chiffre.",
         "rooms.accessUnavailable": "Certains membres sont indisponibles ou bloques.",

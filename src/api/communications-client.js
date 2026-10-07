@@ -35,6 +35,7 @@
           onChange:()=>encryptionChanged(),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
+          roomLimits:capabilities.roomLimits,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;

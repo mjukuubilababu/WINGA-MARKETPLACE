@@ -10055,6 +10055,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createEncryptedConversationStore({ withTransaction, enqueuePush: enqueueMessagePush,mediaEnabled:process.env.WINGA_ENCRYPTED_MEDIA_ENABLED==='true',
       multiDeviceEnabled:process.env.WINGA_ENCRYPTED_MULTIDEVICE_ENABLED==='true',
       roomsEnabled:process.env.WINGA_ENCRYPTED_ROOMS_ENABLED==='true',
+      roomLimits:require('./encrypted-room-limits').readRoomLimits(),
       newConversationLimitPerHour:process.env.WINGA_ENCRYPTED_NEW_CONVERSATIONS_PER_HOUR || 20 }),
     close
   };

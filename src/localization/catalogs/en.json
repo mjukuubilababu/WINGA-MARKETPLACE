@@ -40,6 +40,8 @@
         "rooms.membersRequired": "At least two other accounts are required.",
         "rooms.usernamesInvalid": "One or more usernames are invalid.",
         "rooms.memberLimit": "A chatroom can have up to 12 accounts.",
+        "rooms.configuredMemberLimit": "A chatroom can have up to {limit} accounts.",
+        "rooms.deviceLimit": "A chatroom can have up to {limit} devices.",
         "rooms.accountUnavailable": "Account {member} is unavailable.",
         "rooms.devicesUnavailable": "Some members do not have a ready encrypted chat device yet.",
         "rooms.accessUnavailable": "Some members are unavailable or blocked.",

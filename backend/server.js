@@ -8048,6 +8048,7 @@ const server = http.createServer(async (req, res) => {
         mediaEnabled:encryptedMediaEnabled(),
         multiDeviceEnabled:process.env.WINGA_ENCRYPTED_MULTIDEVICE_ENABLED==='true',
         roomsEnabled:process.env.WINGA_ENCRYPTED_ROOMS_ENABLED==='true',
+        roomLimits:require('./encrypted-room-limits').readRoomLimits(),
         enabled: process.env.WINGA_ENCRYPTED_CONVERSATIONS_ENABLED === "true"
           && process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true" && process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"
       });

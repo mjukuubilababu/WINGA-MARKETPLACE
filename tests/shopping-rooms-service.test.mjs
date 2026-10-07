@@ -7,15 +7,18 @@ import {createMlsRuntime,encodeRoomTransferPayload,decodeRoomTransferPayload} fr
 const require=createRequire(import.meta.url),{createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Buffer.from(b,'base64url'));
-async function fixture(t){
+async function fixture(t,{four=false,roomLimits}={}){
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
     'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
-  const pushes=[],store=createEncryptedConversationStore({withTransaction:work=>db.transaction(work),roomsEnabled:true,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}});
+  const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
+  let store=createEncryptedConversationStore(options);
+  const setLimits=value=>{store=createEncryptedConversationStore({...options,roomLimits:value});};
+  if(four)await db.exec("INSERT INTO users(username) VALUES('dave'); INSERT INTO sessions VALUES('d','dave','d',9999999999999)");
   const people=[];
-  for(const [owner,token] of [['alice','a'],['bob','b1'],['eve','e']]){
+  for(const [owner,token] of [['alice','a'],['bob','b1'],['eve','e'],...(four?[['dave','d']]:[])]){
     const keys=generateKeyPairSync('ed25519'),publicKey=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32);
     const native={owner,id:randomUUID(),fingerprint:hash(publicKey),publicKey:encode(publicKey),status:'active'},context={owner,token,deviceId:token};
     await db.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,$2,$3,$4,'active')`,[native.id,owner,native.publicKey,native.fingerprint]);
@@ -41,15 +44,62 @@ async function fixture(t){
   for(const a of people)for(const b of people)if(a!==b)a.pins.push({...b.device,status:'active'});
   const id=randomUUID(),[alice,bob,eve]=people,roster=people.map(p=>({owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)})).sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
   const intent={version:1,kind:'shopping-room',id:randomUUID(),conversationId:id,previousEpoch:'0',revision:'1',actorOwner:'alice',actorDeviceId:alice.device.id,roster:JSON.stringify(roster),
-    roles:JSON.stringify(people.map(p=>({owner:p.owner,role:p===alice?'admin':'member'}))),changes:JSON.stringify([bob,eve].map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
+    roles:JSON.stringify(people.map(p=>({owner:p.owner,role:p===alice?'admin':'member'})).sort((a,b)=>a.owner<b.owner?-1:1)),changes:JSON.stringify(people.slice(1).map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
   const reserve=()=>alice.operation('room-reserve',{intent:JSON.stringify(intent),name:'Shopping',sourceHash:alice.device.hash});
-  async function transfer(){await reserve();const tr=await alice.runtime.room.create(intent,new Map([bob,eve].map(p=>[p.device.id,p.device.keyPackage])));
-    await alice.operation('room-transfer',encodeRoomTransferPayload(tr));for(const p of [bob,eve])await p.runtime.room.acceptWelcome(tr);return tr;}
+  async function transfer(){await reserve();const tr=await alice.runtime.room.create(intent,new Map(people.slice(1).map(p=>[p.device.id,p.device.keyPackage])));
+    await alice.operation('room-transfer',encodeRoomTransferPayload(tr));for(const p of people.slice(1))await p.runtime.room.acceptWelcome(tr);return tr;}
   async function activate(){const tr=await transfer(),proofs=[];for(const p of people){const a=await p.runtime.room.acceptance(id);proofs.push(a);
       const r=await p.operation('room-intent',{conversationId:id,transitionId:intent.id});await p.operation('room-accept',{conversationId:id,transitionId:intent.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
     for(const p of people)await p.runtime.room.confirm(id,proofs);return tr;}
-  return {db,store,people,alice,bob,eve,id,intent,reserve,transfer,activate,pushes};
+  return {db,store,setLimits,people,alice,bob,eve,id,intent,reserve,transfer,activate,pushes};
 }
+
+test('configured owner limits reject real signed directory and creation work before reservation or package consumption',async t=>{
+  const f=await fixture(t,{four:true,roomLimits:{maxOwners:3,maxDevices:3}});
+  await assert.rejects(f.alice.operation('room-directory',{owners:JSON.stringify(['alice','bob','dave','eve'])}),{code:'encrypted_room_member_limit'});
+  await assert.rejects(f.reserve(),{code:'encrypted_room_member_limit'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_transitions')).rows[0].n,0);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_key_packages WHERE consumed_at IS NOT NULL')).rows[0].n,0);
+});
+test('configured device limits reject an excess native roster independently of owner count',async t=>{
+  const f=await fixture(t,{roomLimits:{maxOwners:3,maxDevices:3}}),id=randomUUID();
+  const roster=[...JSON.parse(f.intent.roster),{owner:'bob',id,fingerprint:hash('extra'),key:Array.from(randomBytes(32))}].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+  const changes=[...JSON.parse(f.intent.changes),{type:'add',owner:'bob',id,packageHash:hash('package')}].sort((a,b)=>a.id<b.id?-1:1);
+  const intent={...f.intent,roster:JSON.stringify(roster),changes:JSON.stringify(changes)};
+  await assert.rejects(f.alice.operation('room-reserve',{intent:JSON.stringify(intent),name:'Shopping',sourceHash:f.alice.device.hash}),{code:'encrypted_room_device_limit'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_transitions')).rows[0].n,0);
+});
+test('lowering configured limits preserves accepted reservation retries, encrypted traffic and shrinking membership',async t=>{
+  const f=await fixture(t,{four:true});await f.reserve();f.setLimits({maxOwners:3,maxDevices:3});await f.activate();
+  assert.equal((await f.alice.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'})).active,true);
+  const {verifyShoppingRooms,migrationId}=require('../backend/verify-shopping-rooms');
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');await f.db.query('INSERT INTO schema_migrations VALUES($1)',[migrationId]);
+  const health=await verifyShoppingRooms(f.db,{WINGA_ENCRYPTED_ROOM_MAX_OWNERS:'3',WINGA_ENCRYPTED_ROOM_MAX_DEVICES:'3'});
+  assert.equal(health.ok,true);assert.equal(health.health.roomsAboveConfiguredOwnerLimit,1);assert.equal(health.health.roomsAboveConfiguredDeviceLimit,1);
+  for(const [extraOwner,code]of [['frank','encrypted_room_member_limit'],['bob','encrypted_room_device_limit']]){
+    const extra={owner:extraOwner,id:randomUUID(),fingerprint:hash(extraOwner),key:Array.from(randomBytes(32))};
+    const roster=[...JSON.parse(f.intent.roster),extra].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
+    const roles=[...new Set(roster.map(m=>m.owner))].sort().map(owner=>({owner,role:owner==='alice'?'admin':'member'}));
+    const growth={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(roster),roles:JSON.stringify(roles),
+      changes:JSON.stringify([{type:'add',owner:extraOwner,id:extra.id,packageHash:hash('package')}])};
+    await assert.rejects(f.alice.operation('room-reserve',{intent:JSON.stringify(growth),name:'Shopping',sourceHash:''}),{code});
+  }
+  const sent=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'still private after lowering the limit'});
+  for(const p of f.people.slice(1)){const m=(await p.operation('room-poll',{after:null})).rooms[0].messages[0];
+    assert.equal((await p.runtime.room.receive({...m,deviceId:m.sender_device,conversationId:f.id,ciphertext:decode(m.ciphertext)})).message,'still private after lowering the limit');
+    await p.operation('room-receipt',{id:sent.id,conversationId:f.id,epoch:'1',hash:m.hash,kind:'delivered'});}
+  const old=JSON.parse(f.intent.roster),removed=old.find(m=>m.owner==='dave');
+  const next={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(old.filter(m=>m!==removed)),
+    roles:JSON.stringify(JSON.parse(f.intent.roles).filter(m=>m.owner!=='dave')),changes:JSON.stringify([{type:'remove',owner:'dave',id:removed.id}])};
+  await f.alice.operation('room-reserve',{intent:JSON.stringify(next),name:'Shopping',sourceHash:''});
+  const tr=await f.alice.runtime.room.change(next,new Map());await f.alice.operation('room-transfer',encodeRoomTransferPayload(tr));
+  const remaining=f.people.filter(p=>p.owner!=='dave');for(const p of remaining.slice(1))await p.runtime.room.applyCommit(tr);
+  const snapshot=await f.alice.operation('room-intent',{conversationId:f.id,transitionId:next.id}),acks=[];
+  for(const p of remaining){const a=await p.runtime.room.acceptance(f.id);acks.push(a);await p.operation('room-accept',{conversationId:f.id,transitionId:next.id,transferHash:snapshot.room.transition.transfer_hash,signature:encode(a.signature)});}
+  for(const p of remaining)await p.runtime.room.confirm(f.id,acks);
+  assert.equal((await f.alice.operation('room-check',{conversationId:f.id,epoch:'2',revision:'2'})).active,true);
+  assert.equal((await f.people[3].operation('room-poll',{after:null})).rooms[0].status,'removed');
+});
 test('real room service requires all native signatures before activating and shares the canonical encrypted stream',async t=>{
   const f=await fixture(t);await f.transfer();const a=await f.alice.runtime.room.acceptance(f.id),r=await f.alice.operation('room-intent',{conversationId:f.id,transitionId:f.intent.id});
   const payload={conversationId:f.id,transitionId:f.intent.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)};

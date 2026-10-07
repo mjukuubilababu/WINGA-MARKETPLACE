@@ -1189,6 +1189,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           onChange:()=>encryptionChanged(),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
+          roomLimits:capabilities.roomLimits,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
         encryptedConversations = encryptionService = service;return service;
@@ -19009,7 +19010,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -19073,7 +19074,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     try {
       if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
-        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,
           mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
             const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
             return WingaEncryptedMedia.createMediaClient({owner,getSession,vault,identity,request:mediaRequest,onChange,
@@ -19195,6 +19196,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         await vault.write({expectedRevision:saved.revision,deleted:[`mls:replacement:${peer}`]});
       }
       async function syncInternal() {
+        // Replay only durable sync work; never retry a new send or disable vault CAS.
+        for(let attempt=0;attempt<3;attempt++){
+          try{return await syncAttempt();}catch(error){
+            if(error.code!=='crypto_vault_revision_conflict'||attempt===2)throw error;
+            current();await new Promise(resolve=>setTimeout(resolve,25));current();
+          }
+        }
+      }
+      async function syncAttempt() {
         // Rooms have their own typed sync facade; a room failure must not block direct chats.
         const collected=[],seen=new Set();let after;
         do {
@@ -19574,7 +19584,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
@@ -19629,7 +19639,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const decode=text=>Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
-  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,onChange=()=>{}}){
+  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,mediaFactory,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
+    if(!roomLimits||typeof roomLimits!=='object'||Array.isArray(roomLimits)||Object.keys(roomLimits).sort().join(',')!=='maxDevices,maxOwners'
+      ||!Number.isInteger(roomLimits.maxOwners)||roomLimits.maxOwners<3||roomLimits.maxOwners>12
+      ||!Number.isInteger(roomLimits.maxDevices)||roomLimits.maxDevices<roomLimits.maxOwners||roomLimits.maxDevices>24)fail('encrypted_room_limits_invalid');
+    const limits=()=>({maxOwners:roomLimits.maxOwners,maxDevices:roomLimits.maxDevices});
+    roomLimits=Object.freeze(limits());
     let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map();
     const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
@@ -19715,7 +19730,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function inspectOwners(names){
       need(Array.isArray(names)&&names.every(name=>typeof name==='string'&&/^[A-Za-z0-9._:-]{1,40}$/.test(name)),'encrypted_room_usernames_invalid');
       const owners=[...new Set([owner,...names])].sort();
-      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=12,'encrypted_room_member_limit');
+      need(owners.length>=3,'encrypted_room_members_required');need(owners.length<=roomLimits.maxOwners,'encrypted_room_member_limit');
       const own=await runtime().prepareKeyPackage();
       const result=await operation('room-directory',{owners:JSON.stringify(owners)});need(result?.version===1&&Array.isArray(result.packages));
       directory=result.packages;
@@ -19723,7 +19738,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);
     }
     async function create(name,selected){
-      need(Array.isArray(selected)&&selected.length>=3);const own=await runtime().prepareKeyPackage();
+      need(Array.isArray(selected)&&selected.length>=3);
+      need(new Set(selected.map(p=>p.owner)).size<=roomLimits.maxOwners,'encrypted_room_member_limit');
+      need(selected.length<=roomLimits.maxDevices,'encrypted_room_device_limit');const own=await runtime().prepareKeyPackage();
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
       const roster=selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))
         .sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
@@ -19747,6 +19764,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       await approve(room);const saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${room.transition.id}`]:true}});await sync();}
     async function inspectChange(id,names){await list();const room=rooms.find(r=>r.id===id);need(room?.transition.status==='accepted');
       const i=JSON.parse(room.transition.intent),owners=[...new Set([...JSON.parse(i.roster).map(m=>m.owner),...names])].sort();
+      need(owners.length<=roomLimits.maxOwners,'encrypted_room_member_limit');
       const r=await operation('room-directory',{owners:JSON.stringify(owners)});need(r?.version===1);directory=r.packages;
       const before=JSON.parse(i.roster),selected=names.map(name=>directory.find(p=>p.owner===name&&!before.some(m=>m.id===p.deviceId)));need(selected.every(Boolean),'encrypted_room_member_unavailable');return structuredClone(selected);}
     async function change(id,selected=[],removedOwner=''){
@@ -19755,6 +19773,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       for(const p of selected){need(directory.some(v=>v.hash===p.hash&&v.fingerprint===p.fingerprint));await verifyPackage(p,p.fingerprint);}
       const before=JSON.parse(old.roster),removed=before.filter(m=>m.owner===removedOwner),roster=[...before.filter(m=>m.owner!==removedOwner),...selected.map(p=>({owner:p.owner,id:p.deviceId,fingerprint:p.fingerprint,key:Array.from(decode(p.mlsPublicKey))}))].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
       const roles=[...new Set(roster.map(m=>m.owner))].sort().map(o=>JSON.parse(old.roles).find(r=>r.owner===o)||{owner:o,role:'member'});
+      need(roles.length<=roomLimits.maxOwners||roles.length<=new Set(before.map(m=>m.owner)).size,'encrypted_room_member_limit');
+      need(roster.length<=roomLimits.maxDevices||roster.length<=before.length,'encrypted_room_device_limit');
       const i={...old,id:crypto.randomUUID(),previousEpoch:room.epoch,revision:String(BigInt(old.revision)+1n),actorOwner:owner,actorDeviceId:own.id,roster:JSON.stringify(roster),roles:JSON.stringify(roles),
         changes:JSON.stringify([...removed.map(m=>({type:'remove',owner:m.owner,id:m.id})),...selected.map(p=>({type:'add',owner:p.owner,id:p.deviceId,packageHash:p.hash}))].sort((a,b)=>a.id<b.id?-1:1))};
       const payload={intent:JSON.stringify(i),name:room.name,sourceHash:''};
@@ -19810,7 +19830,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>key.startsWith('room:create:')||key.startsWith('room:change:'))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,limits,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();
@@ -19830,9 +19850,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const fail=(code,member)=>{throw Object.assign(new Error(code),{code,member});};
     const memberNames=value=>[...new Set(value.split(/[\s,]+/).filter(Boolean).map(name=>name.toLowerCase()))].filter(name=>name!==owner.toLowerCase());
     async function resolveMembers(value,{initial=false}={}){const names=memberNames(value);
+      roomLimits=await call('limits');if(!current())fail('mls_session_changed');
       if(!names.length)fail(initial?'encrypted_room_members_required':'encrypted_room_usernames_invalid');
       if(initial&&names.length<2)fail('encrypted_room_members_required');
-      if(names.length>11)fail('encrypted_room_member_limit');
+      if(names.length>=roomLimits.maxOwners)fail('encrypted_room_member_limit');
       if(!names.every(name=>/^[A-Za-z0-9._:-]{1,40}$/.test(name)))fail('encrypted_room_usernames_invalid');
       const resolved=[];for(const name of names){let profile;try{profile=await dataLayer.readRichContact(name);}catch(error){
         if(error.status===404||error.code==='social_profile_not_found')fail('encrypted_room_account_unavailable',name);throw error;}
@@ -19844,7 +19865,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       case 'encrypted_rooms_disabled':return t('rooms.unavailable','Chatrooms are unavailable.');
       case 'encrypted_room_members_required':return t('rooms.membersRequired','At least two other accounts are required.');
       case 'encrypted_room_usernames_invalid':return t('rooms.usernamesInvalid','One or more usernames are invalid.');
-      case 'encrypted_room_member_limit':return t('rooms.memberLimit','A chatroom can have up to 12 accounts.');
+      case 'encrypted_room_member_limit':return t('rooms.configuredMemberLimit','A chatroom can have up to {limit} accounts.',{limit:roomLimits.maxOwners});
+      case 'encrypted_room_device_limit':return t('rooms.deviceLimit','A chatroom can have up to {limit} devices.',{limit:roomLimits.maxDevices});
       case 'encrypted_room_account_unavailable':return t('rooms.accountUnavailable','Account {member} is unavailable.',{member:error.member});
       case 'encrypted_room_member_unavailable':return t('rooms.devicesUnavailable','Some members do not have a ready encrypted chat device yet.');
       case 'encrypted_room_access_denied':return t('rooms.accessUnavailable','Some members are unavailable or blocked.');
@@ -19858,7 +19880,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
     state.comparison=state.comparison||new Map();
-    let rooms=[],busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
+    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -20054,6 +20076,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();}
     }
     async function refresh(force=false){if(!current())return;
+      roomLimits=await call('limits');if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
       pendingTransitions=await call('pendingTransitions');if(!current())return;
       pendingQuestions=dataLayer.seller?await dataLayer.seller('pending',[]):[];if(!current())return;

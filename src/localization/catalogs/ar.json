@@ -40,6 +40,8 @@
         "rooms.membersRequired": "يلزم حسابان آخران على الأقل.",
         "rooms.usernamesInvalid": "اسم مستخدم واحد أو أكثر غير صالح.",
         "rooms.memberLimit": "يمكن أن تضم غرفة الدردشة حتى 12 حسابًا.",
+        "rooms.configuredMemberLimit": "يمكن أن تضم غرفة الدردشة حتى {limit} حسابًا.",
+        "rooms.deviceLimit": "يمكن أن تضم غرفة الدردشة حتى {limit} جهازًا.",
         "rooms.accountUnavailable": "الحساب {member} غير متاح.",
         "rooms.devicesUnavailable": "بعض الأعضاء ليس لديهم جهاز جاهز للدردشة المشفرة بعد.",
         "rooms.accessUnavailable": "بعض الأعضاء غير متاحين أو محظورون.",

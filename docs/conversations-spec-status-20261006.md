@@ -122,6 +122,14 @@ granted. See `conversations-spec-180-181-20261007.md` for local test evidence an
 production/audit boundaries. The grouped 171-189 row above is historical; product
 comparison and correlated Seller response are no longer unimplemented scope.
 
+Spec 188/189 follow-up (2026-10-07): configuration-driven small private Room
+admission limits now reach backend authorization, authenticated capabilities,
+client review and localized UI. Existing rosters and already-reserved retries
+remain usable after stricter configuration; removals can shrink oversized Rooms.
+The public-community boundary remains intact. See
+`conversations-spec-188-189-20261007.md`. Future orders/AI/non-user invitations
+are still future scope, not completed features.
+
 1. Confirm the exact Render commit is Live and the three migrations applied;
    exercise Mute/Archive/selected reporting with authenticated test accounts.
 2. Decide retention/deletion and private binary-media report policy before

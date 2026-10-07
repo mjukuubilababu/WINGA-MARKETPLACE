@@ -25,7 +25,7 @@
     "test:e2e": "playwright test",
     "test:chat-ui": "playwright test --config tests/chat-ui.playwright.config.cjs",
     "test:rich-content": "node --test tests/rich-content.test.js tests/conversation-references.test.js tests/encrypted-media-drafts.test.js tests/rich-catalog-client.test.js",
-    "test:shopping-rooms": "node scripts/patch-ts-mls.js --check && node --test tests/shopping-room-content.test.mjs tests/mls-room-runtime.test.mjs tests/shopping-rooms-service.test.mjs tests/room-members.test.js",
+    "test:shopping-rooms": "node scripts/patch-ts-mls.js --check && node --test tests/shopping-room-content.test.mjs tests/mls-room-runtime.test.mjs tests/shopping-rooms-service.test.mjs tests/room-members.test.js tests/encrypted-room-limits.test.js",
     "deploy:worker:frontend": "npm run build:vercel && npx wrangler deploy --config wrangler.toml --keep-vars",
     "deploy:worker:intelligence": "npx wrangler deploy --config wrangler.intelligence.toml",
     "deploy:worker:session-security": "npx wrangler deploy --config wrangler.session-security.toml",

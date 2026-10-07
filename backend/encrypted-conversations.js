@@ -8,7 +8,7 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, newConversationLimitPerHour=20 }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20 }) {
   if(typeof multiDeviceEnabled!=='boolean')throw new TypeError('Invalid encrypted device feature gate');
   if(typeof roomsEnabled!=='boolean')throw new TypeError('Invalid encrypted room feature gate');
   const newConversationLimit=Number(newConversationLimitPerHour);
@@ -20,7 +20,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   const media=require('./encrypted-media-ledger').createEncryptedMediaLedger({withTransaction,authorizeDevice:authorize,
     access:async(client,g,actor,owner,options)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner,options);},
     membershipFrozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),historyRecoveryEnabled:multiDeviceEnabled});
-  const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled});
+  const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,roomLimits});
   const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
   async function consumeNewConversationQuota(client, owner) {
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;

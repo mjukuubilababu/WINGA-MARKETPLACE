@@ -43,7 +43,13 @@ function parseIntent(text) {
   return {i,roster,roles,changes,owners:[...owners.keys()]};
 }
 const transferHash=p=>hash(JSON.stringify(['winga-mls-room-transfer',1,p.intent,p.epoch,...['commit','welcome','tree'].map(k=>hash(Buffer.from(p[k],'base64url')))]));
-function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabled=false}) {
+function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabled=false,roomLimits}) {
+  const policy=require('./encrypted-room-limits'),limits=policy.roomLimits(roomLimits);
+  const size=parsed=>({maxOwners:parsed.owners.length,maxDevices:parsed.roster.length});
+  // Admission bounds do not reinterpret immutable rosters or exact accepted retries.
+  function admission(parsed,before){const next=size(parsed),old=before&&size(before);
+    need(next.maxOwners<=limits.maxOwners||(old&&next.maxOwners<=old.maxOwners),'encrypted_room_member_limit',409);
+    need(next.maxDevices<=limits.maxDevices||(old&&next.maxDevices<=old.maxDevices),'encrypted_room_device_limit',409);}
   async function latest(client,id){return (await client.query(`SELECT * FROM encrypted_room_transitions WHERE conversation_id=$1 ORDER BY revision DESC LIMIT 1`,[id])).rows[0];}
   async function activeOwners(client,members){
     const owners=[...new Set(members.map(m=>m.owner))];
@@ -75,6 +81,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
       let owners;try{owners=JSON.parse(p.owners);}catch{need(false);}
       need(Array.isArray(owners)&&JSON.stringify(owners)===p.owners&&owners.length>=2&&owners.length<=12&&owners.every(owner)
         &&owners.includes(c.owner)&&owners.every((v,j)=>j===0||v>owners[j-1]));
+      need(owners.length<=limits.maxOwners,'encrypted_room_member_limit',409);
       need((await client.query(`SELECT username FROM users WHERE username=ANY($1::text[]) AND status='active'`,[owners])).rows.length===owners.length,'encrypted_room_access_denied',403);
       need(!(await client.query(`SELECT 1 FROM user_blocks WHERE blocker_username=ANY($1::text[]) AND blocked_username=ANY($1::text[]) LIMIT 1`,[owners])).rows.length,'encrypted_room_access_denied',403);
       const rows=(await client.query(`SELECT DISTINCT ON(p.device_id) p.hash FROM conversation_crypto_key_packages p JOIN conversation_crypto_devices d ON d.id=p.device_id
@@ -90,11 +97,13 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         await member(client,c,op.actorId,g);need(g.name===p.name,'encrypted_room_conflict',409);return {version:1,room:await snapshot(client,g,prior)};}
       let g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR UPDATE',[i.conversationId])).rows[0];
       if(i.previousEpoch==='0'){
+        admission(parsed);
         need(!g&&i.revision==='1'&&parsed.owners.length>=3&&roles.some(r=>r.owner===c.owner&&r.role==='admin')&&/^[a-f0-9]{64}$/.test(p.sourceHash));
         need(changes.length===roster.length-1&&changes.every(ch=>ch.type==='add'&&roster.some(m=>m.id===ch.id&&m.owner===ch.owner)));
       }else{
         const before=await member(client,c,op.actorId,g,{pending:false,retiring:changes.filter(ch=>ch.type==='remove').map(ch=>ch.id)});
         need(g.epoch===i.previousEpoch&&BigInt(i.revision)===BigInt(before.i.revision)+1n&&p.sourceHash===''&&before.roles.some(r=>r.owner===c.owner&&r.role==='admin'),'encrypted_room_admin_required',403);
+        admission(parsed,before);
         const room=(await client.query(`SELECT name FROM encrypted_shopping_rooms WHERE conversation_id=$1`,[g.id])).rows[0];need(room.name===p.name);
         const removed=changes.filter(ch=>ch.type==='remove');
         const remaining=before.roster.filter(m=>!removed.some(ch=>ch.id===m.id&&ch.owner===m.owner));

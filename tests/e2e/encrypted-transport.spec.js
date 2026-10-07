@@ -9,7 +9,7 @@ const {createEncryptedConversationsApi}=require('../../backend/encrypted-convers
 const {createEncryptedConversationBackupStore}=require('../../backend/encrypted-conversation-backups');
 const {createEncryptedConversationBackupsApi}=require('../../backend/encrypted-conversation-backups-api');
 const {createEncryptedMediaApi}=require('../../backend/encrypted-media-api');
-let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false,roomsEnabled=false,loseRoomReserve=false,loseSellerAnswer=false,loseSellerQuestion=false,tamperSellerEvidence=false;
+let server,origin,output,db,devices,packages,transport,backups,storage,objects,loseNextSend=false,loseNextUpload=false,loseReplacementTransfer=false,loseReplacementReserve=false,rejectReplacementReserve=false,rejectReplacementTransfer=false,tamperReservation=false,enabled=true,tamperDirectory=false,multiDeviceEnabled=false,loseDeviceTransfer=false,roomsEnabled=false,roomLimits,loseRoomReserve=false,loseSellerAnswer=false,loseSellerQuestion=false,tamperSellerEvidence=false;
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'},s:{username:'outside-seller',sessionId:'s',token:'s'}};
 const roomCatalogProduct={id:'room-fixture-product',name:'Kariakoo simu',price:850000,currency:'TZS',status:'approved',availability:'available',uploadedBy:'outside-seller'};
 const roomSecondProduct={id:'room-fixture-laptop',name:'Laptop',price:950000,currency:'TZS',status:'approved',availability:'reserved',uploadedBy:'outside-seller'};
@@ -90,7 +90,7 @@ test.beforeAll(async()=>{
         if(contact&&req.method==='GET'){const profile=(await db.query("SELECT username FROM users WHERE LOWER(username)=LOWER($1) AND status='active'",[decodeURIComponent(contact[1])])).rows[0];
           sendJson(res,profile?200:404,profile?{profile}:{code:'social_profile_not_found'});return;}
         const common={collectBody,sendJson,findSession:t=>sessions[t],readAuthToken:()=>session.token,ensureMarketplaceUser:s=>s&&{username:s.username},enabled};
-        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled,roomsEnabled});
+        const api=createEncryptedConversationsApi({...common,getPostgresStore:()=>transport,mediaEnabled:true,multiDeviceEnabled,roomsEnabled,roomLimits});
         const media=createEncryptedMediaApi({...common,getPostgresStore:()=>transport,getStorage:()=>storage});
         const backupApi=createEncryptedConversationBackupsApi({...common,getPostgresStore:()=>backups});
         if(await backupApi.handle(req,res,url))return;
@@ -129,7 +129,7 @@ test.beforeAll(async()=>{
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${server.address().port}`;
 });
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
-async function resetStores(multidevice=false,rooms=false) {
+async function resetStores(multidevice=false,rooms=false,limits) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
   for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
     'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers'])
@@ -140,12 +140,12 @@ async function resetStores(multidevice=false,rooms=false) {
     CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);`);
   const withTransaction=work=>db.transaction(work);
   devices=createConversationCryptoDeviceStore({withTransaction});packages=createCryptoKeyPackageStore({withTransaction});
-  transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice,roomsEnabled:rooms});
+  roomLimits=limits;transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice,roomsEnabled:rooms,roomLimits});
   backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;roomsEnabled=rooms;
 }
 
 test('real Rooms UI creates a three-owner native MLS room and converges encrypted text and poll votes over HTTP',async({browser})=>{
-  test.setTimeout(120000);await resetStores(false,true);
+  test.setTimeout(120000);await resetStores(false,true,{maxOwners:3,maxDevices:3});
   await db.query("INSERT INTO users(username,status) VALUES('offline','active')");
   const contexts=await Promise.all([browser.newContext({viewport:{width:390,height:844}}),browser.newContext(),browser.newContext()]);
   try{
@@ -163,7 +163,9 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
         const profile=document.createElement('div');profile.id='profile-div';profile.dataset.activeSection='profile-messages-panel';profile.style.display='block';
         const shell=document.createElement('div');shell.className='profile-shell';shell.innerHTML=ui.renderMessagesSection();profile.append(shell);
         document.querySelector('main').replaceChildren(profile);document.body.classList.add('conversations-open');
-        WingaShoppingRoomsUi.bind(document.querySelector('.conversation-workspace'),{dataLayer:client,getSession:()=>browserSession,actions:{onError:code=>console.log('room-ui-diagnostic',code)}});
+        WingaShoppingRoomsUi.bind(document.querySelector('.conversation-workspace'),{dataLayer:client,getSession:()=>browserSession,
+          translate:(key,fallback)=>key==='rooms.memberLimit'?'A chatroom can have up to 12 accounts.':fallback,
+          actions:{onError:code=>console.log('room-ui-diagnostic',code)}});
       });
     }
     const [alice,bob,eve]=pages;
@@ -172,6 +174,9 @@ test('real Rooms UI creates a three-owner native MLS room and converges encrypte
     let directoryRequests=0;alice.on('request',request=>{if(request.url().endsWith('/encrypted/operations')&&request.postDataJSON()?.action==='room-directory')directoryRequests++;});
     await alice.getByRole('button',{name:'Review devices',exact:true}).click();await expect(alice.locator('[data-room-error]')).toHaveText('At least two other accounts are required.');
     expect(directoryRequests).toBe(0);
+    expect(await alice.evaluate(()=>client.shoppingRoom('limits'))).toEqual({maxOwners:3,maxDevices:3});
+    await alice.locator('textarea[name="members"]').fill('bob eve outside-seller');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
+    await expect(alice.locator('[data-room-error]')).toHaveText('A chatroom can have up to 3 accounts.');expect(directoryRequests).toBe(0);
     await alice.locator('textarea[name="members"]').fill('bob eve!');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
     await expect(alice.locator('[data-room-error]')).toHaveText('One or more usernames are invalid.');expect(directoryRequests).toBe(0);
     await alice.locator('textarea[name="members"]').fill('bob missing');await alice.getByRole('button',{name:'Review devices',exact:true}).click();
@@ -404,7 +409,13 @@ test('production session admits a third approved native device and converges enc
     const next=(await db.query("SELECT id,fingerprint FROM conversation_crypto_devices WHERE owner_id='alice' AND status='pending'")).rows[0];
     expect(next).toBeTruthy();
     await alice.evaluate(async({id,fp})=>{const m=await client.createCryptoDeviceManagement();try{return await m.manage('approve',id,fp);}finally{m.close();}},{id:next.id,fp:next.fingerprint});
-    await sibling.reload();await sibling.evaluate(()=>start('alice'));
+    await sibling.reload();await sibling.evaluate(()=>{
+      const create=WingaEncryptedVault.createEncryptedVault;
+      WingaEncryptedVault.createEncryptedVault=async options=>{const vault=await create(options),write=vault.write;
+        vault.write=async change=>{if(window.syncConflictsRemaining>0&&Object.keys(change.values||{}).some(key=>key.startsWith('mls:group:'))){
+          window.syncConflictsRemaining--;window.syncConflictsObserved++;throw Object.assign(new Error('crypto_vault_revision_conflict'),{code:'crypto_vault_revision_conflict'});}
+          return write(change);};return vault;};
+    });await sibling.evaluate(()=>start('alice'));
     await alice.locator('[data-chat-security]').click();
     const add=alice.locator('dialog form').filter({has:alice.getByRole('button',{name:'Add chat device',exact:true})});
     await add.locator('select').selectOption(next.id);await add.locator('input').fill(next.fingerprint);
@@ -425,6 +436,16 @@ test('production session admits a third approved native device and converges enc
     await sibling.evaluate(fps=>client.verifyEncryptedConversationAdmission('bob',fps),{[aliceDevice]:ai.ownFingerprint,[bobDevice]:bi.ownFingerprint});
     await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
     for(const page of [alice,bob,sibling])expect((await page.evaluate(()=>client.inspectEncryptedConversation(peer))).status).toBe('active');
+    const collision=await bob.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'CAS guarded incoming',messageType:'text'})));
+    await sibling.evaluate(()=>{window.syncConflictsRemaining=2;window.syncConflictsObserved=0;});
+    const afterConflict=await sibling.evaluate(()=>render());
+    expect(afterConflict.filter(m=>m.id===collision.id)).toHaveLength(1);
+    expect(await sibling.evaluate(()=>window.syncConflictsObserved)).toBe(2);
+    const bounded=await bob.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'alice',message:'Bounded sync retry',messageType:'text'})));
+    await sibling.evaluate(()=>{window.syncConflictsRemaining=3;window.syncConflictsObserved=0;});
+    await expect(sibling.evaluate(()=>render())).rejects.toThrow('crypto_vault_revision_conflict');
+    expect(await sibling.evaluate(()=>window.syncConflictsObserved)).toBe(3);
+    expect((await sibling.evaluate(()=>render())).filter(m=>m.id===bounded.id)).toHaveLength(1);
     await expect.poll(async()=>{
       await alice.evaluate(()=>render());const rows=await sibling.evaluate(()=>render());return rows.some(m=>m.id===historicFile.id)&&rows.some(m=>m.id===historicIncoming.id);
     },{timeout:30000}).toBe(true);

@@ -40,6 +40,8 @@
         "rooms.membersRequired": "Akaunti nyingine angalau mbili zinahitajika.",
         "rooms.usernamesInvalid": "Jina moja au zaidi la mtumiaji si sahihi.",
         "rooms.memberLimit": "Chatroom inaweza kuwa na akaunti hadi 12.",
+        "rooms.configuredMemberLimit": "Chatroom inaweza kuwa na akaunti hadi {limit}.",
+        "rooms.deviceLimit": "Chatroom inaweza kuwa na vifaa hadi {limit}.",
         "rooms.accountUnavailable": "Akaunti {member} haipatikani.",
         "rooms.devicesUnavailable": "Baadhi ya wanachama bado hawana kifaa kilicho tayari kwa chat iliyosimbwa.",
         "rooms.accessUnavailable": "Baadhi ya wanachama hawapatikani au wamezuiwa.",

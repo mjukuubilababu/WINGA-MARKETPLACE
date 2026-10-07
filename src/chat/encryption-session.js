@@ -13,7 +13,7 @@
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -77,7 +77,7 @@
     }
     try {
       if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
-        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,
           mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
             const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
             return WingaEncryptedMedia.createMediaClient({owner,getSession,vault,identity,request:mediaRequest,onChange,
@@ -199,6 +199,15 @@
         await vault.write({expectedRevision:saved.revision,deleted:[`mls:replacement:${peer}`]});
       }
       async function syncInternal() {
+        // Replay only durable sync work; never retry a new send or disable vault CAS.
+        for(let attempt=0;attempt<3;attempt++){
+          try{return await syncAttempt();}catch(error){
+            if(error.code!=='crypto_vault_revision_conflict'||attempt===2)throw error;
+            current();await new Promise(resolve=>setTimeout(resolve,25));current();
+          }
+        }
+      }
+      async function syncAttempt() {
         // Rooms have their own typed sync facade; a room failure must not block direct chats.
         const collected=[],seen=new Set();let after;
         do {
@@ -578,7 +587,7 @@
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');return roomSession[action](...args);}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;

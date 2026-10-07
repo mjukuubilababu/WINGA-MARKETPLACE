@@ -1,9 +1,10 @@
 const migrationId = '2026100610_encrypted_shopping_rooms';
 
 async function verifyShoppingRooms(client, env = process.env) {
+  const limits=require('./encrypted-room-limits').readRoomLimits(env);
   const result = { ok: false, mode: 'verify-shopping-rooms', privacy: 'aggregate-only',
     databaseChanged: false, remoteWrites: false, flagsChanged: false,
-    enabled: env.WINGA_ENCRYPTED_ROOMS_ENABLED === 'true',
+    enabled: env.WINGA_ENCRYPTED_ROOMS_ENABLED === 'true',roomLimits:limits,
     authenticatedRoomFlowVerified: false, crossConnectionConcurrencyVerified: false,
     cryptographicAuditApproved: false };
   const schema = (await client.query(`SELECT
@@ -23,6 +24,10 @@ async function verifyShoppingRooms(client, env = process.env) {
   if (!result.schemaReady) return result;
   result.health = (await client.query(`SELECT
     (SELECT COUNT(*)::int FROM encrypted_shopping_rooms) AS rooms,
+    (SELECT COUNT(*)::int FROM encrypted_room_epochs e JOIN encrypted_conversations g ON g.id=e.conversation_id AND g.epoch=e.epoch
+      WHERE (SELECT COUNT(DISTINCT m->>'owner') FROM jsonb_array_elements(e.roster::jsonb) m)>$1) AS "roomsAboveConfiguredOwnerLimit",
+    (SELECT COUNT(*)::int FROM encrypted_room_epochs e JOIN encrypted_conversations g ON g.id=e.conversation_id AND g.epoch=e.epoch
+      WHERE jsonb_array_length(e.roster::jsonb)>$2) AS "roomsAboveConfiguredDeviceLimit",
     (SELECT COUNT(*)::int FROM encrypted_room_transitions WHERE status<>'accepted') AS "pendingTransitions",
     (SELECT COUNT(*)::int FROM encrypted_room_epochs) AS epochs,
     (SELECT COUNT(*)::int FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id
@@ -41,7 +46,7 @@ async function verifyShoppingRooms(client, env = process.env) {
         SELECT 1 FROM jsonb_array_elements((t.intent::jsonb->>'roster')::jsonb) m WHERE m->>'id'=a.device_id AND m->>'owner'=a.owner_id)))) AS "invalidAcceptances",
     (SELECT COUNT(*)::int FROM encrypted_shopping_rooms r JOIN encrypted_conversations g ON g.id=r.conversation_id
       LEFT JOIN encrypted_room_epochs e ON e.conversation_id=g.id AND e.epoch=g.epoch
-      WHERE g.status='active' AND (e.epoch IS NULL OR e.revision<>r.revision)) AS "invalidActiveEpochs"`)).rows[0];
+      WHERE g.status='active' AND (e.epoch IS NULL OR e.revision<>r.revision)) AS "invalidActiveEpochs"`,[limits.maxOwners,limits.maxDevices])).rows[0];
   result.ok = ['invalidCanonicalStreams','invalidEpochGrants','invalidAcceptances','invalidActiveEpochs'].every(key => result.health[key] === 0);
   return result;
 }
