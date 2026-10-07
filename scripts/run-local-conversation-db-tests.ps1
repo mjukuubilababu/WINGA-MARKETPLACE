@@ -1,4 +1,4 @@
-param([int]$Port=55440)
+param([int]$Port=55440,[switch]$RoomsOnly,[switch]$RoomConcurrencyOnly)
 $ErrorActionPreference='Stop'
 if($Port -lt 49152 -or $Port -gt 65535){throw 'Use an unprivileged disposable test port (49152-65535).'}
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -14,6 +14,7 @@ if(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyCont
 $data=[IO.Path]::GetFullPath((Join-Path $root ('.tmp-conversation-postgres-tests-'+[Guid]::NewGuid().ToString('N'))))
 if([IO.Path]::GetDirectoryName($data) -ne $root -or (Test-Path -LiteralPath $data)){throw 'Unsafe disposable cluster path.'}
 $previous=$env:WINGA_TEST_POSTGRES_URL
+$previousRooms=$env:WINGA_TEST_SHOPPING_ROOMS_POSTGRES
 $started=$false
 Push-Location -LiteralPath $root
 try {
@@ -25,10 +26,15 @@ try {
   if($process.ExitCode -ne 0){throw 'Test cluster start failed.'}
   $started=$true
   $env:WINGA_TEST_POSTGRES_URL="postgresql://winga_test@127.0.0.1:$Port/postgres"
-  & node --test tests/conversation-event-concurrency.test.js tests/encrypted-conversation-concurrency.test.js
+  $env:WINGA_TEST_SHOPPING_ROOMS_POSTGRES='true'
+  $tests=@('tests/shopping-rooms-service.test.mjs')
+  if(!$RoomsOnly -and !$RoomConcurrencyOnly){$tests=@('tests/conversation-event-concurrency.test.js','tests/encrypted-conversation-concurrency.test.js')+$tests}
+  if($RoomConcurrencyOnly){& node --test --test-concurrency=1 '--test-name-pattern=PostgreSQL Rooms:' @tests}
+  else{& node --test --test-concurrency=1 @tests}
   if($LASTEXITCODE -ne 0){throw 'Conversation PostgreSQL tests failed.'}
 } finally {
   $env:WINGA_TEST_POSTGRES_URL=$previous
+  $env:WINGA_TEST_SHOPPING_ROOMS_POSTGRES=$previousRooms
   # Stop only this run's fresh cluster, never a Windows database service or an existing data directory.
   if($started -or (Test-Path -LiteralPath (Join-Path $data 'postmaster.pid'))){
     & (Join-Path $bin 'pg_ctl.exe') -D $data -m fast -w -t 180 stop

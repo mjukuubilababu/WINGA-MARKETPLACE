@@ -23,8 +23,10 @@ and actual native browser profiles use a synthetic canonical room authority.
 The subsequent [real backend/UI integration](shopping-rooms-backend-ui-20261007.md)
 adds typed canonical room streams, authenticated membership/receipts/media/push
 and integrated creation/chat/products/shortlist/poll UI. Rooms remain default-off
-pending controlled live rollout; the synthetic native load evidence still does
-not prove PostgreSQL multi-connection or production SLO acceptance.
+pending controlled live rollout. The subsequent
+[real PostgreSQL acceptance](shopping-rooms-postgres-acceptance-20261008.md)
+adds bounded six-connection/two-store Room races and encrypted board load.
+Synthetic native tests and local PostgreSQL tests do not prove production SLOs.
 
 The operator requested commit/push/deploy of all pending conversation changes:
 indefinite Mute, durable owner Archive, selected-text reporting, moderator
@@ -104,13 +106,13 @@ Do not erase this distinction by calling the entire foundation complete.
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
 | 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
-| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge. Room-specific account-level mute/archive, archived view and Move to Inbox are implemented. The 2026-10-08 follow-up adds approved own-native prior-epoch history transfer, recovered board roles, historical Read and explicit old-attachment grants. | Production rollout/physical-device acceptance, actual PostgreSQL races/load, independent audit and role/leave policy. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
+| 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge. Room-specific account-level mute/archive, archived view and Move to Inbox are implemented. The 2026-10-08 follow-up adds approved own-native prior-epoch history transfer, recovered board roles, historical Read and explicit old-attachment grants. Real PostgreSQL acceptance adds six-connection/two-store admission, preferences, membership-freeze races and encrypted product/poll load. | Production rollout/physical-device acceptance, sustained fleet load/failure evidence, independent audit and role/leave policy. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |
 | 208-209 | Existing aggregate service health and durable queue evidence. | Complete privacy-safe observability dashboard and user-centric reliability metrics. |
 | 210-221 | Existing tested message-ID, canonical ordering, auth, ciphertext/device and canonical commerce boundaries. | Fleet/failure/performance evidence and future room invariants are not proven by direct fixtures. |
-| 222-226 | Direct, crypto, store/browser suites and native room crypto/projection/concurrent-sender tests with recorded scope; synthetic accounts/storage stay separate from production. | Real room HTTP/PostgreSQL races, independent security review and realistic measured production load/soak acceptance. |
+| 222-226 | Direct, crypto, store/browser suites and native room crypto/projection/concurrent-sender tests with recorded scope. Real PostgreSQL Room service coverage passed 21/21; final six-connection/two-store race/load cases passed 4/4, including three converged encrypted boards. Synthetic accounts/storage stay separate from production. | Production HTTP/fleet failure races, independent security review and realistic measured production load/soak acceptance. |
 | 227-238 | Source principles and Definition of Done are preserved. | Formal security/product/foundation acceptance and final handoff remain open. These are acceptance criteria, not 12 additional UI features. |
 
 ## Next Work

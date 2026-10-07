@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes,createECDH,createHash,generateKeyPairSync,sign,verify,webcrypto} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {PGlite} from '@electric-sql/pglite';
+import {roomDatabase,realPostgres} from './helpers/shopping-room-database.mjs';
 import {createMlsRuntime,encodeRoomTransferPayload,decodeRoomTransferPayload} from '../src/chat/mls-runtime.mjs';
+import {encodeRoomContent,projectRoomContent} from '../src/chat/shopping-room-content.mjs';
 const require=createRequire(import.meta.url),{createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Buffer.from(b,'base64url'));
 async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits}={}){
-  const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
+  const db=await roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
     'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
@@ -45,7 +46,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
         const key=await inspectBoundKeyPackage(decode(pkg.keyPackage),native);
         await db.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at) VALUES($1,$2,$3,$4,'{}',NOW()+interval '1 day') ON CONFLICT DO NOTHING`,[pkg.hash,native.id,pkg.keyPackage,encode(key)]);
         return {version:1,package:{hash:pkg.hash,deviceId:native.id}};},
-      transport:{send:job=>p.operation('room-send',{...job,ciphertext:encode(job.ciphertext)})}});
+      transport:{send:job=>p.captureSend?p.captureSend({...job,ciphertext:encode(job.ciphertext)}):p.operation('room-send',{...job,ciphertext:encode(job.ciphertext)})}});
     p.device=await p.runtime.initialize();people.push(p);
   }
   for(const a of people)for(const b of people)if(a!==b)a.pins.push({...b.device,status:'active'});
@@ -59,8 +60,137 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
   async function activate(){const tr=await transfer(),proofs=[];for(const p of members){const a=await p.runtime.room.acceptance(id);proofs.push(a);
       const r=await p.operation('room-intent',{conversationId:id,transitionId:intent.id});await p.operation('room-accept',{conversationId:id,transitionId:intent.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
     for(const p of members)await p.runtime.room.confirm(id,proofs);return tr;}
-  return {db,store,setLimits,tamperHistoryEpoch(){tamperHistoryEpoch=true;},people,alice,bob,eve,sibling:people.find(p=>p.context.deviceId==='a2'),id,intent,reserve,transfer,activate,pushes};
+  return {db,store,newStore:overrides=>createEncryptedConversationStore({...options,...overrides}),setLimits,tamperHistoryEpoch(){tamperHistoryEpoch=true;},people,alice,bob,eve,sibling:people.find(p=>p.context.deviceId==='a2'),id,intent,reserve,transfer,activate,pushes};
 }
+
+async function parallelJobs(jobs,work,width=6){
+  let next=0,failure;await Promise.all(Array.from({length:width},(_,worker)=>(async()=>{
+    while(!failure&&next<jobs.length){try{await work(jobs[next++],worker);}catch(error){failure=error;}}
+  })()));
+  if(failure)throw failure;
+}
+async function prepareRoomPacket(f,p,message,id=randomUUID()){
+  let packet;
+  // Retain the real MLS ratchet advance, but simulate an unavailable transport.
+  // Removing this synthetic journal allows preparing a bounded database workload;
+  // it is not a successful sender UI flow or a delivery confirmation.
+  p.captureSend=job=>{packet=job;throw Object.assign(new Error('prepare only'),{code:'test_transport_unavailable'});};
+  try{await assert.rejects(p.runtime.room.send({conversationId:f.id,clientMessageId:id,message}),{code:'test_transport_unavailable'});}
+  finally{delete p.captureSend;}
+  assert.ok(packet);const saved=await p.vault.snapshot();
+  await p.vault.write({expectedRevision:saved.revision,values:{},deleted:[`mls:outbox:${id}`,`history:${id}`]});
+  return {person:p,packet,message,history:saved.values[`history:${id}`]};
+}
+
+test('PostgreSQL Rooms: six connections and two stores preserve multi-sender ciphertext and receipt convergence', {skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const nodes=[f.newStore({}),f.newStore({})],packets=[];
+  const connections=await Promise.all(Array.from({length:6},()=>f.db.pool.connect()));
+  try{assert.equal(new Set(connections.map(c=>c.processID)).size,6);}finally{connections.forEach(c=>c.release());}
+  const pollId=randomUUID(),choices=[{id:randomUUID(),label:'One'},{id:randomUUID(),label:'Two'}];
+  for(let i=0;i<16;i++)for(const p of f.people){
+    const message=i===0&&p===f.alice?encodeRoomContent('product-share',{productId:'canonical-load-product',note:'private note',snapshot:null}):
+      i===0&&p===f.bob?encodeRoomContent('poll-create',{question:'Which product?',options:choices,closesAt:null}):
+      encodeRoomContent('poll-vote',{pollId,optionId:choices[i%2].id});
+    packets.push(await prepareRoomPacket(f,p,message,i===0&&p===f.bob?pollId:randomUUID()));
+  }
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+  const attempts=packets.flatMap(p=>[p,p]),latencies=[],started=performance.now();
+  await parallelJobs(attempts,async(job,worker)=>{
+    const {person,packet}=job;
+    const at=performance.now();const r=await nodes[worker%2].encryptedOperation(person.context,person.signed('room-send',packet));
+    assert.equal(r.id,packet.id);assert.equal(r.status,'sent');job.confirmed={...job.history,status:'sent',sequence:r.sequence,timestamp:r.createdAt};latencies.push(performance.now()-at);
+  });
+  const durationMs=performance.now()-started,rows=(await f.db.query('SELECT * FROM encrypted_conversation_messages ORDER BY sequence')).rows;
+  assert.equal(rows.length,48);assert.deepEqual(rows.map(r=>String(r.sequence)),Array.from({length:48},(_,i)=>String(i+1)));
+  assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM conversation_events WHERE kind='message_created'")).rows[0].n,48);
+  assert.ok(rows.every(r=>!Buffer.from(r.ciphertext,'base64url').includes(Buffer.from('canonical-load-product'))));
+  const receipts=[],boards=[];let decryptions=0;
+  for(const p of f.people){
+    const saved=await p.vault.snapshot();await p.vault.write({expectedRevision:saved.revision,values:Object.fromEntries(packets.filter(j=>j.person===p).map(j=>[`history:${j.packet.id}`,j.confirmed]))});
+    const inbox=(await p.operation('room-poll',{after:null})).rooms[0].messages;
+    assert.equal(inbox.length,32);
+    for(const m of inbox){const item=await p.runtime.room.receive({...m,deviceId:m.sender_device,conversationId:f.id,ciphertext:decode(m.ciphertext)});
+      assert.equal(item.message,packets.find(j=>j.packet.id===m.id).message);decryptions++;
+      for(const kind of ['read','delivered'])receipts.push({person:p,payload:{id:m.id,conversationId:f.id,epoch:m.epoch,hash:m.hash,kind}});
+    }
+    const history=await p.runtime.room.history(f.id);assert.equal(history.length,48);
+    boards.push(projectRoomContent(history,{conversationId:f.id,epochs:await p.runtime.room.epochs(f.id)}));
+  }
+  assert.deepEqual(boards[0],boards[1]);assert.deepEqual(boards[1],boards[2]);
+  assert.equal(boards[0].products.length,1);assert.equal(boards[0].polls.length,1);assert.equal(Object.keys(boards[0].polls[0].ballots).length,3);
+  await parallelJobs(receipts.flatMap(r=>[r,r]),async({person,payload},worker)=>nodes[worker%2].encryptedOperation(person.context,person.signed('room-receipt',payload)));
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n,192);
+  for(const p of f.people)assert.equal((await p.operation('room-poll',{after:null})).rooms[0].messages.length,0);
+  const acks=receipts.map(r=>({person:f.people.find(p=>p.device.id===packets.find(j=>j.packet.id===r.payload.id).packet.deviceId),payload:{...r.payload,receiptDeviceId:r.person.device.id}}));
+  await parallelJobs(acks.flatMap(a=>[a,a]),async({person,payload},worker)=>nodes[worker%2].encryptedOperation(person.context,person.signed('room-receipt-ack',payload)));
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipt_acks')).rows[0].n,192);
+  for(const p of f.people)assert.equal((await p.operation('room-poll',{after:null})).rooms[0].receipts.length,0);
+  assert.equal(f.pushes.length,96);latencies.sort((a,b)=>a-b);
+  t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-shopping-room',stores:2,connections:6,owners:3,uniqueMessages:48,sendAttempts:96,
+    decryptions,receiptRows:192,receiptAcks:192,duplicateRows:0,boardsConverged:3,durationMs:Math.round(durationMs),
+    p50StoreAttemptMs:Math.round(latencies[Math.floor(latencies.length*.5)]),p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*.95)-1]),
+    productionCapacityProven:false,physicalDeviceFlowVerified:false,cryptographicAuditApproved:false}));
+});
+
+test('PostgreSQL Rooms: racing admission retries consume packages once and retain the all-native acceptance barrier',{skip:!realPostgres},async t=>{
+  const f=await fixture(t),nodes=[f.newStore({}),f.newStore({})],a=f.alice;
+  const reserve={intent:JSON.stringify(f.intent),name:'Shopping',sourceHash:a.device.hash};
+  await parallelJobs(Array.from({length:12},()=>reserve),async(payload,worker)=>nodes[worker%2].encryptedOperation(a.context,a.signed('room-reserve',payload)));
+  const tr=await a.runtime.room.create(f.intent,new Map([f.bob,f.eve].map(p=>[p.device.id,p.device.keyPackage]))),payload=encodeRoomTransferPayload(tr);
+  await parallelJobs(Array.from({length:12},()=>payload),async(p,worker)=>nodes[worker%2].encryptedOperation(a.context,a.signed('room-transfer',p)));
+  for(const p of [f.bob,f.eve])await p.runtime.room.acceptWelcome(tr);
+  const snapshot=await a.operation('room-intent',{conversationId:f.id,transitionId:f.intent.id}),proofs=[];
+  const accepts=[];for(const person of f.people){const proof=await person.runtime.room.acceptance(f.id);proofs.push(proof);
+    accepts.push({person,payload:{conversationId:f.id,transitionId:f.intent.id,transferHash:snapshot.room.transition.transfer_hash,signature:encode(proof.signature)}});}
+  const accept=async({person,payload},worker)=>nodes[worker%2].encryptedOperation(person.context,person.signed('room-accept',payload));
+  await parallelJobs(accepts.slice(0,2).flatMap(p=>Array.from({length:8},()=>p)),accept);
+  assert.equal((await f.db.query('SELECT status FROM encrypted_conversations')).rows[0].status,'reserved');
+  assert.equal((await f.db.query('SELECT status FROM encrypted_room_transitions')).rows[0].status,'pending');
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_epochs')).rows[0].n,0);
+  await parallelJobs(Array.from({length:8},()=>accepts[2]),accept);
+  for(const p of f.people)await p.runtime.room.confirm(f.id,proofs);
+  for(const table of ['encrypted_conversations','encrypted_room_transitions','encrypted_room_epochs'])
+    assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM ${table}`)).rows[0].n,1);
+  for(const table of ['encrypted_room_acceptances','encrypted_conversation_epoch_devices'])
+    assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM ${table}`)).rows[0].n,3);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_key_packages WHERE consumed_at IS NOT NULL')).rows[0].n,3);
+  assert.equal((await a.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'})).active,true);
+});
+
+test('PostgreSQL Rooms: racing preferences retain one winning revision and exact lost-response retries',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const nodes=[f.newStore({}),f.newStore({})],p=f.bob;
+  const operations=['muted','archived'].map(field=>p.signed('room-preference-save',{conversationId:f.id,revision:'0',field,value:true}));
+  const results=await Promise.allSettled(operations.map((op,i)=>nodes[i].encryptedOperation(p.context,op)));
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  assert.equal(results.find(r=>r.status==='rejected').reason.code,'encrypted_room_preference_conflict');
+  const winner=results.findIndex(r=>r.status==='fulfilled');
+  await parallelJobs(Array.from({length:24},()=>operations[winner]),async(op,worker)=>assert.deepEqual(await nodes[worker%2].encryptedOperation(p.context,op),results[winner].value));
+  const rows=(await f.db.query('SELECT row_version::text,muted,archived FROM encrypted_room_preferences')).rows;
+  assert.equal(rows.length,1);assert.equal(rows[0].row_version,'1');assert.notEqual(rows[0].muted,rows[0].archived);
+  assert.deepEqual(await f.alice.operation('room-preferences',{conversationId:f.id}),{revision:'0',muted:false,archived:false});
+});
+
+test('PostgreSQL Rooms: a queued old-epoch send rechecks membership after a committed freeze',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const {packet}=await prepareRoomPacket(f,f.bob,'must not pass frozen membership');
+  const old=JSON.parse(f.intent.roster),next={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',
+    roster:JSON.stringify(old.filter(m=>m.owner!=='eve')),roles:JSON.stringify(JSON.parse(f.intent.roles).filter(r=>r.owner!=='eve')),
+    changes:JSON.stringify([{type:'remove',owner:'eve',id:f.eve.device.id}])};
+  const blocker=await f.db.pool.connect(),waiter=await f.db.pool.connect();let release,ready;
+  const held=new Promise(r=>{release=r;}),acquired=new Promise(r=>{ready=r;});let freezing,sending;
+  try{
+    const node=f.newStore({withTransaction:work=>f.db.transactionOn(blocker,async c=>{const r=await work(c);ready();await held;return r;})});
+    freezing=node.encryptedOperation(f.alice.context,f.alice.signed('room-reserve',{intent:JSON.stringify(next),name:'Shopping',sourceHash:''}));
+    await Promise.race([acquired,freezing]);
+    sending=f.newStore({withTransaction:work=>f.db.transactionOn(waiter,work)}).encryptedOperation(f.bob.context,f.bob.signed('room-send',packet));
+    const rejected=assert.rejects(sending,{code:'encrypted_room_membership_pending'});let blocked=false;
+    for(let i=0;i<100;i++){const r=await f.db.admin.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked',[blocker.processID,waiter.processID]);
+      if(r.rows[0].blocked){blocked=true;break;}await new Promise(r=>setTimeout(r,20));}
+    assert.equal(blocked,true);release();await freezing;await rejected;
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+    assert.equal((await f.db.query('SELECT next_sequence::text FROM encrypted_conversations')).rows[0].next_sequence,'0');
+    assert.deepEqual((await f.db.query('SELECT epoch,COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices GROUP BY epoch')).rows,[{epoch:'1',n:3}]);
+  }finally{release();await Promise.allSettled([freezing,sending]);blocker.release();waiter.release();}
+});
 
 async function addSibling(f){
   const p=f.sibling,roster=[...JSON.parse(f.intent.roster),{owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)}].sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
