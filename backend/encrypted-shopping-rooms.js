@@ -166,7 +166,7 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
       need(p.after===null||uuid(p.after));
       const page=(await client.query(`SELECT g.*,r.name,r.revision::text FROM encrypted_conversations g JOIN encrypted_shopping_rooms r ON r.conversation_id=g.id
         WHERE ($1::text IS NULL OR g.id>$1) AND EXISTS(SELECT 1 FROM encrypted_room_transitions t,jsonb_array_elements((t.intent::jsonb->>'roster')::jsonb) m
-          WHERE t.conversation_id=g.id AND m->>'id'=$2 AND m->>'owner'=$3) ORDER BY g.id LIMIT 101`,[p.after,op.actorId,c.owner])).rows;
+          WHERE t.conversation_id=g.id AND m->>'id'=$2 AND m->>'owner'=$3) ORDER BY g.id LIMIT 101 FOR SHARE OF g`,[p.after,op.actorId,c.owner])).rows;
       const rooms=[];
       for(const g of page.slice(0,100)){
         let info;try{info=await member(client,c,op.actorId,g);}catch(e){if(e.status!==403)throw e;

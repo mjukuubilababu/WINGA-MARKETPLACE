@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { validateObject } = require('./conversation-private-media');
 const { failure } = require('./encrypted-content-contract');
+const {withTransportLocks}=require('./encrypted-transport-locks');
 const need = (v, code='private_media_access_rejected', status=403) => { if(!v)throw failure(status,code); };
 const objectFor = row => ({id:row.id,bytes:row.bytes,sha256:row.sha256});
 function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,membershipFrozen,historyRecoveryEnabled=false}) {
@@ -44,17 +45,19 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,memb
   async function authorize(context,object,action) {
     validateObject(object);
     return withTransaction(async client=>{
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
+      const scope=(await client.query('SELECT conversation_id FROM encrypted_conversation_media WHERE id=$1',[object.id])).rows[0];
+      need(scope);
+      return withTransportLocks(client,['group:'+scope.conversation_id,'media:'+object.id],async()=>{
+      const op=context.proof;
+      if(action!=='cleanup')need(op && Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature'
+        && op.action===`media-${action}` && JSON.stringify(op.payload,Object.keys(op.payload||{}).sort())===JSON.stringify(object,Object.keys(object).sort()));
+      if(action!=='cleanup')await authorizeDevice(client,context,context.proof);
       const row=(await client.query('SELECT * FROM encrypted_conversation_media WHERE id=$1 FOR UPDATE',[object.id])).rows[0];
       need(row && row.bytes===object.bytes && row.sha256===object.sha256);
       if(action==='cleanup') {
         need(row.status==='cleaning' && row.cleanup_lease===context.lease && Date.parse(row.lease_until)>Date.now());return true;
       }
-      const op=context.proof;
-      need(op && Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature'
-        && op.action===`media-${action}` && JSON.stringify(op.payload,Object.keys(op.payload||{}).sort())===JSON.stringify(object,Object.keys(object).sort()));
-      await authorizeDevice(client,context,op);
-      const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1',[row.conversation_id])).rows[0];
+      const g=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR SHARE',[row.conversation_id])).rows[0];
       await access(client,g,op.actorId,context.owner);need(g.status==='active');
       if(action==='upload') {
         need(!await membershipFrozen(client,g.id),'encrypted_membership_pending',409);
@@ -73,6 +76,7 @@ function createEncryptedMediaLedger({withTransaction,authorizeDevice,access,memb
         need(historical || recovered);
       }
       return true;
+      });
     });
   }
   async function uploaded(context,object) {

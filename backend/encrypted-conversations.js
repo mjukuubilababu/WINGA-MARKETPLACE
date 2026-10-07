@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { failure } = require('./encrypted-content-contract');
 const { authenticateCryptoSession, verifyDeviceSignature } = require('./conversation-crypto-auth');
+const {operationScopes,withTransportLocks}=require('./encrypted-transport-locks');
 const uuid = v => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v);
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const assert = (v, status = 400, code = 'encrypted_operation_invalid') => { if (!v) throw failure(status, code); };
@@ -103,9 +104,9 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     if(op.action==='receipt-ack' && Object.hasOwn(p,'receiptDeviceId'))fields['receipt-ack']=[...fields['receipt-ack'],'receiptDeviceId'];
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
-    return withTransaction(async client => {
-      // Serialize membership and message writes before authentication's user lock.
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
+    const scopes=operationScopes(context,op);
+    return withTransaction(async client => withTransportLocks(client,scopes,async()=>{
+      // Scope before the actor lock; proof expiry is still checked after waiting.
       await authorize(client, context, op);
       if(op.action.startsWith('seller-'))return sellers.handle(client,context,op);
       if(op.action.startsWith('room-'))return rooms.handle(client,context,op);
@@ -155,7 +156,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         const page=(await client.query(`SELECT g.* FROM encrypted_conversations g WHERE (creator_device=$1 OR recipient_device=$1 ${extra}
           OR EXISTS(SELECT 1 FROM encrypted_conversation_replacements r WHERE r.conversation_id=g.id AND r.replacement_device=$1 AND r.status<>'accepted'))
           AND COALESCE(to_jsonb(g)->>'kind','direct')='direct'
-          AND ($2::text IS NULL OR g.id>$2) ORDER BY g.id LIMIT 101`,[op.actorId,p.after || null])).rows;
+          AND ($2::text IS NULL OR g.id>$2) ORDER BY g.id LIMIT 101 FOR SHARE OF g`,[op.actorId,p.after || null])).rows;
         const groups=page.slice(0,100);
         const result=[];
         for(const g of groups) {
@@ -324,7 +325,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       const receipt=await client.query(`INSERT INTO encrypted_conversation_receipts(message_id,device_id,kind,proof) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,[p.id,op.actorId,p.kind,JSON.stringify(proof)]);
       if(multiDeviceEnabled && receipt.rowCount)await client.query(`SELECT winga_append_conversation_event($1,'message_state_changed',$2,$3,0)`,[g.canonical_id,p.id,context.owner]);
       return {version:1,ok:true};
-    });
+    }));
   }
   async function readEncryptedConversationMode(context,peer) {
     assert(typeof peer==='string' && /^[A-Za-z0-9._:-]{1,128}$/.test(peer) && peer!==context.owner);

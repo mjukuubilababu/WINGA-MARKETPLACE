@@ -118,10 +118,29 @@ test('Room self-leave immediately ends account access, drains retained inbox and
   assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM encrypted_conversation_epoch_devices WHERE epoch='1'")).rows[0].n,3);
   await eve.leave(f.id);await alice.sync();assert.equal((await alice.list())[0].epoch,'3');
   assert.deepEqual(JSON.parse(JSON.parse((await alice.list())[0].transition.intent).roles),[{owner:'alice',role:'admin'}]);
+  assert.equal((await f.alice.vault.snapshot()).values[`mls:group:${f.id}`].confirmed,true);
+  const solo=await alice.send(f.id,'singleton stays usable');assert.equal(solo.status,'sent');
   await alice.leave(f.id);assert.equal((await alice.list())[0].status,'removed');
   assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM conversation_event_members WHERE conversation_id=(SELECT canonical_id FROM encrypted_conversations WHERE id=$1)',[f.id])).rows[0].n,0);
   assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_epochs')).rows[0].n,3);
-  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,before);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,before+1);
+});
+
+test('Room session re-admits the exact removed native through a fresh Welcome without dropping old local history',async t=>{
+  const f=await fixture(t);await f.activate();const [alice,bob,eve]=await lifecycleSessions(f);
+  const original=await alice.send(f.id,'before removal');await bob.sync();await eve.sync();
+  await alice.change(f.id,[],'eve');await bob.sync();await alice.sync();
+  assert.equal((await eve.list())[0].status,'removed');
+  f.eve.device=await f.eve.runtime.prepareKeyPackage();
+  const selected=await alice.inspectChange(f.id,['eve']);await alice.change(f.id,selected);
+  const bobBefore=await f.bob.vault.snapshot(),eveBefore=await f.eve.vault.snapshot();await bob.sync();await eve.sync();
+  assert.deepEqual(await f.bob.vault.snapshot(),bobBefore);assert.deepEqual(await f.eve.vault.snapshot(),eveBefore);
+  await bob.join(f.id);await eve.join(f.id);await alice.sync();await bob.sync();await eve.sync();
+  const room=(await eve.list())[0];assert.equal(room.epoch,'3');assert.equal(room.clientError,undefined);
+  assert.equal((await f.eve.vault.snapshot()).values[`mls:group:${f.id}`].confirmed,true);
+  const fresh=await alice.send(f.id,'after re-admission');await eve.sync();
+  assert.equal((await eve.history(f.id)).find(m=>m.id===original.id).message,'before removal');
+  assert.equal((await eve.history(f.id)).find(m=>m.id===fresh.id).message,'after re-admission');
 });
 
 test('Room leave journal retries the exact accepted request after a lost response and departure evidence cannot be rewritten',async t=>{
@@ -200,6 +219,59 @@ async function prepareRoomPacket(f,p,message,id=randomUUID()){
   await p.vault.write({expectedRevision:saved.revision,values:{},deleted:[`mls:outbox:${id}`,`history:${id}`]});
   return {person:p,packet,message,history:saved.values[`history:${id}`]};
 }
+
+test('PostgreSQL Rooms: an uncommitted writer does not stall an unrelated real MLS Room',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();
+  for(const p of f.people)p.device=await p.runtime.prepareKeyPackage();
+  const id=randomUUID(),actor=f.bob,others=f.people.filter(p=>p!==actor);
+  const intent={...f.intent,id:randomUUID(),conversationId:id,actorOwner:actor.owner,actorDeviceId:actor.device.id,
+    roles:JSON.stringify(f.people.map(p=>({owner:p.owner,role:p===actor?'admin':'member'})).sort((a,b)=>a.owner<b.owner?-1:1)),
+    changes:JSON.stringify(others.map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
+  await actor.operation('room-reserve',{intent:JSON.stringify(intent),name:'Independent',sourceHash:actor.device.hash});
+  const transfer=await actor.runtime.room.create(intent,new Map(others.map(p=>[p.device.id,p.device.keyPackage])));
+  await actor.operation('room-transfer',encodeRoomTransferPayload(transfer));for(const p of others)await p.runtime.room.acceptWelcome(transfer);
+  const proofs=[];for(const p of f.people){const a=await p.runtime.room.acceptance(id);proofs.push(a);
+    const r=await p.operation('room-intent',{conversationId:id,transitionId:intent.id});
+    await p.operation('room-accept',{conversationId:id,transitionId:intent.id,transferHash:r.room.transition.transfer_hash,signature:encode(a.signature)});}
+  for(const p of f.people)await p.runtime.room.confirm(id,proofs);
+  const first=await prepareRoomPacket(f,f.alice,'held writer'),second=await prepareRoomPacket({...f,id},f.bob,'independent writer');
+  const blocker=await f.db.pool.connect(),waiter=await f.db.pool.connect();let release,ready,timer,heldWrite,independent;
+  const held=new Promise(r=>{release=r;}),started=new Promise(r=>{ready=r;});
+  try{
+    const node=f.newStore({withTransaction:work=>f.db.transactionOn(blocker,async c=>{const r=await work(c);ready();await held;return r;})});
+    heldWrite=node.encryptedOperation(f.alice.context,f.alice.signed('room-send',first.packet));await Promise.race([started,heldWrite]);
+    independent=f.newStore({withTransaction:work=>f.db.transactionOn(waiter,work)}).encryptedOperation(f.bob.context,f.bob.signed('room-send',second.packet));
+    const result=await Promise.race([independent,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Unrelated Room was serialized')),2000);})]);
+    assert.equal(result.id,second.packet.id);assert.equal(result.status,'sent');
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages WHERE id=$1',[first.packet.id])).rows[0].n,0);
+    release();await heldWrite;
+  }finally{clearTimeout(timer);release();await Promise.allSettled([heldWrite,independent].filter(Boolean));blocker.release();waiter.release();}
+});
+
+test('PostgreSQL Rooms: old exclusive writers remain compatible and scoped waits preserve proof expiry',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const blocker=await f.db.pool.connect(),waiter=await f.db.pool.connect();let clock=Date.now(),pending;
+  const op=f.bob.signed('room-check',{conversationId:f.id,epoch:'1',revision:'1'});
+  try{
+    await blocker.query('BEGIN');await blocker.query("SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))");
+    pending=f.newStore({now:()=>clock,withTransaction:work=>f.db.transactionOn(waiter,work)}).encryptedOperation(f.bob.context,op);
+    const expired=assert.rejects(pending,{code:'encrypted_proof_expired'});let blocked=false;
+    for(let i=0;i<100;i++){const r=await f.db.admin.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked',[blocker.processID,waiter.processID]);
+      if(r.rows[0].blocked){blocked=true;break;}await new Promise(r=>setTimeout(r,10));}
+    assert.equal(blocked,true);clock=op.issuedAt+31000;await blocker.query('COMMIT');await expired;
+  }finally{await blocker.query('ROLLBACK');await Promise.allSettled([pending].filter(Boolean));blocker.release();waiter.release();}
+});
+
+test('PostgreSQL Rooms: contention has a bounded retryable error without mutation and exact retry succeeds',{skip:!realPostgres},async t=>{
+  const f=await fixture(t);await f.activate();const blocker=await f.db.pool.connect();
+  const op=f.bob.signed('room-leave',{conversationId:f.id,epoch:'1',revision:'1'});
+  try{
+    await blocker.query('BEGIN');await blocker.query("SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-scope'),hashtext($1))",['group:'+f.id]);
+    await assert.rejects(f.store.encryptedOperation(f.bob.context,op),{status:503,code:'encrypted_operation_busy'});
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_departures')).rows[0].n,0);
+    await blocker.query('COMMIT');assert.equal((await f.store.encryptedOperation(f.bob.context,op)).left,true);
+    assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_room_departures')).rows[0].n,1);
+  }finally{await blocker.query('ROLLBACK');blocker.release();}
+});
 
 test('PostgreSQL Rooms: six connections and two stores preserve multi-sender ciphertext and receipt convergence', {skip:!realPostgres},async t=>{
   const f=await fixture(t);await f.activate();const nodes=[f.newStore({}),f.newStore({})],packets=[];

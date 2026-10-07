@@ -213,10 +213,18 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
       const t=await transfer(value),saved=await vault.snapshot(),id=value.conversationId,own=saved.values['mls:identity'];
       const prior=await record(saved,`mls:room-transition:${t.reservation.id}`);
       if(prior){need(prior===t.digest,'mls_replay_conflict');return id;}
-      need(!saved.values[`mls:group:${id}`],'mls_group_exists');
       const addition=t.changes.find(c=>c.type==='add' && c.owner===owner && c.id===own?.id);
       need(addition,'mls_room_membership_required');const admission=await record(saved,`mls:package:${addition.packageHash}`)||own;
       need(admission?.id===own.id && admission.hash===addition.packageHash && !(await record(saved,`mls:consumed:${admission.hash}`)),'mls_package_consumed');
+      const previous=saved.values[`mls:group:${id}`];
+      if(previous){
+        // Only a fresh own-native Add may replace a removed endpoint's stale state.
+        need(previous.kind==='shopping-room'&&previous.peer==='room:'+id&&previous.confirmed
+          &&decimal(previous.roomRevision)&&BigInt(t.reservation.previousEpoch)>BigInt(previous.roomRevision)
+          &&!saved.values[`mls:membership:${id}`],'mls_group_exists');
+        noPendingSend(saved,id);
+        need(!['room:leave:','room:change:','room:create:'].some(prefix=>saved.values[prefix+id]),'mls_room_membership_pending');
+      }
       const {configuration}=await config(saved);await boundMembers(t.members,configuration);
       const welcome=decode(decodeMlsMessage,value.welcome);need(welcome.wireformat==='mls_welcome','mls_welcome_invalid');
       const joined=await joinGroup(welcome.welcome,admission.package.publicPackage,admission.package.privatePackage,emptyPskIndex,suite,
@@ -286,7 +294,7 @@ export function createMlsRoomOperations({owner,vault,locked,put,record,state,con
     proofs=structuredClone(proofs);
     return locked(async()=>{
       const saved=await vault.snapshot(),g=await state(saved,id,null,true),t=saved.values[`mls:membership:${id}`];
-      need(Array.isArray(proofs) && proofs.length>=2 && proofs.length<=maxDevices,'mls_room_acceptance_required');
+      need(Array.isArray(proofs) && proofs.length>=1 && proofs.length<=maxDevices,'mls_room_acceptance_required');
       need(proofs.every(p=>exact(p,['owner','deviceId','signature']) && ownerId(p.owner) && uuid(p.deviceId)
         && p.signature instanceof Uint8Array && p.signature.length===64),'mls_room_acceptance_rejected');
       const proofDigest=await hash(encoder.encode(canonical(proofs.map(p=>[p.owner,p.deviceId,Array.from(p.signature)])

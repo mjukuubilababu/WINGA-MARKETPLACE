@@ -35,6 +35,11 @@ function createNativeHistory({access,frozen,roster}) {
   async function handle(client,c,op,g) {
     const p=op.payload;
     if(op.action==='history-tasks') {
+      // Lock group rows in group order without changing the task-ID keyset cursor.
+      await client.query(`SELECT g.id FROM encrypted_conversations g WHERE EXISTS(
+        SELECT 1 FROM encrypted_conversation_history_transfers t WHERE t.conversation_id=g.id AND t.owner_id=$1
+          AND (t.donor_device=$2 OR t.recipient_device=$2) AND t.status IN ('pending','ready') AND t.expires_at>NOW()
+          AND ($3::text IS NULL OR t.id>$3)) ORDER BY g.id FOR SHARE OF g`,[c.owner,op.actorId,p.after||null]);
       const rows=(await client.query(`SELECT t.* FROM encrypted_conversation_history_transfers t
         JOIN encrypted_conversations g ON g.id=t.conversation_id AND g.epoch=t.epoch AND g.status='active'
         WHERE t.owner_id=$1 AND (t.donor_device=$2 OR t.recipient_device=$2) AND t.status IN ('pending','ready')

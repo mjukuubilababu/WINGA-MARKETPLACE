@@ -5,6 +5,22 @@ This is the current grouped implementation index for the preserved 0-109 and
 or a replacement for the source specification. Historical audit/handoff files
 describe their dated checkpoints, not necessarily the current enabled runtime.
 
+## Audit Gate: 2026-10-08
+
+The [fresh audit and public soak](conversations-audit-soak-20261008.md) reproduced
+singleton confirmation, same-native readmission and global-lock coupling defects
+in the earlier deployed release. The reviewed fix candidate in
+[audit fixes and separate-agent re-review](conversations-audit-fixes-20261008.md)
+address all three plus a reviewer-found cross-pair package/account deadlock.
+Final review found no residual actionable issue in that scope. Final local
+verification passed 73 real PostgreSQL, 145 encryption, 27 native/lock and three
+authenticated browser checks. The operator has now authorized commit and push;
+exact publication identity comes from Git, not this prepared record. Live
+deployment of the fixes is not established by local verification.
+Public production soak passed 99 read-only requests on the earlier release,
+not authenticated messaging or capacity acceptance. External cryptographic
+approval, production/physical-device acceptance and deployment remain open.
+
 ## Release Being Published
 
 Latest device/history work is documented in
@@ -109,9 +125,9 @@ Do not erase this distinction by calling the entire foundation complete.
 | 157 | Existing authoritative direct blocking and retained history protections. | Room-specific block/membership policy belongs to the group service. |
 | 158-159 | Explicit selected-text and separately selected binary-file report consent; up to three 2 MiB files copied with independent encryption into the private report namespace; canonical membership checks, idempotency and current-role/reason-gated audited moderator evidence reads. No master key or automatic extraction of chat attachments. | Production moderation acceptance and post-case-close retention/deletion policy remain. Evidence is retained while the case is open. Reporter disclosure is explicitly unverified; no automatic punishment. |
 | 160-164 | Private push copy, exact retries, explicit receipts, native Add/Remove/expanded replacement, sealed paged cache, user-key recovery and automatic own-approved-native prior-epoch history reconciliation. Historical Read is separate from original live grants; historical media needs explicit same-original-owner/current-native grants. | Multi-device composition remains default-off pending its applicable acceptance/audit. Production/physical-device acceptance and native-specific alert reconciliation remain open. Recovery never restores native identity/live ratchets or rewrites original-epoch grants. |
-| 165 | Inbox/contact search exists; no server private-plaintext index. | On-device message-content indexing/search. |
+| 165 | Inbox/contact search and local projected message-content search exist: text, product references, sender and UTC dates; at most 5,000 scanned device-history rows and 100 results. No remote private-plaintext index. | Persistent encrypted indexing and search beyond loaded device history; production/device acceptance. |
 | 166-167 | No staff access to private keys/history by business role alone. | Future business inbox and separately authorized shared staff access. |
-| 168-169 | Content-free bounded send diagnostics and existing private/aggregate operational evidence. | Complete conversation usage/quality metrics and dashboard coverage. |
+| 168-169 | Content-free bounded send diagnostics and authenticated aggregate operation/outcome/duration metrics exist; counters are process-local and include retries. | Fleet aggregation, unique-send accounting, usage/quality/adoption dashboards and measured response SLOs. |
 | 170 | Extensive local direct/encrypted/store/browser regression evidence. | Full direct acceptance gate, physical devices, measured resilience/scale and independent security review. |
 | 171-189 | Default-off native multi-account MLS integrated with real typed canonical room backend, durable invitations/membership, ordered ciphertext/receipts/private media/events/generic push and searchable creation/chat/products/shortlist/poll UI. Real SQL and authenticated HTTP browser tests cover three-owner activation, retries and removal. Spec 180/181 adds current canonical product comparison and the encrypted outside-seller question/response bridge. Room-specific account-level mute/archive, archived view and Move to Inbox are implemented. The 2026-10-08 follow-up adds approved own-native prior-epoch history transfer, recovered board roles, historical Read and explicit old-attachment grants. Real PostgreSQL acceptance adds six-connection/two-store admission, preferences, membership-freeze races and encrypted product/poll load. Approved admin transfer and voluntary account-wide leave now include immediate access/push revocation, retained-device MLS rotation and read-only saved history. | Production rollout/physical-device acceptance, sustained fleet load/failure evidence, independent audit and complete rollout acceptance. Orders/wallet/automatic group purchase/AI/public communities remain future scope. |
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |

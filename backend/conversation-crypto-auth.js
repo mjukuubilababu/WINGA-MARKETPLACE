@@ -2,9 +2,10 @@ const crypto = require('node:crypto');
 const { failure } = require('./encrypted-content-contract');
 async function authenticateCryptoSession(client, context, now = Date.now()) {
   if (!context?.owner || !context.token || !context.deviceId) throw failure(401, 'crypto_device_unauthorized');
+  // Serialize this account without blocking unrelated foreign-key key-share reads.
   const result = await client.query(`SELECT s.session_id FROM sessions s JOIN users u ON u.username=s.username
     WHERE s.token=$1 AND s.username=$2 AND s.session_id=$3 AND s.expires_at>$4 AND u.status='active'
-    FOR SHARE OF s FOR UPDATE OF u`, [context.token, context.owner, context.deviceId, now]);
+    FOR SHARE OF s FOR NO KEY UPDATE OF u`, [context.token, context.owner, context.deviceId, now]);
   if (!result.rows.length) throw failure(401, 'crypto_device_unauthorized');
 }
 function verifyDeviceSignature(publicKey, bytes, signature) {

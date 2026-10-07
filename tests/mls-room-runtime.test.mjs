@@ -194,6 +194,65 @@ test('account removal retires both native leaves in one actual epoch, never an i
   assert.equal((await f.carol.runtime.room.receive(packet)).message,'both Bob devices removed');
   for(const p of [f.bob,sibling])await assert.rejects(p.runtime.room.receive(packet),{code:'mls_room_access_denied'});
 });
+
+test('a singleton real MLS Room confirms exactly its one native proof and remains usable across reload',async()=>{
+  const f=await admitted(),intent=reserve(f,[f.alice].map(member),[removal(f.bob),removal(f.carol)],'1');
+  await f.alice.runtime.room.change(intent);
+  const a=await f.alice.runtime.room.acceptance(f.id);
+  await assert.rejects(f.alice.runtime.room.confirm(f.id,[]),{code:'mls_room_acceptance_required'});
+  const forged={...a,signature:a.signature.slice()};forged.signature[0]^=1;
+  await assert.rejects(f.alice.runtime.room.confirm(f.id,[forged]),{code:'mls_room_acceptance_rejected'});
+  await f.alice.runtime.room.confirm(f.id,[a]);
+  const rt=await createMlsRuntime(f.alice.options);await rt.initialize();
+  await rt.room.send(message(f,'singleton remains confirmed'));assert.equal((await rt.room.history(f.id))[0].status,'sent');
+  assert.equal((await f.alice.storage.snapshot()).values[`mls:membership:${f.id}`],undefined);
+});
+
+test('removed own-native re-admission uses a fresh Welcome, preserves history and retries without recovering the excluded epoch',async()=>{
+  const f=await admitted(),other={...f,id:randomUUID()};
+  for(const p of f.people)p.device=await p.runtime.prepareKeyPackage();
+  const otherIntent=reserve(other,f.people.map(member),[addition(f.bob),addition(f.carol)]);
+  const otherTransfer=await f.alice.runtime.room.create(otherIntent,new Map([[f.bob.device.id,f.bob.device.keyPackage],[f.carol.device.id,f.carol.device.keyPackage]]));
+  for(const p of [f.bob,f.carol])await p.runtime.room.acceptWelcome(otherTransfer);await activate(f.people,other.id);
+  const otherState=(await f.carol.storage.snapshot()).values[`mls:group:${other.id}`];
+  await f.alice.runtime.room.send(message(f,'retained history'));
+  await f.carol.runtime.room.receive(envelope(f.control,f.control.packets.at(-1)));
+  const remove=reserve(f,[f.alice,f.bob].map(member),[removal(f.carol)],'1'),removed=await f.alice.runtime.room.change(remove);
+  await f.bob.runtime.room.applyCommit(removed);await activate([f.alice,f.bob],f.id);
+  await f.alice.runtime.room.send(message(f,'excluded epoch'));const excluded=envelope(f.control,f.control.packets.at(-1));
+  f.carol.device=await f.carol.runtime.prepareKeyPackage();
+  const add=reserve(f,f.people.map(member),[addition(f.carol)],'2'),rejoin=await f.alice.runtime.room.change(add,new Map([[f.carol.device.id,f.carol.device.keyPackage]]));
+  await f.bob.runtime.room.applyCommit(rejoin);const before=await f.carol.storage.snapshot();
+  f.carol.storage.rejectNext=true;await assert.rejects(f.carol.runtime.room.acceptWelcome(rejoin),{code:'storage_aborted'});
+  assert.deepEqual(await f.carol.storage.snapshot(),before);
+  await f.carol.runtime.room.acceptWelcome(rejoin);const accepted=await f.carol.storage.snapshot();
+  const rt=await createMlsRuntime(f.carol.options);await rt.initialize();await rt.room.acceptWelcome(rejoin);
+  assert.deepEqual(await f.carol.storage.snapshot(),accepted);f.carol.runtime=rt;await activate(f.people,f.id);
+  const activated=await f.carol.storage.snapshot();await assert.rejects(rt.room.receive(excluded),{code:'mls_envelope_binding_rejected'});
+  assert.deepEqual(await f.carol.storage.snapshot(),activated);
+  assert.deepEqual(activated.values[`mls:group:${other.id}`],otherState);
+  await f.alice.runtime.room.send(message(f,'after re-admission'));
+  await rt.room.receive(envelope(f.control,f.control.packets.at(-1)));
+  assert.deepEqual((await rt.room.history(f.id)).map(m=>m.message),['retained history','after re-admission']);
+});
+
+test('fresh own-native Welcome cannot discard unresolved text, media or lifecycle journals, or overwrite an unconfirmed group',async()=>{
+  const f=await admitted();f.control.failSend=true;await assert.rejects(f.carol.runtime.room.send(message(f,'unresolved')));f.control.failSend=false;
+  const remove=reserve(f,[f.alice,f.bob].map(member),[removal(f.carol)],'1'),removed=await f.alice.runtime.room.change(remove);
+  await f.bob.runtime.room.applyCommit(removed);await activate([f.alice,f.bob],f.id);
+  f.carol.device=await f.carol.runtime.prepareKeyPackage();const add=reserve(f,f.people.map(member),[addition(f.carol)],'2');
+  const rejoin=await f.alice.runtime.room.change(add,new Map([[f.carol.device.id,f.carol.device.keyPackage]])),before=await f.carol.storage.snapshot();
+  await assert.rejects(f.carol.runtime.room.acceptWelcome(rejoin),{code:'mls_pending_send_requires_retry'});assert.deepEqual(await f.carol.storage.snapshot(),before);
+  const mediaKey='media:pending:'+randomUUID();await f.carol.storage.write({expectedRevision:before.revision,
+    values:{[mediaKey]:{conversationId:f.id}},deleted:Object.keys(before.values).filter(k=>k.startsWith('mls:outbox:'))});
+  const media=await f.carol.storage.snapshot();await assert.rejects(f.carol.runtime.room.acceptWelcome(rejoin),{code:'mls_pending_send_requires_retry'});
+  assert.deepEqual(await f.carol.storage.snapshot(),media);
+  await f.carol.storage.write({expectedRevision:media.revision,values:{['room:leave:'+f.id]:{conversationId:f.id}},deleted:[mediaKey]});
+  const leaving=await f.carol.storage.snapshot();await assert.rejects(f.carol.runtime.room.acceptWelcome(rejoin),{code:'mls_room_membership_pending'});
+  assert.deepEqual(await f.carol.storage.snapshot(),leaving);
+  const row=leaving.values[`mls:group:${f.id}`];await f.carol.storage.write({expectedRevision:leaving.revision,values:{[`mls:group:${f.id}`]:{...row,confirmed:false}}});
+  await assert.rejects(f.carol.runtime.room.acceptWelcome(rejoin),{code:'mls_group_exists'});
+});
 test('unauthorized canonical reservation, stale revision and an offline outbox cannot produce a room membership commit',async()=>{
   const f=await admitted(),intent=reserve(f,[f.alice,f.bob].map(member),[removal(f.carol)],'1');
   await assert.rejects(f.alice.runtime.room.change({...intent,revision:'3'}),{code:'mls_room_authorization_rejected'});

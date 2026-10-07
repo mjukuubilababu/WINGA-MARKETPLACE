@@ -1,4 +1,4 @@
-param([int]$Port=55440,[switch]$RoomsOnly,[switch]$RoomConcurrencyOnly)
+param([int]$Port=55440,[switch]$RoomsOnly,[switch]$RoomConcurrencyOnly,[string]$TestNamePattern)
 $ErrorActionPreference='Stop'
 if($Port -lt 49152 -or $Port -gt 65535){throw 'Use an unprivileged disposable test port (49152-65535).'}
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -29,7 +29,8 @@ try {
   $env:WINGA_TEST_SHOPPING_ROOMS_POSTGRES='true'
   $tests=@('tests/shopping-rooms-service.test.mjs')
   if(!$RoomsOnly -and !$RoomConcurrencyOnly){$tests=@('tests/conversation-event-concurrency.test.js','tests/encrypted-conversation-concurrency.test.js')+$tests}
-  if($RoomConcurrencyOnly){& node --test --test-concurrency=1 '--test-name-pattern=PostgreSQL Rooms:' @tests}
+  if($TestNamePattern){& node --test --test-concurrency=1 ('--test-name-pattern='+$TestNamePattern) @tests}
+  elseif($RoomConcurrencyOnly){& node --test --test-concurrency=1 '--test-name-pattern=PostgreSQL Rooms:' @tests}
   else{& node --test --test-concurrency=1 @tests}
   if($LASTEXITCODE -ne 0){throw 'Conversation PostgreSQL tests failed.'}
 } finally {

@@ -82,6 +82,58 @@ test('authorization is rechecked after a transaction waits for membership serial
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 
+test('cross-pair reservations sharing one native package cannot deadlock account foreign-key locks',async t=>{
+  const f=await fixture(t),a=f.members.alice,b=f.members.bob,eve=crypto.randomUUID();
+  const eveHash=crypto.createHash('sha256').update('cross-pair-eve-package').digest('hex');
+  await f.pool.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status)
+    SELECT $1,'eve',public_key,fingerprint,'active' FROM conversation_crypto_devices WHERE id=$2`,[eve,b.id]);
+  await f.pool.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at)
+    VALUES($1,$2,'public-fixture','public-fixture','{}',NOW()+INTERVAL '1 day')`,[eveHash,eve]);
+  await f.pool.query("SELECT winga_ensure_conversation('bob','eve')");
+  const connections=[await f.pool.connect(),await f.pool.connect()],ready=deferred(),release=deferred(),pending=[];
+  const alice=createEncryptedConversationStore({withTransaction:work=>transaction(connections[0],c=>work({async query(sql,args){
+    const result=await c.query(sql,args);if(sql.includes('ORDER BY p.hash FOR UPDATE OF p')){ready.resolve();await release.promise;}return result;
+  }}))});
+  const bob=createEncryptedConversationStore({withTransaction:work=>transaction(connections[1],work)});
+  const first=a.sign('reserve',f.reserve),other={conversationId:crypto.randomUUID(),peer:'eve',sourceHash:b.hash,targetHash:eveHash};
+  const second=b.sign('reserve',other);
+  try{
+    pending.push(alice.encryptedOperation(a.context,first));const firstResult=Promise.allSettled(pending);await ready.promise;
+    pending.push(bob.encryptedOperation(b.context,second));const secondResult=Promise.allSettled([pending[1]]);
+    let blocked=false;for(let n=0;n<100;n++){
+      const r=await f.admin.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked',[connections[0].processID,connections[1].processID]);
+      if(r.rows[0].blocked){blocked=true;break;}await delay(20);
+    }
+    assert.equal(blocked,true);release.resolve();
+    const [winner]=await firstResult,[loser]=await secondResult;
+    assert.equal(winner.status,'fulfilled');assert.equal(loser.status,'rejected');assert.equal(loser.reason.code,'encrypted_package_unavailable');
+    assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM encrypted_conversations')).rows[0].n,1);
+    assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_key_packages WHERE consumed_at IS NOT NULL')).rows[0].n,2);
+    assert.equal((await f.pool.query('SELECT consumed_at FROM conversation_crypto_key_packages WHERE hash=$1',[eveHash])).rows[0].consumed_at,null);
+    await alice.encryptedOperation(a.context,first);await assert.rejects(bob.encryptedOperation(b.context,second),{code:'encrypted_package_unavailable'});
+    assert.equal((await f.pool.query("SELECT COALESCE(SUM(count),0)::int AS n FROM api_rate_limit_buckets WHERE scope='encrypted-new-conversations'")).rows[0].n,1);
+  }finally{release.resolve();await Promise.allSettled(pending);for(const c of connections){await c.query('ROLLBACK');c.release();}}
+});
+
+test('crypto account serialization permits foreign-key reads but still blocks concurrent auth and status mutation',async t=>{
+  const f=await fixture(t),b=f.members.bob,{authenticateCryptoSession}=require('../backend/conversation-crypto-auth');
+  const actor=await f.pool.connect(),other=await f.pool.connect();let update;
+  try{
+    await actor.query('BEGIN');await authenticateCryptoSession(actor,b.context);
+    await other.query('BEGIN');assert.equal((await other.query("SELECT username FROM users WHERE username='bob' FOR KEY SHARE NOWAIT")).rows.length,1);await other.query('ROLLBACK');
+    for(const strength of ['NO KEY UPDATE','UPDATE']){
+      await other.query('BEGIN');await assert.rejects(other.query("SELECT username FROM users WHERE username='bob' FOR "+strength+' NOWAIT'),{code:'55P03'});await other.query('ROLLBACK');
+    }
+    await other.query('BEGIN');update=other.query("UPDATE users SET status='suspended' WHERE username='bob'");const settled=Promise.allSettled([update]);
+    let blocked=false;for(let n=0;n<100;n++){
+      const r=await f.admin.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked',[actor.processID,other.processID]);
+      if(r.rows[0].blocked){blocked=true;break;}await delay(20);
+    }
+    assert.equal(blocked,true);await actor.query('COMMIT');assert.equal((await settled)[0].status,'fulfilled');await other.query('COMMIT');
+    await assert.rejects(f.store.encryptedOperation(b.context,b.sign('directory',{peer:'alice'})),{code:'crypto_device_unauthorized'});
+  }finally{await actor.query('ROLLBACK');if(update)await Promise.allSettled([update]);await other.query('ROLLBACK');actor.release();other.release();}
+});
+
 test('bounded real PostgreSQL load: two stores persist decryptable messages once with contiguous sequence and receipt convergence',async t=>{
   const f=await fixture(t),a=f.members.alice,b=f.members.bob,count=64;
   await f.store.encryptedOperation(a.context,a.sign('reserve',f.reserve));

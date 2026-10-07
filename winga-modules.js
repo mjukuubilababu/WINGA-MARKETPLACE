@@ -19714,7 +19714,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       need(JSON.stringify(t.transfer_proof.payload)===JSON.stringify(t.transfer),'encrypted_room_transfer_rejected');
       const transfer=WingaMlsCandidate.decodeRoomTransferPayload(t.transfer),saved=await vault.snapshot();
       const existing=saved.values[`mls:group:${room.id}`],pending=saved.values[`mls:membership:${room.id}`];
-      if(!existing)await rt.room.acceptWelcome(transfer);
+      const ownAddition=JSON.parse(JSON.parse(t.intent).changes).some(c=>c.type==='add'&&c.owner===owner&&c.id===saved.values['mls:identity']?.id);
+      if(!existing||!pending&&existing.roomRevision!==JSON.parse(t.intent).revision&&ownAddition)await rt.room.acceptWelcome(transfer);
       else if(!pending&&existing.roomRevision!==JSON.parse(t.intent).revision)await rt.room.applyCommit(transfer);
       const next=await vault.snapshot();
       if(next.values[`mls:membership:${room.id}`]){
