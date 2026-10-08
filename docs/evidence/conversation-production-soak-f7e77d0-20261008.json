@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "mode": "production-public-read-only-soak",
+  "privacy": "aggregate-only",
+  "durationMs": 330325,
+  "requests": 117,
+  "soakRequests": 87,
+  "loadRequests": 30,
+  "failures": 0,
+  "stopCode": null,
+  "maxConcurrency": 2,
+  "loadStartSpacingMs": 1000,
+  "applicationWrites": false,
+  "authenticatedMessagingVerified": false,
+  "encryptedRoomFlowVerified": false,
+  "productionCapacityProven": false,
+  "cryptographicAuditApproved": false,
+  "backendCommit": "f7e77d0559e5528884da3b2615685e0b5348f117",
+  "frontendBuild": "20261008153000",
+  "targets": [
+    {
+      "name": "backend",
+      "requests": 39,
+      "failures": 0,
+      "p50Ms": 207,
+      "p95Ms": 907,
+      "httpStatuses": [
+        200
+      ],
+      "errorCodes": []
+    },
+    {
+      "name": "frontend",
+      "requests": 39,
+      "failures": 0,
+      "p50Ms": 47,
+      "p95Ms": 104,
+      "httpStatuses": [
+        200
+      ],
+      "errorCodes": []
+    },
+    {
+      "name": "phoenix",
+      "requests": 39,
+      "failures": 0,
+      "p50Ms": 203,
+      "p95Ms": 471,
+      "httpStatuses": [
+        200
+      ],
+      "errorCodes": []
+    }
+  ]
+}

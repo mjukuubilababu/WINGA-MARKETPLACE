@@ -560,6 +560,86 @@ test('recovery retains prior archive history when a local record has been evicte
   expect(result).toEqual({ revision: '2', texts: ['older', 'current', 'newer'] });
 });
 
+test('device dialog refreshes approval and revocation from a trusted independent browser without reload',async({page,browser})=>{
+  await prepare(page);await enroll(page);const otherContext=await browser.newContext();
+  try {
+    const other=await otherContext.newPage();await prepare(other);const pending=await enroll(other);
+    await other.evaluate(async session=>WingaDeviceManagementUi.open({dataLayer:{createCryptoDeviceManagement:()=>WingaDeviceManagementUi.createManagementSession({getSession:()=>session,request:window.deviceRequest})}}),session);
+    await expect(other.locator('dialog [role=status]')).toHaveText('Pending approval');
+    const change=action=>page.evaluate(async({session,pending,action})=>{
+      const client=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});
+      try{await client.manage(action,pending.id,pending.fingerprint);}finally{client.close();}
+    },{session,pending,action});
+    await change('approve');
+    await expect(other.locator('dialog [role=status]')).toHaveText('Active',{timeout:10000});
+    await other.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);
+    await expect(other.locator('[data-crypto-device-apply]')).toBeEnabled();
+    await change('revoke');
+    await expect(other.locator('dialog [role=status]')).toHaveText('Revoked',{timeout:10000});
+    await expect(other.locator('[data-crypto-device-apply]')).toBeDisabled();
+    await other.getByRole('button',{name:'Close',exact:true}).click();
+  }finally{await otherContext.close();}
+});
+
+test('device dialog refresh retains only the same target confirmation and stops reads when closed',async({page,browser})=>{
+  let reads=0;
+  await prepare(page,(method,payload,context)=>{if(method==='GET'){reads++;return store.readConversationCryptoDevices(context);}return store.mutateConversationCryptoDevice(context,payload);});
+  await enroll(page);const otherContext=await browser.newContext(),thirdContext=await browser.newContext();
+  try{
+    const other=await otherContext.newPage();await prepare(other);const pending=await enroll(other);
+    await page.evaluate(async session=>WingaDeviceManagementUi.open({dataLayer:{createCryptoDeviceManagement:()=>WingaDeviceManagementUi.createManagementSession({getSession:()=>session,request:window.deviceRequest})}}),session);
+    await page.locator('[data-crypto-device-target]').selectOption(pending.id);
+    const partial=pending.fingerprint.slice(0,16);
+    await page.locator('[data-crypto-device-confirm]').fill(partial);
+    const third=await thirdContext.newPage();await prepare(third);const another=await enroll(third);
+    await expect(page.locator('[data-crypto-device-target] option[value="'+another.id+'"]').first()).toHaveCount(1,{timeout:10000});
+    await expect(page.locator('[data-crypto-device-target]')).toHaveValue(pending.id);
+    await expect(page.locator('[data-crypto-device-confirm]')).toHaveValue(partial);
+    await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
+    await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);
+    await expect(page.locator('[data-crypto-device-apply]')).toBeEnabled();
+    await page.evaluate(async({session,pending})=>{const c=await WingaCryptoDevices.createCryptoDeviceClient({getSession:()=>session,request:window.deviceRequest});try{await c.manage('revoke',pending.id,pending.fingerprint);}finally{c.close();}},{session,pending});
+    await expect(page.locator('[data-crypto-device-target]')).toHaveValue(another.id,{timeout:10000});
+    await expect(page.locator('[data-crypto-device-confirm]')).toHaveValue('');
+    await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM conversation_crypto_operations WHERE result->'device'->>'id'=$1 AND result->'device'->>'status'='active'",[pending.id])).rows[0].n).toBe(0);
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+    const before=reads;await page.waitForTimeout(5500);expect(reads).toBe(before);
+  }finally{await otherContext.close();await thirdContext.close();}
+});
+
+test('device dialog ignores a stale refresh after a manual approval completes',async({page,browser})=>{
+  let hold=false,blocked=false,release;
+  await prepare(page,async(method,payload,context)=>{
+    if(method!=='GET')return store.mutateConversationCryptoDevice(context,payload);
+    const result=await store.readConversationCryptoDevices(context);
+    if(hold){hold=false;blocked=true;await new Promise(resolve=>{release=resolve;});}
+    return result;
+  });
+  await enroll(page);const otherContext=await browser.newContext(),thirdContext=await browser.newContext();
+  try{
+    const other=await otherContext.newPage();await prepare(other);const pending=await enroll(other);
+    await page.evaluate(async session=>WingaDeviceManagementUi.open({dataLayer:{createCryptoDeviceManagement:()=>WingaDeviceManagementUi.createManagementSession({getSession:()=>session,request:window.deviceRequest})}}),session);
+    await page.locator('[data-crypto-device-target]').selectOption(pending.id);
+    await page.locator('[data-crypto-device-confirm]').fill(pending.fingerprint);
+    const third=await thirdContext.newPage();await prepare(third);await enroll(third);
+    hold=true;await expect.poll(()=>blocked,{timeout:10000}).toBe(true);
+    await page.locator('[data-crypto-device-apply]').click();
+    const option=page.locator('[data-crypto-device-target] option[value="'+pending.id+'"]');
+    await expect(option).toHaveText(/^Active:/);
+    await expect(page.getByRole('button',{name:'Close',exact:true})).toBeEnabled();
+    await expect(page.locator('[data-crypto-device-target]')).toHaveValue(pending.id);
+    await expect(page.locator('[data-crypto-device-action]')).toHaveValue('revoke');
+    await expect(page.locator('[data-crypto-device-confirm]')).toHaveValue('');
+    await expect(page.locator('[data-crypto-device-apply]')).toBeDisabled();
+    release();release=null;
+    await page.waitForTimeout(250);
+    await expect(option).toHaveText(/^Active:/);
+    expect((await db.query("SELECT COUNT(*)::int AS n FROM conversation_crypto_operations WHERE result->'device'->>'id'=$1 AND result->'device'->>'status'='active'",[pending.id])).rows[0].n).toBe(1);
+    await page.getByRole('button',{name:'Close',exact:true}).click();
+  }finally{release?.();await otherContext.close();await thirdContext.close();}
+});
+
 test('device approval UI confirms an independent pending device and revokes it without transferring keys',async({page,browser})=>{
   await prepare(page);const own=await enroll(page),otherContext=await browser.newContext();
   try {

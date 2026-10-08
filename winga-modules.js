@@ -18951,9 +18951,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     };
   }
   async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{}}) {
-    const t=translate,session=await dataLayer.createCryptoDeviceManagement();let dialog,timer;
+    const t=translate,session=await dataLayer.createCryptoDeviceManagement();let dialog,timer,refreshTimer;
     try {
-      let view=await session.list(),busy=false;
+      let view=await session.list(),busy=false,refreshing=false,closed=false,mutationVersion=0;
       const node=(tag,text)=>{const el=document.createElement(tag);el.textContent=text;return el;};
       dialog=document.createElement('dialog');dialog.className='chat-security-dialog chat-devices-dialog';
       dialog.append(node('h3',t('chat.devices','Encryption devices')));
@@ -18975,22 +18975,45 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       function choose(){const d=selected(),pending=view.pendingOperation;fingerprint.textContent=d?.fingerprint||'';confirm.value='';action.replaceChildren();
         const actions=pending?[pending.action]:d?.status==='pending'?['approve','revoke']:d?.status==='active'?['revoke']:[];
         for(const value of actions){const option=node('option',value==='approve'?t('chat.deviceApprove','Approve'):t('chat.deviceRevoke','Revoke'));option.value=value;action.append(option);}enabled();}
-      function render(){ownKey.textContent=view.ownDevice?.fingerprint||'';status.textContent=stateText(view.ownDevice?.status);target.replaceChildren();
+      function render(previous){ownKey.textContent=view.ownDevice?.fingerprint||'';status.textContent=stateText(view.ownDevice?.status);target.replaceChildren();
         const pending=view.pendingOperation;
         for(const d of view.devices.filter(d=>pending?d.id===pending.deviceId:d.status!=='revoked')){const option=node('option',`${stateText(d.status)}: ${d.fingerprint.slice(0,16)}${d.id===view.ownDevice?.id?' ('+t('chat.deviceThis','This device')+')':''}`);option.value=d.id;target.append(option);}
-        const preferred=view.devices.find(d=>pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;choose();}
+        const preferred=view.devices.find(d=>pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;
+        if(previous&&Array.from(target.options).some(o=>o.value===previous.id))target.value=previous.id;
+        choose();
+        if(previous&&target.value===previous.id&&selected()?.fingerprint===previous.fingerprint
+          &&Array.from(action.options).some(o=>o.value===previous.action)){
+          action.value=previous.action;confirm.value=previous.confirmation;enabled();
+        }
+      }
+      const viewKey=value=>JSON.stringify([value.ownDevice?.id,value.ownDevice?.status,
+        value.devices.map(d=>[d.id,d.status,d.fingerprint]),value.pendingOperation]);
+      async function refreshDevices(){
+        if(closed||busy||refreshing||!dialog.open)return;
+        refreshing=true;const version=mutationVersion;
+        try{
+          const next=await session.list();
+          if(closed||busy||version!==mutationVersion||!dialog.open||viewKey(next)===viewKey(view))return;
+          // Retain typed confirmation only for the same verified target and available action.
+          const previous={id:target.value,fingerprint:selected()?.fingerprint,action:action.value,confirmation:confirm.value};
+          view=next;render(previous);
+        }catch{try{session.check();}catch{if(!closed)dialog.close();}}
+        finally{refreshing=false;}
+      }
       target.onchange=choose;action.onchange=enabled;confirm.oninput=enabled;
-      apply.onclick=async()=>{if(apply.disabled)return;busy=true;enabled();status.textContent=t('chat.secureWorking','Working...');
-        try {view=await session.manage(action.value,target.value,confirm.value.replace(/\s/g,'').toLowerCase());render();try{await refresh();}catch{}}
-        catch{try{view=await session.list();render();}catch{}status.textContent=t('chat.deviceActionFailed','Device action failed. Retry the same action or check the current device status.');}
+      apply.onclick=async()=>{if(apply.disabled)return;busy=true;mutationVersion++;enabled();status.textContent=t('chat.secureWorking','Working...');
+        const id=target.value;
+        try {view=await session.manage(action.value,id,confirm.value.replace(/\s/g,'').toLowerCase());render({id});try{await refresh();}catch{}}
+        catch{try{view=await session.list();render({id});}catch{}status.textContent=t('chat.deviceActionFailed','Device action failed. Retry the same action or check the current device status.');}
         finally{busy=false;enabled();}
       };
-      stop.onclick=async()=>{if(busy)return;busy=true;enabled();try{view=await session.clearPending();render();}catch{status.textContent=t('chat.deviceActionFailed','Device action failed. Retry the same action or check the current device status.');}finally{busy=false;enabled();}};
+      stop.onclick=async()=>{if(busy)return;busy=true;mutationVersion++;enabled();try{view=await session.clearPending();render();}catch{status.textContent=t('chat.deviceActionFailed','Device action failed. Retry the same action or check the current device status.');}finally{busy=false;enabled();}};
       close.onclick=()=>dialog.close();dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
-      dialog.addEventListener('close',()=>{clearInterval(timer);confirm.value='';session.close();dialog.remove();},{once:true});
+      dialog.addEventListener('close',()=>{closed=true;clearInterval(timer);clearInterval(refreshTimer);confirm.value='';session.close();dialog.remove();},{once:true});
       render();document.body.append(dialog);dialog.showModal();
       timer=setInterval(()=>{try{session.check();}catch{dialog.close();}},500);
-    }catch(error){clearInterval(timer);session.close();dialog?.remove();throw error;}
+      refreshTimer=setInterval(refreshDevices,5000);
+    }catch(error){clearInterval(timer);clearInterval(refreshTimer);session.close();dialog?.remove();throw error;}
   }
   function bind(scope,options) {
     if(!options.dataLayer.cryptoDeviceManagementAvailable)return;

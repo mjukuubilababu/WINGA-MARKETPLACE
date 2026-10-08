@@ -5,6 +5,32 @@ This is the current grouped implementation index for the preserved 0-109 and
 or a replacement for the source specification. Historical audit/handoff files
 describe their dated checkpoints, not necessarily the current enabled runtime.
 
+## Current Production Checkpoint: 2026-10-08
+
+Release `f7e77d0559e5528884da3b2615685e0b5348f117` is live on the WINGA backend;
+frontend build at the soak checkpoint was `20261008153000`. The protected verifier
+reported ready with all seven conversation features enabled, dispatch/push
+enabled, no missing flags, no dependency errors and no alerts. Its sample count
+was insufficient and authenticated/device/load/crypto acceptance remained false.
+These are operator-reported protected checks, not agent access to that endpoint.
+
+The subsequent [fresh live soak and actual local load](conversations-production-soak-f7e77d0-20261008.md)
+passed 117 public read-only production requests over 330,325 ms with no failures
+and stable backend/frontend identities. Genuine disposable PostgreSQL verification
+passed 80/80, no skips, including two-store/six-connection encrypted direct and
+Room load, history publication and authorization races. The test cluster stopped.
+Authenticated production load, sustained capacity/SLO acceptance, physical-device
+media/recovery/replacement checks and independent cryptographic audit remain open.
+The dated release/audit sections below retain their earlier checkpoint scopes;
+their default-off/prepared/deployment-open descriptions are not current flags.
+
+The subsequent [device Pending display fix](conversations-device-pending-fix-20261008.md)
+is live in frontend build `20261008160000`: device metadata refreshes while the
+dialog is open, completed approval retains its selected native, and older reads
+cannot overwrite a manual action. Eight browser and nineteen device/helper
+checks passed. This does not certify actual approval of the designated production
+natives or close the authenticated production-load gate.
+
 ## Audit Gate: 2026-10-08
 
 The [fresh audit and public soak](conversations-audit-soak-20261008.md) reproduced
