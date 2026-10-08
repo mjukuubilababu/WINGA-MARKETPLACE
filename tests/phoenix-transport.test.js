@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {randomBytes, randomUUID} = require('node:crypto');
 const http = require('node:http');
-const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawn, execFile} = require('node:child_process');
@@ -10,6 +9,7 @@ const {once} = require('node:events');
 const {setTimeout:delay} = require('node:timers/promises');
 const {Client, Pool} = require('pg');
 const {createPostgresStore} = require('../backend/db');
+const {startupDiagnostic, fixturePorts} = require('./helpers/phoenix-fixture-startup');
 
 const target = new URL(process.env.WINGA_TEST_POSTGRES_URL || 'http://invalid');
 if (!['postgres:','postgresql:'].includes(target.protocol)
@@ -17,13 +17,11 @@ if (!['postgres:','postgresql:'].includes(target.protocol)
   throw new Error('WINGA_TEST_POSTGRES_URL must point to a disposable localhost PostgreSQL cluster.');
 }
 const root=path.resolve(__dirname,'..');
-async function freePort() {
-  const server=net.createServer(); server.listen(0,'127.0.0.1'); await once(server,'listening');
-  const port=server.address().port; await new Promise(resolve=>server.close(resolve)); return port;
-}
+const startupFiles = new WeakMap();
 async function ready(url, child) {
   for(let n=0;n<200;n++) {
-    if(child.exitCode!==null)throw new Error('Fixture process exited before readiness');
+    if(child.exitCode!==null || child.signalCode!==null)throw new Error('Fixture process exited before readiness '+JSON.stringify(
+      startupDiagnostic({...startupFiles.get(child),code:child.exitCode,signal:child.signalCode})));
     try{if((await fetch(url,{signal:AbortSignal.timeout(500)})).ok)return;}catch{}
     await delay(100);
   }
@@ -104,7 +102,8 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   for(const [owner,token] of Object.entries(tokens))await pool.query(
     'INSERT INTO sessions(token,session_id,username,expires_at) VALUES($1,$2,$3,$4)',
     [token,owner,owner==='bob2'?'bob':owner,Date.now()+3600000]);
-  const backendPort=await freePort(),firstPort=await freePort(),secondPort=await freePort();
+  const [backendPort,firstPort,secondPort]=await fixturePorts();
+  assert.equal(new Set([backendPort,firstPort,secondPort]).size,3,'fixture ports must be distinct');
   const backend=`http://127.0.0.1:${backendPort}`;
   const serviceToken=randomBytes(32).toString('hex');
   const tempRoot=fs.mkdtempSync(path.join(root,'.tmp-phoenix-e2e-'));
@@ -115,8 +114,9 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     WINGA_ENCRYPTED_CONVERSATIONS_ENABLED:'true',WINGA_CRYPTO_DEVICES_ENABLED:'true',WINGA_MLS_CANDIDATE_ENABLED:'true',
     INTELLIGENCE_QUEUE_PROCESSOR_MODE:'off',WINGA_DISABLE_RATE_LIMIT:'1',ALLOWED_ORIGINS:'http://localhost:4173'};
   function launch(command,args,env,cwd,name){
-    const log=fs.openSync(path.join(tempRoot,name+'.log'),'a');
-    const child=spawn(command,args,{env,cwd,windowsHide:true,stdio:['ignore',log,log]});fs.closeSync(log);children.push(child);return child;
+    const logPath=path.join(tempRoot,name+'.log'),log=fs.openSync(logPath,'a');
+    const child=spawn(command,args,{env,cwd,windowsHide:true,stdio:['ignore',log,log]});fs.closeSync(log);
+    startupFiles.set(child,{name,logPath});children.push(child);return child;
   }
   const node=launch(process.execPath,['server.js'],{...childEnv,PORT:String(backendPort)},path.join(root,'backend'),'node');
   await ready(backend+'/api/health',node);

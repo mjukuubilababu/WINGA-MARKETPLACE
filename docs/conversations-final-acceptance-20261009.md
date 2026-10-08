@@ -161,6 +161,41 @@ will identify the drifting SARIF metadata without logging source snippets or
 arbitrary property values; no fingerprint semantics or review approval is
 relaxed by that diagnostic work.
 
+Diagnostic-only candidate `b7f62c4` adds fixed-label, hash/shape-only SARIF
+provenance, globally capped at 64 findings. Separate reviewers report no
+actionable findings; local gate/trigger tests pass 84 with two Windows symlink
+privilege skips (86 total). Fingerprint and approval semantics are unchanged.
+Its first actual scan emits 49 findings and correctly rejects the changed
+tracked tree. A same-commit rerun is needed to identify unstable components.
+The BEAM job passes 15 Mix cases but its initial Phoenix fixture exits before
+readiness; the child log is unavailable, so the underlying cause is not yet
+claimed. No encrypted acceptance or production promotion is inferred from it.
+
+Paired actual scans of the same `b7f62c4` commit, static jobs `113591773547`
+and `113595012658` in run `37859556701`, both bind tree
+`28785d93e675f9a36ea7be371266cbf4626feb8d45c39d3057f4871d77662c93`.
+All 49 result, rule and tool-component hashes match exactly. Only the shared
+505-entry `run.artifacts` collection differs, changing every combined digest.
+No specific artifact field or ordering cause is yet proven. The correct next
+step is bounded fixed-field artifact diagnostics, not GUID normalization,
+blanket artifact exclusion or another automatic ledger rebind. Functional and
+dependency jobs pass; the separate Phoenix fixture-start failure stays open.
+
+The fixture-only startup patch is independently reviewed and passes 12 isolated
+startup/native-operation cases. It reserves three ports simultaneously, reads
+at most 16 KiB of a checked regular-file log, and emits only allowlisted startup
+metadata. CI includes its helper tests. No retry, timeout or ciphertext delivery
+assertion is weakened; actual hosted startup and native acceptance remain
+required before claiming the previous startup failure is resolved.
+
+A bounded read-only production soak completes in 312111 ms: 99 public GETs,
+zero failures, HTTP 200 for all three services, maximum concurrency two.
+Backend identity remains `6e3277edd57229f751c5fe3609d95db8741405ae`;
+frontend build remains `20261008193054`. Per-service p95 latency is backend
+893 ms, frontend 69 ms, Phoenix 894 ms. No application writes occur. This is
+public liveness evidence only, not authenticated encrypted messaging or
+production capacity acceptance, and does not identify the Phoenix commit.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are
