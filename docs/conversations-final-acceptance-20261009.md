@@ -141,6 +141,16 @@ and are wired into static-analysis CI. This intentional tracked-tree change
 invalidates the previous ledger tree until fresh hosted scan provenance is
 reviewed; it does not authorize automatic rebinding or deployment.
 
+Hosted run `37857609956` / static job `113585454727` at `38de74a` starts with
+the corrected trigger and correctly rejects the stale tree. Its actual digest
+`fd1dc3d0a3ddc719143c884df073872253ec6d397231e014bf8452c7d9a5f26e`
+matches local verification. All 49 exact sites and all 21 source-file hashes
+remain unchanged. Separate review explicitly approves rebinding the ledger to
+this scan after inspecting the workflow/regression-only changes, preserving
+prior source-review evidence and occurrence caps. Same-code result stability
+is not yet proven: the next ledger-only scan must match every result digest;
+any further drift blocks promotion and must be diagnosed, not auto-approved.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are
