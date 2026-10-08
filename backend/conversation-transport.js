@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 
 const MAX_COMMAND_BYTES = 32768;
+const MAX_NATIVE_OPERATION_BYTES = 24000;
 const reject = (status = 401) => Object.assign(new Error('Transport request rejected.'), { status });
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 function equal(a, b) {
@@ -11,6 +12,8 @@ function equal(a, b) {
 
 function createConversationTransport({ env = process.env, now = Date.now } = {}) {
   const enabled = env.WINGA_PHOENIX_TRANSPORT_ENABLED === 'true';
+  const nativeEnabled = enabled && ['WINGA_ENCRYPTED_CONVERSATIONS_ENABLED',
+    'WINGA_CRYPTO_DEVICES_ENABLED', 'WINGA_MLS_CANDIDATE_ENABLED'].every(key => env[key] === 'true');
   const ticketSecret = env.CONVERSATION_TICKET_SECRET || '';
   const serviceSecret = env.CONVERSATION_SERVICE_TOKEN || '';
   const canaryUsers = new Set(String(env.WINGA_PHOENIX_CANARY_USERS || '').split(',').map(value => value.trim()).filter(Boolean));
@@ -58,9 +61,19 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   }
   function validateCommand(input) {
     if (!input || input.version !== 1 || Buffer.byteLength(JSON.stringify(input)) > MAX_COMMAND_BYTES
-      || !['authorize', 'send', 'poll', 'ack', 'receipt'].includes(input.command)
+      || !['authorize', 'send', 'poll', 'ack', 'receipt', 'native'].includes(input.command)
       || !input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) throw reject(400);
-    if (input.command === 'send') {
+    if (input.command === 'native') {
+      const operation = input.payload;
+      if (Object.keys(operation).sort().join(',') !== 'action,actorId,issuedAt,payload,requestId,signature'
+        || Buffer.byteLength(JSON.stringify(operation)) > MAX_NATIVE_OPERATION_BYTES
+        || typeof operation.action !== 'string' || !/^[a-z][a-z-]{0,63}$/.test(operation.action)
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operation.actorId || '')
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operation.requestId || '')
+        || !Number.isSafeInteger(operation.issuedAt)
+        || !operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)
+        || typeof operation.signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(operation.signature)) throw reject(400);
+    } else if (input.command === 'send') {
       const allowed = new Set(['clientMessageId', 'receiverId', 'message']);
       if (Object.keys(input.payload).some(key => !allowed.has(key))
         || typeof input.payload.message !== 'string' || !input.payload.message.trim()
@@ -74,13 +87,20 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   }
   async function execute(context, input, store) {
     if (input.command === 'authorize') return { version: 1, deviceId: context.deviceId,
-      expiresAt: context.ticketExpiresAt, securityMode: 'legacy-plaintext' };
+      expiresAt: context.ticketExpiresAt, securityMode: 'legacy-plaintext', nativeOperations: nativeEnabled };
+    if (input.command === 'native') {
+      if (!nativeEnabled || typeof store.encryptedOperation !== 'function') throw reject(404);
+      // The ticket authenticates the session, never the native actor or MLS membership.
+      const result = await store.encryptedOperation({owner: context.owner, token: context.token,
+        deviceId: context.deviceId}, input.payload);
+      return {version: 1, requestId: input.payload.requestId, result};
+    }
     if (input.command === 'poll') return store.pollConversationDeviceEvents(context);
     if (input.command === 'ack') return store.acknowledgeConversationDeviceEvents(context, input.payload);
     if (input.command === 'receipt') return store.acknowledgeMessageDevice({ ...context, payload: input.payload });
     throw reject(400);
   }
-  return { enabled, canIssue, issue, verify, authorize, serviceAllowed, validateCommand, execute };
+  return { enabled, nativeEnabled, canIssue, issue, verify, authorize, serviceAllowed, validateCommand, execute };
 }
 
-module.exports = { createConversationTransport, MAX_COMMAND_BYTES };
+module.exports = { createConversationTransport, MAX_COMMAND_BYTES, MAX_NATIVE_OPERATION_BYTES };

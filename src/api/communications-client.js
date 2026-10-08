@@ -33,7 +33,23 @@
           getSession:deps.getSession,deviceRequest:api.cryptoDeviceRequest,
           initialSync:false,
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
-          operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
+          operationRequest:async payload=>{
+            // Sign once upstream; socket uncertainty retries these exact bytes over HTTP.
+            const body=JSON.stringify(payload),operation=JSON.parse(body);
+            const current=()=>{const session=deps.getSession?.();
+              if(key!==JSON.stringify([session?.username,session?.sessionId,session?.token]) || encryptionOwner!==key)
+                throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});};
+            current();
+            try {
+              const result=await phoenix?.forwardEncryptedOperation?.(operation);
+              current();if(result!==undefined && result!==null)return result;
+            } catch(error) {
+              current();if(error.code!=='outcome_unknown' && error.code!=='transport_unavailable' && !networkFailure(error))throw error;
+            }
+            current();
+            const result=await fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body});
+            current();return result;
+          },
           onChange:change=>encryptionChanged(change),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
@@ -539,7 +555,8 @@
           rows=value.items||value.products||[];
           if(kind==='reel'||kind==='short')rows=rows.filter(p=>(p.mediaItems||[]).some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected'));
         }
-        return rows.filter(item=>!q||String(item.name||item.title||item.productName||item.id).toLocaleLowerCase().includes(q.toLocaleLowerCase())).slice(0,12);
+        return rows.filter(item=>!q||[item.name||item.title||item.productName||item.id,...(['order','payment','delivery'].includes(kind)?[item.id]:[])]
+          .some(value=>String(value).toLocaleLowerCase().includes(q.toLocaleLowerCase()))).slice(0,12);
       },
       readConversationProduct:async id=>{
         requireFetcher();const value=await fetchJson(baseUrl+'/products?limit=1&productId='+encodeURIComponent(id),{headers:authHeaders()});

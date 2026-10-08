@@ -19,6 +19,7 @@ defmodule WingaConversations.DeviceChannel do
            ticket: ticket,
            device: device,
            expires: expires,
+           native_operations: principal["nativeOperations"] == true,
            pending: MapSet.new(),
            window: System.monotonic_time(:millisecond),
            count: 0
@@ -70,6 +71,32 @@ defmodule WingaConversations.DeviceChannel do
 
       _ ->
         {:reply, {:error, %{code: "outcome_unknown", retrySameClientMessageId: true}}, socket}
+    end
+  end
+
+  defp dispatch("encrypted.operation", payload, socket) do
+    if socket.assigns.native_operations do
+      started = System.monotonic_time(:millisecond)
+      result = adapter().request(socket.assigns.ticket, "native", payload)
+      event = case result do
+        {:ok, %{"version" => 1, "requestId" => id, "result" => value}} when is_binary(id) and is_map(value) ->
+          if id == payload["requestId"], do: :native_confirmed, else: :native_unknown
+        _ -> :native_unknown
+      end
+      WingaConversations.Metrics.record(event, System.monotonic_time(:millisecond) - started)
+      case result do
+        {:ok, %{"version" => 1, "requestId" => id, "result" => result} = reply}
+        when is_binary(id) and is_map(result) ->
+          if id == payload["requestId"],
+            do: {:reply, {:ok, reply}, socket},
+            else: {:reply, {:error, %{code: "outcome_unknown"}}, socket}
+
+        {:error, :unauthorized} -> {:stop, :normal, socket}
+        {:error, :rejected} -> {:reply, {:error, %{code: "rejected"}}, socket}
+        _ -> {:reply, {:error, %{code: "outcome_unknown"}}, socket}
+      end
+    else
+      {:reply, {:error, %{code: "native_unavailable"}}, socket}
     end
   end
 

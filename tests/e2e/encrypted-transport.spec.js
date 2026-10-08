@@ -13,6 +13,8 @@ let server,origin,output,db,devices,packages,transport,backups,storage,objects,l
 const sessions={a:{username:'alice',sessionId:'a',token:'a'},b1:{username:'bob',sessionId:'b1',token:'b1'},e:{username:'eve',sessionId:'e',token:'e'},s:{username:'outside-seller',sessionId:'s',token:'s'}};
 const roomCatalogProduct={id:'room-fixture-product',name:'Kariakoo simu',price:850000,currency:'TZS',status:'approved',availability:'available',uploadedBy:'outside-seller'};
 const roomSecondProduct={id:'room-fixture-laptop',name:'Laptop',price:950000,currency:'TZS',status:'approved',availability:'reserved',uploadedBy:'outside-seller'};
+let roomFixtureOrder={id:'room-canonical-order',buyerUsername:'alice',sellerUsername:'outside-seller',productId:'room-fixture-product',productName:'Canonical group purchase',quantity:20,totalAmount:17000000,currency:'TZS',status:'placed'};
+let loseRoomOrder=false;
 const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypto').randomBytes(32).toString('hex'),s]));
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
@@ -98,8 +100,9 @@ test.beforeAll(async()=>{
           loseNextUpload=false;const originalEnd=res.end.bind(res);res.end=()=>req.socket.destroy();await media.handle(req,res,url);res.end=originalEnd;return;
         }
         if(await media.handle(req,res,url))return;
-        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer || loseRoomReserve || loseSellerAnswer || loseSellerQuestion)){
+        if(url.pathname==='/api/conversations/encrypted/operations' && (loseNextSend || loseReplacementTransfer || loseReplacementReserve || rejectReplacementTransfer || rejectReplacementReserve || loseDeviceTransfer || loseRoomReserve || loseSellerAnswer || loseSellerQuestion || loseRoomOrder)){
           const body=await collectBody(req);
+          if(body.action==='room-send'&&loseRoomOrder){loseRoomOrder=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_order_reply'});return;}
           if(body.action==='send'&&loseSellerQuestion){loseSellerQuestion=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_seller_question_reply'});return;}
           if(body.action==='seller-answer-register'&&loseSellerAnswer){loseSellerAnswer=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_seller_answer_reply'});return;}
           if(body.action==='room-reserve'&&loseRoomReserve){loseRoomReserve=false;await transport.encryptedOperation(context,body);sendJson(res,503,{code:'fixture_lost_room_reservation_reply'});return;}
@@ -113,6 +116,12 @@ test.beforeAll(async()=>{
         }
         if(await api.handle(req,res,url))return;
         if(url.pathname==='/api/products'){sendJson(res,200,{items:[roomCatalogProduct,roomSecondProduct].filter(p=>!url.searchParams.get('productId')||p.id===url.searchParams.get('productId'))});return;}
+        if(url.pathname==='/api/orders/mine'){
+          const allowed=roomFixtureOrder&&[roomFixtureOrder.buyerUsername,roomFixtureOrder.sellerUsername].includes(session.username);
+          sendJson(res,200,{purchases:allowed?[...Array.from({length:14},(_,i)=>({...roomFixtureOrder,id:'earlier-order-'+i,productName:'Earlier purchase '+i})),roomFixtureOrder]:[],sales:[]});return;}
+        if(url.pathname==='/api/conversations/references'&&url.searchParams.get('kind')==='order'){
+          const read=require('../../backend/conversation-references').createConversationReferenceReader({readOrder:async id=>roomFixtureOrder?.id===id?roomFixtureOrder:null});
+          sendJson(res,200,await read(session.username,'order',url.searchParams.get('id')));return;}
         if(url.pathname==='/api/conversations/references'&&url.searchParams.get('kind')==='product'){
           const p=[roomCatalogProduct,roomSecondProduct].find(p=>p.id===url.searchParams.get('id'));
           sendJson(res,p?200:404,p?{kind:'product',...p}:{code:'conversation_reference_unavailable'});return;}
@@ -143,6 +152,73 @@ async function resetStores(multidevice=false,rooms=false,limits) {
   roomLimits=limits;transport=createEncryptedConversationStore({withTransaction,mediaEnabled:true,multiDeviceEnabled:multidevice,roomsEnabled:rooms,roomLimits});
   backups=createEncryptedConversationBackupStore({withTransaction});objects.clear();multiDeviceEnabled=multidevice;roomsEnabled=rooms;
 }
+
+test('Room order references require consent, stay encrypted, retry once and retain canonical participant authorization',async({browser})=>{
+  test.setTimeout(120000);await resetStores(false,true);
+  const contexts=await Promise.all(Array.from({length:3},()=>browser.newContext({viewport:{width:390,height:844}})));
+  const originalOrder=structuredClone(roomFixtureOrder);
+  try{
+    const pages=await Promise.all(contexts.map(c=>c.newPage())),[alice,bob,eve]=pages;
+    for(const [i,p]of pages.entries()){
+      await p.goto(origin);for(const asset of ['/rich.js','/room-session.js','/rooms-ui.js'])await p.addScriptTag({url:origin+asset});
+      await p.evaluate(name=>start(name),['alice','bob','eve'][i]);
+    }
+    const id=await alice.evaluate(async()=>client.shoppingRoom('create',['Orders Room',await client.shoppingRoom('inspectOwners',[['bob','eve']])]));
+    for(const p of [bob,eve])await p.evaluate(id=>client.shoppingRoom('join',[id]),id);
+    for(const p of pages)await p.evaluate(()=>client.shoppingRoom('sync'));
+    for(const p of [alice,bob])await p.evaluate(()=>{
+      window.openedOrders=[];
+      const ui=WingaModules.chat.createChatUiModule({escapeHtml:v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+        getCurrentUser:()=>browserSession.username,getCurrentSession:()=>browserSession,getConversationSummaries:()=>[],getActiveChatContext:()=>null,
+        getCurrentMessageDraft:()=>'',getConversationsView:()=> 'rooms',getProfileMessagesMode:()=> 'list',getProfileMessagesFilter:()=> 'all',
+        getUserDisplayName:v=>v,getMarketplaceUser:()=>null,getProductById:()=>null,getActiveConversationMessages:()=>[],getUnreadNotifications:()=>[]});
+      document.querySelector('main').innerHTML=ui.renderMessagesSection();
+      WingaShoppingRoomsUi.bind(document.querySelector('.conversation-workspace'),{dataLayer:client,getSession:()=>browserSession,actions:{openOrder:id=>openedOrders.push(id)}});
+    });
+    for(const p of [alice,bob]){await p.locator('[data-room-row]').click();await p.getByRole('tab',{name:'Orders',exact:true}).click();}
+    await alice.getByRole('button',{name:'Share order reference'}).click();
+    await expect(alice.locator('dialog select[name=order] option')).toHaveCount(12);
+    await alice.locator('dialog input[name=order-query]').fill(originalOrder.id);await alice.locator('dialog').getByRole('button',{name:'Search',exact:true}).click();
+    await expect(alice.locator('dialog select[name=order]')).toHaveValue(originalOrder.id);
+    await expect(alice.locator('dialog button[type=submit]')).toBeDisabled();
+    await alice.locator('dialog input[type=checkbox]').check();loseRoomOrder=true;
+    await alice.locator('dialog button[type=submit]').click();
+    await expect(alice.locator('dialog [data-room-error]')).toContainText('Unable to finish');
+    const beforeRetry=(await db.query('SELECT id,hash,ciphertext FROM encrypted_conversation_messages WHERE conversation_id=$1',[id])).rows;
+    expect(beforeRetry).toHaveLength(1);
+    await alice.locator('dialog').getByRole('button',{name:'Close chat'}).click();
+    await alice.getByRole('button',{name:'Share order reference'}).click();
+    await expect(alice.locator('dialog select[name=order]')).toHaveValue(originalOrder.id);await expect(alice.locator('dialog select[name=order]')).toBeDisabled();
+    await alice.locator('dialog input[type=checkbox]').check();
+    await alice.locator('dialog button[type=submit]').click();await expect(alice.locator('dialog')).toHaveCount(0);
+    expect((await db.query('SELECT id,hash,ciphertext FROM encrypted_conversation_messages WHERE conversation_id=$1',[id])).rows).toEqual(beforeRetry);
+    for(const p of pages)await p.evaluate(()=>client.shoppingRoom('sync'));
+    await expect.poll(async()=>{
+      const boards=await Promise.all(pages.map(p=>p.evaluate(id=>client.shoppingRoom('board',[id]),id)));
+      return boards.map(b=>b.orders.length);
+    }).toEqual([1,1,1]);
+    const board=await bob.evaluate(id=>client.shoppingRoom('board',[id]),id);
+    expect(board.orders).toEqual([{orderId:originalOrder.id,referenceId:expect.any(String),sharedBy:['alice']}]);
+    const stored=(await db.query('SELECT ciphertext,proof FROM encrypted_conversation_messages WHERE conversation_id=$1',[id])).rows;
+    expect(stored).toHaveLength(1);expect(JSON.stringify(stored)).not.toContain(originalOrder.id);expect(JSON.stringify(stored)).not.toContain(originalOrder.productName);
+    await expect(alice.locator('[data-room-order]')).toContainText(originalOrder.productName);
+    await expect(bob.locator('[data-room-order]')).toContainText('Order details are unavailable');
+    await expect(bob.getByRole('button',{name:'View order',exact:true})).toHaveCount(0);
+    const denied=await bob.evaluate(async id=>{const r=await fetch('/api/conversations/references?kind=order&id='+encodeURIComponent(id));return {status:r.status,body:await r.json()};},originalOrder.id);
+    expect(denied).toEqual({status:404,body:{code:'conversation_reference_unavailable'}});
+    await alice.getByRole('button',{name:'View order',exact:true}).click();await expect.poll(()=>alice.evaluate(()=>openedOrders)).toEqual([originalOrder.id]);
+    await expect(alice.locator('.conversation-workspace')).not.toHaveAttribute('aria-busy','true');
+    for(const width of [390,1280]){await alice.setViewportSize({width,height:844});expect(await alice.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await alice.screenshot({path:path.resolve(__dirname,'../../.tmp-room-order-reference-'+width+'.png'),fullPage:true});}
+    await bob.getByRole('button',{name:'Share order reference'}).click();await expect(bob.locator('dialog')).toContainText('No items available.');
+    await expect(bob.locator('dialog button[type=submit]')).toBeDisabled();await bob.locator('dialog').getByRole('button',{name:'Close chat'}).click();
+    roomFixtureOrder={...originalOrder,buyerUsername:'outside-seller'};
+    await alice.getByRole('button',{name:'View order',exact:true}).click();await expect(alice.locator('[data-room-detail]')).toContainText('Order details are unavailable');
+    await expect(alice.locator('[data-room-order]')).not.toContainText(originalOrder.productName);
+    await expect(alice.getByRole('button',{name:'View order',exact:true})).toHaveCount(0);
+    expect(await alice.evaluate(()=>openedOrders)).toEqual([originalOrder.id]);
+  }finally{roomFixtureOrder=originalOrder;loseRoomOrder=false;for(const c of contexts)await c.close().catch(()=>{});roomsEnabled=false;}
+});
 
 test('Room own-device archive synchronization, recovery and encrypted old attachment download work over real HTTP',async({browser})=>{
   test.setTimeout(120000);await resetStores(true,true);

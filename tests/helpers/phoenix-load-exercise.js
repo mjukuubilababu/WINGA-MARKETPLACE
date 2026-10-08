@@ -3,7 +3,7 @@ const {randomUUID} = require('node:crypto');
 const {setTimeout:delay} = require('node:timers/promises');
 
 // Called only by the isolated localhost PostgreSQL/two-node fixture.
-module.exports = async function exercise({pool,device,firstPort,secondPort,tickets,stopFirst,restartWriter}) {
+module.exports = async function exercise({pool,device,firstPort,secondPort,tickets,stopFirst,restartWriter,sampleNodes}) {
   const concurrency=8, senders=16, perSender=4, expected=65;
   const clients=[], payloads=[], canonical=new Map(), latencies=[];
   for(let i=0;i<senders;i++) {
@@ -55,6 +55,9 @@ module.exports = async function exercise({pool,device,firstPort,secondPort,ticke
     AND d.acknowledged_at IS NULL AND e.message_id=ANY($1::text[])`,[ids])).rows[0].n;
   assert.equal(pendingBefore,expected);
 
+  // Point-in-time aggregate measurement, not a saturation/capacity claim.
+  let measuredNodes = null;
+  try {if (sampleNodes) measuredNodes = await sampleNodes();} catch {}
   await stopFirst();
   for(const client of clients)client.ws.close();
   await restartWriter();
@@ -98,5 +101,5 @@ module.exports = async function exercise({pool,device,firstPort,secondPort,ticke
     writerRestartRecovered:true,replayedAndAcknowledged:acknowledged,implicitReceipts:0,
     sendElapsedMs,p50SendMs:Math.round(latencies[Math.ceil(latencies.length*0.5)-1]),
     p95SendMs:Math.round(latencies[Math.ceil(latencies.length*0.95)-1]),
-    productionCapacityProven:false};
+    measuredNodes,productionCapacityProven:false};
 };

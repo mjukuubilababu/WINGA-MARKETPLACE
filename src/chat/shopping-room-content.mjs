@@ -14,6 +14,7 @@ export function validateRoomContent(value) {
   need(exact(value, ['version','type','data']) && value.version === 1);
   const d = value.data;
   switch (value.type) {
+    case 'order-reference': need(exact(d, ['orderId']) && identifier(d.orderId)); break;
     case 'product-share':
       need(exact(d, ['productId','note','snapshot']) && identifier(d.productId) && text(d.note, 2048));
       need(d.snapshot === null || exact(d.snapshot, ['name','currency','unitPriceMinor'])
@@ -82,7 +83,7 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
     unique.set(item.id, {item, binding}); sequences.set(item.sequence, item.id);
   }
   const sorted = [...unique.values()].map(v => v.item).sort((a,b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1);
-  const products = new Map(), polls = new Map(), questions = new Map(), rejected = [];
+  const products = new Map(), polls = new Map(), questions = new Map(), orders = new Map(), rejected = [];
   const role = item => epochs.get(item.epoch).find(m => m.owner === item.owner && m.id === item.deviceId)?.role;
   const before = (target, item) => target && BigInt(target.sequence) < BigInt(item.sequence);
   for (const item of sorted) {
@@ -92,7 +93,10 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
       continue;
     }
     const d = c.data;
-    if (c.type === 'product-share') {
+    if (c.type === 'order-reference') {
+      const reference = orders.get(d.orderId) || {orderId:d.orderId,referenceId:item.id,sharedBy:new Set()};
+      reference.sharedBy.add(item.owner);orders.set(d.orderId,reference);
+    } else if (c.type === 'product-share') {
       products.set(item.id, {shareId:item.id,productId:d.productId,note:d.note,historicalSnapshot:d.snapshot,
         owner:item.owner,sequence:item.sequence,removed:false,selections:new Map()});
     } else if (c.type === 'product-remove' || c.type === 'shortlist') {
@@ -136,6 +140,7 @@ export function projectRoomContent(history, {conversationId, epochs, now = Date.
   }
   return {
     conversationId,
+    orders:[...orders.values()].map(o=>({orderId:o.orderId,referenceId:o.referenceId,sharedBy:[...o.sharedBy].sort()})),
     sellerQuestions:[...questions.values()].map(q=>structuredClone(q)),
     products:[...products.values()].filter(p => !p.removed).map(p => ({shareId:p.shareId,productId:p.productId,note:p.note,
       owner:p.owner,historicalSnapshot:structuredClone(p.historicalSnapshot),

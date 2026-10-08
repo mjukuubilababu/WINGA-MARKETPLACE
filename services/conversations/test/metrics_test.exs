@@ -6,12 +6,21 @@ defmodule WingaConversations.MetricsTest do
   test "metrics exclude content, count fixed outcomes and remove dead connections" do
     before = Metrics.snapshot()
     Metrics.record(:send_accepted, 10)
+    Metrics.record(:native_confirmed, 5)
+    Metrics.record(:native_unknown, 8)
     Metrics.record("PRIVATE CONTENT", 99)
     after_sample = Metrics.snapshot()
     before_count = Enum.find(before.counters, &(&1.event == :send_accepted)).count
     assert Enum.find(after_sample.counters, &(&1.event == :send_accepted)).count == before_count + 1
     refute Jason.encode!(after_sample) =~ "PRIVATE CONTENT"
     assert after_sample.beamMemoryBytes > 0
+    assert after_sample.securityMode == "legacy-plaintext-transport"
+    assert after_sample.securityModeScope == "legacy-message-command-only"
+    assert after_sample.supportedOperationModes == ["legacy-message", "signed-native-operation"]
+    for event <- [:native_confirmed, :native_unknown] do
+      previous = Enum.find(before.counters, &(&1.event == event)).count
+      assert Enum.find(after_sample.counters, &(&1.event == event)).count == previous + 1
+    end
     pid = spawn(fn -> receive do :finish -> :ok end end)
     Metrics.track(pid)
     assert Metrics.snapshot().connections == before.connections + 1

@@ -7946,11 +7946,13 @@ const server = http.createServer(async (req, res) => {
     if (!postgresStore?.resolveConversationTransportSession) {
       sendJson(res, 503, { code: "transport_unavailable" }); return;
     }
+    let transportCommand;
     try {
       if (!isJsonContentType(req.headers["content-type"])) {
         sendJson(res, 415, { code: "unsupported_media_type" }); return;
       }
       const command = conversationTransport.validateCommand(await collectBody(req, { maxBytes: MAX_COMMAND_BYTES }));
+      transportCommand = command.command;
       const context = await conversationTransport.authorize(command.ticket, postgresStore);
       if (command.command === "send") {
         const messageStore = migrateLegacyStore(cleanupSessions(await readStore())).store;
@@ -7962,7 +7964,12 @@ const server = http.createServer(async (req, res) => {
       }
     } catch (error) {
       const status = [400,401,403,404,409,410,413,429].includes(error.status) ? error.status : 503;
-      sendJson(res, status, { code: "transport_request_rejected" }, { "Cache-Control": "no-store" });
+      const native = transportCommand === "native";
+      const headers = { "Cache-Control": "no-store" };
+      if (native && status === 429 && Number.isInteger(error.retryAfterSeconds)
+        && error.retryAfterSeconds > 0 && error.retryAfterSeconds <= 3600) headers["Retry-After"] = String(error.retryAfterSeconds);
+      sendJson(res, status, { code: native && /^[a-z][a-z0-9_]{0,79}$/.test(error.code || "")
+        ? error.code : "transport_request_rejected" }, headers);
     }
     return;
   }

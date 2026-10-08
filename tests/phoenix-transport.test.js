@@ -91,6 +91,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     WINGA_DATA_DIR:path.join(tempRoot,'data'),WINGA_UPLOADS_DIR:path.join(tempRoot,'uploads'),R2_ACCOUNT_ID:'',
     WINGA_PHOENIX_TRANSPORT_ENABLED:'true',WINGA_PHOENIX_ALL_USERS:'true',WINGA_PHOENIX_CANARY_USERS:'',CONVERSATION_SERVICE_TOKEN:serviceToken,
     CONVERSATION_TICKET_SECRET:randomBytes(32).toString('hex'),WINGA_WEB_PUSH_ENABLED:'false',
+    WINGA_ENCRYPTED_CONVERSATIONS_ENABLED:'true',WINGA_CRYPTO_DEVICES_ENABLED:'true',WINGA_MLS_CANDIDATE_ENABLED:'true',
     INTELLIGENCE_QUEUE_PROCESSOR_MODE:'off',WINGA_DISABLE_RATE_LIMIT:'1',ALLOWED_ORIGINS:'http://localhost:4173'};
   function launch(command,args,env,cwd,name){
     const log=fs.openSync(path.join(tempRoot,name+'.log'),'a');
@@ -118,14 +119,26 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   });
   assert.equal(oversized.status, 413);
   assert.match(oversized.headers.get('cache-control'), /no-store/);
-  let failBefore=false,dropAfter=false;
+  let failBefore=false,dropAfter=false,nativeFixture,nativeFirst;
   proxy=http.createServer(async(req,res)=>{
     try{
       const chunks=[];for await(const chunk of req)chunks.push(chunk);const body=Buffer.concat(chunks);
-      const command=JSON.parse(body).command;
+      const input=JSON.parse(body),command=input.command,operation=command==='native'?input.payload:null;
+      if(operation && nativeFixture) {
+        nativeFixture.requests.push({operation:structuredClone(operation),transport:'Phoenix'});
+        if(operation.action==='receipt' && operation.payload.kind==='delivered' && nativeFixture.faults.withholdDelivered) {
+          res.writeHead(503).end('{}');return;
+        }
+      }
       if(command==='send' && failBefore){const status=failBefore;failBefore=false;res.writeHead(status).end('{}');return;}
       const upstream=await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceToken}`},body});
       const result=await upstream.text();
+      if(operation && nativeFixture && upstream.ok)nativeFixture.responses.push({status:upstream.status,value:JSON.parse(result).result,transport:'Phoenix'});
+      if(operation?.action==='send' && nativeFixture?.faults.loseSendReply && upstream.ok) {
+        nativeFixture.faults.loseSendReply=false;
+        nativeFixture.responses.push({status:upstream.status,value:JSON.parse(result).result,lost:true,transport:'Phoenix'});
+        await stop(nativeFirst);req.socket.destroy();return;
+      }
       if(command==='send' && dropAfter){dropAfter=false;req.socket.destroy();return;}
       res.writeHead(upstream.status,{'Content-Type':'application/json'}).end(result);
     }catch{if(!res.destroyed)res.writeHead(503).end('{}');}
@@ -188,6 +201,21 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
   await ready(`http://127.0.0.1:${firstPort}/health`,restarted);
   const loadEvidence=await require('./helpers/phoenix-load-exercise')({
     pool,device,firstPort,secondPort,tickets,
+    sampleNodes:async()=>{
+      const nodes=await Promise.all([firstPort,secondPort].map(async port=>{
+        const response=await fetch(`http://127.0.0.1:${port}/ops/health`,{
+          headers:{Authorization:`Bearer ${serviceToken}`},signal:AbortSignal.timeout(3000)});
+        assert.equal(response.status,200);
+        const value=await response.json();
+        return {connections:value.connections,connectionGaugeComplete:value.connectionGaugeComplete,
+          beamMemoryBytes:value.beamMemoryBytes};
+      }));
+      return {scope:'two-local-nodes-point-in-time',sampledNodes:nodes.length,
+        connections:nodes.every(n=>n.connectionGaugeComplete && Number.isSafeInteger(n.connections))
+          ?nodes.reduce((sum,n)=>sum+n.connections,0):null,
+        beamMemoryBytes:nodes.every(n=>Number.isSafeInteger(n.beamMemoryBytes))
+          ?nodes.reduce((sum,n)=>sum+n.beamMemoryBytes,0):null};
+    },
     stopFirst:()=>stop(restarted),
     restartWriter:async()=>{
       await stop(node);
@@ -196,4 +224,66 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     }
   });
   t.diagnostic(JSON.stringify(loadEvidence));
+  await t.test('signed native MLS operations traverse Phoenix and recover exact ciphertext through real BEAM node loss', async nativeTest=>{
+    const activeFirst=phoenix(firstPort,'phoenix-encrypted-a');
+    nativeFirst=activeFirst;
+    await ready(`http://127.0.0.1:${firstPort}/health`,activeFirst);
+    const firstDevice=await device(firstPort,await ticket('alice'));
+    const secondDevice=await device(secondPort,await ticket('alice'));
+    nativeFixture=await require('./helpers/phoenix-encrypted-native-fixture')({
+      root,output:tempRoot,store,backend,csrf,phoenixPort:firstPort,
+      phoenixPorts:{alice:firstPort,bob2:secondPort},sessions:{
+        alice:{username:'alice',sessionId:'alice',token:tokens.alice},
+        bob2:{username:'bob',sessionId:'bob2',token:tokens.bob2}
+      }
+    });
+    nativeTest.after(()=>nativeFixture.close());
+    const phases=[];
+    const evidence=await require('./helpers/phoenix-encrypted-native-exercise')({
+      fixture:nativeFixture,pool,accounts:{alice:'alice',bob:'bob2'},
+      onSecurity:operations=>require('./helpers/phoenix-native-security')({
+        pool,operations,sessions:{
+          alice:{username:'alice',sessionId:'alice',token:tokens.alice},
+          bob:{username:'bob',sessionId:'bob2',token:tokens.bob2}
+        },
+        request:async(session,operation,{revoke=false}={})=>{
+          const issued=await fetch(backend+'/api/messages/transport-ticket',{method:'POST',headers:{
+            'Content-Type':'application/json','X-CSRF-Token':csrf,
+            Cookie:`winga_auth=${session.token}; winga_csrf=${csrf}`,Origin:'http://localhost:4173'},body:'{}'});
+          assert.equal(issued.status,200);
+          const nativeTicket=(await issued.json()).ticket;
+          if(revoke)await pool.query('DELETE FROM sessions WHERE session_id=$1',[session.sessionId]);
+          const result=await fetch(backend+'/api/internal/conversations/command',{method:'POST',headers:adapterHeaders,
+            body:JSON.stringify({version:1,ticket:nativeTicket,command:'native',payload:operation})});
+          return {status:result.status,value:await result.json()};
+        }
+      }),
+      onLoss:async(phase,operation)=>{
+        const socket=phase==='accepted-reply-lost'?firstDevice:secondDevice;
+        const child=phase==='accepted-reply-lost'?activeFirst:second;
+        const closed=socket.ws.readyState===WebSocket.CLOSED?Promise.resolve():once(socket.ws,'close',{signal:AbortSignal.timeout(10000)});
+        if(child.exitCode===null && child.signalCode===null)await stop(child);
+        await closed;
+        assert.ok(child.exitCode!==null || child.signalCode!==null,'real BEAM process must exit');
+        const port=phase==='accepted-reply-lost'?firstPort:secondPort;
+        await assert.rejects(fetch(`http://127.0.0.1:${port}/health`,{signal:AbortSignal.timeout(1000)}));
+        if(phase==='accepted-reply-lost') {
+          nativeFixture.phoenixPort=secondPort;
+          nativeFixture.phoenixPorts={alice:secondPort,bob2:secondPort};
+        }
+        else {
+          const replacement=phoenix(firstPort,'phoenix-native-survivor');
+          await ready(`http://127.0.0.1:${firstPort}/health`,replacement);
+          nativeFixture.phoenixPort=firstPort;
+          nativeFixture.phoenixPorts={alice:firstPort,bob2:firstPort};
+        }
+        phases.push(phase);
+      }
+    });
+    assert.deepEqual(phases,['accepted-reply-lost','persisted-receipt-withheld']);
+    assert.deepEqual(evidence,{nativeTransport:'Phoenix+HTTP-recovery',signedMls:true,canonicalCiphertext:true,
+      decryptedBeforeReceipt:true,replayedAfterReload:true,explicitRead:true,beamLossPhases:2,nativePhoenixSupported:true,
+      liveCrossNode:true,nativeMessages:2});
+    nativeTest.diagnostic(JSON.stringify(evidence));
+  });
 });

@@ -110,4 +110,75 @@ defmodule WingaConversations.DeviceChannelTest do
     push(socket, "unknown", %{})
     assert_receive {:DOWN, ^monitor, :process, _, :normal}
   end
+
+  defp native_join do
+    reply("authorize", {:ok, %{"deviceId" => "device-a",
+      "expiresAt" => System.system_time(:millisecond) + 60_000, "nativeOperations" => true}})
+    join()
+  end
+
+  # Opaque channel fixture only; real signatures and MLS are exercised by the browser/PG acceptance.
+  defp opaque_operation do
+    %{"action" => "poll", "actorId" => "native-actor", "requestId" => "native-request",
+      "issuedAt" => System.system_time(:millisecond), "payload" => %{}, "signature" => "opaque"}
+  end
+
+  test "native support is negotiated independently of legacy join authentication" do
+    {:ok, _, socket} = join()
+    ref = push(socket, "encrypted.operation", opaque_operation())
+    assert_reply(ref, :error, %{code: "native_unavailable"})
+    refute_receive {:adapter, "native", _}, 20
+  end
+
+  test "native operations remain opaque and only matching canonical results are confirmed" do
+    operation = opaque_operation()
+    canonical = %{"version" => 1, "requestId" => operation["requestId"], "result" => %{"groups" => []}}
+    reply("native", {:ok, canonical})
+    {:ok, _, socket} = native_join()
+    ref = push(socket, "encrypted.operation", operation)
+    assert_reply(ref, :ok, ^canonical)
+    assert_receive {:adapter, "native", ^operation}
+    refute_receive {:adapter, "receipt", _}, 20
+    for response <- [%{}, %{canonical | "requestId" => "wrong"}, %{canonical | "result" => []}] do
+      reply("native", {:ok, response})
+      ref = push(socket, "encrypted.operation", operation)
+      assert_reply(ref, :error, %{code: "outcome_unknown"})
+    end
+  end
+
+  test "native malformed and oversized frames never reach the adapter" do
+    {:ok, _, socket} = native_join()
+    for operation <- [[], Map.put(opaque_operation(), "payload", %{"ciphertext" => String.duplicate("x", 24_001)})] do
+      ref = push(socket, "encrypted.operation", operation)
+      assert_reply(ref, :error, %{code: "invalid_request"})
+    end
+    refute_receive {:adapter, "native", _}, 20
+  end
+
+  test "native rate/upstream failures do not fabricate acceptance and revoked sessions close" do
+    {:ok, _, socket} = native_join()
+    reply("native", {:error, :rejected})
+    ref = push(socket, "encrypted.operation", opaque_operation())
+    assert_reply(ref, :error, %{code: "rejected"})
+    # Adapter maps backend 429 and 503 to unavailable; neither is acceptance.
+    reply("native", {:error, :unavailable})
+    ref = push(socket, "encrypted.operation", opaque_operation())
+    assert_reply(ref, :error, %{code: "outcome_unknown"})
+    monitor = Process.monitor(socket.channel_pid)
+    reply("native", {:error, :unauthorized})
+    push(socket, "encrypted.operation", opaque_operation())
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
+  end
+
+  test "native command rate budget remains bounded" do
+    {:ok, _, socket} = native_join()
+    reply("native", {:error, :unavailable})
+    for _ <- 1..20 do
+      ref = push(socket, "encrypted.operation", opaque_operation())
+      assert_reply(ref, :error, %{code: "outcome_unknown"})
+    end
+    monitor = Process.monitor(socket.channel_pid)
+    push(socket, "encrypted.operation", opaque_operation())
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}
+  end
 end

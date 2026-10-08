@@ -28,3 +28,10 @@ test('commerce actions hydrate an exact currently authorized approved product, n
   const denied=client(async()=>({products:[{id:'other',status:'approved'},{id:'p1',status:'pending'}]}));
   await assert.rejects(()=>denied.readConversationProduct('p1'),/conversation_reference_unavailable/);
 });
+
+test('order lookup searches canonical IDs before the twelve-result UI bound',async()=>{
+  const purchases=Array.from({length:20},(_,i)=>({id:'order-'+i,productName:'Same product'}));
+  const api=client(async()=>({purchases,sales:[]}));
+  assert.equal((await api.readRichCatalog('order')).length,12);
+  assert.deepEqual(Array.from(await api.readRichCatalog('order','order-19'),o=>o.id),['order-19']);
+});

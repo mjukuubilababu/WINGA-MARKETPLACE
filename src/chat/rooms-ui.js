@@ -39,12 +39,13 @@
       case 'encrypted_membership_required':case 'encrypted_membership_pending':return t('rooms.sellerChatRequired','Seller chat encryption is not ready.');
       case 'encrypted_seller_product_unavailable':return t('rooms.productUnavailable','Current product unavailable');
       case 'encrypted_seller_request_conflict':return t('rooms.sellerDraftPending','A saved question is waiting to be sent.');
+      case 'conversation_reference_unavailable':return t('rooms.orderUnavailable','Order details are unavailable for this account.');
       default:return t('rooms.actionFailed','Unable to finish. Try again.');}}
     const memberName=id=>actions.memberName?.(id)||id;
     function memberAvatar(id){const wrap=element('span','','message-thread-avatar'),fallback=()=>wrap.replaceChildren(element('span',memberName(id).slice(0,1),'conversation-avatar-initial'));
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
-    state.comparison=state.comparison||new Map();
+    state.comparison=state.comparison||new Map();const orderReads=new Map();
     let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
@@ -57,7 +58,7 @@
     const run=async fn=>{if(busy||!current())return;busy=true;lastError='';status.textContent='';scope.setAttribute('aria-busy','true');
       for(const message of document.querySelectorAll('.room-dialog [data-room-error]'))message.textContent='';
       for(const b of [...scope.querySelectorAll('[data-room-control]'),...document.querySelectorAll('.room-dialog [data-room-control]')])if(!b.disabled){b.disabled=true;b.dataset.roomBusyDisabled='true';}
-      try{await fn();if(current())await refresh(true);}catch(error){actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
+      try{await fn();if(current())await refresh(true);}catch(error){if(error.status===401){orderReads.clear();if(current())detailView();}actions.onError?.(error?.code||'room_operation_failed');if(current()){lastError=error.code;status.textContent=errorText(error);
         const dialog=[...document.querySelectorAll('.room-dialog form')].at(-1);if(dialog){let message=dialog.querySelector('[data-room-error]');if(!message){message=element('p','','empty-copy');message.dataset.roomError='true';message.setAttribute('role','alert');dialog.append(message);}message.textContent=status.textContent;}
         if(!status.isConnected)detail.prepend(status);}}
       finally{busy=false;scope.removeAttribute('aria-busy');for(const b of [...scope.querySelectorAll('[data-room-busy-disabled]'),...document.querySelectorAll('.room-dialog [data-room-busy-disabled]')]){b.disabled=false;delete b.dataset.roomBusyDisabled;}
@@ -208,6 +209,46 @@
       if(!board.polls.length)wrap.append(element('p',t('rooms.noPolls','No polls yet.'),'empty-copy'));
       if(board.polls.length>state.shown)wrap.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));return wrap;
     }
+    async function shareOrder(room){const view=modal(t('rooms.shareOrder','Share order reference')),codec=await import('/src/chat/shopping-room-content.mjs'),history=await call('history',room.id);
+      if(!current()||!view.d.isConnected)return view.d.close();
+      const saved=history.find(m=>m.owner===owner&&m.status==='pending'&&codec.parseRoomContent(m.message)?.type==='order-reference');
+      let pending=saved?{orderId:codec.parseRoomContent(saved.message).data.orderId,messageId:saved.id}:null;
+      const shared=new Set(history.filter(m=>m.owner===owner&&m.status!=='pending').map(m=>codec.parseRoomContent(m.message)).filter(c=>c?.type==='order-reference').map(c=>c.data.orderId));
+      const query=input(view.form,t('chat.richSearch','Search items'),'order-query');query.required=false;
+      const label=element('label',t('rooms.orders','Orders')),select=control(document.createElement('select'));select.name='order';label.append(select);view.form.append(label);
+      const empty=element('p','','empty-copy');view.form.append(empty);
+      const consentLabel=element('label','','room-consent'),consent=control(document.createElement('input'));consent.type='checkbox';
+      consentLabel.append(consent,element('span',t('rooms.orderConsent','Share this order reference with room members. Order details remain restricted to authorized accounts.')));view.form.append(consentLabel);
+      const send=submit(view.form,t('rooms.shareOrder','Share order reference'),async()=>{
+        if(!consent.checked||!select.value)return;
+        pending=pending||{orderId:select.value,messageId:crypto.randomUUID()};select.disabled=true;delete select.dataset.roomBusyDisabled;
+        const canonical=await dataLayer.readConversationReference('order',pending.orderId);
+        if(!current()||!view.d.isConnected)return;
+        if(canonical?.kind!=='order'||canonical.id!==pending.orderId)fail('conversation_reference_unavailable');
+        await call('command',room.id,'order-reference',{orderId:pending.orderId},pending.messageId);view.d.close();});
+      const ready=()=>send.disabled=!consent.checked||!select.value||busy;readyControls.set(send,ready);consent.onchange=ready;
+      let request=0;const load=async()=>{const revision=++request,rows=await dataLayer.readRichCatalog('order',query.value);
+        if(!current()||!view.d.isConnected||request!==revision)return;
+        const allowed=(rows||[]).filter(o=>typeof o.id==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(o.id)&&[o.buyerUsername,o.sellerUsername].includes(owner)&&(!shared.has(o.id)||pending?.orderId===o.id));
+        select.replaceChildren();if(pending){const option=element('option',allowed.find(o=>o.id===pending.orderId)?.productName||pending.orderId);option.value=pending.orderId;select.append(option);
+          select.disabled=true;delete select.dataset.roomBusyDisabled;query.disabled=true;}
+        else for(const o of allowed){const option=element('option',o.productName||o.id);option.value=o.id;select.append(option);}
+        empty.textContent=select.value?'':t('chat.richNoItems','No items available.');ready();};
+      const search=button(t('nav.search','Search'),load);view.form.insertBefore(search,label);select.onchange=ready;ready();await load();}
+    function ordersView(room,board){const wrap=element('div','','room-products'),toolbar=element('div','','rooms-list-toolbar');
+      toolbar.append(element('strong',t('rooms.orders','Orders')),iconButton('plus',t('rooms.shareOrder','Share order reference'),()=>shareOrder(room)));wrap.append(toolbar);
+      for(const ref of (board.orders||[]).slice(0,state.shown)){const row=element('article','','room-product-item'),body=element('div');row.dataset.roomOrder=ref.orderId;
+        const canonical=orderReads.get(ref.orderId)?.value;body.append(element('strong',canonical?.productName||t('chat.richOrder','Order')),element('code',ref.orderId),
+          element('small',t('rooms.sharedBy','Shared by {member}',{member:ref.sharedBy.map(memberName).join(', ')})));
+        if(canonical){body.append(element('small',t('order.status.'+canonical.status,canonical.status||'')));
+          if(actions.openOrder)body.append(button(t('chat.richViewOrder','View order'),async()=>{
+            let fresh;try{fresh=await dataLayer.readConversationReference('order',ref.orderId);}catch(error){orderReads.delete(ref.orderId);if(current())detailView();throw error;}
+            if(!current())return;
+            if(fresh?.kind!=='order'||fresh.id!==ref.orderId){orderReads.delete(ref.orderId);detailView();fail('conversation_reference_unavailable');}
+            await actions.openOrder(ref.orderId);}));}
+        else body.append(element('small',t('rooms.orderUnavailable','Order details are unavailable for this account.')));row.append(body);wrap.append(row);}
+      if(!(board.orders||[]).length)wrap.append(element('p',t('rooms.noOrders','No shared orders.'),'empty-copy'));
+      if((board.orders||[]).length>state.shown)wrap.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));return wrap;}
     function detailView(){const room=rooms.find(r=>r.id===state.selected),oldThread=detail.dataset.roomId===room?.id?detail.querySelector('.room-thread'):null;
       const keepPosition=oldThread&&oldThread.scrollHeight-oldThread.clientHeight-oldThread.scrollTop>40;
       const oldTop=oldThread?.getBoundingClientRect().top,anchor=keepPosition?[...oldThread.querySelectorAll('[data-room-message]')].find(row=>row.getBoundingClientRect().bottom>oldTop):null;
@@ -234,12 +275,12 @@
       const tabs=element('div','','room-view-tabs');tabs.setAttribute('role','tablist');
       for(const [value,label] of [['chat',t('inbox.chats','Chats')],['products',t('rooms.products','Products')],['polls',t('rooms.polls','Polls')],['shortlist',t('rooms.shortlist','Shortlist')],['orders',t('rooms.orders','Orders')]]){
         const b=button(label,async()=>{state.tab=value;state.shown=100;},'room-view-tab');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(state.tab===value));
-        if(value==='orders'){b.disabled=true;delete b.dataset.roomBusyDisabled;}tabs.append(b);}detail.append(tabs);
+        tabs.append(b);}detail.append(tabs);
       const board=state.boards.get(room.id),history=state.history.get(room.id)||[];
       if(room.departures?.length)detail.append(element('p',t('rooms.rotationPending','Messages are paused while member keys rotate.'),'empty-copy'));
       if(state.tab==='products'||state.tab==='shortlist')detail.append(productView(room,board,state.tab==='shortlist'));
       else if(state.tab==='polls')detail.append(pollsView(room,board));
-      else if(state.tab==='orders')detail.append(element('p',t('rooms.noOrders','No shared orders.'),'empty-copy'));
+      else if(state.tab==='orders')detail.append(ordersView(room,board));
       else{const thread=element('div','','messages-thread-body room-thread');
         if(history.length>state.shown)thread.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));
         for(const m of history.slice(-state.shown)){const row=element('div','','chatroom-message-row'+(m.owner===owner?' is-own':'')),bubble=element('div','','message-bubble '+(m.owner===owner?'outgoing':'incoming'));
@@ -251,7 +292,7 @@
             const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);
             if(q){bubble.append(element('strong',m.message.includes('seller-response')?t('rooms.sellerResponse','Seller response'):t('rooms.sellerQuestion','Seller question')),
               element('small',q.sellerId),element('p',m.message.includes('seller-response')?q.answer?.text||t('rooms.awaitingSeller','Awaiting seller response'):q.question));}
-            else bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('poll-')?'polls':'products';}));}
+            else bubble.append(button(t('rooms.sharedActivity','Shared activity'),async()=>{state.tab=m.message.includes('order-reference')?'orders':m.message.includes('poll-')?'polls':'products';}));}
           else if(m.message.startsWith('WINGA-MEDIA/'))bubble.append(element('p',t('rooms.attachmentUnavailable','Attachment unavailable')));
           else bubble.append(element('p',m.message));
           bubble.append(element('small',new Date(m.timestamp).toLocaleTimeString(document.documentElement.lang||'sw',{hour:'2-digit',minute:'2-digit'})+(m.owner===owner?' '+(m.status==='pending'?t('chat.sending','Sending'):t('rooms.'+m.status,m.status)):'')));
@@ -271,7 +312,7 @@
       if(room.departures?.length){for(const control of detail.querySelectorAll('button,input,textarea')){
         if(head.contains(control)||tabs.contains(control))continue;control.disabled=true;delete control.dataset.roomBusyDisabled;}}
     }
-    async function refresh(force=false){if(!current())return;
+    async function refresh(force=false){if(!current())return;try{
       roomLimits=await call('limits');if(!current())return;
       const next=await call('sync');if(!current())return;rooms=next;
       for(const [id,update]of preferenceViews){const room=rooms.find(r=>r.id===id);if(room?.preferences)update(room.preferences);}
@@ -282,13 +323,19 @@
         const history=await call('history',room.id);if(!current())return;state.history.set(room.id,history);
         if(room.status==='removed')continue;
         try{const board=await call('board',room.id);if(!current())return;state.boards.set(room.id,board);
+          if(room.id===state.selected&&state.tab==='orders')for(const ref of (board.orders||[]).slice(0,state.shown)){
+            const cached=orderReads.get(ref.orderId);if(cached&&Date.now()-cached.at<30000)continue;
+            let value=null;try{const r=await dataLayer.readConversationReference('order',ref.orderId);if(r?.kind==='order'&&r.id===ref.orderId)value=r;}
+            catch(error){orderReads.delete(ref.orderId);if(error.status===401)throw error;}if(!current())return;orderReads.set(ref.orderId,{value,at:Date.now()});
+            if(orderReads.size>1000)orderReads.delete(orderReads.keys().next().value);}
           if(room.id===state.selected&&['products','shortlist'].includes(state.tab))for(const p of board.products.slice(0,state.shown)){const cached=state.catalog.get(p.productId);if(cached&&Date.now()-cached.at<30000)continue;
             let product;try{product=await dataLayer.readConversationProduct(p.productId);}catch{product=null;}if(!current())return;state.catalog.set(p.productId,{product,at:Date.now()});}
         }catch(error){if(!['mls_group_required','mls_room_roster_rejected','mls_room_membership_pending','mls_room_acceptance_required','mls_membership_required'].includes(error.code))throw error;state.boards.delete(room.id);}}
       pendingFiles=[];if(state.selected&&rooms.find(r=>r.id===state.selected)?.status!=='removed')try{pendingFiles=await call('pendingMedia',state.selected);}catch(error){if(error.code!=='private_media_disabled')throw error;}
-      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences,r.departures,r.rotationPending,r.leaveScope]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
+      const version=JSON.stringify([rooms.map(r=>[r.id,r.status,r.transition?.status,r.transition?.id,r.acceptances?.length,r.clientError,r.preferences,r.departures,r.rotationPending,r.leaveScope]),[...state.history],[...state.boards],[...state.catalog].map(([id,v])=>[id,v.product]),[...orderReads].map(([id,v])=>[id,v.value]),state.selected,state.tab,state.shown,state.showArchived,pendingFiles,pendingTransitions,pendingQuestions]);
       if(force||version!==signature){signature=version;const active=document.activeElement,editing=detail.contains(active)&&active?.name==='message',start=active?.selectionStart,end=active?.selectionEnd;
         listView();detailView();if(editing){const field=detail.querySelector('textarea[name="message"]');field?.focus();field?.setSelectionRange(start,end);}}visibleRead();
+      }catch(error){if(error.status===401){orderReads.clear();if(current())detailView();}throw error;}
     }
     const create=scope.querySelector('[data-conversations-action="new"]');if(create)create.onclick=()=>run(createRoom);
     const loop=async()=>{if(stopped||!current())return;try{if(!busy&&document.visibilityState==='visible')await refresh();}catch(error){if(current()){status.textContent=error.code==='encrypted_rooms_disabled'?t('rooms.unavailable','Chatrooms are unavailable.'):t('rooms.actionFailed','Unable to finish. Try again.');

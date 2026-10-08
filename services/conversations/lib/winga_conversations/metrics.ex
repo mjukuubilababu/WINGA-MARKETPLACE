@@ -1,6 +1,7 @@
 defmodule WingaConversations.Metrics do
   use GenServer
-  @events [:send_accepted, :send_unknown, :poll_success, :poll_failed, :ack_success, :ack_failed, :protocol_error]
+  @events [:send_accepted, :send_unknown, :poll_success, :poll_failed, :ack_success, :ack_failed, :protocol_error,
+    :native_confirmed, :native_unknown]
   @table __MODULE__
 
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -61,6 +62,8 @@ defmodule WingaConversations.Metrics do
     end
     result = %{ok: true, privacy: "aggregate-only", scope: "phoenix-node-since-start",
       securityMode: "legacy-plaintext-transport", startedAt: state.started,
+      securityModeScope: "legacy-message-command-only",
+      supportedOperationModes: ["legacy-message", "signed-native-operation"],
       connections: if(state.overflow, do: nil, else: map_size(state.connections)),
       connectionGaugeComplete: not state.overflow, queuedMessages: Enum.sum(queues),
       beamMemoryBytes: :erlang.memory(:total), schedulerUtilization: state.utilization,

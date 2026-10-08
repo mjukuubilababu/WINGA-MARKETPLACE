@@ -1,5 +1,10 @@
 # Conversations 222-225: Test Suites And Security
 
+The [2026-10-09 follow-up](conversations-final-acceptance-20261009.md) records
+the subsequent Room order-reference/native Phoenix/SARIF candidate. The dated
+unsupported-feature and untriaged-scan descriptions below describe this earlier
+checkpoint, not permission to treat the new candidate as production accepted.
+
 These sections specify verification, not permission to bypass native approval,
 force-read accounts, introduce message requests or certify cryptography. All
 new execution here uses synthetic accounts and disposable local databases.

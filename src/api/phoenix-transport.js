@@ -45,7 +45,7 @@
     const later = deps.setTimeout || setTimeout, cancel = deps.clearTimeout || clearTimeout;
     const now = deps.now || Date.now, random = deps.random || Math.random;
     let closed = false, epoch = 0, socket = null, channel = null, timer = null, deadline = null;
-    let joined = false, receiving = false, attempts = 0, expiresAt = 0;
+    let joined = false, receiving = false, attempts = 0, expiresAt = 0, nativeOperations = false;
     let joinWhenOpen = null;
     let reconnectStarted=null,everJoined=false,resumeAttempt=null,resumeTimer=null;
     const metric=(name,value)=>{try{globalThis.WingaConversationExperience?.record(name,value);}catch{}};
@@ -58,6 +58,7 @@
     function reset() {
       epoch++;
       joined = false;
+      nativeOperations = false;
       expiresAt = 0;
       receiving = false;
       cancel(timer); cancel(deadline);cancel(resumeTimer);resumeTimer=null;
@@ -97,7 +98,7 @@
         try {
           channel.push(event, payload, 8000)
             .receive("ok", result => finish(null, result))
-            .receive("error", result => finish(failure(result?.code === "rejected" ? "message_rejected" : "outcome_unknown",
+            .receive("error", result => finish(event === "encrypted.operation" ? failure("outcome_unknown") : failure(result?.code === "rejected" ? "message_rejected" : "outcome_unknown",
               result?.code === "rejected" ? 409 : 503)))
             .receive("timeout", () => finish(failure("outcome_unknown")));
         } catch { finish(failure("outcome_unknown")); }
@@ -159,6 +160,7 @@
               || principal?.expiresAt !== ticket.expiresAt) { retry(generation,{status:401}); return; }
             cancel(deadline); deadline = null;
             joined = true; attempts = 0; expiresAt = ticket.expiresAt;
+            nativeOperations = principal.nativeOperations === true;
             everJoined=true;
             if(resumeAttempt!==null)resumeTimer=later(()=>{
               if(current(generation)&&resumeAttempt!==null){metric('transport-resume-pending',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;}
@@ -177,6 +179,16 @@
     return {
       close,
       isReady,
+      async forwardEncryptedOperation(operation) {
+        if (!isReady() || !nativeOperations) return null;
+        // Large operations retain the existing signed HTTP path and frame budgets.
+        if (new TextEncoder().encode(JSON.stringify(operation)).byteLength > 24000) return null;
+        const reply = await command("encrypted.operation", operation);
+        if (reply?.version !== 1 || reply.requestId !== operation.requestId
+          || !reply.result || typeof reply.result !== "object" || Array.isArray(reply.result))
+          throw failure("outcome_unknown");
+        return reply.result;
+      },
       async sendMessage(payload) {
         const body = textPayload(payload);
         if (!body || !isReady()) return null;
