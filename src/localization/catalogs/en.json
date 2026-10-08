@@ -3,6 +3,10 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "admin.conversationHealthReady": "Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.",
+        "admin.conversationHealthDegraded": "Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.",
+        "admin.conversationHealthUnavailable": "Conversations health unavailable.",
+        "admin.conversationHealthAlert": "Conversation alert: {code}",
         "rooms.preferenceConflict": "Settings changed on another device. Try again.",
         "rooms.transferAdmin": "Transfer admin",
         "rooms.transferAdminConfirm": "Make {member} admin? You will become a member.",

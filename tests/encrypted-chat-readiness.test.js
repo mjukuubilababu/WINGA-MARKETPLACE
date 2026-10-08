@@ -70,6 +70,12 @@ test("missing configuration, public bucket, privacy denial and missing guards fa
   const schema = await verifyEncryptedChatReadiness({ client: client({ guards: 1 }), env, privacyCheck: async () => {} });
   assert.equal(schema.ok, false); assert.equal(schema.schema.ready, false);
 });
+
+test('schema-only operational checks never certify unchecked storage',async()=>{
+  const result=await verifyEncryptedChatReadiness({client:client(),env,checkStorage:false,privacyCheck:async()=>{throw Error('must not run');}});
+  assert.equal(result.schema.ready,true);assert.equal(result.ok,false);assert.equal(result.preflightReady,false);
+  assert.equal(result.privateStorage.privacyVerified,false);
+});
 test("explicit synthetic storage probe roundtrips ciphertext and always cleans up, never certifying account flow", async () => {
   let stored, deleted = false, authorized = false;
   const result = await probePrivateEncryptedStorage({ env, storageFactory: ({ authorize }) => ({

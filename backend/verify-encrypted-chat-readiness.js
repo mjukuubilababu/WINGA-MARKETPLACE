@@ -16,7 +16,7 @@ const configurationKeys = [
   "R2_CONVERSATION_API_TOKEN", "R2_CONVERSATION_ISOLATION_CONFIRMED"
 ];
 
-async function verifyEncryptedChatReadiness({ client, env = process.env, privacyCheck = assertPrivateBucket } = {}) {
+async function verifyEncryptedChatReadiness({ client, env = process.env, privacyCheck = assertPrivateBucket, checkStorage = true } = {}) {
   const result = {
     ok: false, mode: "verify-encrypted-chat-readiness", privacy: "aggregate-only",
     databaseChanged: false, remoteWrites: false, flagsChanged: false,
@@ -74,8 +74,10 @@ async function verifyEncryptedChatReadiness({ client, env = process.env, privacy
   try {
     config = readPrivateMediaConfig(env);
     result.privateStorage.configurationValid = true;
-    await privacyCheck(config);
-    result.privateStorage.privacyVerified = true;
+    if(checkStorage) {
+      await privacyCheck(config);
+      result.privateStorage.privacyVerified = true;
+    }
   } catch {
     result.privateStorage.errorCode = result.privateStorage.configurationValid
       ? "PRIVATE_BUCKET_PRIVACY_CHECK_FAILED" : "PRIVATE_BUCKET_CONFIGURATION_REQUIRED";

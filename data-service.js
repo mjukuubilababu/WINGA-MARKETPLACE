@@ -2199,6 +2199,7 @@ async loadAdminPayments(filters) {
         },
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
         shoppingRoom(action,args) { return getCommunicationsApiClient().shoppingRoom(action,args); },
+        localConversationHistory(peer) { return getCommunicationsApiClient().localConversationHistory(peer); },
         seller(action,args) { return getCommunicationsApiClient().seller(action,args); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
         replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
@@ -4290,6 +4291,12 @@ async loadAdminPayments() {
         assertBuyerCapableAccess();ensureAdapter();
         if(!state.adapter.shoppingRoom)throw Object.assign(new Error('encrypted_rooms_disabled'),{code:'encrypted_rooms_disabled'});
         return state.adapter.shoppingRoom(action,args);
+      },
+      async localConversationHistory(peer) {
+        assertBuyerCapableAccess();ensureAdapter();
+        const adapter=state.adapter,result=await adapter.localConversationHistory?.(peer);
+        if(adapter!==state.adapter)throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});
+        return Array.isArray(result)?result:null;
       },
       async seller(action,args=[]) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.seller(action,args); },
       async sendEncryptedMedia(peer,file,text,kind) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text,kind); },

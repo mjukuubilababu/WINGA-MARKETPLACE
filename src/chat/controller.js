@@ -20,6 +20,7 @@
       return {
         dataLayer:deps.dataLayer,translate:t,refresh,getSession:deps.getCurrentSession,
         getPeer:()=>deps.getActiveChatContext()?.withUser,getMessages:deps.getActiveConversationMessages,
+        getLocalMessages:peer=>deps.dataLayer.localConversationHistory?.(peer),
         onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},
         actions:{
           getReplyId:deps.getActiveChatReplyMessageId,clearReply:()=>deps.setActiveChatReplyMessageId(''),

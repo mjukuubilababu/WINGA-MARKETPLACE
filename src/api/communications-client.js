@@ -471,6 +471,19 @@
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      localConversationHistory:async peer=>{
+        const key=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+        const identity=key(),session=deps.getSession?.();
+        if(!session?.username||!session.sessionId||typeof peer!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(peer)
+          ||peer===session.username)runtimeRequired();
+        // Search never enrolls devices, syncs, changes membership or performs network I/O.
+        const service=encryptionService;
+        if(!service)return null;
+        if(encryptionOwner!==identity)runtimeRequired();
+        const messages=await service.history(peer);
+        if(key()!==identity||service!==encryptionService)throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});
+        if(!Array.isArray(messages))runtimeRequired();return messages;
+      },
       seller:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.seller(action,args);},
       inspectEncryptedConversation: async peer => {
         const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};

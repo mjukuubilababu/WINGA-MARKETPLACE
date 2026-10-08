@@ -1,0 +1,27 @@
+name: Winga Conversation Health
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: winga-conversation-health
+  cancel-in-progress: true
+jobs:
+  conversation-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      OPS_HEALTH_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+      CONVERSATION_HEALTH_URL: https://winga-pflp.onrender.com/api/ops/conversations/health
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Check private Conversations operational health
+        run: node scripts/check-conversation-health.js

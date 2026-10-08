@@ -20,6 +20,7 @@ async function fixture(page,{width=390,locale='en'}={}) {
         row('xss',{message:'<img src="https://private.test" onerror="alert(1)"> chair'}),
         row('raw',{message:'WINGA-MEDIA/SECRET sofa'}),row('outsider',{receiverId:'mallory',message:'UNRELATED sofa'})]};
     const options={getSession:()=>state.session,getPeer:()=>state.peer,getMessages:()=>state.messages,
+      getLocalMessages:async()=>state.localMessages,
       translate:(key,fallback)=>messages[key]||fallback};
     WingaMessageSearchUi.bind(document.getElementById('chat'),options);
     state.rebind=()=>WingaMessageSearchUi.bind(document.getElementById('chat'),options);
@@ -45,6 +46,20 @@ test('results render as text, never private URLs or executable HTML',async({page
   await page.locator('form button[type=submit]').click();
   await expect(page.locator('.chat-message-search-result p')).toContainText('<img');
   await expect(page.locator('.chat-message-search-result img,.chat-message-search-result a')).toHaveCount(0);
+});
+
+test('saved encrypted projection replaces stale rows, includes older local history, and respects hide/edit',async({page})=>{
+  const network=[];page.on('request',request=>network.push(request.url()));await fixture(page);network.length=0;
+  await page.evaluate(()=>{
+    const row=(id,message)=>({id,message,encrypted:true,senderId:'bob',receiverId:'alice',timestamp:'2026-10-01T10:00:00Z'});
+    searchFixture.messages.push(row('hidden','sofa MUST NOT REAPPEAR'),row('edited','sofa OLD TEXT'));
+    searchFixture.localMessages=[row('edited','sofa UPDATED TEXT'),row('older','sofa SAVED HISTORY')];
+  });
+  await page.locator('input[name=query]').fill('sofa');await page.locator('form button[type=submit]').click();
+  await expect(page.locator('.chat-message-search-result')).toHaveCount(4);
+  await expect(page.locator('dialog')).toContainText('SAVED HISTORY');await expect(page.locator('dialog')).toContainText('UPDATED TEXT');
+  await expect(page.locator('dialog')).not.toContainText('OLD TEXT');await expect(page.locator('dialog')).not.toContainText('MUST NOT REAPPEAR');
+  expect(network).toEqual([]);
 });
 for(const changed of ['account','session','peer','scope','hidden'])test('search clears plaintext on '+changed,async({page})=>{
   await fixture(page);await page.locator('input[name=query]').fill('sofa');

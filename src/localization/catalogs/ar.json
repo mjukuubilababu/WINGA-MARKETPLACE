@@ -3,6 +3,10 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "admin.conversationHealthReady": "المحادثات جاهزة. الناشرون {publishers}؛ السجلات المقبولة {records}؛ المحاولات {attempts}؛ الإرسال المعلق {dispatch}؛ الإشعارات المعلقة {push}.",
+        "admin.conversationHealthDegraded": "المحادثات تحتاج إلى مراجعة. الناشرون {publishers}؛ السجلات المقبولة {records}؛ المحاولات {attempts}؛ الإرسال المعلق {dispatch}؛ الإشعارات المعلقة {push}.",
+        "admin.conversationHealthUnavailable": "حالة المحادثات غير متاحة.",
+        "admin.conversationHealthAlert": "تنبيه المحادثة: {code}",
         "rooms.preferenceConflict": "تغيرت الإعدادات على جهاز آخر. حاول مرة أخرى.",
         "rooms.transferAdmin": "نقل دور المشرف",
         "rooms.transferAdminConfirm": "تعيين {member} مشرفاً؟ ستصبح عضواً.",

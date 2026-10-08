@@ -328,6 +328,8 @@ const liveClients = new Map();
 const realtimeBootId = crypto.randomUUID();
 let messageEventSubscription = null;
 let messageDispatchWorker = null;
+let conversationMetricsWorker = null;
+const readConversationOperationsHealth=require('./conversation-operations-health').createConversationOperationsHealth({getStore:()=>postgresStore});
 let webPushWorker = null;
 let encryptedMediaStorage = null;
 let reportFileStorage = null;
@@ -5660,6 +5662,16 @@ async function buildOpsSummary() {
     }
   }
   intelligenceSummary.opsSnapshot = buildIntelligenceOpsSnapshot(intelligenceSummary);
+  let conversations={privacy:'aggregate-only',readiness:'unavailable',alerts:[]},conversationTimer;
+  if(postgresStore?.readConversationOperationsHealth) {
+    try {
+      const result=await Promise.race([readConversationOperationsHealth(),new Promise(resolve=>{
+        conversationTimer=setTimeout(()=>resolve(null),2000);
+      })]);
+      if(result)conversations={privacy:result.privacy,readiness:result.readiness,alerts:result.alerts,
+        metrics:result.metrics,dispatch:result.dispatch,push:result.push,media:result.media,durable:result.durable};
+    }catch{}finally{clearTimeout(conversationTimer);}
+  }
   const backupStatus = getBackupStatus();
   const now = Date.now();
   const last24Hours = recentAuditEntries.filter((entry) => {
@@ -5703,6 +5715,7 @@ async function buildOpsSummary() {
       moderationActions24h: last24Hours.filter((entry) => String(entry?.event || "").includes("moderated") || entry?.event === "report_reviewed").length
     },
     intelligence: intelligenceSummary,
+    conversations,
     recentAlerts: alertCandidates.slice(0, 10),
     recentFailures: failureSignals.slice(0, 12),
     recentAuditEntries: recentAuditEntries.slice(0, 20)
@@ -7661,6 +7674,20 @@ const server = http.createServer(async (req, res) => {
     sendJson(res,200,{ok:true,...require("./conversation-metrics").conversationMetrics.snapshot()},{ "Cache-Control":"private, no-store" });
     return;
   }
+
+  if(req.method==='GET'&&url.pathname==='/api/ops/conversations/health') {
+    if(!isValidOpsHealthToken(req)) {
+      sendJson(res,OPS_HEALTH_TOKEN?401:503,{error:OPS_HEALTH_TOKEN?'Unauthorized.':'Operations health token is not configured.'});return;
+    }
+    try {
+      const health=await readConversationOperationsHealth();
+      sendJson(res,health.ok?200:503,health,{'Cache-Control':'private, no-store'});
+    }catch {
+      sendJson(res,503,{ok:false,readiness:'unavailable',privacy:'aggregate-only',errorCode:'CONVERSATION_HEALTH_UNAVAILABLE'},
+        {'Cache-Control':'private, no-store'});
+    }
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/ops/intelligence/queue-health") {
     if (!isValidOpsHealthToken(req)) {
       requestMeta.statusCode = OPS_HEALTH_TOKEN ? 401 : 503;
@@ -9064,7 +9091,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      sendJson(res, 200, await buildOpsSummary());
+      sendJson(res, 200, await buildOpsSummary(),{'Cache-Control':'private, no-store'});
       return;
     }
 
@@ -15217,6 +15244,7 @@ function shutdownServer(signal = "SIGTERM") {
   stopPaymentRefundSweeper();
   stopAdLifecycleSweeper();
   const dispatchStopped = messageDispatchWorker?.stop();
+  const metricsStopped = conversationMetricsWorker?.stop();
   const pushStopped = webPushWorker?.stop();
   const encryptedMediaStopped=encryptedMediaCleanup?.stop();
   productImageMetadataQueue.length = 0;
@@ -15225,7 +15253,7 @@ function shutdownServer(signal = "SIGTERM") {
     logStructuredEvent("info", "server_shutdown_started", { signal, graceMs: SHUTDOWN_GRACE_MS });
     const closePromise = waitForServerClose();
     await Promise.race([
-      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped, pushStopped, encryptedMediaStopped]),
+      Promise.all([closePromise, waitForBackgroundWork(deadline), dispatchStopped, metricsStopped, pushStopped, encryptedMediaStopped]),
       new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
     ]);
     server.closeIdleConnections?.();
@@ -15275,6 +15303,12 @@ server.listen(PORT, async () => {
     startIntelligenceQueueWorker();
     startCommerceReservationSweeper();
     startConversationAckSweeper();
+    if(postgresStore?.publishConversationMetrics) {
+      conversationMetricsWorker=createMessageDispatchWorker({intervalMs:30000,
+        dispatch:()=>postgresStore.publishConversationMetrics(require('./conversation-metrics').conversationMetrics.fleetSnapshot()),
+        onError:()=>logStructuredEvent('warn','conversation_metrics_publish_failed',{privacy:'aggregate-only'})});
+      conversationMetricsWorker.start();
+    }
     if(encryptedMediaEnabled()) {
       encryptedMediaCleanup=createEncryptedMediaCleanup({getPostgresStore:()=>postgresStore,getStorage:getEncryptedMediaStorage,
         onResult:state=>logStructuredEvent('info','encrypted_media_cleanup',{privacy:'aggregate-only',...state})});

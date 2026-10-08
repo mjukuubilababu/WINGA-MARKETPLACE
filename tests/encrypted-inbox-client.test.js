@@ -86,3 +86,21 @@ test('failed encrypted history cannot replace other healthy conversations',async
   assert.equal(result.encryptedSyncError,true);
   assert.deepEqual(Array.from(result.items,item=>item.withUser),['seller']);
 });
+
+test('persistent local search reads only the initialized vault projection without sync or network',async()=>{
+  let syncs=0,peer;
+  const f=fixture({sync:async()=>{syncs++;},history:async value=>{peer=value;return [saved];}});
+  await f.client.loadInboxPage();const calls=f.calls.length,before=syncs;
+  const result=await f.client.localConversationHistory('rey');
+  assert.equal(peer,'rey');assert.equal(result[0].id,saved.id);assert.equal(f.calls.length,calls);assert.equal(syncs,before);
+  f.setSession({username:'other',sessionId:'other-session'});
+  await assert.rejects(f.client.localConversationHistory('rey'));
+});
+
+test('session changes during local history search discard the result',async()=>{
+  let finish,pause=false;
+  const f=fixture({history:async()=>pause?new Promise(resolve=>{finish=resolve;}):[saved]});
+  await f.client.loadInboxPage();pause=true;const pending=f.client.localConversationHistory('rey');
+  await new Promise(setImmediate);f.setSession({username:'me',sessionId:'replacement'});finish([saved]);
+  await assert.rejects(pending,{code:'mls_session_changed'});
+});

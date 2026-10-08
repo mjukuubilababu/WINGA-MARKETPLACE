@@ -10045,6 +10045,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createLegacyUploadCompatibilityStore({ query }),
     ...createMessageReplayStore({ query }),
     ...createMessageDispatchStore({ query, withTransaction }),
+    ...require('./conversation-operations-store').createConversationOperationsStore({withTransaction}),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
     ...createMessageWebPushStore({ query, withTransaction, encrypted: true,roomsEnabled:process.env.WINGA_ENCRYPTED_ROOMS_ENABLED==='true' }),
     ...createConversationReportStore({withTransaction}),

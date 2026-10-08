@@ -3,6 +3,10 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "admin.conversationHealthReady": "Conversations prêtes. Publishers {publishers}; enregistrements acceptés {records}; tentatives {attempts}; dispatch en attente {dispatch}; push en attente {push}.",
+        "admin.conversationHealthDegraded": "Conversations à vérifier. Publishers {publishers}; enregistrements acceptés {records}; tentatives {attempts}; dispatch en attente {dispatch}; push en attente {push}.",
+        "admin.conversationHealthUnavailable": "État des conversations indisponible.",
+        "admin.conversationHealthAlert": "Alerte de conversation : {code}",
         "rooms.preferenceConflict": "Les paramètres ont changé sur un autre appareil. Réessayez.",
         "rooms.transferAdmin": "Transférer le rôle admin",
         "rooms.transferAdminConfirm": "Nommer {member} admin ? Vous deviendrez membre.",

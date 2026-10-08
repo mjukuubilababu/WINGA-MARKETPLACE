@@ -28,7 +28,7 @@ try {
   $env:WINGA_TEST_POSTGRES_URL="postgresql://winga_test@127.0.0.1:$Port/postgres"
   $env:WINGA_TEST_SHOPPING_ROOMS_POSTGRES='true'
   $tests=@('tests/shopping-rooms-service.test.mjs')
-  if(!$RoomsOnly -and !$RoomConcurrencyOnly){$tests=@('tests/conversation-event-concurrency.test.js','tests/encrypted-conversation-concurrency.test.js')+$tests}
+  if(!$RoomsOnly -and !$RoomConcurrencyOnly){$tests=@('tests/conversation-event-concurrency.test.js','tests/encrypted-conversation-concurrency.test.js','tests/conversation-operations.test.js')+$tests}
   if($TestNamePattern){& node --test --test-concurrency=1 ('--test-name-pattern='+$TestNamePattern) @tests}
   elseif($RoomConcurrencyOnly){& node --test --test-concurrency=1 '--test-name-pattern=PostgreSQL Rooms:' @tests}
   else{& node --test --test-concurrency=1 @tests}

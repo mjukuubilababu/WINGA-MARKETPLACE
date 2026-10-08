@@ -1625,6 +1625,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      localConversationHistory:async peer=>{
+        const key=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+        const identity=key(),session=deps.getSession?.();
+        if(!session?.username||!session.sessionId||typeof peer!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(peer)
+          ||peer===session.username)runtimeRequired();
+        // Search never enrolls devices, syncs, changes membership or performs network I/O.
+        const service=encryptionService;
+        if(!service)return null;
+        if(encryptionOwner!==identity)runtimeRequired();
+        const messages=await service.history(peer);
+        if(key()!==identity||service!==encryptionService)throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});
+        if(!Array.isArray(messages))runtimeRequired();return messages;
+      },
       seller:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.seller(action,args);},
       inspectEncryptedConversation: async peer => {
         const service=await ensureEncryption();return service?service.inspect(peer):{status:'disabled'};
@@ -22372,12 +22385,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const controls=node('div');controls.className='chat-security-actions';form.append(controls);
     const submit=node('button',t('chat.search','Search'));submit.type='submit';submit.className='action-btn';controls.append(submit);
     const close=node('button',t('common.close','Close'));close.type='button';close.className='action-btn';controls.append(close);
-    const render=()=>{
+    let generation=0;
+    const render=async()=>{
       if(!current())return;
+      const request=++generation,filters={owner:initial.username,peer,query:query.value,
+        sender:sender.value,from:from.value,to:to.value};
+      submit.disabled=true;
       results.replaceChildren();
       try {
-        const found=WingaMessageSearch.search(options.getMessages(),{owner:initial.username,peer,query:query.value,
-          sender:sender.value,from:from.value,to:to.value});
+        const local=await options.getLocalMessages?.(peer);
+        if(!current()||request!==generation)return;
+        // The vault projection is authoritative, including messages hidden since the view loaded.
+        const messages=new Map((options.getMessages()||[]).filter(item=>!Array.isArray(local)||!item.encrypted).map(item=>[item.id,item]));
+        for(const item of local||[])messages.set(item.id,item);
+        const ordered=[...messages.values()].sort((a,b)=>(Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0));
+        const found=WingaMessageSearch.search(ordered,filters);
         status.textContent=found.truncated?t('chat.searchLimited','More results are outside this loaded view.')
           :found.items.length?'':t('chat.searchEmpty','No matching messages on this device.');
         for(const item of found.items) {
@@ -22386,7 +22408,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           date.textContent=new Date(item.timestamp).toLocaleString(document.documentElement.lang||'sw');
           article.append(node('strong',item.sender),date,node('p',item.text||item.productName));results.append(article);
         }
-      }catch{status.textContent=t('chat.searchInvalid','Check the search filters.');}
+      }catch{if(current()&&request===generation)status.textContent=t('chat.searchInvalid','Check the search filters.');}
+      finally{if(current()&&request===generation)submit.disabled=false;}
     };
     form.onsubmit=e=>{e.preventDefault();render();};
     close.onclick=()=>dialog.close();
@@ -22431,6 +22454,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return {
         dataLayer:deps.dataLayer,translate:t,refresh,getSession:deps.getCurrentSession,
         getPeer:()=>deps.getActiveChatContext()?.withUser,getMessages:deps.getActiveConversationMessages,
+        getLocalMessages:peer=>deps.dataLayer.localConversationHistory?.(peer),
         onEncrypted:()=>{deps.setSelectedChatProductIds([]);deps.setActiveChatReplyMessageId('');},
         actions:{
           getReplyId:deps.getActiveChatReplyMessageId,clearReply:()=>deps.setActiveChatReplyMessageId(''),
@@ -26172,6 +26196,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function buildOpsSignalLines(summary = {}) {
+      const conversations=summary.conversations||{};
+      const conversationLine=conversations.metrics?.available
+        ? t(conversations.readiness==='ready'?'admin.conversationHealthReady':'admin.conversationHealthDegraded',
+          conversations.readiness==='ready'?'Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.':'Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.',
+          {publishers:conversations.metrics.activePublishers||0,records:conversations.durable?.ciphertextRecordsAccepted||0,
+            attempts:(conversations.metrics.operations||[]).reduce((sum,row)=>sum+row.count,0),
+            dispatch:conversations.dispatch?.pendingOwners||0,push:conversations.push?.pending||0})
+        : t('admin.conversationHealthUnavailable','Conversations health unavailable.');
       const intelligence = summary.intelligence || {};
       const snapshot = intelligence.opsSnapshot || {};
       const queue = intelligence.durableQueue || {};
@@ -26185,6 +26217,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const snapshots = snapshot.snapshots || worker.snapshots || {};
       const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
       return [
+        {type:'conversation-health',value:conversationLine},
+        ...(conversations.alerts||[]).slice(0,4).map(code=>({type:'conversation-alert',
+          value:t('admin.conversationHealthAlert','Conversation alert: {code}',{code})})),
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
         ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
         {

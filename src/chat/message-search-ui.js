@@ -28,12 +28,21 @@
     const controls=node('div');controls.className='chat-security-actions';form.append(controls);
     const submit=node('button',t('chat.search','Search'));submit.type='submit';submit.className='action-btn';controls.append(submit);
     const close=node('button',t('common.close','Close'));close.type='button';close.className='action-btn';controls.append(close);
-    const render=()=>{
+    let generation=0;
+    const render=async()=>{
       if(!current())return;
+      const request=++generation,filters={owner:initial.username,peer,query:query.value,
+        sender:sender.value,from:from.value,to:to.value};
+      submit.disabled=true;
       results.replaceChildren();
       try {
-        const found=WingaMessageSearch.search(options.getMessages(),{owner:initial.username,peer,query:query.value,
-          sender:sender.value,from:from.value,to:to.value});
+        const local=await options.getLocalMessages?.(peer);
+        if(!current()||request!==generation)return;
+        // The vault projection is authoritative, including messages hidden since the view loaded.
+        const messages=new Map((options.getMessages()||[]).filter(item=>!Array.isArray(local)||!item.encrypted).map(item=>[item.id,item]));
+        for(const item of local||[])messages.set(item.id,item);
+        const ordered=[...messages.values()].sort((a,b)=>(Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0));
+        const found=WingaMessageSearch.search(ordered,filters);
         status.textContent=found.truncated?t('chat.searchLimited','More results are outside this loaded view.')
           :found.items.length?'':t('chat.searchEmpty','No matching messages on this device.');
         for(const item of found.items) {
@@ -42,7 +51,8 @@
           date.textContent=new Date(item.timestamp).toLocaleString(document.documentElement.lang||'sw');
           article.append(node('strong',item.sender),date,node('p',item.text||item.productName));results.append(article);
         }
-      }catch{status.textContent=t('chat.searchInvalid','Check the search filters.');}
+      }catch{if(current()&&request===generation)status.textContent=t('chat.searchInvalid','Check the search filters.');}
+      finally{if(current()&&request===generation)submit.disabled=false;}
     };
     form.onsubmit=e=>{e.preventDefault();render();};
     close.onclick=()=>dialog.close();

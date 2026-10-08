@@ -251,6 +251,14 @@ test("message dispatch health is token-protected and unavailable without Postgre
   assert.deepEqual(await unavailable.json(), { ok: false, code: "message_dispatch_unavailable" });
 });
 
+test('conversation production health is token-protected, no-store, and fails closed without PostgreSQL',async()=>{
+  const denied=await fetch(`${baseUrl}/ops/conversations/health`);assert.equal(denied.status,401);
+  const unavailable=await fetch(`${baseUrl}/ops/conversations/health`,{headers:{'X-Ops-Health-Token':'integration-ops-health-token'}});
+  assert.equal(unavailable.status,503);assert.match(unavailable.headers.get('cache-control'),/no-store/);
+  const body=await unavailable.json();assert.equal(body.privacy,'aggregate-only');
+  assert.equal(body.errorCode,'CONVERSATION_HEALTH_UNAVAILABLE');assert.equal(JSON.stringify(body).includes('integration-ops'),false);
+});
+
 test("ops read replica health requires authorization and exposes no database details", async () => {
   const denied = await fetch(`${baseUrl}/ops/database/read-replica-health`);
   const deniedBody = await denied.json();
@@ -1881,6 +1889,9 @@ test("critical seller, buyer, session, moderation, and monitoring flows work tog
   assert.equal(typeof adminOpsSummary.body.storageMode, "string");
   assert.equal(Array.isArray(adminOpsSummary.body.recentAuditEntries), true);
   assert.equal(typeof adminOpsSummary.body.backupStatus?.mode, "string");
+  assert.equal(adminOpsSummary.body.conversations.privacy,'aggregate-only');
+  assert.equal(adminOpsSummary.body.conversations.readiness,'unavailable');
+  assert.match(adminOpsSummary.response.headers.get('cache-control'),/no-store/);
 
   const moderatorOpsSummary = await request("/admin/ops/summary", {
     headers: { Authorization: `Bearer ${moderatorToken}` }

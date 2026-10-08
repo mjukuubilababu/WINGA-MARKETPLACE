@@ -1162,6 +1162,14 @@
     }
 
     function buildOpsSignalLines(summary = {}) {
+      const conversations=summary.conversations||{};
+      const conversationLine=conversations.metrics?.available
+        ? t(conversations.readiness==='ready'?'admin.conversationHealthReady':'admin.conversationHealthDegraded',
+          conversations.readiness==='ready'?'Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.':'Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.',
+          {publishers:conversations.metrics.activePublishers||0,records:conversations.durable?.ciphertextRecordsAccepted||0,
+            attempts:(conversations.metrics.operations||[]).reduce((sum,row)=>sum+row.count,0),
+            dispatch:conversations.dispatch?.pendingOwners||0,push:conversations.push?.pending||0})
+        : t('admin.conversationHealthUnavailable','Conversations health unavailable.');
       const intelligence = summary.intelligence || {};
       const snapshot = intelligence.opsSnapshot || {};
       const queue = intelligence.durableQueue || {};
@@ -1175,6 +1183,9 @@
       const snapshots = snapshot.snapshots || worker.snapshots || {};
       const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
       return [
+        {type:'conversation-health',value:conversationLine},
+        ...(conversations.alerts||[]).slice(0,4).map(code=>({type:'conversation-alert',
+          value:t('admin.conversationHealthAlert','Conversation alert: {code}',{code})})),
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
         ...((summary.configWarnings || []).map((warning) => ({ type: "warning", value: warning }))),
         {

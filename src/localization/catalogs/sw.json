@@ -3,6 +3,10 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "admin.conversationHealthReady": "Mazungumzo yako tayari. Publishers {publishers}; records zilizokubaliwa {records}; majaribio {attempts}; dispatch inayosubiri {dispatch}; push inayosubiri {push}.",
+        "admin.conversationHealthDegraded": "Mazungumzo yanahitaji ukaguzi. Publishers {publishers}; records zilizokubaliwa {records}; majaribio {attempts}; dispatch inayosubiri {dispatch}; push inayosubiri {push}.",
+        "admin.conversationHealthUnavailable": "Hali ya mazungumzo haipatikani.",
+        "admin.conversationHealthAlert": "Tahadhari ya mazungumzo: {code}",
         "rooms.preferenceConflict": "Mipangilio imebadilishwa kwenye kifaa kingine. Jaribu tena.",
         "rooms.transferAdmin": "Kabidhi usimamizi",
         "rooms.transferAdminConfirm": "{member} awe admin? Utakuwa mwanachama wa kawaida.",

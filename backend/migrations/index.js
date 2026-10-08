@@ -137,6 +137,7 @@ const MIGRATIONS = Object.freeze([
   require("./encrypted-room-sellers"),
   require("./encrypted-room-preferences"),
   require("./encrypted-room-departures"),
+  require("./conversation-operation-metrics"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([
