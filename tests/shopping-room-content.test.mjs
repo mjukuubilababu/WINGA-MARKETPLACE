@@ -58,6 +58,15 @@ test('room contracts reject executable URLs, money commands, malformed IDs, unkn
     assert.throws(()=>encodeRoomContent(type,data),{code:'room_content_invalid'});
   assert.equal(parseRoomContent('WINGA-ROOM/1\n{"type":"wallet-pay"}'),null);
 });
+test('unsupported order references fail closed without entering the Room content projection',()=>{
+  const data={orderId:'order-1'};
+  assert.throws(()=>encodeRoomContent('order-reference',data),{code:'room_content_invalid'});
+  const share=product(),reference={...row(2,'bob','shortlist',{shareId:share.id,selected:true}),
+    message:'WINGA-ROOM/1\n'+JSON.stringify({version:1,type:'order-reference',data})};
+  assert.equal(parseRoomContent(reference.message),null);
+  const baseline=projectRoomContent([share],options);
+  assert.deepEqual(projectRoomContent([share,reference],options),{...baseline,rejected:[{id:reference.id,code:'room_content_invalid'}]});
+});
 test('poll options are bounded and identities cannot collide',()=>{
   const p=parseRoomContent(poll().message).data;
   for(const data of [{...p,options:[p.options[0]]},{...p,options:Array.from({length:9},()=>({id:randomUUID(),label:'x'}))},

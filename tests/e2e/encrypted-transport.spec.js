@@ -592,6 +592,47 @@ test('production session admits a third approved native device and converges enc
     expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
   } finally {for(const c of contexts)await c.close();multiDeviceEnabled=false;}
 });
+test('offline encrypted recipient resumes all missed canonical messages once and incompatible protocol fails without plaintext downgrade',async({browser})=>{
+  test.setTimeout(120000);await resetStores();
+  const a=await browser.newContext(),b=await browser.newContext();
+  const minimum=process.env.WINGA_CONVERSATION_MIN_PROTOCOL;
+  const legacyBefore=(await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n;
+  try {
+    const alice=await a.newPage(),bob=await b.newPage();await alice.goto(origin);await bob.goto(origin);
+    const ai=await alice.evaluate(()=>start('alice')),bi=await bob.evaluate(()=>start('bob'));
+    const natives=(await db.query('SELECT owner_id,id FROM conversation_crypto_devices')).rows;
+    await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('bob',id,fp),{id:natives.find(d=>d.owner_id==='bob').id,fp:bi.ownFingerprint});
+    await bob.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:natives.find(d=>d.owner_id==='alice').id,fp:ai.ownFingerprint});
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    await b.setOffline(true);
+    const accepted=[];
+    for(let n=0;n<3;n++)accepted.push(await alice.evaluate(async n=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'Missed encrypted '+n,messageType:'text'})),n));
+    expect(accepted.every(message=>message.status==='sent')).toBe(true);
+    expect((await alice.evaluate(()=>render())).map(message=>message.status)).toEqual(['sent','sent','sent']);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts')).rows[0].n).toBe(0);
+    const stored=(await db.query('SELECT id,sequence,ciphertext FROM encrypted_conversation_messages ORDER BY sequence')).rows;
+    expect(stored.map(message=>String(message.sequence))).toEqual(['1','2','3']);
+    expect(JSON.stringify(stored)).not.toContain('Missed encrypted');
+    await b.setOffline(false);await bob.reload();await bob.evaluate(()=>start('bob'));
+    const received=await bob.evaluate(()=>render());
+    expect(received.map(message=>message.id)).toEqual(accepted.map(message=>message.id));
+    expect(received.map(message=>message.message)).toEqual(['Missed encrypted 0','Missed encrypted 1','Missed encrypted 2']);
+    expect((await bob.evaluate(()=>render())).map(message=>message.id)).toEqual(accepted.map(message=>message.id));
+    expect((await alice.evaluate(()=>render())).map(message=>message.status)).toEqual(['delivered','delivered','delivered']);
+    await bob.evaluate(ids=>client.markConversationRead({withUser:'alice',messageIds:ids}),accepted.map(message=>message.id));
+    expect((await alice.evaluate(()=>render())).map(message=>message.status)).toEqual(['read','read','read']);
+    // Do not reopen the protocol gate while this deliberately rejected local intent is retained.
+    process.env.WINGA_CONVERSATION_MIN_PROTOCOL='2';
+    await expect(alice.evaluate(()=>client.inspectEncryptedConversation('bob'))).rejects.toThrow('conversation_upgrade_required');
+    await expect(alice.evaluate(()=>client.sendMessage({clientMessageId:crypto.randomUUID(),receiverId:'bob',message:'must not downgrade obsolete protocol',messageType:'text'}))).rejects.toThrow('conversation_upgrade_required');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(3);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
+  }finally {
+    if(minimum===undefined)delete process.env.WINGA_CONVERSATION_MIN_PROTOCOL;else process.env.WINGA_CONVERSATION_MIN_PROTOCOL=minimum;
+    await a.close();await b.close();
+  }
+});
+
 test('HttpOnly cookie-only sessions support server membership, ciphertext-only HTTP, chat, receipts, reload and exact retry',async({browser})=>{
   await resetStores();
   test.setTimeout(120000);

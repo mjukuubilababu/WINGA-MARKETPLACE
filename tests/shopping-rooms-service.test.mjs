@@ -631,10 +631,74 @@ test('push dispatch rechecks Room mute even when a pending job was inserted befo
   await f.db.exec('UPDATE web_push_jobs SET completed_at=NULL');
   const result=await push.dispatchWebPushBatch();assert.equal(accepted,0);assert.equal(result.skipped,1);
 });
-test('blocked accounts and revoked native devices cannot read or acknowledge a room',async t=>{
+test('blocked accounts deny room checks and poll returns no protected room data',async t=>{
   const f=await fixture(t);await f.activate();await f.db.query(`INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('eve','alice')`);
   await assert.rejects(f.alice.operation('room-check',{conversationId:f.id,epoch:'1',revision:'1'}),{status:403});
-  assert.equal((await f.bob.operation('room-poll',{after:null})).rooms[0].status,'removed');
+  const room=(await f.bob.operation('room-poll',{after:null})).rooms[0];assert.equal(room.status,'removed');
+  for(const key of ['messages','receipts','transition','packages','acceptances'])assert.equal(Object.hasOwn(room,key),false);
+});
+
+test('revoked native Room devices cannot poll, read, receipt or acknowledge real MLS messages and freeze future sends',async t=>{
+  const f=await fixture(t);await f.activate();
+  const sent=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'protected before native revocation'});
+  const incoming=(await f.bob.operation('room-poll',{after:null})).rooms[0].messages.find(m=>m.id===sent.id);
+  assert.equal((await f.bob.runtime.room.receive({...incoming,deviceId:incoming.sender_device,conversationId:f.id,ciphertext:decode(incoming.ciphertext)})).message,'protected before native revocation');
+  const receipt={id:incoming.id,conversationId:f.id,epoch:incoming.epoch,hash:incoming.hash,kind:'delivered'};
+  await f.bob.operation('room-receipt',receipt);
+  const reply=await f.bob.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'receipt needs sender acknowledgement'});
+  const outgoing=(await f.alice.operation('room-poll',{after:null})).rooms[0].messages.find(m=>m.id===reply.id);
+  assert.equal((await f.alice.runtime.room.receive({...outgoing,deviceId:outgoing.sender_device,conversationId:f.id,ciphertext:decode(outgoing.ciphertext)})).message,'receipt needs sender acknowledgement');
+  const ack={id:outgoing.id,conversationId:f.id,epoch:outgoing.epoch,hash:outgoing.hash,kind:'delivered',receiptDeviceId:f.alice.device.id};
+  await f.alice.operation('room-receipt',{id:ack.id,conversationId:f.id,epoch:ack.epoch,hash:ack.hash,kind:ack.kind});
+  assert.equal((await f.bob.operation('room-poll',{after:null})).rooms[0].receipts[0].actorId,f.alice.device.id);
+  const check={conversationId:f.id,epoch:'1',revision:'1'},intent={conversationId:f.id,transitionId:f.intent.id};
+  assert.equal((await f.bob.operation('room-check',check)).active,true);
+  assert.equal((await f.bob.operation('room-intent',intent)).room.transition.status,'accepted');
+  const future=await prepareRoomPacket(f,f.eve,'pending real MLS packet must not pass revocation');
+  const snapshot=async()=>({
+    messages:(await f.db.query('SELECT * FROM encrypted_conversation_messages ORDER BY sequence')).rows,
+    receipts:(await f.db.query('SELECT * FROM encrypted_conversation_receipts ORDER BY message_id,device_id,kind')).rows,
+    acks:(await f.db.query('SELECT * FROM encrypted_conversation_receipt_acks ORDER BY message_id,receipt_device,kind,observer_device')).rows,
+    events:(await f.db.query('SELECT * FROM conversation_events ORDER BY position')).rows,
+    sequence:(await f.db.query('SELECT next_sequence::text FROM encrypted_conversations WHERE id=$1',[f.id])).rows
+  });
+  const before=await snapshot();assert.equal(before.messages.length,2);assert.equal(before.receipts.length,2);assert.equal(before.acks.length,0);
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[f.bob.native.id]);
+  assert.equal((await f.db.query('SELECT status FROM conversation_crypto_devices WHERE id=$1',[f.bob.native.id])).rows[0].status,'revoked');
+  for(const [action,payload] of [['room-poll',{after:null}],['room-check',check],['room-intent',intent],
+    ['room-receipt',{...receipt,kind:'read'}],['room-receipt',receipt],['room-receipt-ack',ack]])
+    await assert.rejects(f.bob.operation(action,payload),{status:403,code:'encrypted_proof_rejected'});
+  const frozen=(await f.alice.operation('room-poll',{after:null})).rooms[0];assert.equal(frozen.status,'removed');
+  for(const key of ['messages','receipts','transition','packages','acceptances'])assert.equal(Object.hasOwn(frozen,key),false);
+  await assert.rejects(f.alice.operation('room-check',check),{status:403,code:'encrypted_room_device_revoked'});
+  await assert.rejects(f.eve.operation('room-send',future.packet),{status:403,code:'encrypted_room_device_revoked'});
+  await assert.rejects(f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'must not become future protected data'}),{code:'encrypted_room_device_revoked'});
+  await assert.rejects(f.alice.operation('room-receipt',{id:ack.id,conversationId:f.id,epoch:ack.epoch,hash:ack.hash,kind:'read'}),{status:403,code:'encrypted_room_device_revoked'});
+  assert.deepEqual(await snapshot(),before);
+});
+test('revoked native Room devices cannot authorize attached media downloads or finish reserved uploads',async t=>{
+  const f=await fixture(t,{mediaEnabled:true});await f.activate();
+  const object={id:randomUUID(),bytes:88,sha256:hash(randomBytes(88))},messageId=randomUUID();
+  const context=(p,action,value=object)=>({...p.context,proof:p.signed('media-'+action,value)});
+  await f.alice.operation('room-media-reserve',{...object,conversationId:f.id,messageId});
+  assert.equal(await f.store.authorizeEncryptedMedia(context(f.alice,'upload'),object,'upload'),true);
+  await f.store.completeEncryptedMediaUpload(context(f.alice,'upload'),object);
+  const sent=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:messageId,message:'protected attachment',mediaId:object.id});
+  const incoming=(await f.bob.operation('room-poll',{after:null})).rooms[0].messages.find(m=>m.id===sent.id);
+  assert.equal(incoming.media_id,object.id);
+  assert.equal((await f.bob.runtime.room.receive({...incoming,deviceId:incoming.sender_device,conversationId:f.id,ciphertext:decode(incoming.ciphertext)})).message,'protected attachment');
+  assert.equal(await f.store.authorizeEncryptedMedia(context(f.bob,'download'),object,'download'),true);
+  const pending={id:randomUUID(),bytes:88,sha256:hash(randomBytes(88))};
+  await f.bob.operation('room-media-reserve',{...pending,conversationId:f.id,messageId:randomUUID()});
+  assert.equal(await f.store.authorizeEncryptedMedia(context(f.bob,'upload',pending),pending,'upload'),true);
+  const before=(await f.db.query('SELECT * FROM encrypted_conversation_media ORDER BY id')).rows;
+  assert.deepEqual(before.map(m=>m.status).sort(),['attached','reserved']);
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[f.bob.native.id]);
+  await assert.rejects(f.store.authorizeEncryptedMedia(context(f.bob,'download'),object,'download'),{status:403,code:'encrypted_proof_rejected'});
+  await assert.rejects(f.store.authorizeEncryptedMedia(context(f.bob,'upload',pending),pending,'upload'),{status:403,code:'encrypted_proof_rejected'});
+  await assert.rejects(f.store.completeEncryptedMediaUpload(context(f.bob,'upload',pending),pending),{status:403,code:'encrypted_proof_rejected'});
+  await assert.rejects(f.store.authorizeEncryptedMedia(context(f.alice,'download'),object,'download'),{status:403,code:'encrypted_room_device_revoked'});
+  assert.deepEqual((await f.db.query('SELECT * FROM encrypted_conversation_media ORDER BY id')).rows,before);
 });
 test('default gate rejects room operations and identity/epoch membership cannot be rewritten',async t=>{
   const f=await fixture(t);await f.activate();const disabled=createEncryptedConversationStore({withTransaction:work=>f.db.transaction(work)});

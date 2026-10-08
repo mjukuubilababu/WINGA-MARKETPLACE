@@ -5,7 +5,7 @@ const {randomUUID} = require('node:crypto');
 const {chromium} = require('@playwright/test');
 
 module.exports = async function exerciseBrowser({root,backend,port,tokens,csrf,pool}) {
-  const browser=await chromium.launch({channel:'msedge',headless:true});
+  const browser=await chromium.launch({channel:process.env.WINGA_TEST_BROWSER_CHANNEL==='chromium'?undefined:'msedge',headless:true});
   const contexts=[];
   const origin='http://localhost:4173';
   const files=new Map([

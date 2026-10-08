@@ -7,10 +7,18 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 
 ## Current Production Checkpoint: 2026-10-08
 
+Release `bfe996102dfa5cf0e769fc15cd82bf41ee496691` is verified ready on Render;
+frontend build `20261008184751` is deployed and public production smoke checks
+passed. The subsequent [222-225 test-suite/security matrix](conversations-spec-222-225-20261008.md)
+records executable coverage, isolated database interruption/retry, native Room
+revocation tests and CI/dependency/fuzz gates. It explicitly retains unsupported
+group-order references, encrypted BEAM-loss acceptance and independent audit/load
+as open, rather than equating a configured test job with approval.
+
 The subsequent [210-221 invariant and recovery matrix](conversations-spec-210-221-20261008.md)
 records durable acceptance evidence/guards, deferred optional push fan-out,
 protected event authorization, revoked-device recovery exclusion and automatic
-retained-intent retries. This candidate is not authenticated production-load or
+retained-intent retries. This deployed release is not authenticated production-load or
 cryptographic acceptance; the deferred device approvals remain unchanged.
 
 The subsequent [193-209 implementation and acceptance matrix](conversations-spec-193-209-20261008.md)

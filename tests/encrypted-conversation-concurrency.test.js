@@ -160,6 +160,33 @@ test('bounded real PostgreSQL load: two stores persist decryptable messages once
     const bytes=Buffer.from(mls.encodeMlsMessage({version:'mls10',wireformat:'mls_private_message',privateMessage:sealed.privateMessage}));
     packets.push({id:crypto.randomUUID(),conversationId:f.id,epoch,deviceId:a.id,ciphertext:bytes.toString('base64url'),hash:crypto.createHash('sha256').update(bytes).digest('hex')});
   }
+  let terminated=false,terminationResult;
+  const interrupted=createEncryptedConversationStore({withTransaction:async work=>{
+    const c=await f.pool.connect();c.on('error',()=>{});
+    try {
+      await c.query('BEGIN');
+      const result=await work({query:async(sql,args)=>{
+        const result=await c.query(sql,args);
+        if(!terminated&&sql.includes('INSERT INTO encrypted_conversation_messages')) {
+          terminationResult=(await f.admin.query('SELECT pg_terminate_backend($1) AS stopped',[c.processID])).rows[0].stopped;
+          terminated=terminationResult===true;
+          await c.query('SELECT 1');
+        }
+        return result;
+      }});
+      await c.query('COMMIT');return result;
+    }catch(error){try{await c.query('ROLLBACK');}catch{}throw error;}
+    finally{c.release(true);}
+  }});
+  const retryProof=a.sign('send',packets[0]);
+  await assert.rejects(interrupted.encryptedOperation(a.context,retryProof),error=>['57P01','08006'].includes(error.code)
+    ||['Connection terminated unexpectedly','Client has encountered a connection error and is not queryable'].includes(error.message));
+  assert.equal(terminationResult,true);assert.equal(terminated,true);
+  for(const table of ['encrypted_conversation_messages','encrypted_message_acceptances','encrypted_message_push_outbox'])
+    assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM '+table)).rows[0].n,0);
+  assert.equal(String((await f.pool.query('SELECT next_sequence FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0].next_sequence),'0');
+  const recovered=await f.store.encryptedOperation(a.context,retryProof);assert.equal(recovered.status,'sent');
+  assert.equal((await f.pool.query('SELECT ciphertext FROM encrypted_conversation_messages WHERE id=$1',[packets[0].id])).rows[0].ciphertext,packets[0].ciphertext);
   const withTransaction=async work=>{const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}};
   const nodes=[0,1].map(()=>createEncryptedConversationStore({withTransaction}));
   const jobs=packets.flatMap((p,i)=>i%7===0?[p,p]:[p]),latencies=[];let next=0;
@@ -186,7 +213,8 @@ test('bounded real PostgreSQL load: two stores persist decryptable messages once
   latencies.sort((x,y)=>x-y);
   t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-synthetic-pair',uniqueMessages:count,attempts:jobs.length,
     concurrentConnections:6,stores:2,duplicateRows:0,recipientDecryptions:decoded.size,durationMs:Math.round(durationMs),
-    p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*0.95)-1]),productionSloProven:false,shoppingRoomsProven:false}));
+    p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*0.95)-1]),terminatedConnectionRecovered:true,
+    productionOutageProven:false,productionSloProven:false,shoppingRoomsProven:false}));
 });
 test('independent connections ACK one receipt device exactly once without draining another',async t=>{
   const f=await replacementFixture(t),a=f.members.alice,b=f.members.bob,other=f.targets[0],message=crypto.randomUUID();

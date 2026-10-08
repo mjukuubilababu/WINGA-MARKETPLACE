@@ -31,7 +31,8 @@ try {
   if(!$RoomsOnly -and !$RoomConcurrencyOnly){$tests=@('tests/conversation-event-concurrency.test.js','tests/encrypted-conversation-concurrency.test.js','tests/conversation-operations.test.js','tests/conversation-invariants.test.js','tests/legacy-conversation-compatibility.test.js','tests/conversation-experience-store.test.js')+$tests}
   if($TestNamePattern){& node --test --test-concurrency=1 ('--test-name-pattern='+$TestNamePattern) @tests}
   elseif($RoomConcurrencyOnly){& node --test --test-concurrency=1 '--test-name-pattern=PostgreSQL Rooms:' @tests}
-  else{& node --test --test-concurrency=1 @tests}
+  elseif($RoomsOnly){& node --test --test-concurrency=1 @tests}
+  else{& node scripts/run-conversation-postgres-tests.js}
   if($LASTEXITCODE -ne 0){throw 'Conversation PostgreSQL tests failed.'}
 } finally {
   $env:WINGA_TEST_POSTGRES_URL=$previous

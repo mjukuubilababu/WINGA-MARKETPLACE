@@ -59,7 +59,7 @@ test('a user-held recovery key opens stored encrypted media after a complete bro
   test.setTimeout(120000);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'winga-secure-content-'));
   let context;
-  const launch = () => chromium.launchPersistentContext(profile, { channel: 'msedge', headless: true });
+  const launch = () => chromium.launchPersistentContext(profile, { channel: process.env.WINGA_TEST_BROWSER_CHANNEL==='chromium'?undefined:'msedge', headless: true });
   try {
     context = await launch();
     let page = context.pages()[0] || await context.newPage();
