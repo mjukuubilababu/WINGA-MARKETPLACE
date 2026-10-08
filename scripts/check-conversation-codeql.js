@@ -14,6 +14,9 @@ const REVIEW_LIMITS = Object.freeze({ manifestBytes: 256 * 1024, entries: 1000,
 const REVIEWABLE_LOCATIONS = Symbol('reviewable-locations');
 const SOURCE_LOCATION = Symbol('source-location');
 const FINGERPRINT_DIAGNOSTIC_LIMIT = 64;
+const ARTIFACT_DIAGNOSTIC_LIMIT = 2048;
+const ARTIFACT_DIAGNOSTIC_FIELDS = Object.freeze(['location', 'parentIndex', 'offset', 'length', 'roles',
+  'mimeType', 'encoding', 'sourceLanguage', 'hashes', 'contents', 'lastModifiedTimeUtc', 'description', 'properties']);
 const RUN_REFERENCE_FIELDS = Object.freeze(['artifacts', 'threadFlowLocations', 'logicalLocations', 'originalUriBaseIds', 'taxonomies']);
 const FINGERPRINT_DIAGNOSTIC_FIELDS = Object.freeze({
   result: ['guid', 'correlationGuid', 'ruleId', 'ruleIndex', 'rule', 'message', 'locations', 'relatedLocations',
@@ -315,7 +318,32 @@ function resultFingerprint(result, description, run) {
     toolComponent: description.toolComponent, runReferences: referencedRunMetadata(run) });
 }
 
-function fingerprintDiagnostics(result, description, run) {
+function artifactCollectionDiagnostics(artifacts) {
+  if (!Array.isArray(artifacts)) return undefined;
+  const diagnostic = { version: 1, count: artifacts.length, limit: ARTIFACT_DIAGNOSTIC_LIMIT };
+  if (artifacts.length > ARTIFACT_DIAGNOSTIC_LIMIT) return { ...diagnostic, limited: true };
+  const hashes = values => ({ orderedSha256: canonicalFingerprint(values),
+    sortedSha256: canonicalFingerprint(values.map(value => canonicalFingerprint(value)).sort()) });
+  const fields = {};
+  for (const name of ARTIFACT_DIAGNOSTIC_FIELDS) {
+    const slots = artifacts.map(artifact => object(artifact)
+      ? own(artifact, name) ? [1, artifact[name]] : [0] : [2, artifact]);
+    fields[name] = { presentCount: artifacts.filter(artifact => object(artifact) && own(artifact, name)).length, ...hashes(slots) };
+  }
+  let recordCount = 0, keyCount = 0;
+  const other = artifacts.map(artifact => {
+    if (!object(artifact)) return [2, artifact];
+    const entries = Object.entries(artifact).filter(([name]) => !ARTIFACT_DIAGNOSTIC_FIELDS.includes(name));
+    if (entries.length) recordCount++;
+    keyCount += entries.length;
+    return [1, Object.fromEntries(entries)];
+  });
+  return { ...diagnostic, ...hashes(artifacts),
+    nonObjectCount: artifacts.filter(artifact => !object(artifact)).length, fields,
+    otherFields: { recordCount, keyCount, ...hashes(other) } };
+}
+
+function fingerprintDiagnostics(result, description, run, artifactDiagnostics) {
   const shape = value => ({ sha256: canonicalFingerprint(value),
     type: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
     ...(Array.isArray(value) || typeof value === 'string' ? { length: value.length } : {}),
@@ -338,6 +366,7 @@ function fingerprintDiagnostics(result, description, run) {
     // Arbitrary keys and values are never diagnostic labels; only their aggregate hash and count leave the gate.
     diagnostics.components[component] = { ...shape(value), fields, otherFields: shape(other) };
   }
+  if (artifactDiagnostics) diagnostics.artifactCollection = artifactDiagnostics;
   return diagnostics;
 }
 
@@ -521,6 +550,7 @@ function inspectReport(report, reportIndex, diagnosticBudget = { remaining: FING
     check(object(run), 'run');
     check(Array.isArray(run.results), 'results');
     const components = ruleComponents(run, context);
+    let artifactDiagnosticCache;
     requireInvocations(run, context);
     resultCount += run.results.length;
     check(resultCount <= LIMITS.results, 'result-count', 'CODEQL_SARIF_LIMIT');
@@ -545,7 +575,8 @@ function inspectReport(report, reportIndex, diagnosticBudget = { remaining: FING
         locations: safeLocations, resultFingerprint: resultFingerprint(result, description, run) };
       if (diagnosticBudget.remaining > 0) {
         diagnosticBudget.remaining--;
-        finding.fingerprintDiagnostics = fingerprintDiagnostics(result, description, run);
+        artifactDiagnosticCache ??= artifactCollectionDiagnostics(run.artifacts);
+        finding.fingerprintDiagnostics = fingerprintDiagnostics(result, description, run, artifactDiagnosticCache);
       }
       Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: locations.length > 0 && locations.length === safeLocations.length
         && safeLocations.every(location => location[SOURCE_LOCATION] && location.line !== null

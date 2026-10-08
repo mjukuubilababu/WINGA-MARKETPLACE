@@ -1576,3 +1576,122 @@ test('diagnostics do not approve GUID drift, changed flows or excess multiplicit
   assert.equal(repeated.totals.reviewedFindings, 0);
   assert.equal(repeated.totals.unreviewedFindings, 2);
 });
+
+function artifactDiagnosticFinding(artifacts) {
+  const current = run([finding()]);
+  current.artifacts = artifacts;
+  return inspectReport(report(current), 0).findings[0];
+}
+
+test('artifact diagnostics distinguish reordering from record drift while old fingerprints still bind the full collection', () => {
+  const artifacts = [{ location: { uri: 'src/a.js' }, roles: ['analysisTarget'], lastModifiedTimeUtc: '2026-01-01T00:00:00Z' },
+    { location: { uri: 'src/b.js' }, roles: ['tracedFile'], lastModifiedTimeUtc: '2026-01-02T00:00:00Z' }];
+  const before = artifactDiagnosticFinding(artifacts);
+  const reordered = artifactDiagnosticFinding([...artifacts].reverse());
+  const a = before.fingerprintDiagnostics.artifactCollection, b = reordered.fingerprintDiagnostics.artifactCollection;
+  assert.equal(a.count, 2);
+  assert.notEqual(a.orderedSha256, b.orderedSha256);
+  assert.equal(a.sortedSha256, b.sortedSha256);
+  assert.notEqual(before.resultFingerprint, reordered.resultFingerprint);
+  assert.equal(before.fingerprintDiagnostics.components.result.sha256, reordered.fingerprintDiagnostics.components.result.sha256);
+  for (const name of Object.keys(a.fields)) {
+    assert.equal(a.fields[name].sortedSha256, b.fields[name].sortedSha256);
+    assert.equal(a.fields[name].presentCount, b.fields[name].presentCount);
+  }
+  assert.notEqual(a.fields.location.orderedSha256, b.fields.location.orderedSha256);
+  assert.notEqual(a.fields.lastModifiedTimeUtc.orderedSha256, b.fields.lastModifiedTimeUtc.orderedSha256);
+  const repeated = artifactDiagnosticFinding([artifacts[0], artifacts[1], artifacts[1]]).fingerprintDiagnostics.artifactCollection;
+  assert.notEqual(a.sortedSha256, repeated.sortedSha256);
+});
+
+test('artifact diagnostics isolate every fixed field including lastModifiedTimeUtc without normalizing any field', () => {
+  const artifact = { location: { uri: '/child.js' }, parentIndex: 1, offset: 10, length: 20,
+    roles: ['analysisTarget'], mimeType: 'text/javascript', encoding: 'utf-8', sourceLanguage: 'javascript',
+    hashes: { sha256: '0'.repeat(64) }, contents: { text: 'Synthetic source' },
+    lastModifiedTimeUtc: '2026-01-01T00:00:00Z', description: { text: 'Synthetic description' }, properties: { synthetic: 1 } };
+  const replacements = { location: { uri: '/changed.js' }, parentIndex: 2, offset: 11, length: 21,
+    roles: ['tracedFile'], mimeType: 'text/plain', encoding: 'utf-16', sourceLanguage: 'typescript',
+    hashes: { sha256: '1'.repeat(64) }, contents: { text: 'Changed synthetic source' },
+    lastModifiedTimeUtc: '2026-01-02T00:00:00Z', description: { text: 'Changed description' }, properties: { synthetic: 2 } };
+  const parents = [{ location: { uri: 'synthetic.zip' } }, { location: { uri: 'alternate.zip' } }];
+  const before = artifactDiagnosticFinding([artifact, ...parents]);
+  const a = before.fingerprintDiagnostics.artifactCollection;
+  assert.deepEqual(Object.keys(a.fields), Object.keys(artifact));
+  for (const [field, value] of Object.entries(replacements)) {
+    const after = artifactDiagnosticFinding([{ ...artifact, [field]: value }, ...parents]);
+    const b = after.fingerprintDiagnostics.artifactCollection;
+    assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+    assert.notEqual(a.orderedSha256, b.orderedSha256);
+    assert.notEqual(a.sortedSha256, b.sortedSha256);
+    for (const name of Object.keys(artifact)) {
+      assert.equal(a.fields[name].orderedSha256 === b.fields[name].orderedSha256, name !== field);
+      assert.equal(a.fields[name].sortedSha256 === b.fields[name].sortedSha256, name !== field);
+    }
+    assert.deepEqual(a.otherFields, b.otherFields);
+  }
+});
+
+test('artifact diagnostics distinguish absent and null fields and hide all unfamiliar keys and source values', t => {
+  const marker = 'SYNTHETIC_ARTIFACT_PRIVATE_DO_NOT_LOG';
+  const absent = artifactDiagnosticFinding([{}]).fingerprintDiagnostics.artifactCollection;
+  const present = artifactDiagnosticFinding([{ description: null }]).fingerprintDiagnostics.artifactCollection;
+  assert.equal(absent.fields.description.presentCount, 0);
+  assert.equal(present.fields.description.presentCount, 1);
+  assert.notEqual(absent.fields.description.orderedSha256, present.fields.description.orderedSha256);
+  assert.notEqual(absent.fields.description.sortedSha256, present.fields.description.sortedSha256);
+  const current = run([finding()]);
+  current.artifacts = [{ location: { uri: 'file:///synthetic/' + marker }, contents: { text: marker },
+    properties: { [marker]: marker }, description: { text: marker }, [marker]: { [marker]: marker } }];
+  const dir = directory(t);
+  writeReport(dir, report(current));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stdout.includes(marker), false);
+  assert.equal(output.stdout.includes('file:///'), false);
+  assert.ok(output.stdout.length < 16000);
+  const detail = JSON.parse(output.stdout.trim().split('\n')[1]);
+  const diagnostic = detail.fingerprintDiagnostics.artifactCollection;
+  assert.deepEqual(Object.keys(diagnostic.fields), ['location', 'parentIndex', 'offset', 'length', 'roles',
+    'mimeType', 'encoding', 'sourceLanguage', 'hashes', 'contents', 'lastModifiedTimeUtc', 'description', 'properties']);
+  assert.equal(diagnostic.otherFields.recordCount, 1);
+  assert.equal(diagnostic.otherFields.keyCount, 1);
+  for (const value of Object.values(diagnostic.fields)) {
+    assert.match(value.orderedSha256, /^[a-f0-9]{64}$/);
+    assert.match(value.sortedSha256, /^[a-f0-9]{64}$/);
+  }
+});
+
+test('artifact diagnostics cache each run separately and cap refinement without dropping full artifact binding', () => {
+  const first = run([finding(), finding()]);
+  first.artifacts = [{ location: { uri: 'src/a.js' } }];
+  const second = run([finding()]);
+  second.artifacts = [{ location: { uri: 'src/b.js' } }];
+  const values = inspectReport(report(first, second), 0).findings;
+  assert.equal(values[0].fingerprintDiagnostics.artifactCollection, values[1].fingerprintDiagnostics.artifactCollection);
+  assert.notEqual(values[0].fingerprintDiagnostics.artifactCollection, values[2].fingerprintDiagnostics.artifactCollection);
+  const large = Array.from({ length: 2049 }, (_, i) => ({ location: { uri: `src/synthetic-${i}.js` } }));
+  const before = artifactDiagnosticFinding(large);
+  assert.deepEqual(before.fingerprintDiagnostics.artifactCollection, { version: 1, count: 2049, limit: 2048, limited: true });
+  large[2048].properties = { changed: true };
+  const after = artifactDiagnosticFinding(large);
+  assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+  assert.match(after.fingerprintDiagnostics.components.runReferences.fields.artifacts.sha256, /^[a-f0-9]{64}$/);
+});
+
+test('timestamp-only changes in a referenced artifact remain blocked pending actual evidence and semantic review', t => {
+  const f = reviewFixture(t);
+  const current = run([f.reviewedFinding()]);
+  current.artifacts = [{ location: { uri: f.entry.path }, lastModifiedTimeUtc: '2026-01-01T00:00:00Z' }];
+  current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
+  const original = inspectReport(report(current), 0).findings[0];
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, resultFingerprint: original.resultFingerprint }] });
+  assert.equal(f.auditReview(report(current)).ok, true);
+  current.artifacts[0].lastModifiedTimeUtc = '2026-01-02T00:00:00Z';
+  const changed = f.auditReview(report(current));
+  failed(changed, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(changed.totals.reviewedFindings, 0);
+  assert.equal(changed.totals.unreviewedFindings, 1);
+  const a = original.fingerprintDiagnostics.artifactCollection, b = changed.findings[0].fingerprintDiagnostics.artifactCollection;
+  assert.notEqual(a.fields.lastModifiedTimeUtc.sortedSha256, b.fields.lastModifiedTimeUtc.sortedSha256);
+  assert.deepEqual(a.fields.location, b.fields.location);
+});
