@@ -112,6 +112,15 @@ binary files (including file modes), exact SARIF result/flow/rule metadata and
 global finding multiplicity. Local gate regressions passed 65 with two Windows
 file-symlink privilege skips; Linux CI must run those cases before acceptance.
 
+QA run `37854411766` at `a2843f8` passes dependencies and genuine BEAM tests.
+Its complete static scan emits 49 findings, including five narrowly reviewed
+synthetic filesystem-race test sites; the empty ledger correctly blocks them.
+All 49 exact sites now have separate-review classifications. A six-config
+CRLF/LF fingerprint discrepancy was corrected without excluding runtime files
+or normalizing binary assets. Three focused portability tests pass, and the
+Windows and Linux-equivalent complete-tree digests agree. A fresh actual scan
+is required before writing the reviewed finding fingerprints.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are

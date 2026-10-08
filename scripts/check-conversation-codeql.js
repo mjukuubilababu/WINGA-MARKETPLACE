@@ -206,6 +206,23 @@ const NON_RUNTIME_DOCUMENTS = new Set([
   'docs/conversations-audit-fixes-20261008.md', 'docs/conversations-audit-soak-20261008.md'
 ]);
 const PUBLIC_ENV_TEMPLATES = new Set(['.env.production.example', 'backend/.env.example']);
+const TEXT_CONFIG_NAMES = new Set([
+  '.gitignore', '.gitattributes', '.gitmodules', '.gitkeep', '.editorconfig',
+  '.npmrc', '.npmignore', '.pnpmrc', '.yarnrc', '.yarnclean', '.yarnignore',
+  '.nvmrc', '.node-version', '.python-version', '.ruby-version', '.tool-versions',
+  '.browserslistrc', '.babelrc', '.eslintrc', '.eslintignore', '.prettierrc', '.prettierignore',
+  '.stylelintrc', '.stylelintignore', '.lintstagedrc', '.huskyrc', '.ignore',
+  '.dockerignore', '.containerignore', '.vercelignore', '.slugignore', '.replit',
+  'dockerfile', 'containerfile', 'makefile', 'gnumakefile', 'cmakelists.txt', 'caddyfile',
+  'procfile', 'gemfile', 'rakefile', 'brewfile', 'vagrantfile', 'justfile', 'jenkinsfile',
+  '_headers', '_redirects', 'readme', 'license', 'notice', 'copying', 'authors', 'changelog'
+]);
+
+function isKnownTextPath(filename) {
+  return /\.(?:js|mjs|cjs|jsx|ts|tsx|html|htm|vue|css|ex|exs|heex|eex|sql|rs|py|sh|ps1|bat|yml|yaml|toml|c|h|cpp|m|mm|swift|json|jsonc|webmanifest|lock|xml|svg|md|txt|conf|cfg|ini|properties|example)$/i.test(filename)
+    || PUBLIC_ENV_TEMPLATES.has(filename) || TEXT_CONFIG_NAMES.has(path.posix.basename(filename).toLowerCase());
+}
+
 const sensitivePath = filename => !PUBLIC_ENV_TEMPLATES.has(filename)
   && (/(?:^|\/)\.env(?:\.|$)/i.test(filename)
     || /(?:^|\/)(?:private|profiles|browser-profiles|recovery-data|\.aws|\.ssh|\.codex|\.git)(?:\/|$)/i.test(filename)
@@ -248,8 +265,7 @@ function inspectSourceTree(root, ledger) {
     identities.push({ filename, stat: verified });
     bytes += source.length;
     check(bytes <= REVIEW_LIMITS.treeBytes, 'source-byte-bounds', 'CODEQL_REVIEW_LIMIT');
-    const textFile = /\.(?:js|mjs|cjs|jsx|ts|tsx|html|htm|vue|css|ex|exs|heex|eex|sql|rs|py|sh|ps1|bat|yml|yaml|toml|c|h|cpp|m|mm|swift|json|jsonc|webmanifest|lock|xml|svg|md|txt|conf|cfg|ini|properties|example)$/i.test(filename)
-      || PUBLIC_ENV_TEMPLATES.has(filename) || ['.gitignore', '.gitattributes', '.editorconfig', 'Dockerfile'].includes(path.posix.basename(filename));
+    const textFile = isKnownTextPath(filename);
     let fingerprint;
     try { fingerprint = textFile ? sourceFingerprint(source) : crypto.createHash('sha256').update(source).digest('hex'); }
     catch { check(false, 'source-utf8', 'CODEQL_REVIEW_INVALID'); }
@@ -586,4 +602,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint };
+module.exports = { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint, isKnownTextPath };

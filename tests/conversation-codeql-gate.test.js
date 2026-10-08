@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint } = require('../scripts/check-conversation-codeql');
+const { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint, isKnownTextPath } = require('../scripts/check-conversation-codeql');
 
 const root = path.resolve(__dirname, '..');
 const script = path.join(root, 'scripts/check-conversation-codeql.js');
@@ -1406,5 +1406,57 @@ test('bracket acceptance cannot admit traversal, controls, absolute paths or amb
     'api/[id]:stream.js', 'api/[id];command.js', 'api/[id]/NUL.js']) {
     f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: filename }] });
     failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+  }
+});
+
+test('known dot-config and extensionless text names produce identical Windows and Linux tree digests', t => {
+  const lf = reviewFixture(t), crlf = reviewFixture(t);
+  const names = ['.gitignore', '.gitattributes', '.gitmodules', '.gitkeep', '.editorconfig',
+    '.npmrc', '.npmignore', '.pnpmrc', '.yarnrc', '.yarnclean', '.yarnignore', '.nvmrc',
+    '.node-version', '.python-version', '.ruby-version', '.tool-versions', '.browserslistrc',
+    '.babelrc', '.eslintrc', '.eslintignore', '.prettierrc', '.prettierignore', '.stylelintrc',
+    '.stylelintignore', '.lintstagedrc', '.huskyrc', '.ignore', '.dockerignore', '.containerignore',
+    '.vercelignore', '.slugignore', '.replit', 'Dockerfile', 'Containerfile', 'Makefile', 'GNUmakefile',
+    'CMakeLists.txt', 'Caddyfile', 'Procfile', 'Gemfile', 'Rakefile', 'Brewfile', 'Vagrantfile',
+    'Justfile', 'Jenkinsfile', '_headers', '_redirects', 'README', 'LICENSE', 'NOTICE', 'COPYING',
+    'AUTHORS', 'CHANGELOG'];
+  const paths = names.map(name => `config/${name}`);
+  for (const [f, newline] of [[lf, '\n'], [crlf, '\r\n']]) {
+    fs.mkdirSync(path.join(f.sourceRoot, 'config'));
+    for (const filename of paths) {
+      assert.equal(isKnownTextPath(filename), true, filename);
+      fs.writeFileSync(path.join(f.sourceRoot, filename), `synthetic config${newline}second line${newline}`);
+    }
+    fixtureGit(f.sourceRoot, ['add', '--', ...paths]);
+    trackedFile(f, 'assets/synthetic.png', Buffer.from([0x89, 0x50, 0xff, 0x0d, 0x0a]));
+  }
+  const portable = sourceTreeFingerprint(lf.sourceRoot);
+  assert.equal(sourceTreeFingerprint(crlf.sourceRoot), portable);
+  fs.appendFileSync(path.join(crlf.sourceRoot, 'config/.npmrc'), 'changed runtime configuration\r\n');
+  assert.notEqual(sourceTreeFingerprint(crlf.sourceRoot), portable);
+});
+
+test('config normalization preserves BOM, lone CR and all other bytes and rejects malformed UTF-8', t => {
+  const f = reviewFixture(t);
+  const config = trackedFile(f, 'backend/.dockerignore', 'synthetic\n');
+  const original = sourceTreeFingerprint(f.sourceRoot);
+  fs.writeFileSync(config, 'synthetic\r\n');
+  assert.equal(sourceTreeFingerprint(f.sourceRoot), original);
+  for (const content of ['\ufeffsynthetic\n', 'synthetic\r', 'synthetic \n']) {
+    fs.writeFileSync(config, content);
+    assert.notEqual(sourceTreeFingerprint(f.sourceRoot), original);
+  }
+  fs.writeFileSync(config, Buffer.from([0xff]));
+  assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_INVALID');
+});
+
+test('binary and unknown extensionless files remain byte-exact even when their bytes are valid UTF-8', t => {
+  const f = reviewFixture(t);
+  for (const filename of ['assets/synthetic.png', 'assets/synthetic.bin', 'config/unknown-format', 'config/.unknownrc']) {
+    assert.equal(isKnownTextPath(filename), false, filename);
+    const target = trackedFile(f, filename, 'synthetic\r\nbytes\n');
+    const original = sourceTreeFingerprint(f.sourceRoot);
+    fs.writeFileSync(target, 'synthetic\nbytes\n');
+    assert.notEqual(sourceTreeFingerprint(f.sourceRoot), original);
   }
 });
