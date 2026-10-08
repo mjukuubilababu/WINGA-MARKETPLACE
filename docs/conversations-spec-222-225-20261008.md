@@ -76,9 +76,9 @@ exist. This remains an explicit 224 feature/acceptance gap.
   Node 24, disposable PostgreSQL 18, all test profiles and Chromium browser tests.
   A separate BEAM job installs Elixir/OTP, runs channel authentication/abuse/
   command-budget tests, then the genuine two-node/lost-reply/restart exercise.
-- CodeQL security-extended JavaScript/TypeScript analysis is configured as a
-  separate job. CodeQL/BEAM are not installed on this Windows host; their new CI
-  run must finish and any findings be triaged before security approval. CodeQL
+- CodeQL security-extended JavaScript/TypeScript analysis runs as a separate
+  job. CodeQL/BEAM are not installed on this Windows host; both CI jobs completed
+  successfully in the final run below. Findings still need triage before security approval. CodeQL
   job success means analysis completed, not that all reported alerts are resolved.
 - No owned C/C++ source was found in `src`, `backend` or `services`. Sanitizers
   are not applicable to owned conversation code in this checkpoint; no sanitizer
@@ -107,7 +107,7 @@ exist. This remains an explicit 224 feature/acceptance gap.
 
 Separate worker and read-only reviewer agents checked disjoint coverage and
 test-gate risks. Their reviews are not external cryptographic certification.
-Remaining approval: final functional CI and CodeQL alert triage, encrypted BEAM-loss acceptance,
+Remaining approval: CodeQL alert triage, encrypted BEAM-loss acceptance,
 group-order reference support, deferred physical-device/production load and
 independent crypto/security audit. No pending item is reported as verified.
 
@@ -150,7 +150,7 @@ The application is ready on Render at
 `6e3277edd57229f751c5fe3609d95db8741405ae` (exact `X-Winga-Commit`, HTTP 200).
 Frontend build `20261008193054`, Worker version
 `436a4d63-2fdc-4aa2-b80b-095911ece4d3`, passed all eight public production smoke
-routes. The two subsequent fixture repairs affect tests/evidence only; no
+routes. Subsequent fixture repairs affect tests/evidence only; no
 application behavior, CSP, secrets, approvals or feature flags changed.
 
 CI checkpoint: https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/37835056834
@@ -169,4 +169,31 @@ CI checkpoint: https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/
   explicitly selects/asserts that device ID and asserts the same accepted
   reservation target; no timeout was raised or runtime check weakened.
   A separate reviewer confirmed this fixture cause and reviewed the patch.
-  Patched focused repeats and final functional CI remain to be recorded.
+  Both patched focused repeats passed in fresh Chromium contexts (2/2).
+
+## Completed Acceptance CI
+
+Final tested commit: `69136e5500b98ecd041bb0669bad5295e0c16cb4`.
+Run: https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/37837456327
+
+All four jobs completed successfully on 2026-10-08:
+
+- Functional: direct messaging 165/165, E2EE 159/159, native Rooms 89/89,
+  canonical reference content 14/14, security 48/48, genuine PostgreSQL 93/93
+  and Chromium browser 48/48. No skipped cases in these final profiles.
+- BEAM: nine Mix tests, zero failures; genuine two-node browser/PostgreSQL
+  transport test passed. It replayed/acknowledged 65 canonical messages after
+  retries and node loss, with zero canonical duplicates; writer restart passed.
+  These synthetic bounded results are not production capacity or dedicated
+  encrypted-native BEAM-loss acceptance.
+- Dependencies: root and backend aggregate audits passed with zero vulnerabilities.
+- Static analysis: CodeQL security-extended analysis and upload completed;
+  access to private code-scanning alerts remains unavailable, so findings are
+  not independently triaged and no security/cryptographic approval is claimed.
+
+The final public Render check still returned ready, HTTP 200 and exact commit
+`6e3277edd57229f751c5fe3609d95db8741405ae`. Git comparison confirms the accepted
+`69136e5` tree differs only in the browser fixture and two evidence documents;
+application runtime files are unchanged. The latest fixture/docs commit is
+pushed, not claimed Live. Frontend build `20261008193054` remains deployed.
+No production accounts, approvals, secrets, CSP or feature flags were changed.

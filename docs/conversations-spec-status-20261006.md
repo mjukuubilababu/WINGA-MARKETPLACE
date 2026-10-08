@@ -13,9 +13,13 @@ passed. The subsequent [222-225 test-suite/security matrix](conversations-spec-2
 records executable coverage, isolated database interruption/retry, native Room
 revocation tests and CI/dependency/fuzz gates. It explicitly retains unsupported
 group-order references, encrypted BEAM-loss acceptance and independent audit/load
-as open, rather than equating a configured test job with approval. Final BEAM,
-dependency and CodeQL analysis jobs passed in run `37835056834`; the detailed
-matrix records functional results and the remaining security approval boundary.
+as open, rather than equating a configured test job with approval. All four jobs
+passed in final run `37837456327` at `69136e5`: direct 165, E2EE 159, native Rooms
+89 plus 14 reference cases, security 48, genuine PostgreSQL 93 and browser 48,
+all with zero skips. BEAM node-loss/restart acceptance, dependency scanning and
+CodeQL analysis/upload passed. CodeQL alert triage remains open. The accepted
+tree differs from live `6e3277e` only in a browser fixture and evidence documents;
+runtime files are unchanged, and the later test/docs commit is not claimed Live.
 
 The subsequent [210-221 invariant and recovery matrix](conversations-spec-210-221-20261008.md)
 records durable acceptance evidence/guards, deferred optional push fan-out,
