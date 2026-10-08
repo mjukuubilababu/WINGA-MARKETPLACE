@@ -555,7 +555,19 @@
       },
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
-      createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
+      createEncryptedRecovery:async()=>{
+        const initial={...deps.getSession?.()};let identity,recovery;
+        const current=()=>{const s=deps.getSession?.();if(!initial.username||s?.username!==initial.username||s.sessionId!==initial.sessionId||s.token!==initial.token)
+          throw Object.assign(new Error('recovery_session_changed'),{code:'recovery_session_changed'});};
+        try{
+          current();
+          identity=await globalThis.WingaCryptoDevices.createCryptoDeviceClient({getSession:deps.getSession,request:api.cryptoDeviceRequest});
+          current();const native=await identity.enroll();current();
+          if(native.status!=='active')throw Object.assign(new Error('crypto_device_pending'),{code:'crypto_device_pending'});
+          recovery=await globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest});current();return recovery;
+        }catch(error){recovery?.close();throw error;
+        }finally{identity?.close();}
+      },
       cryptoDeviceManagementAvailable:async()=>{try{const r=await fetchJson(`${baseUrl}/conversations/crypto/devices`,{headers:authHeaders()});return r.version===1&&Array.isArray(r.devices);}catch(error){if(error.status===404)return false;throw error;}},
       createCryptoDeviceManagement:()=>globalThis.WingaDeviceManagementUi.createManagementSession({getSession:deps.getSession,request:api.cryptoDeviceRequest}),
       cryptoMediaRequest:async(method,object,proof,blob)=>{

@@ -4,6 +4,11 @@ function evaluateConversationOperations({state,privateStorage,policy,now=Date.no
   const runtime={nodeVersion,supported:Number(nodeVersion.split('.')[0])===24};
   if(!runtime.supported)alerts.push('conversation_runtime_unsupported');
   if(!state?.schema?.ready)alerts.push('conversation_schema_not_ready');
+  if(!state?.invariants?.available || state.invariants.guardTriggersEnabled!==5)alerts.push('conversation_invariant_guards_unavailable');
+  if(state?.invariants?.missingAccepted)alerts.push('conversation_accepted_message_missing_critical');
+  if(state?.invariants?.missingEvidence || state?.invariants?.mismatched)alerts.push('conversation_message_evidence_mismatch_critical');
+  if(state?.invariants?.invalidSequences)alerts.push('conversation_sequence_mismatch_critical');
+  if(state?.invariants?.push?.oldestPendingAgeSeconds>60)alerts.push('conversation_notification_enqueue_delayed');
   if(!state?.rooms?.schemaReady||!state.rooms.ok)alerts.push('room_invariants_not_ready');
   if(!state?.metrics?.available)alerts.push('conversation_fleet_metrics_unavailable');
   if(state?.metrics?.available&&!(state.metrics.activePublishers>=1))alerts.push('conversation_metrics_publisher_stale');

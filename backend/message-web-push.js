@@ -37,10 +37,9 @@ async function enqueueMessagePush(client, message) {
 }
 
 function createMessageWebPushStore({ query, withTransaction, provider = webPush, encrypted = false, roomsEnabled=false }) {
-  const sources=encrypted?`WITH push_messages AS (
-    SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages UNION ALL
-    SELECT m.id,d.owner_id,CASE WHEN d.owner_id=g.creator THEN g.recipient ELSE g.creator END,
-      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.kind='read'),NULL::text AS room_id
+  const encryptedRows=`
+    SELECT m.id,d.owner_id AS sender_id,CASE WHEN d.owner_id=g.creator THEN g.recipient ELSE g.creator END AS receiver_id,
+      EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.kind='read') AS is_read,NULL::text AS room_id
     FROM encrypted_conversation_messages m JOIN encrypted_conversations g ON g.id=m.conversation_id
     JOIN conversation_crypto_devices d ON d.id=m.sender_device AND d.status='active'
     JOIN conversation_crypto_devices a ON a.id=g.creator_device AND a.status='active'
@@ -60,7 +59,10 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
       AND EXISTS(SELECT 1 FROM conversation_event_members member WHERE member.conversation_id=g.canonical_id AND member.owner_id=old.owner_id)
       AND NOT EXISTS(SELECT 1 FROM user_blocks b JOIN conversation_event_members x ON x.owner_id=b.blocker_username AND x.conversation_id=g.canonical_id
         JOIN conversation_event_members y ON y.owner_id=b.blocked_username AND y.conversation_id=g.canonical_id)`:''}
-  )`:`WITH push_messages AS (SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages)`;
+  `;
+  const legacyRows='SELECT id,sender_id,receiver_id,is_read,NULL::text AS room_id FROM messages';
+  const sources=`WITH push_messages AS (${legacyRows}${encrypted?` UNION ALL ${encryptedRows}`:''})`;
+  const encryptedSources=`WITH push_messages AS (${encryptedRows})`;
   let identityPromise;
   function identity() {
     if (!identityPromise) identityPromise = (async () => {
@@ -213,8 +215,38 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
     });
   }
 
+  async function reconcileEncryptedPush() {
+    if(!encrypted)return {queued:0};
+    return withTransaction(async client=>{
+      await client.query("SET LOCAL statement_timeout = '5s'");
+      await client.query("SET LOCAL lock_timeout = '1s'");
+      await client.query('DELETE FROM encrypted_message_push_outbox WHERE expires_at<NOW()');
+      const batch=(await client.query(`SELECT message_id FROM encrypted_message_push_outbox
+        WHERE next_attempt_at<=NOW() ORDER BY next_attempt_at,created_at,message_id LIMIT 25 FOR UPDATE SKIP LOCKED`)).rows;
+      let queued=0;
+      for(const item of batch){
+        // A freeze is temporary, not permission to drop an accepted message's work.
+        const frozen=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m JOIN encrypted_conversations g ON g.id=m.conversation_id
+          WHERE m.id=$1 AND (EXISTS(SELECT 1 FROM encrypted_conversation_replacements r WHERE r.conversation_id=g.id AND r.status<>'accepted')
+            OR EXISTS(SELECT 1 FROM encrypted_conversation_device_admissions a WHERE a.conversation_id=g.id AND a.status<>'accepted')
+            ${roomsEnabled?`OR EXISTS(SELECT 1 FROM encrypted_room_transitions t WHERE t.conversation_id=g.id AND t.status<>'accepted')`:''})`,[item.message_id])).rows.length;
+        if(frozen){
+          await client.query("UPDATE encrypted_message_push_outbox SET next_attempt_at=NOW()+INTERVAL '30 seconds' WHERE message_id=$1",[item.message_id]);
+          continue;
+        }
+        const targets=(await client.query(`${encryptedSources} SELECT DISTINCT id,sender_id,receiver_id,room_id FROM push_messages
+          WHERE id=$1 AND NOT is_read`,[item.message_id])).rows;
+        for(const target of targets)await enqueueMessagePush(client,{id:target.id,senderId:target.sender_id,
+          receiverId:target.receiver_id,...(target.room_id?{roomId:target.room_id}:{})});
+        await client.query('DELETE FROM encrypted_message_push_outbox WHERE message_id=$1',[item.message_id]);queued++;
+      }
+      return {queued};
+    });
+  }
+
   async function dispatchWebPushBatch() {
     const outcome = { accepted: 0, retrying: 0, rejected: 0, skipped: 0, lastProviderStatus: 0 };
+    await reconcileEncryptedPush();
     await query("DELETE FROM web_push_jobs WHERE expires_at<NOW()");
     await query(`DELETE FROM web_push_subscriptions p WHERE NOT EXISTS
       (SELECT 1 FROM sessions s WHERE s.session_id=p.session_id AND s.username=p.owner_id AND s.expires_at>$1)`, [Date.now()]);
@@ -276,7 +308,7 @@ function createMessageWebPushStore({ query, withTransaction, provider = webPush,
   }
   return {
     async readWebPushConfig() { const keys = await identity(); return { supported: true, publicKey: keys.public_key }; },
-    saveWebPush, removeWebPush, resolveWebPush, dispatchWebPushBatch,readConversationMute,saveConversationMute,
+    saveWebPush, removeWebPush, resolveWebPush, dispatchWebPushBatch,reconcileEncryptedPush,readConversationMute,saveConversationMute,
     readConversationArchive,saveConversationArchive,readConversationArchives
   };
 }

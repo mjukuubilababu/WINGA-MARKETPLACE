@@ -10,7 +10,7 @@ const context = { owner: 'bob', deviceId: 'b1', token: 'b1' };
 async function fixture(t) {
   const db = new PGlite(); t.after(() => db.close());
   await db.exec(require('./helpers/conversation-event-fixture'));
-  for (const name of ['conversation-event-ledger', 'conversation-crypto-devices', 'conversation-crypto-key-packages']) {
+  for (const name of ['conversation-event-ledger', 'conversation-crypto-devices', 'conversation-crypto-session-bindings', 'conversation-crypto-key-packages']) {
     await db.transaction(async tx => { for (const sql of require(`../backend/migrations/${name}`).statements) await tx.exec(sql); });
   }
   const keys = crypto.generateKeyPairSync('ed25519');

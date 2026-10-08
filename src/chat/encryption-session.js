@@ -488,8 +488,8 @@
           await syncInternal();return {status:'replacement-pending'};
         });
       }
-      async function requireActiveMembership(peer) {
-        try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
+      async function requireActiveMembership(peer,membershipSynced=false) {
+        if(!membershipSynced)try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
         const saved=await intentSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
         if(!g)fail('encrypted_membership_required');
         if(g.status==='blocked')fail('encrypted_access_denied');
@@ -548,9 +548,9 @@
         });
         if(item){localSends.add(item.id);onChange({localMessage:messageView(item)});}return wire;
       }
-      async function transmitMessage(wire) {
+      async function transmitMessage(wire,membershipSynced=false) {
         try {
-          await requireActiveMembership(wire.receiverId);
+          await requireActiveMembership(wire.receiverId,membershipSynced);
           const saved=await intentSnapshot(),intent=saved.values['send:intent:'+wire.clientMessageId];
           if(intent&&(intent.conversationId!==await runtime.conversationId(wire.receiverId)||intent.deviceId!==own.id))fail('mls_send_retry_conflict');
           const result=messageView(await runtime.sendMessage(wire));onChange({localMessage:result});return result;
@@ -560,6 +560,26 @@
           if(item)onChange({localMessage:messageView(item)});
           if(!item||(!(error instanceof TypeError)&&error.status!==503&&error.code!=='crypto_vault_revision_conflict'))throw error;
           return messageView(item);
+        }
+      }
+      async function resumeSavedIntents() {
+        current();const saved=await intentSnapshot();
+        const pending=Object.entries(saved.values).filter(([key,item])=>key==='send:intent:'+item?.id && item.localIntent
+          && item.owner===owner && item.deviceId===own.id && !localSends.has(item.id)
+          && !saved.values['mls:outbox:'+item.id] && !saved.values['history:'+item.id]
+          && groups.some(g=>g.id===item.conversationId&&g.status==='active'))
+          .map(([,item])=>item).sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp))||a.id.localeCompare(b.id)).slice(0,5);
+        for(const item of pending){
+          current();
+          try {
+            const result=await transmitMessage({clientMessageId:item.id,receiverId:item.peer,message:item.message,messageType:'text'},true);
+            if(result.isQueued)break;
+          }catch(error){
+            current();
+            // Permission, key, membership and content failures need user review, never bypass.
+            if(error.code==='mls_session_changed')throw error;
+            break;
+          }
         }
       }
       async function mutation(peer,type,targetId,value='') {
@@ -646,7 +666,9 @@
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
-        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
+        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(async()=>{
+          const result=await syncInternal();await resumeSavedIntents();return result;
+        }),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
           await serialize(syncInternal);

@@ -34,7 +34,7 @@ test.afterAll(async () => {
 });
 test.beforeEach(async () => {
   db = new PGlite(); await db.exec(require('../helpers/conversation-event-fixture'));
-  for (const name of ['conversation-crypto-devices', 'conversation-event-ledger', 'conversation-crypto-key-packages']) {
+  for (const name of ['conversation-crypto-devices', 'conversation-crypto-session-bindings', 'conversation-event-ledger', 'conversation-crypto-key-packages']) {
     await db.transaction(async tx => { for (const sql of require(`../../backend/migrations/${name}`).statements) await tx.exec(sql); });
   }
   devices = createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work) });

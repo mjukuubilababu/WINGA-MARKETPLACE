@@ -5669,7 +5669,7 @@ async function buildOpsSummary() {
         conversationTimer=setTimeout(()=>resolve(null),2000);
       })]);
       if(result)conversations={privacy:result.privacy,readiness:result.readiness,alerts:result.alerts,
-        metrics:result.metrics,dispatch:result.dispatch,push:result.push,media:result.media,durable:result.durable,
+        metrics:result.metrics,dispatch:result.dispatch,push:result.push,media:result.media,durable:result.durable,invariants:result.invariants,
         reliability:result.reliability,pool:result.pool,transport:result.transport,experience:result.experience,
         clientReliability:result.clientReliability,multiDevice:result.multiDevice,observation:result.observation};
     }catch{}finally{clearTimeout(conversationTimer);}

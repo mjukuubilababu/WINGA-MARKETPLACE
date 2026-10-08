@@ -7,6 +7,12 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 
 ## Current Production Checkpoint: 2026-10-08
 
+The subsequent [210-221 invariant and recovery matrix](conversations-spec-210-221-20261008.md)
+records durable acceptance evidence/guards, deferred optional push fan-out,
+protected event authorization, revoked-device recovery exclusion and automatic
+retained-intent retries. This candidate is not authenticated production-load or
+cryptographic acceptance; the deferred device approvals remain unchanged.
+
 The subsequent [193-209 implementation and acceptance matrix](conversations-spec-193-209-20261008.md)
 records globalization/accessibility, constrained-network/local-first behavior,
 canonical reconciliation, rollout/kill controls, non-destructive legacy migration

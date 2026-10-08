@@ -66,3 +66,23 @@ test('session switch while queued cannot transmit or expose prior-owner history'
   const rejected=assert.rejects(send,{code:'mls_session_changed'}),pollRejected=assert.rejects(poll,{code:'mls_session_changed'});
   await tick();f.session.username='eve';f.release();await pollRejected;await rejected;assert.equal(f.sends,0);
 });
+
+test('verified foreground sync automatically resumes a retained intent with its original logical ID once',async()=>{
+  const f=await fixture(),id=randomUUID(),send=f.runtime.sendMessage;let unavailable=true;
+  f.runtime.sendMessage=async wire=>{if(unavailable)throw Object.assign(new TypeError('offline'),{status:503});return send(wire);};
+  const pending=await f.service.sendMessage({clientMessageId:id,receiverId:'bob',message:'recover automatically'});
+  assert.equal(pending.isQueued,true);assert.ok(f.values['send:intent:'+id]);assert.equal(f.sends,0);
+  unavailable=false;await f.service.sync();await f.service.sync();
+  assert.equal(f.sends,1);assert.equal(f.values['send:intent:'+id],undefined);
+  assert.equal(f.values['history:'+id].message,'recover automatically');
+});
+
+test('automatic intent recovery excludes another device and a frozen membership without altering drafts',async()=>{
+  for(const blocked of ['device','membership']){
+    const f=await fixture(),id=randomUUID();
+    f.values['send:intent:'+id]={id,owner:'alice',peer:'bob',conversationId:f.id,deviceId:blocked==='device'?randomUUID():f.deviceId,
+      message:'retained',timestamp:new Date().toISOString(),status:'pending',localIntent:true};
+    if(blocked==='membership')f.values['mls:replacement:bob']={id:randomUUID()};
+    await f.service.sync();assert.equal(f.sends,0);assert.ok(f.values['send:intent:'+id]);
+  }
+});

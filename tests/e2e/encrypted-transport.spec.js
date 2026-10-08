@@ -17,7 +17,7 @@ const cookieSessions=new Map(Object.values(sessions).map(s=>[require('node:crypt
 test.beforeAll(async()=>{
   output=fs.mkdtempSync(path.join(os.tmpdir(),'winga-encrypted-transport-'));buildMlsBrowser(output);
   db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-conversation-backups','encrypted-history-pages'])
+  for(const name of ['conversation-crypto-devices','conversation-crypto-session-bindings','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-conversation-backups','encrypted-history-pages','encrypted-message-invariants'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   devices=createConversationCryptoDeviceStore({withTransaction:work=>db.transaction(work)});
   packages=createCryptoKeyPackageStore({withTransaction:work=>db.transaction(work)});
@@ -131,8 +131,8 @@ test.beforeAll(async()=>{
 test.afterAll(async()=>{await new Promise(resolve=>server.close(resolve));await db.close();fs.rmSync(output,{recursive:true,force:true});});
 async function resetStores(multidevice=false,rooms=false,limits) {
   await db.close();db=new PGlite();await db.exec(require('../helpers/conversation-event-fixture'));
-  for(const name of ['message-web-push','conversation-crypto-devices','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
-    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers','encrypted-room-preferences','encrypted-room-departures'])
+  for(const name of ['message-web-push','conversation-crypto-devices','conversation-crypto-session-bindings','conversation-event-ledger','conversation-security-mode','conversation-crypto-key-packages','encrypted-conversations',
+    'encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-conversation-backups','encrypted-history-pages','encrypted-shopping-rooms','encrypted-room-sellers','encrypted-room-preferences','encrypted-room-departures','encrypted-message-invariants'])
     await db.transaction(async tx=>{for(const sql of require(`../../backend/migrations/${name}`).statements)await tx.exec(sql);});
   await db.exec(`INSERT INTO users(username) VALUES('outside-seller');INSERT INTO sessions VALUES('s','outside-seller','s',9999999999999);
     CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
@@ -716,7 +716,7 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
       await bob.evaluate(()=>{window.originalSession=browserSession;browserSession={username:'alice',sessionId:'other'};});
       await expect(bob.locator('.chat-media-preview-dialog')).toHaveCount(0);await bob.evaluate(()=>{browserSession=originalSession;});
     });
-    await test.step('user-held recovery kit restores history on a fresh pending device without MLS secrets',async()=>{
+    await test.step('user-held recovery kit restores history on a freshly approved device without MLS secrets',async()=>{
       await expect(bob.locator('[data-chat-recovery]')).toBeVisible();await bob.locator('[data-chat-recovery]').click();
       await bob.setViewportSize({width:390,height:844});
       const provisional=await Promise.all([bob.waitForEvent('download'),bob.getByRole('button',{name:'Create recovery key'}).click()]);
@@ -743,6 +743,9 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
       await bob.locator('[data-recovery-saved]').check();await bob.getByRole('button',{name:'Close',exact:true}).click();
       const fresh=await browser.newContext();try {
         const page=await fresh.newPage();await page.goto(origin);await page.evaluate(async()=>{try{await start('bob');}catch{}});
+        await expect(page.evaluate(()=>client.createEncryptedRecovery())).rejects.toThrow('crypto_device_pending');
+        const device=await page.evaluate(async()=>{const management=await client.createCryptoDeviceManagement();try{return (await management.list()).ownDevice;}finally{management.close();}});
+        await bob.evaluate(async device=>{const management=await client.createCryptoDeviceManagement();try{await management.manage('approve',device.id,device.fingerprint);}finally{management.close();}},device);
         await page.locator('[data-chat-recovery]').click();
         await page.locator('[data-recovery-file]').setInputFiles({name:'wrong.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({...kit,owner:'alice'}))});
         await expect(page.locator('dialog [role=status]')).toContainText('Recovery failed');

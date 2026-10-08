@@ -271,9 +271,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
           acceptedAt=inserted.rows[0].created_at;
           acceptedSequence=seq;
           await media.attach(client,g,op,p);
-          await enqueuePush(client,{id:p.id,senderId:context.owner,receiverId:g.creator===context.owner?g.recipient:g.creator});
+          // The canonical insert durably queues optional notification work for the worker.
           if(multiDeviceEnabled)await client.query(`SELECT winga_append_conversation_event($1,'message_created',$2,$3,0)`,[g.canonical_id,p.id,context.owner]);
         }
+        await require('./conversation-invariants').assertEncryptedAcceptance(client,p.id);
         return {id:p.id,hash:p.hash,status:'sent',createdAt:new Date(acceptedAt).toISOString(),sequence:String(acceptedSequence)};
       }
       assert(['receipt','receipt-ack','reject','sync-ack','archive-read','archive-read-ack'].includes(op.action) && uuid(p.id)

@@ -8,6 +8,12 @@ function createEncryptedConversationBackupStore({ withTransaction, now = Date.no
       WHERE s.token=$1 AND s.username=$2 AND s.session_id=$3 AND s.expires_at>$4 AND u.status='active'
       FOR SHARE OF s FOR UPDATE OF u`, [context.token, context.owner, context.deviceId, now()]);
     if (!result.rows.length) throw failure(401, 'backup_unauthorized');
+    // Take crypto locks only after session/account locks, matching signed enrollment/revocation.
+    const bound = await client.query(`SELECT d.id FROM conversation_crypto_session_bindings b
+      JOIN conversation_crypto_devices d ON d.id=b.crypto_device_id AND d.owner_id=b.owner_id
+      WHERE b.session_id=$1 AND b.owner_id=$2 AND b.session_token=$3 AND d.status='active'
+      FOR SHARE OF b, d`, [context.deviceId, context.owner, context.token]);
+    if (!bound.rows.length) throw failure(401, 'backup_unauthorized');
   }
   async function current(client, owner) {
     const result = await client.query(`SELECT revision::text, capsule, page_ids

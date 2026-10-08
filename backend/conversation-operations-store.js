@@ -93,7 +93,8 @@ function createConversationOperationsStore({withTransaction,getPoolHealth=()=>({
         AVG(GREATEST(0,EXTRACT(EPOCH FROM(a.acknowledged_at-m.created_at))*1000))::float8 AS "averageSyncDelayMs"
         FROM encrypted_conversation_sync_acks a JOIN encrypted_conversation_messages m ON m.id=a.message_id
         WHERE m.created_at>=date_trunc('hour',NOW())-INTERVAL '23 hours'`)).rows[0];
-      return {schema:chat.schema,rooms:{ok:rooms.ok,schemaReady:rooms.schemaReady,health:rooms.health},metrics,dispatch,push,media,durable,
+      const invariants=await require('./conversation-invariants').readConversationInvariants(client);
+      return {schema:chat.schema,rooms:{ok:rooms.ok,schemaReady:rooms.schemaReady,health:rooms.health},metrics,dispatch,push,media,durable,invariants,
         multiDevice:{scope:'verified-native-sync-acks',...multiDevice},
         reliability,experience,pool:getPoolHealth()};
     });

@@ -330,8 +330,9 @@ function createShoppingRooms({packages,consumeQuota,enqueuePush,media,mediaEnabl
         m=(await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[p.id,g.id,op.actorId,p.epoch,seq,p.ciphertext,p.hash,JSON.stringify(proof(c,op))])).rows[0];
         await media.attach(client,g,op,p);
-        for(const o of info.owners.filter(o=>o!==c.owner))await enqueuePush(client,{id:p.id,senderId:c.owner,receiverId:o,roomId:g.id});
+        // Canonical insertion queues fan-out; provider/subscription work is not part of Sent.
         await client.query(`SELECT winga_append_conversation_event($1,'message_created',$2,$3,0)`,[g.canonical_id,p.id,c.owner]);}
+      await require('./conversation-invariants').assertEncryptedAcceptance(client,m.id);
       return {id:m.id,hash:m.hash,status:'sent',sequence:String(m.sequence),createdAt:new Date(m.created_at).toISOString()};
     }
     need(['room-receipt','room-receipt-ack','room-reject'].includes(op.action)&&uuid(p.id));

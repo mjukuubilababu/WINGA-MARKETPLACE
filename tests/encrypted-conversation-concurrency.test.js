@@ -12,15 +12,20 @@ async function fixture(t,options={}){
   t.after(async()=>{await pool.end();try{await admin.query(`DROP SCHEMA "${schema}" CASCADE`);}finally{await admin.end();}});
   await pool.query(require('./helpers/conversation-event-fixture'));
   const migrationClient=await pool.connect();
-  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history'])
+  try { for(const name of ['conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-session-bindings','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-message-invariants'])
     await transaction(migrationClient,async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.query(sql);}); }
   finally { migrationClient.release(); }
   const members={};
+  const native=require('../backend/conversation-crypto-devices'),devices=native.createConversationCryptoDeviceStore({withTransaction:async work=>{
+    const c=await pool.connect();try{return await transaction(c,work);}finally{c.release();}
+  }});
   for(const [owner,token]of [['alice','a'],['bob','b1']]){
     const keys=crypto.generateKeyPairSync('ed25519'),raw=keys.publicKey.export({type:'spki',format:'der'}).subarray(-32),id=crypto.randomUUID(),hash=crypto.createHash('sha256').update(owner).digest('hex');
-    await pool.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status) VALUES($1,$2,$3,$4,'active')`,[id,owner,raw.toString('base64url'),crypto.createHash('sha256').update(raw).digest('hex')]);
+    const context={owner,deviceId:token,token},registration={action:'register',deviceId:id,actorId:id,publicKey:raw.toString('base64url'),
+      fingerprint:crypto.createHash('sha256').update(raw).digest('hex'),requestId:crypto.randomUUID(),issuedAt:Date.now(),signature:Buffer.alloc(64).toString('base64url')};
+    registration.signature=crypto.sign(null,native.operationBytes(context,registration),keys.privateKey).toString('base64url');
+    await devices.mutateConversationCryptoDevice(context,registration);
     await pool.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at) VALUES($1,$2,'public-fixture','public-fixture','{}',NOW()+interval '1 day')`,[hash,id]);
-    const context={owner,deviceId:token,token};
     members[owner]={id,hash,context,sign(action,payload){const op={action,actorId:id,requestId:crypto.randomUUID(),issuedAt:Date.now(),payload};op.signature=crypto.sign(null,operationBytes(context,op),keys.privateKey).toString('base64url');return op;}};
   }
   const store=createEncryptedConversationStore({mediaEnabled:true,...options,withTransaction:async work=>{const c=await pool.connect();try{return await transaction(c,work);}finally{c.release();}}});

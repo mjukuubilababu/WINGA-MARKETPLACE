@@ -9,6 +9,7 @@ const fullEnv=Object.fromEntries(Object.values(FLAGS).map(key=>[key,'true']));
 const privateEnv={...fullEnv,R2_ACCOUNT_ID:'a'.repeat(32),R2_BUCKET_NAME:'public-fixture',R2_CONVERSATION_BUCKET_NAME:'private-fixture',
   R2_CONVERSATION_ACCESS_KEY_ID:'secret-access',R2_CONVERSATION_SECRET_ACCESS_KEY:'secret-key',R2_CONVERSATION_API_TOKEN:'secret-token',R2_CONVERSATION_ISOLATION_CONFIRMED:'true'};
 const healthy=()=>({schema:{ready:true},rooms:{ok:true,schemaReady:true},
+  invariants:{available:true,ok:true,guardTriggersEnabled:5,missingAccepted:0,missingEvidence:0,mismatched:0,invalidSequences:0,push:{pending:0,oldestPendingAgeSeconds:0}},
   metrics:{available:true,activePublishers:1,operations:[],lastPublishedAt:null},dispatch:{pendingOwners:0,oldestPendingAgeSeconds:0},
   push:{pending:0,exhausted:0,oldestDueAgeSeconds:0},media:{cleanupOverdue:0,oldestCleanupAgeSeconds:0}});
 
@@ -80,7 +81,7 @@ test('combined health reads the real migrated schema and detects disabled guards
     'conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media',
     'encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions',
     'encrypted-device-lifecycle','encrypted-conversation-backups','encrypted-history-pages','encrypted-native-history',
-    'encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','conversation-operation-metrics','conversation-receipt-observation','conversation-experience-metrics']) {
+    'encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','conversation-operation-metrics','conversation-receipt-observation','conversation-experience-metrics','encrypted-message-invariants']) {
     const migration=require('../backend/migrations/'+name);
     await db.transaction(async client=>{for(const sql of migration.statements)await client.exec(sql);});
     await db.query('INSERT INTO schema_migrations VALUES($1)',[migration.id]);

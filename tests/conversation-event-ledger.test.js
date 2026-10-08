@@ -37,6 +37,42 @@ test('event ACK payloads are bounded and device-bound', () => {
     {deviceId:'d',eventIds:Array(51).fill(id)},{deviceId:'d',eventIds:['bad']}]) assert.throws(()=>validateEventIds(p,'d'));
 });
 
+test('protected event polling and ACK require an active session-bound device in the current epoch, while legacy delivery remains available',async()=>{
+  const f=await fixture();try{
+    await f.db.transaction(async tx=>{for(const sql of require('../backend/migrations/conversation-security-mode').statements)await tx.exec(sql);});
+    await f.db.exec(`CREATE TABLE conversation_crypto_devices(id TEXT PRIMARY KEY,owner_id TEXT,status TEXT);
+      CREATE TABLE conversation_crypto_session_bindings(session_id TEXT,owner_id TEXT,crypto_device_id TEXT);
+      CREATE TABLE encrypted_conversations(id TEXT,canonical_id TEXT,status TEXT,epoch TEXT);
+      CREATE TABLE encrypted_conversation_epoch_devices(conversation_id TEXT,epoch TEXT,device_id TEXT,owner_id TEXT);
+      INSERT INTO conversation_crypto_devices VALUES('native-bob','bob','active');
+      INSERT INTO conversation_crypto_session_bindings VALUES('b1','bob','native-bob')`);
+    const cid=(await f.db.query("SELECT id FROM conversation_event_streams WHERE participant_low='alice' AND participant_high='bob'")).rows[0].id;
+    await f.db.query("UPDATE conversation_event_streams SET security_mode='encrypted' WHERE id=$1",[cid]);
+    await f.db.query("INSERT INTO encrypted_conversations VALUES('secure',$1,'active','1')",[cid]);
+    await f.db.exec("INSERT INTO encrypted_conversation_epoch_devices VALUES('secure','1','native-bob','bob')");
+    await f.db.exec("INSERT INTO messages(id,sender_id,receiver_id,message) VALUES('legacy-other','eve','bob','legacy still available')");
+    await f.db.exec('DELETE FROM conversation_crypto_session_bindings');
+    assert.equal((await f.poll()).events.some(e=>e.conversationId===cid),false);
+    await assert.rejects(f.store.readConversationEvents(f.context(),{withUser:'alice'}),{status:404});
+    await f.db.exec("INSERT INTO conversation_crypto_session_bindings VALUES('b1','bob','native-bob')");
+    assert.ok((await f.store.readConversationEvents(f.context(),{withUser:'alice'})).events.length);
+    const offered=await f.poll();const protectedIds=offered.events.filter(e=>e.conversationId===cid).map(e=>e.id);assert.ok(protectedIds.length);
+    for(const state of ['pending','revoked']){
+      await f.db.query('UPDATE conversation_crypto_devices SET status=$1',[state]);
+      const batch=await f.poll();assert.equal(batch.events.some(e=>e.conversationId===cid),false);
+      assert.ok(batch.items.some(item=>item.id==='legacy-other'));
+      await assert.rejects(f.store.acknowledgeConversationDeviceEvents(f.context(),{deviceId:'b1',eventIds:protectedIds}),{status:409});
+      await assert.rejects(f.store.readConversationEvents(f.context(),{withUser:'alice'}),{status:404});
+    }
+    await f.db.exec("UPDATE conversation_crypto_devices SET status='active'; UPDATE encrypted_conversations SET epoch='2'");
+    assert.equal((await f.poll()).events.some(e=>e.conversationId===cid),false);
+    await assert.rejects(f.store.readConversationEvents(f.context(),{withUser:'alice'}),{status:404});
+    await f.db.exec("INSERT INTO encrypted_conversation_epoch_devices VALUES('secure','2','native-bob','bob')");
+    assert.ok((await f.poll()).events.some(e=>e.conversationId===cid));
+    await f.store.acknowledgeConversationDeviceEvents(f.context(),{deviceId:'b1',eventIds:protectedIds});
+  }finally{await f.db.close();}
+});
+
 test('progress migration preserves existing offered, ACKed and pending obligations', async () => {
   const db=new PGlite();
   try {

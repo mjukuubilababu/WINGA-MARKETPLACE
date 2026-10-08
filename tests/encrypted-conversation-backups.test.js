@@ -1,20 +1,42 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { PGlite } = require('@electric-sql/pglite');
 const { createSecureContent } = require('../src/chat/secure-content');
 const migration = require('../backend/migrations/encrypted-conversation-backups');
 const { createEncryptedConversationBackupStore } = require('../backend/encrypted-conversation-backups');
 const { createEncryptedConversationBackupsApi } = require('../backend/encrypted-conversation-backups-api');
+const { createConversationCryptoDeviceStore, operationBytes } = require('../backend/conversation-crypto-devices');
+const { createConversationCryptoDevicesApi } = require('../backend/conversation-crypto-devices-api');
 const { validateRevision, validateCapsule, requireLegacyPayload } = require('../backend/encrypted-content-contract');
 const { MIGRATIONS } = require('../backend/migrations');
 const { verifyEncryptedConversationBackups } = require('../backend/verify-encrypted-conversation-backups');
 
 const context = (owner = 'bob', deviceId = 'b1', token = deviceId) => ({ owner, deviceId, token });
-const fixture = async () => {
+function device() {
+  const keys = crypto.generateKeyPairSync('ed25519');
+  const bytes = keys.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32);
+  return { id: crypto.randomUUID(), privateKey: keys.privateKey, publicKey: bytes.toString('base64url'),
+    fingerprint: crypto.createHash('sha256').update(bytes).digest('hex') };
+}
+function proof(ctx, target, actor = target, action = 'register') {
+  const payload = { action, deviceId: target.id, actorId: actor.id, publicKey: target.publicKey,
+    fingerprint: target.fingerprint, requestId: crypto.randomUUID(), issuedAt: Date.now(),
+    signature: Buffer.alloc(64).toString('base64url') };
+  payload.signature = crypto.sign(null, operationBytes(ctx, payload), actor.privateKey).toString('base64url');
+  return payload;
+}
+const fixture = async ({ enroll = true } = {}) => {
   const db = new PGlite();
   await db.exec(require('./helpers/conversation-event-fixture'));
+  await db.exec(`ALTER TABLE sessions DROP CONSTRAINT sessions_session_id_key;
+    ALTER TABLE sessions ALTER COLUMN session_id SET DEFAULT '';
+    CREATE UNIQUE INDEX idx_sessions_session_id_unique ON sessions(session_id) WHERE session_id<>'';`);
   for (const sql of migration.statements) await db.exec(sql);
   for (const sql of require('../backend/migrations/encrypted-history-pages').statements) await db.exec(sql);
+  for (const name of ['conversation-crypto-devices', 'conversation-crypto-session-bindings']) {
+    for (const sql of require('../backend/migrations/' + name).statements) await db.exec(sql);
+  }
   await db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
   await db.query('INSERT INTO schema_migrations VALUES($1)', [migration.id]);
   await db.query('INSERT INTO schema_migrations VALUES($1)', ['2026100608_encrypted_history_pages']);
@@ -24,12 +46,167 @@ const fixture = async () => {
     new TextEncoder().encode(text), key, { owner, id: 'archive-1', generation },
   );
   const store = createEncryptedConversationBackupStore({ withTransaction: work => db.transaction(work) });
-  return { db, codec, key, seal, store };
+  const cryptoStore = createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work) });
+  const devices = { first: device(), survivor: device(), alice: device() };
+  const deps = {
+    enabled: true, collectBody: async req => req.payload,
+    sendJson: (res, status, body) => Object.assign(res, { status, body }),
+    findSession: token => ({ username: { b1: 'bob', b2: 'bob', a: 'alice', e: 'eve' }[token], token, sessionId: token }),
+    readAuthToken: req => req.token, ensureMarketplaceUser: session => ({ username: session.username }),
+    getPostgresStore: () => ({ ...store, ...cryptoStore })
+  };
+  const cryptoApi = createConversationCryptoDevicesApi(deps), backupApi = createEncryptedConversationBackupsApi(deps);
+  async function cryptoRequest(ctx, payload) {
+    const res = {};
+    await cryptoApi.handle({ method: 'POST', token: ctx.token, payload }, res, new URL('https://winga.test/api/conversations/crypto/devices'));
+    return res;
+  }
+  async function backupRequest(ctx, method, payload, path = '/api/conversations/recovery') {
+    const res = {};
+    await backupApi.handle({ method, token: ctx.token, payload }, res, new URL(path, 'https://winga.test'));
+    return res;
+  }
+  if (enroll) {
+    for (const [ctx, target] of [[context(), devices.first], [context('bob', 'b2'), devices.survivor], [context('alice', 'a'), devices.alice]]) {
+      assert.equal((await cryptoRequest(ctx, proof(ctx, target))).status, 200);
+    }
+    assert.equal((await cryptoRequest(context(), proof(context(), devices.survivor, devices.first, 'approve'))).status, 200);
+  }
+  return { db, codec, key, seal, store, devices, cryptoRequest, backupRequest };
 };
+
+async function assertBackupDenied(f, ctx, root, page, revision) {
+  const pagePath = '/api/conversations/recovery/pages';
+  for (const [method, payload, path] of [
+    ['GET', undefined, '/api/conversations/recovery'],
+    ['PUT', root, '/api/conversations/recovery'],
+    ['DELETE', { expectedRevision: revision }, '/api/conversations/recovery'],
+    ['GET', undefined, pagePath + '?id=' + page.capsule.id + '&revision=' + revision],
+    ['PUT', page, pagePath]
+  ]) {
+    assert.deepEqual(await f.backupRequest(ctx, method, payload, path),
+      { status: 401, body: { code: 'backup_unauthorized' } });
+  }
+}
 
 test('backup migration is additive and registered once', () => {
   assert.equal(MIGRATIONS.filter(value => value.id === migration.id).length, 1);
   assert.equal(migration.statements.some(sql => /ALTER TABLE messages|UPDATE messages/.test(sql)), false);
+});
+
+test('unbound and signed pending devices cannot recover or mutate archives until active-device approval', async () => {
+  const f = await fixture({ enroll: false });
+  try {
+    const firstContext = context(), secondContext = context('bob', 'b2');
+    assert.equal((await f.cryptoRequest(firstContext, proof(firstContext, f.devices.first))).status, 200);
+    const page = { expectedRevision: '0', capsule: await f.codec.sealRecovery(new Uint8Array([7]), f.key,
+      { owner: 'bob', id: 'approved-history', generation: 1 }) };
+    const root = { expectedRevision: '0', capsule: await f.seal(), pageIds: [page.capsule.id] };
+    await f.store.writeEncryptedHistoryPage(firstContext, page);
+    await f.store.writeEncryptedConversationBackup(firstContext, root);
+    // An account's active first device is not evidence for another native session.
+    await assertBackupDenied(f, secondContext, root, page, '1');
+    const registration = proof(secondContext, f.devices.survivor);
+    const pending = await f.cryptoRequest(secondContext, registration);
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.device.status, 'pending');
+    await assertBackupDenied(f, secondContext, root, page, '1');
+    assert.deepEqual(await f.cryptoRequest(secondContext, registration), pending);
+    await assertBackupDenied(f, secondContext, root, page, '1');
+    assert.equal((await f.cryptoRequest(firstContext, proof(firstContext, f.devices.survivor, f.devices.first, 'approve'))).status, 200);
+    const recovered = await f.backupRequest(secondContext, 'GET');
+    assert.equal(recovered.status, 200);
+    assert.deepEqual(await f.codec.openRecovery(recovered.body.capsule, f.key,
+      { owner: 'bob', id: 'archive-1', generation: 1 }), new TextEncoder().encode('private history'));
+    assert.deepEqual((await f.backupRequest(secondContext, 'GET', undefined,
+      '/api/conversations/recovery/pages?id=approved-history&revision=1')).body.capsule, page.capsule);
+    assert.equal((await f.backupRequest(secondContext, 'PUT', root)).status, 200);
+  } finally { await f.db.close(); }
+});
+
+test('survivor revokes a crypto device without deleting its session; only survivor can access future roots and pages', async () => {
+  const f = await fixture();
+  try {
+    const retained = context(), survivor = context('bob', 'b2');
+    const registration = proof(retained, f.devices.first);
+    assert.equal((await f.cryptoRequest(retained, registration)).status, 200);
+    const page1 = { expectedRevision: '0', capsule: await f.codec.sealRecovery(new Uint8Array([1]), f.key,
+      { owner: 'bob', id: 'before-revoke', generation: 1 }) };
+    await f.store.writeEncryptedHistoryPage(retained, page1);
+    await f.store.writeEncryptedConversationBackup(retained,
+      { expectedRevision: '0', capsule: await f.seal(), pageIds: [page1.capsule.id] });
+    const revoked = await f.cryptoRequest(survivor, proof(survivor, f.devices.first, f.devices.survivor, 'revoke'));
+    assert.equal(revoked.status, 200);
+    assert.equal(revoked.body.device.status, 'revoked');
+    assert.deepEqual(await f.cryptoRequest(retained, registration),
+      { status: 409, body: { code: 'crypto_device_identity_conflict' } });
+    assert.deepEqual(await f.cryptoRequest(retained, proof(retained, f.devices.first)),
+      { status: 409, body: { code: 'crypto_device_identity_conflict' } });
+    const sessions = (await f.db.query('SELECT session_id,expires_at FROM sessions ORDER BY session_id')).rows;
+    assert.equal(sessions.length, 4);
+    assert.ok(Number(sessions.find(row => row.session_id === retained.deviceId).expires_at) > Date.now());
+    assert.deepEqual((await f.db.query('SELECT * FROM conversation_crypto_session_bindings WHERE owner_id=$1 ORDER BY session_id', ['bob'])).rows,
+      [{ session_id: 'b1', session_token: 'b1', owner_id: 'bob', crypto_device_id: f.devices.first.id },
+        { session_id: 'b2', session_token: 'b2', owner_id: 'bob', crypto_device_id: f.devices.survivor.id }]);
+    const page2 = { expectedRevision: '1', capsule: await f.codec.sealRecovery(new Uint8Array([2]), f.key,
+      { owner: 'bob', id: 'after-revoke', generation: 2 }) };
+    const root2 = { expectedRevision: '1', capsule: await f.seal(2), pageIds: [page2.capsule.id] };
+    assert.equal((await f.backupRequest(survivor, 'PUT', page2, '/api/conversations/recovery/pages')).status, 200);
+    const published = await f.backupRequest(survivor, 'PUT', root2);
+    assert.equal(published.status, 200);
+    assert.equal(published.body.revision, '2');
+    // Even exact accepted retries must authorize before returning root/page data.
+    await assertBackupDenied(f, retained, root2, page2, '2');
+    const page3 = { expectedRevision: '2', capsule: await f.codec.sealRecovery(new Uint8Array([3]), f.key,
+      { owner: 'bob', id: 'next-page', generation: 3 }) };
+    const root3 = { expectedRevision: '2', capsule: await f.seal(3), pageIds: [page3.capsule.id] };
+    await assertBackupDenied(f, retained, root3, page3, '2');
+    assert.deepEqual(await f.backupRequest(survivor, 'GET'), published);
+    assert.deepEqual((await f.backupRequest(survivor, 'GET', undefined,
+      '/api/conversations/recovery/pages?id=after-revoke&revision=2')).body.capsule, page2.capsule);
+    assert.equal((await f.backupRequest(survivor, 'PUT', page3, '/api/conversations/recovery/pages')).status, 200);
+    assert.equal((await f.backupRequest(survivor, 'PUT', root3)).status, 200);
+    assert.deepEqual(await f.backupRequest(survivor, 'DELETE', { expectedRevision: '3' }),
+      { status: 200, body: { version: 1, revision: '4', capsule: null } });
+    assert.equal((await f.db.query('SELECT * FROM encrypted_conversation_backup_pages')).rows.length, 0);
+  } finally { await f.db.close(); }
+});
+
+test('ordinary session token rotation cascades the signed binding; new-token backup CRUD works and logout removes it', async () => {
+  const f = await fixture();
+  try {
+    const oldContext = context(), refreshed = context('bob', 'b1', 'refreshed-b1-token');
+    const original = (await f.db.query('SELECT * FROM conversation_crypto_session_bindings WHERE session_id=$1', ['b1'])).rows[0];
+    await f.db.query('UPDATE sessions SET token=$1 WHERE token=$2 AND username=$3',
+      [refreshed.token, oldContext.token, oldContext.owner]);
+    assert.deepEqual((await f.db.query('SELECT * FROM conversation_crypto_session_bindings WHERE session_id=$1', ['b1'])).rows,
+      [{ ...original, session_token: refreshed.token }]);
+    const page = { expectedRevision: '0', capsule: await f.codec.sealRecovery(new Uint8Array([9]), f.key,
+      { owner: 'bob', id: 'after-token-refresh', generation: 1 }) };
+    const root = { expectedRevision: '0', capsule: await f.seal(), pageIds: [page.capsule.id] };
+    for (const operation of [
+      () => f.store.readEncryptedConversationBackup(oldContext),
+      () => f.store.writeEncryptedConversationBackup(oldContext, root),
+      () => f.store.deleteEncryptedConversationBackup(oldContext, { expectedRevision: '0' }),
+      () => f.store.readEncryptedHistoryPage(oldContext, { id: page.capsule.id, revision: '0' }),
+      () => f.store.writeEncryptedHistoryPage(oldContext, page)
+    ]) await assert.rejects(operation(), { code: 'backup_unauthorized' });
+    assert.deepEqual(await f.store.readEncryptedConversationBackup(refreshed), { version: 1, revision: '0', capsule: null });
+    await f.store.writeEncryptedHistoryPage(refreshed, page);
+    const accepted = await f.store.writeEncryptedConversationBackup(refreshed, root);
+    assert.deepEqual(await f.store.readEncryptedConversationBackup(refreshed), accepted);
+    assert.deepEqual((await f.store.readEncryptedHistoryPage(refreshed, { id: page.capsule.id, revision: '1' })).capsule, page.capsule);
+    const updated = await f.store.writeEncryptedConversationBackup(refreshed,
+      { expectedRevision: '1', capsule: await f.seal(2) });
+    assert.equal(updated.revision, '2');
+    assert.deepEqual(await f.store.deleteEncryptedConversationBackup(refreshed, { expectedRevision: '2' }),
+      { version: 1, revision: '3', capsule: null });
+    assert.equal((await f.db.query('SELECT * FROM encrypted_conversation_backup_pages')).rows.length, 0);
+    await f.db.query('DELETE FROM sessions WHERE token=$1 AND username=$2', [refreshed.token, refreshed.owner]);
+    assert.equal((await f.db.query('SELECT * FROM conversation_crypto_session_bindings WHERE session_id=$1', ['b1'])).rows.length, 0);
+    await assert.rejects(f.store.readEncryptedConversationBackup(refreshed), { code: 'backup_unauthorized' });
+    assert.equal((await f.store.readEncryptedConversationBackup(context('bob', 'b2'))).revision, '3');
+  } finally { await f.db.close(); }
 });
 
 test('revisions and capsules reject coercion, secret fields and plaintext input', async () => {

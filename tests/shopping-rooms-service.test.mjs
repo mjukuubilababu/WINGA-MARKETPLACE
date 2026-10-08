@@ -11,7 +11,7 @@ const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Bu
 async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits}={}){
   const db=await roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
-    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures'])
+    'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','encrypted-message-invariants'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
@@ -316,7 +316,9 @@ test('PostgreSQL Rooms: six connections and two stores preserve multi-sender cip
   await parallelJobs(acks.flatMap(a=>[a,a]),async({person,payload},worker)=>nodes[worker%2].encryptedOperation(person.context,person.signed('room-receipt-ack',payload)));
   assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipt_acks')).rows[0].n,192);
   for(const p of f.people)assert.equal((await p.operation('room-poll',{after:null})).rooms[0].receipts.length,0);
-  assert.equal(f.pushes.length,96);latencies.sort((a,b)=>a-b);
+  assert.equal(f.pushes.length,0);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_push_outbox')).rows[0].n,48);
+  latencies.sort((a,b)=>a-b);
   t.diagnostic(JSON.stringify({scope:'disposable-local-postgres-shopping-room',stores:2,connections:6,owners:3,uniqueMessages:48,sendAttempts:96,
     decryptions,receiptRows:192,receiptAcks:192,duplicateRows:0,boardsConverged:3,durationMs:Math.round(durationMs),
     p50StoreAttemptMs:Math.round(latencies[Math.floor(latencies.length*.5)]),p95StoreAttemptMs:Math.round(latencies[Math.ceil(latencies.length*.95)-1]),
@@ -551,8 +553,24 @@ test('durable real-service sends reach both members once, retain exact retries a
     const item=await p.runtime.room.receive({...m,deviceId:m.sender_device,conversationId:f.id,ciphertext:decode(m.ciphertext)});assert.equal(item.message,'encrypted room text');
     await p.operation('room-receipt',{id,conversationId:f.id,epoch:item.epoch,hash:item.hash,kind:'delivered'});
     assert.equal((await p.operation('room-poll',{after:null})).rooms[0].messages.length,0);}
-  assert.equal(f.pushes.length,2);assert.deepEqual(await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:id,message:'encrypted room text'}),sent);
+  assert.equal(f.pushes.length,0);assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_push_outbox')).rows[0].n,1);
+  assert.deepEqual(await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:id,message:'encrypted room text'}),sent);
   await assert.rejects(f.alice.operation('send',{id:randomUUID(),conversationId:f.id,epoch:'1',deviceId:f.alice.device.id,ciphertext:'x',hash:'x'}),{code:'encrypted_group_scope_rejected'});
+});
+
+test('Room Sent and exact retries fail closed with any canonical acceptance guard disabled',async t=>{
+  const f=await fixture(t);await f.activate();const original=await prepareRoomPacket(f,f.alice,'first accepted');
+  const accepted=await f.alice.operation('room-send',original.packet);assert.equal(accepted.status,'sent');
+  const fresh=await prepareRoomPacket(f,f.alice,'must not be acknowledged');
+  for(const [table,guard] of [['encrypted_conversation_messages','record_encrypted_acceptance'],['encrypted_conversation_messages','guard_encrypted_message_record'],
+    ['encrypted_conversation_messages','guard_encrypted_message_truncate'],['encrypted_message_acceptances','guard_encrypted_acceptance'],['encrypted_message_acceptances','guard_encrypted_acceptance_truncate']]){
+    await f.db.exec(`ALTER TABLE ${table} DISABLE TRIGGER ${guard}`);
+    for(const packet of [original.packet,fresh.packet])await assert.rejects(f.alice.operation('room-send',packet),{code:'encrypted_message_durability_unavailable'});
+    await f.db.exec(`ALTER TABLE ${table} ENABLE TRIGGER ${guard}`);
+  }
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,1);
+  assert.deepEqual(await f.alice.operation('room-send',original.packet),accepted);
+  assert.equal((await f.alice.operation('room-send',fresh.packet)).sequence,'2');
 });
 
 test('Room preferences are owner-scoped, revisioned and replay-safe across authenticated sessions',async t=>{
@@ -608,6 +626,7 @@ test('push dispatch rechecks Room mute even when a pending job was inserted befo
     provider:{generateVAPIDKeys:()=>({publicKey:'test-public',privateKey:'test-private'}),async sendNotification(){accepted++;}}});
   await push.saveWebPush({owner:'bob',token:'b1',sessionId:'b1',payload:{subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/bob',keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});
   await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'pending push'});
+  await push.reconcileEncryptedPush();
   await f.bob.operation('room-preference-save',{conversationId:f.id,revision:'0',field:'muted',value:true});
   await f.db.exec('UPDATE web_push_jobs SET completed_at=NULL');
   const result=await push.dispatchWebPushBatch();assert.equal(accepted,0);assert.equal(result.skipped,1);
@@ -626,6 +645,30 @@ test('default gate rejects room operations and identity/epoch membership cannot 
   await assert.rejects(f.db.query(`UPDATE encrypted_room_transitions SET intent='{}' WHERE conversation_id=$1`,[f.id]));
   await assert.rejects(f.db.query(`UPDATE encrypted_room_acceptances SET signature='rewritten' WHERE transition_id=$1`,[f.intent.id]));
   await assert.rejects(f.db.query(`INSERT INTO encrypted_conversation_epochs(conversation_id,epoch) VALUES($1,'99')`,[f.id]));
+});
+
+test('deferred push survives a real Room transition and retries only current members after native acceptance',async t=>{
+  const f=await fixture(t);await f.activate();
+  const push=require('../backend/message-web-push').createMessageWebPushStore({query:f.db.query.bind(f.db),withTransaction:work=>f.db.transaction(work),encrypted:true,roomsEnabled:true});
+  for(const p of [f.bob,f.eve]){const ec=createECDH('prime256v1');ec.generateKeys();await push.saveWebPush({owner:p.owner,token:p.context.token,sessionId:p.context.deviceId,payload:{subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/'+p.owner,keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});}
+  const sent=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'accepted before transition'});assert.equal(sent.status,'sent');
+  const envelope=(await f.eve.operation('room-poll',{after:null})).rooms[0].messages[0];
+  await f.eve.runtime.room.receive({...envelope,deviceId:envelope.sender_device,conversationId:f.id,ciphertext:decode(envelope.ciphertext)});
+  await f.eve.operation('room-receipt',{id:sent.id,conversationId:f.id,epoch:'1',hash:envelope.hash,kind:'delivered'});
+  const old=JSON.parse(f.intent.roster),removed=old.find(m=>m.owner==='bob');
+  const next={...f.intent,id:randomUUID(),previousEpoch:'1',revision:'2',roster:JSON.stringify(old.filter(m=>m!==removed)),
+    roles:JSON.stringify(JSON.parse(f.intent.roles).filter(m=>m.owner!=='bob')),changes:JSON.stringify([{type:'remove',owner:'bob',id:removed.id}])};
+  await f.alice.operation('room-reserve',{intent:JSON.stringify(next),name:'Shopping',sourceHash:''});
+  assert.deepEqual(await push.reconcileEncryptedPush(),{queued:0});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_push_outbox')).rows[0].n,1);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM web_push_jobs')).rows[0].n,0);
+  const tr=await f.alice.runtime.room.change(next,new Map());await f.alice.operation('room-transfer',encodeRoomTransferPayload(tr));await f.eve.runtime.room.applyCommit(tr);
+  const snapshot=await f.alice.operation('room-intent',{conversationId:f.id,transitionId:next.id}),acks=[];
+  for(const p of [f.alice,f.eve]){const a=await p.runtime.room.acceptance(f.id);acks.push(a);await p.operation('room-accept',{conversationId:f.id,transitionId:next.id,transferHash:snapshot.room.transition.transfer_hash,signature:encode(a.signature)});}
+  for(const p of [f.alice,f.eve])await p.runtime.room.confirm(f.id,acks);
+  await f.db.exec('UPDATE encrypted_message_push_outbox SET next_attempt_at=NOW()');
+  assert.deepEqual(await push.reconcileEncryptedPush(),{queued:1});assert.deepEqual(await push.reconcileEncryptedPush(),{queued:0});
+  assert.deepEqual((await f.db.query('SELECT owner_id FROM web_push_jobs')).rows,[{owner_id:'eve'}]);
 });
 
 test('Room removal rotates the real native epoch and never rewrites the original three-owner grant',async t=>{
@@ -657,6 +700,7 @@ test('real Room push fanout is owner-specific, generic, and bound to current mem
   const push=createMessageWebPushStore({query:f.db.query.bind(f.db),withTransaction:work=>f.db.transaction(work),provider,encrypted:true,roomsEnabled:true});
   for(const p of [f.bob,f.eve]){const ec=createECDH('prime256v1');ec.generateKeys();await push.saveWebPush({owner:p.owner,token:p.context.token,sessionId:p.context.deviceId,payload:{locale:'en',subscription:{endpoint:'https://fcm.googleapis.com/fcm/send/'+p.owner,keys:{p256dh:ec.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')}}}});}
   const message=await f.alice.runtime.room.send({conversationId:f.id,clientMessageId:randomUUID(),message:'must never appear in push'});
+  await push.reconcileEncryptedPush();
   const envelope=(await f.bob.operation('room-poll',{after:null})).rooms[0].messages[0];await f.bob.operation('room-receipt',{id:message.id,conversationId:f.id,epoch:'1',hash:envelope.hash,kind:'read'});
   const jobs=(await f.db.query('SELECT id,owner_id FROM web_push_jobs ORDER BY owner_id')).rows;assert.equal(jobs.length,2);
   const job=jobs.find(j=>j.owner_id==='eve');assert.deepEqual(await push.resolveWebPush({owner:'eve',token:'e',sessionId:'e',id:job.id}),{withUser:'alice',roomId:f.id});

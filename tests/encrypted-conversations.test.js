@@ -11,6 +11,7 @@ async function fixture(t,options={}) {
   for(const sql of require('../backend/migrations/encrypted-device-admissions').statements)await db.exec(sql);
   for(const sql of require('../backend/migrations/encrypted-device-lifecycle').statements)await db.exec(sql);
   for(const sql of require('../backend/migrations/encrypted-native-history').statements)await db.exec(sql);
+  await db.transaction(async tx=>{for(const sql of require('../backend/migrations/encrypted-message-invariants').statements)await tx.exec(sql);});
   const mls=await import('ts-mls'),suite=await mls.getCiphersuiteImpl(mls.getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'));
   const members={};
   for(const [owner,token]of [['alice','a'],['bob','b1'],['eve','e']]) {
@@ -689,15 +690,55 @@ test('transport API remains default off but canonical mode guard remains authent
   await api.handle({method:'GET'},{},new URL('https://localhost/api/conversations/encrypted/capabilities'));assert.equal(result.status,404);
   await api.handle({method:'GET'},{},new URL('https://localhost/api/conversations/encrypted/mode?peer=bob'));assert.equal(result.body.mode,'encrypted');assert.equal(result.headers['Cache-Control'],'private, no-store');
 });
+test('Sent requires canonical acceptance evidence and retries succeed once after a failed evidence write',async t=>{
+  let optionalCalls=0;
+  const f=await fixture(t,{enqueuePush:async()=>{optionalCalls++;throw Error('optional provider unavailable');}});await f.active();
+  await f.db.exec('ALTER TABLE encrypted_conversation_messages DISABLE TRIGGER record_encrypted_acceptance');
+  await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_message_durability_unavailable'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+  assert.equal((await f.db.query('SELECT next_sequence::text AS n FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0].n,'0');
+  await f.db.exec('ALTER TABLE encrypted_conversation_messages ENABLE TRIGGER record_encrypted_acceptance');
+  const accepted=await f.call('alice','send',f.packet);assert.equal(accepted.status,'sent');assert.equal(accepted.sequence,'1');
+  assert.deepEqual(await f.call('alice','send',f.packet),accepted);assert.equal(optionalCalls,0);
+  for(const [table,guard] of [['encrypted_conversation_messages','record_encrypted_acceptance'],['encrypted_conversation_messages','guard_encrypted_message_record'],
+    ['encrypted_conversation_messages','guard_encrypted_message_truncate'],['encrypted_message_acceptances','guard_encrypted_acceptance'],['encrypted_message_acceptances','guard_encrypted_acceptance_truncate']]){
+    await f.db.exec(`ALTER TABLE ${table} DISABLE TRIGGER ${guard}`);
+    await assert.rejects(f.call('alice','send',f.packet),{code:'encrypted_message_durability_unavailable'});
+    await assert.rejects(f.call('alice','send',{...f.packet,id:crypto.randomUUID()}),{code:'encrypted_message_durability_unavailable'});
+    await f.db.exec(`ALTER TABLE ${table} ENABLE TRIGGER ${guard}`);
+  }
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_acceptances')).rows[0].n,1);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_push_outbox')).rows[0].n,1);
+});
+
+test('optional push SQL failure preserves accepted ciphertext and retries the durable outbox without duplicate jobs',async t=>{
+  const f=await fixture(t);await f.active();const ecdh=crypto.createECDH('prime256v1');ecdh.generateKeys();
+  const subscription={endpoint:'https://fcm.googleapis.com/fcm/send/deferred',keys:{p256dh:ecdh.getPublicKey().toString('base64url'),auth:crypto.randomBytes(16).toString('base64url')}};
+  await f.db.query("INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription) VALUES($1,'bob','b1',$2)",[crypto.randomUUID(),JSON.stringify(subscription)]);
+  await f.db.exec(`CREATE FUNCTION fail_optional_push() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic_push_failure'; END; $$;
+    CREATE TRIGGER optional_push_failure BEFORE INSERT ON web_push_jobs FOR EACH ROW EXECUTE FUNCTION fail_optional_push()`);
+  const sent=await f.call('alice','send',f.packet);assert.equal(sent.status,'sent');
+  const push=require('../backend/message-web-push').createMessageWebPushStore({query:f.db.query.bind(f.db),withTransaction:work=>f.db.transaction(work),encrypted:true});
+  await assert.rejects(push.reconcileEncryptedPush(),/synthetic_push_failure/);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM encrypted_message_push_outbox')).rows[0].n,1);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM web_push_jobs')).rows[0].n,0);
+  assert.deepEqual(await f.call('alice','send',f.packet),sent);
+  await f.db.exec('DROP TRIGGER optional_push_failure ON web_push_jobs');
+  assert.deepEqual(await push.reconcileEncryptedPush(),{queued:1});assert.deepEqual(await push.reconcileEncryptedPush(),{queued:0});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM web_push_jobs')).rows[0].n,1);
+});
+
 test('encrypted sends enqueue one generic background push, authorize deep links and never disclose message text',async t=>{
   const f=await fixture(t);await f.active();
   const ecdh=crypto.createECDH('prime256v1');ecdh.generateKeys();
   const subscription={endpoint:'https://fcm.googleapis.com/winga-test',keys:{p256dh:ecdh.getPublicKey().toString('base64url'),auth:crypto.randomBytes(16).toString('base64url')}};
   await f.db.query(`INSERT INTO web_push_subscriptions(id,owner_id,session_id,subscription,locale) VALUES($1,'bob','b1',$2,'en')`,[crypto.randomUUID(),JSON.stringify(subscription)]);
   await f.call('alice','send',f.packet);await f.call('alice','send',f.packet);
-  const jobs=(await f.db.query('SELECT * FROM web_push_jobs')).rows;assert.equal(jobs.length,1);
   const payloads=[],push=require('../backend/message-web-push').createMessageWebPushStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(tx=>work({query:(sql,params)=>sql.includes('pg_advisory_xact_lock')?{rows:[]}:tx.query(sql,params)})),encrypted:true,
     provider:{generateVAPIDKeys:()=>require('web-push').generateVAPIDKeys(),sendNotification:async(subscription,payload)=>payloads.push(JSON.parse(payload))}});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM web_push_jobs')).rows[0].n,0);
+  await push.reconcileEncryptedPush();
+  const jobs=(await f.db.query('SELECT * FROM web_push_jobs')).rows;assert.equal(jobs.length,1);
   assert.deepEqual(await push.resolveWebPush({owner:'bob',token:'b1',sessionId:'b1',id:jobs[0].id}),{withUser:'alice'});
   const result=await push.dispatchWebPushBatch();assert.equal(result.accepted,1);
   assert.deepEqual(Object.keys(payloads[0]).sort(),['group','id','locale','version']);assert.equal(JSON.stringify(payloads).includes('server must not receive this'),false);

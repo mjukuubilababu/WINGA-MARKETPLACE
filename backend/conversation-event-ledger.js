@@ -23,6 +23,19 @@ function validateEventIds(payload, deviceId) {
 }
 
 function createConversationEventStore({ withTransaction }) {
+  async function protectedVisibility(client,sessionParameter='$1',ownerParameter='$2') {
+    const schema=(await client.query(`SELECT to_regclass('conversation_crypto_session_bindings') IS NOT NULL
+      AND to_regclass('conversation_crypto_devices') IS NOT NULL AND to_regclass('encrypted_conversation_epoch_devices') IS NOT NULL
+      AND to_regclass('encrypted_conversations') IS NOT NULL AS ready`)).rows[0];
+    const legacy=`COALESCE(to_jsonb(c)->>'security_mode','legacy-plaintext')='legacy-plaintext'`;
+    if(!schema.ready)return `(${legacy})`;
+    return `(${legacy} OR EXISTS(SELECT 1 FROM conversation_crypto_session_bindings binding
+      JOIN conversation_crypto_devices native ON native.id=binding.crypto_device_id AND native.owner_id=binding.owner_id AND native.status='active'
+      JOIN encrypted_conversations secure ON secure.canonical_id=c.id AND secure.status='active'
+      JOIN encrypted_conversation_epoch_devices epoch ON epoch.conversation_id=secure.id AND epoch.epoch=secure.epoch
+        AND epoch.device_id=native.id AND epoch.owner_id=binding.owner_id
+      WHERE binding.session_id=${sessionParameter} AND binding.owner_id=${ownerParameter}))`;
+  }
   async function authorize(client, { owner, token, deviceId }) {
     if (!owner || !token || !deviceId) throw reject(401);
     const session = await client.query(`SELECT s.session_id FROM sessions s JOIN users u ON u.username=s.username
@@ -48,6 +61,7 @@ function createConversationEventStore({ withTransaction }) {
   async function pollConversationDeviceEvents(context) {
     return withTransaction(async client => {
       await enroll(client, context);
+      const visibility=await protectedVisibility(client);
       // Bounded catch-up also covers first login, lost fan-out and an old binary.
       // No global cursor: concurrent conversations can commit in different orders.
       const seeded = await client.query(`INSERT INTO conversation_device_deliveries(device_id,event_id,owner_id)
@@ -56,7 +70,7 @@ function createConversationEventStore({ withTransaction }) {
         JOIN conversation_event_streams c ON c.id=e.conversation_id
         LEFT JOIN conversation_device_progress progress
           ON progress.device_id=$1 AND progress.conversation_id=e.conversation_id
-        WHERE ${allowed} AND e.position>=p.joined_position
+        WHERE ${allowed} AND ${visibility} AND e.position>=p.joined_position
           AND e.position>COALESCE(progress.acknowledged_position,0) AND NOT EXISTS(
           SELECT 1 FROM conversation_device_deliveries d WHERE d.device_id=$1 AND d.event_id=e.id)
         ORDER BY e.conversation_id,e.position LIMIT 100 ON CONFLICT DO NOTHING`, [context.deviceId, context.owner]);
@@ -67,7 +81,7 @@ function createConversationEventStore({ withTransaction }) {
         JOIN conversation_event_streams c ON c.id=e.conversation_id
         LEFT JOIN conversation_message_state s ON s.message_id=e.message_id
         WHERE d.device_id=$1 AND d.owner_id=$2 AND d.acknowledged_at IS NULL AND d.cancelled_at IS NULL
-          AND ${allowed} AND e.position>=p.joined_position
+          AND ${allowed} AND ${visibility} AND e.position>=p.joined_position
         ORDER BY e.conversation_id,e.position LIMIT 51 FOR SHARE OF c`, [context.deviceId, context.owner]);
       const events = result.rows.slice(0, MAX_BATCH);
       if (events.length) await client.query(`UPDATE conversation_device_deliveries
@@ -91,13 +105,14 @@ function createConversationEventStore({ withTransaction }) {
       const device = await client.query(`SELECT 1 FROM conversation_delivery_devices
         WHERE device_id=$1 AND owner_id=$2 AND revoked_at IS NULL`, [context.deviceId, context.owner]);
       if (!device.rows.length) throw reject(401);
+      const visibility=await protectedVisibility(client);
       const result = await client.query(`SELECT e.id,e.conversation_id,c.position::text AS stream_head
         FROM conversation_events e
         JOIN conversation_event_members p ON p.conversation_id=e.conversation_id AND p.owner_id=$2
         JOIN conversation_event_streams c ON c.id=e.conversation_id
         LEFT JOIN conversation_device_deliveries d ON d.device_id=$1 AND d.event_id=e.id AND d.owner_id=$2
         LEFT JOIN conversation_device_progress progress ON progress.device_id=$1 AND progress.conversation_id=e.conversation_id
-        WHERE e.id=ANY($3::text[]) AND e.position>=p.joined_position AND ${allowed}
+        WHERE e.id=ANY($3::text[]) AND e.position>=p.joined_position AND ${allowed} AND ${visibility}
           AND ((d.offered_at IS NOT NULL AND d.cancelled_at IS NULL)
             OR progress.acknowledged_position>=e.position)
         ORDER BY e.conversation_id,e.position FOR SHARE OF c`, [context.deviceId, context.owner, ids]);
@@ -157,10 +172,11 @@ function createConversationEventStore({ withTransaction }) {
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_BATCH) throw reject();
     return withTransaction(async client => {
       await authorize(client, context);
+      const visibility=await protectedVisibility(client,'$3','$1');
       const result = await client.query(`SELECT c.id,c.position::text AS head,c.membership_version::text AS version
         FROM conversation_event_streams c JOIN conversation_event_members p ON p.conversation_id=c.id AND p.owner_id=$1
         WHERE c.participant_low=LEAST($1::text,$2::text) AND c.participant_high=GREATEST($1::text,$2::text)
-          AND ${allowed} FOR SHARE OF c`, [context.owner, partner]);
+          AND ${allowed} AND ${visibility} AND $3::text IS NOT NULL FOR SHARE OF c`, [context.owner, partner,context.deviceId]);
       if (!result.rows.length) throw reject(404);
       const stream = result.rows[0];
       let position = "0", oldVersion = stream.version;

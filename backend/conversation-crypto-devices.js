@@ -30,6 +30,16 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
     if (!found.rows.length) throw failure(401,'crypto_device_unauthorized');
   }
   const view = row => ({id:row.id,owner:row.owner_id,publicKey:row.public_key,fingerprint:row.fingerprint,status:row.status});
+  async function bindRegistration(client, context, payload, row) {
+    if (!row || row.owner_id !== context.owner || row.public_key !== payload.publicKey
+      || row.fingerprint !== payload.fingerprint || row.status === 'revoked') {
+      throw failure(409,'crypto_device_identity_conflict');
+    }
+    await client.query(`INSERT INTO conversation_crypto_session_bindings(session_id,session_token,owner_id,crypto_device_id)
+      VALUES($1,$2,$3,$4) ON CONFLICT(session_id) DO UPDATE
+      SET session_token=EXCLUDED.session_token,owner_id=EXCLUDED.owner_id,crypto_device_id=EXCLUDED.crypto_device_id`,
+    [context.deviceId,context.token,context.owner,row.id]);
+  }
   async function readConversationCryptoDevices(context) {
     return withTransaction(async client => {
       await authenticate(client,context);
@@ -44,7 +54,14 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
       await client.query(`SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))`);
       await authenticate(client,context);
       const cached=(await client.query('SELECT digest,result FROM conversation_crypto_operations WHERE owner_id=$1 AND request_id=$2',[context.owner,payload.requestId])).rows[0];
-      if (cached) { if (cached.digest!==digest) throw failure(409,'crypto_device_operation_conflict'); return cached.result; }
+      if (cached) {
+        if (cached.digest!==digest) throw failure(409,'crypto_device_operation_conflict');
+        if (payload.action==='register') {
+          const row=(await client.query('SELECT * FROM conversation_crypto_devices WHERE id=$1 FOR UPDATE',[payload.deviceId])).rows[0];
+          await bindRegistration(client,context,payload,row);
+        }
+        return cached.result;
+      }
       if (Math.abs(now()-payload.issuedAt)>30000) throw failure(401,'crypto_device_proof_expired');
       const target=(await client.query('SELECT * FROM conversation_crypto_devices WHERE id=$1 FOR UPDATE',[payload.deviceId])).rows[0];
       let actor;
@@ -78,6 +95,7 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
         row=(await client.query(`UPDATE conversation_crypto_devices SET status=$2,
           revoked_at=CASE WHEN $2='revoked' THEN NOW() ELSE NULL END WHERE id=$1 RETURNING *`,[payload.deviceId,payload.action==='approve'?'active':'revoked'])).rows[0];
       }
+      if (payload.action==='register') await bindRegistration(client,context,payload,row);
       const result={version:1,device:view(row)};
       await client.query('INSERT INTO conversation_crypto_operations(owner_id,request_id,digest,result) VALUES($1,$2,$3,$4)',[context.owner,payload.requestId,digest,JSON.stringify(result)]);
       return result;

@@ -145,15 +145,24 @@
     }
     async function historySnapshot({filter}={}) {
       if(filter!==undefined&&typeof filter!=='function')fail('crypto_vault_write_invalid');
-      const context=current();let after,revision;const values={};
-      do {
-        assertCurrent(context);
-        const page=await historyPage({after,expectedRevision:revision});
-        assertCurrent(context);revision=page.revision;
-        for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
-        after=page.next;
-      }while(after);
-      assertCurrent(context);return {revision,values};
+      const context=current();
+      // A concurrent history sync invalidates the entire paged read, not just its next page.
+      for(let attempt=0;attempt<3;attempt++) {
+        let after,revision;const values={};
+        try {
+          do {
+            assertCurrent(context);
+            const page=await historyPage({after,expectedRevision:revision});
+            assertCurrent(context);revision=page.revision;
+            for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
+            after=page.next;
+          }while(after);
+          assertCurrent(context);return {revision,values};
+        }catch(error) {
+          assertCurrent(context);
+          if(error?.code!=='crypto_vault_revision_conflict'||attempt===2)throw error;
+        }
+      }
     }
     async function pruneExpiredAdmissions(now) {
       if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');

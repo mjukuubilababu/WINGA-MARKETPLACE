@@ -1709,7 +1709,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       },
       downloadEncryptedMedia:async id=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.downloadEncryptedMedia(id);},
       encryptedRecoveryAvailable:async()=>{try {const r=await fetchJson(`${baseUrl}/conversations/recovery/capabilities`,{headers:authHeaders()});return r.version===1&&r.enabled===true;}catch(error){if(error.status===404)return false;throw error;}},
-      createEncryptedRecovery:()=>globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest}),
+      createEncryptedRecovery:async()=>{
+        const initial={...deps.getSession?.()};let identity,recovery;
+        const current=()=>{const s=deps.getSession?.();if(!initial.username||s?.username!==initial.username||s.sessionId!==initial.sessionId||s.token!==initial.token)
+          throw Object.assign(new Error('recovery_session_changed'),{code:'recovery_session_changed'});};
+        try{
+          current();
+          identity=await globalThis.WingaCryptoDevices.createCryptoDeviceClient({getSession:deps.getSession,request:api.cryptoDeviceRequest});
+          current();const native=await identity.enroll();current();
+          if(native.status!=='active')throw Object.assign(new Error('crypto_device_pending'),{code:'crypto_device_pending'});
+          recovery=await globalThis.WingaRecoveryUi.createRecoverySession({getSession:deps.getSession,request:api.cryptoRecoveryRequest});current();return recovery;
+        }catch(error){recovery?.close();throw error;
+        }finally{identity?.close();}
+      },
       cryptoDeviceManagementAvailable:async()=>{try{const r=await fetchJson(`${baseUrl}/conversations/crypto/devices`,{headers:authHeaders()});return r.version===1&&Array.isArray(r.devices);}catch(error){if(error.status===404)return false;throw error;}},
       createCryptoDeviceManagement:()=>globalThis.WingaDeviceManagementUi.createManagementSession({getSession:deps.getSession,request:api.cryptoDeviceRequest}),
       cryptoMediaRequest:async(method,object,proof,blob)=>{
@@ -19615,8 +19627,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           await syncInternal();return {status:'replacement-pending'};
         });
       }
-      async function requireActiveMembership(peer) {
-        try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
+      async function requireActiveMembership(peer,membershipSynced=false) {
+        if(!membershipSynced)try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
         const saved=await intentSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
         if(!g)fail('encrypted_membership_required');
         if(g.status==='blocked')fail('encrypted_access_denied');
@@ -19675,9 +19687,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         });
         if(item){localSends.add(item.id);onChange({localMessage:messageView(item)});}return wire;
       }
-      async function transmitMessage(wire) {
+      async function transmitMessage(wire,membershipSynced=false) {
         try {
-          await requireActiveMembership(wire.receiverId);
+          await requireActiveMembership(wire.receiverId,membershipSynced);
           const saved=await intentSnapshot(),intent=saved.values['send:intent:'+wire.clientMessageId];
           if(intent&&(intent.conversationId!==await runtime.conversationId(wire.receiverId)||intent.deviceId!==own.id))fail('mls_send_retry_conflict');
           const result=messageView(await runtime.sendMessage(wire));onChange({localMessage:result});return result;
@@ -19687,6 +19699,26 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if(item)onChange({localMessage:messageView(item)});
           if(!item||(!(error instanceof TypeError)&&error.status!==503&&error.code!=='crypto_vault_revision_conflict'))throw error;
           return messageView(item);
+        }
+      }
+      async function resumeSavedIntents() {
+        current();const saved=await intentSnapshot();
+        const pending=Object.entries(saved.values).filter(([key,item])=>key==='send:intent:'+item?.id && item.localIntent
+          && item.owner===owner && item.deviceId===own.id && !localSends.has(item.id)
+          && !saved.values['mls:outbox:'+item.id] && !saved.values['history:'+item.id]
+          && groups.some(g=>g.id===item.conversationId&&g.status==='active'))
+          .map(([,item])=>item).sort((a,b)=>String(a.timestamp).localeCompare(String(b.timestamp))||a.id.localeCompare(b.id)).slice(0,5);
+        for(const item of pending){
+          current();
+          try {
+            const result=await transmitMessage({clientMessageId:item.id,receiverId:item.peer,message:item.message,messageType:'text'},true);
+            if(result.isQueued)break;
+          }catch(error){
+            current();
+            // Permission, key, membership and content failures need user review, never bypass.
+            if(error.code==='mls_session_changed')throw error;
+            break;
+          }
         }
       }
       async function mutation(peer,type,targetId,value='') {
@@ -19773,7 +19805,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
-        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(syncInternal),
+        inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(async()=>{
+          const result=await syncInternal();await resumeSavedIntents();return result;
+        }),
         isEncrypted:async peer=>{
           if(await runtime.isEncrypted(peer))return true;
           await serialize(syncInternal);
@@ -21600,15 +21634,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     async function historySnapshot({filter}={}) {
       if(filter!==undefined&&typeof filter!=='function')fail('crypto_vault_write_invalid');
-      const context=current();let after,revision;const values={};
-      do {
-        assertCurrent(context);
-        const page=await historyPage({after,expectedRevision:revision});
-        assertCurrent(context);revision=page.revision;
-        for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
-        after=page.next;
-      }while(after);
-      assertCurrent(context);return {revision,values};
+      const context=current();
+      // A concurrent history sync invalidates the entire paged read, not just its next page.
+      for(let attempt=0;attempt<3;attempt++) {
+        let after,revision;const values={};
+        try {
+          do {
+            assertCurrent(context);
+            const page=await historyPage({after,expectedRevision:revision});
+            assertCurrent(context);revision=page.revision;
+            for(const [key,value] of Object.entries(page.values))if(!filter||filter(value,key))values[key]=value;
+            after=page.next;
+          }while(after);
+          assertCurrent(context);return {revision,values};
+        }catch(error) {
+          assertCurrent(context);
+          if(error?.code!=='crypto_vault_revision_conflict'||attempt===2)throw error;
+        }
+      }
     }
     async function pruneExpiredAdmissions(now) {
       if(!Number.isSafeInteger(now) || now<0)fail('crypto_vault_write_invalid');

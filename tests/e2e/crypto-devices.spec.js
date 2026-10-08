@@ -12,6 +12,7 @@ let server, origin, db, store, backups;
 const session = { username: 'bob', sessionId: 'b1', token: 'b1' };
 test('recovery key replacement retains exact pending ciphertext and rejects both wrong old keys and retired keys',async({page})=>{
   await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const result=await page.evaluate(async session=>{
     const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
     const codec=await WingaSecureContent.loadSecureContent(),oldKey=codec.generateRecoveryKey(),newKey=codec.generateRecoveryKey();
@@ -60,6 +61,7 @@ test.beforeEach(async () => {
   db = new PGlite();
   await db.exec(require('../helpers/conversation-event-fixture'));
   for (const sql of migration.statements) await db.exec(sql);
+  for (const sql of require('../../backend/migrations/conversation-crypto-session-bindings').statements) await db.exec(sql);
   for (const sql of backupMigration.statements) await db.exec(sql);
   for (const sql of require('../../backend/migrations/encrypted-history-pages').statements) await db.exec(sql);
   store = createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work) });
@@ -74,10 +76,24 @@ async function prepare(page, gateway) {
     : method === 'GET'?backups.readEncryptedConversationBackup(context):backups.writeEncryptedConversationBackup(context,payload));
   await page.goto(origin);
 }
-const enroll = page => page.evaluate(async session => {
+const enroll = (page, activeSession = session) => page.evaluate(async session => {
   const client = await WingaCryptoDevices.createCryptoDeviceClient({ getSession: () => session, request: window.deviceRequest });
   try { return await client.enroll(); } finally { client.close(); }
-}, session);
+}, activeSession);
+
+async function approveRecoveryDevice(survivor, fresh) {
+  const freshSession = { ...session, sessionId: 'b2', token: 'b2' };
+  const pending = await enroll(fresh, freshSession);
+  expect(pending.status).toBe('pending');
+  await expect(fresh.evaluate(session => recoveryRequest('GET', undefined,
+    { owner: session.username, deviceId: session.sessionId, token: session.token }), freshSession)).rejects.toThrow('backup_unauthorized');
+  await survivor.evaluate(async ({ session, pending }) => {
+    const client = await WingaCryptoDevices.createCryptoDeviceClient({ getSession: () => session, request: window.deviceRequest });
+    try { await client.manage('approve', pending.id, pending.fingerprint); } finally { client.close(); }
+  }, { session, pending });
+  expect((await enroll(fresh, freshSession)).status).toBe('active');
+  return freshSession;
+}
 
 test('browser signatures enroll through backend and nonextractable identity survives reload', async ({ page }) => {
   await prepare(page);
@@ -286,6 +302,7 @@ test('vault ciphertext corruption never yields a partially decrypted snapshot', 
 
 test('paged journal crosses 2000 records and 32 MiB without truncating encrypted recovery or blocking ratchets',async({page})=>{
   test.setTimeout(120000);await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const result=await page.evaluate(async session=>{
     const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
     try {
@@ -331,6 +348,59 @@ test('filtered history scans sealed pages without accumulating other conversatio
     }finally{vault.close();}
   },session);
   expect(result).toEqual({visited:205,selected:102,peers:['alice'],total:205,replay:'a'.repeat(64),invalid:'crypto_vault_write_invalid'});
+});
+
+test('later-page history corruption fails immediately without revision retries or partial plaintext',async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async session=>{
+    let attempts=0;
+    const cryptoAdapter={getRandomValues:bytes=>crypto.getRandomValues(bytes),subtle:{
+      generateKey:(...args)=>crypto.subtle.generateKey(...args),encrypt:(...args)=>crypto.subtle.encrypt(...args),
+      decrypt:(...args)=>{attempts++;return crypto.subtle.decrypt(...args);}}};
+    const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session,crypto:cryptoAdapter});
+    try {
+      const values={};for(let n=0;n<101;n++)values['history:'+String(n).padStart(4,'0')]={message:'private-'+n};
+      await vault.write({expectedRevision:'0',values});
+      const db=await new Promise(resolve=>{const request=indexedDB.open('winga-encrypted-vault-v1:'+session.username);request.onsuccess=()=>resolve(request.result);});
+      await new Promise((resolve,reject)=>{const tx=db.transaction('journal','readwrite'),store=tx.objectStore('journal'),read=store.get('history:0000');
+        read.onsuccess=()=>{const record=read.result;record.ciphertext[0]^=1;store.put(record,'history:0000');};
+        tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
+      let returned=false,rejected=false;try{await vault.historySnapshot();returned=true;}catch{rejected=true;}
+      return {returned,rejected,attempts};
+    }finally{vault.close();}
+  },session);
+  expect(result).toEqual({returned:false,rejected:true,attempts:101});
+});
+
+for(const conflicts of [2,3])test(`history snapshot restarts coherently and bounds ${conflicts} concurrent revisions`,async({page})=>{
+  await prepare(page);
+  const result=await page.evaluate(async({session,conflicts})=>{
+    let armed=false,decrypted=0,writes=0,revision='1',vault;
+    const cryptoAdapter={getRandomValues:bytes=>crypto.getRandomValues(bytes),subtle:{
+      generateKey:(...args)=>crypto.subtle.generateKey(...args),encrypt:(...args)=>crypto.subtle.encrypt(...args),
+      decrypt:async(...args)=>{
+        const bytes=await crypto.subtle.decrypt(...args);decrypted++;
+        if(armed&&decrypted%100===0&&writes<conflicts) {
+          writes++;
+          revision=await vault.write({expectedRevision:revision,deleted:['history:0204'],
+            values:{'history:9999':{message:'replacement-'+writes}}});
+        }
+        return bytes;
+      }}};
+    vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session,crypto:cryptoAdapter});
+    try {
+      const values={};for(let n=0;n<205;n++)values['history:'+String(n).padStart(4,'0')]={message:'original-'+n};
+      await vault.write({expectedRevision:'0',values});armed=true;decrypted=0;
+      let saved,code;try{saved=await vault.historySnapshot();}catch(error){code=error.code;}finally{armed=false;}
+      const retained=await vault.historySnapshot();
+      return {code:code||null,writes,revision:saved?.revision||null,count:saved?Object.keys(saved.values).length:null,
+        deletedAbsent:saved?!Object.hasOwn(saved.values,'history:0204'):null,replacement:saved?.values['history:9999']?.message||null,
+        retained:Object.keys(retained.values).length};
+    }finally{vault.close();}
+  },{session,conflicts});
+  expect(result).toEqual(conflicts===2
+    ? {code:null,writes:2,revision:'3',count:205,deletedAbsent:true,replacement:'replacement-2',retained:205}
+    : {code:'crypto_vault_revision_conflict',writes:3,revision:null,count:null,deletedAbsent:null,replacement:null,retained:205});
 });
 
 test('history pagination cannot combine plaintext across replacement sessions for the same account',async({page})=>{
@@ -423,6 +493,7 @@ test('vault corruption and key loss never reset or return plaintext, and logout 
 
 test('user key and independent checkpoint restore history on a fresh browser, never group secrets', async ({ page, browser }) => {
   await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const exported = await page.evaluate(async session => {
     const vault = await WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: () => session });
     const codec = await WingaSecureContent.loadSecureContent(), key = codec.generateRecoveryKey();
@@ -438,6 +509,7 @@ test('user key and independent checkpoint restore history on a fresh browser, ne
   const context = await browser.newContext();
   try {
     const fresh = await context.newPage(); await prepare(fresh);
+    const freshSession = await approveRecoveryDevice(page, fresh);
     const result = await fresh.evaluate(async ({ session, exported }) => {
       const vault = await WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: () => session });
       const recovery = WingaRecoveryClient.createRecoveryClient({ owner: session.username, getSession: () => session,
@@ -449,7 +521,7 @@ test('user key and independent checkpoint restore history on a fresh browser, ne
         const saved = await vault.snapshot();
         return { missing, accepted, history: saved.values['history:message-1'], groupAbsent: !saved.values['group:test'] };
       } finally { vault.close(); }
-    }, { session, exported });
+    }, { session: freshSession, exported });
     expect(result).toEqual({ missing: 'recovery_checkpoint_required', accepted: { restored: 1, revision: '1' },
       history: { text: 'private recovered history' }, groupAbsent: true });
   } finally { await context.close(); }
@@ -459,6 +531,7 @@ test('user key and independent checkpoint restore history on a fresh browser, ne
 
 test('recovery resumes a lost accepted PUT after reload and rejects server rollback', async ({ page }) => {
   await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const exported = await page.evaluate(async session => {
     const vault = await WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: () => session });
     const codec = await WingaSecureContent.loadSecureContent(), key = codec.generateRecoveryKey();
@@ -491,6 +564,7 @@ test('recovery resumes a lost accepted PUT after reload and rejects server rollb
 
 test('paged recovery survives lost page and root replies and restores every record atomically on a fresh device',async({page,browser})=>{
   test.setTimeout(120000);await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   let lostPage=false,lostRoot=false;
   await page.exposeFunction('ambiguousArchiveRequest',async(method,payload,context,part)=>{
     const result=part ? method==='GET'?await backups.readEncryptedHistoryPage(context,part):await backups.writeEncryptedHistoryPage(context,payload)
@@ -519,6 +593,7 @@ test('paged recovery survives lost page and root replies and restores every reco
   const context=await browser.newContext();
   try {
     const fresh=await context.newPage();await prepare(fresh);
+    const freshSession = await approveRecoveryDevice(page, fresh);
     const before=(await db.query('SELECT id,capsule FROM encrypted_conversation_backup_pages ORDER BY id')).rows;
     expect(before.length).toBeGreaterThan(1);
     const corrupted={...before[0].capsule,nonce:'A'.repeat(16)};
@@ -531,7 +606,7 @@ test('paged recovery survives lost page and root replies and restores every reco
         const state=await vault.historySnapshot(),hot=await vault.snapshot();
         return {error,restored:result?.restored||0,count:Object.keys(state.values).length,revision:state.revision,secretAbsent:!hot.values['group:must-not-transfer'],first:state.values['history:0']?.message.startsWith('private-0'),last:state.values['history:2999']?.message.startsWith('private-2999')};
       }finally{vault.close();}
-    },{session,exported});
+    },{session:freshSession,exported});
     expect(await check()).toMatchObject({error:'recovery_freshness_rejected',count:0,revision:'0'});
     await db.query('UPDATE encrypted_conversation_backup_pages SET capsule=$1 WHERE id=$2',[JSON.stringify(before[0].capsule),before[0].id]);
     expect(await check()).toMatchObject({error:null,restored:3000,count:3000,secretAbsent:true,first:true,last:true});
@@ -541,6 +616,7 @@ test('paged recovery survives lost page and root replies and restores every reco
 
 test('recovery retains prior archive history when a local record has been evicted', async ({ page }) => {
   await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const result = await page.evaluate(async session => {
     const vault = await WingaEncryptedVault.createEncryptedVault({ owner: session.username, getSession: () => session });
     const codec = await WingaSecureContent.loadSecureContent(), key = codec.generateRecoveryKey();
@@ -724,6 +800,7 @@ test('device directory substitution and session switching fail before a manageme
 
 test('recovery merges receipt progress monotonically but rejects changed message contents',async({page})=>{
   await prepare(page);
+  expect((await enroll(page)).status).toBe('active');
   const result=await page.evaluate(async session=>{
     const vault=await WingaEncryptedVault.createEncryptedVault({owner:session.username,getSession:()=>session});
     const codec=await WingaSecureContent.loadSecureContent(),key=codec.generateRecoveryKey();

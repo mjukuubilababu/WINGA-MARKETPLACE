@@ -267,6 +267,24 @@ async function cryptoFixture(t) {
   return { ...f, make, deviceStore };
 }
 
+test('bound native session survives canonical token refresh and logout on real PostgreSQL',async t=>{
+  const f=await cryptoFixture(t),client=await f.client(),native=f.make();
+  await f.deviceStore(client).mutateConversationCryptoDevice(context(),native.payload);
+  const refreshed=await f.live.replaceSession('b1',{token:'synthetic-rotated-token',sessionId:'b1',username:'bob',role:'buyer',status:'active',expiresAt:9999999999999});
+  assert.equal(refreshed.updated,true);
+  assert.deepEqual((await f.pool.query('SELECT session_token,crypto_device_id FROM conversation_crypto_session_bindings')).rows,
+    [{session_token:'synthetic-rotated-token',crypto_device_id:native.payload.deviceId}]);
+  const backups=require('../backend/encrypted-conversation-backups').createEncryptedConversationBackupStore({withTransaction:async work=>{
+    const c=await f.pool.connect();try{return await transaction(c,work);}finally{c.release();}
+  }});
+  const active={...context(),token:'synthetic-rotated-token'};
+  assert.equal((await backups.readEncryptedConversationBackup(active)).revision,'0');
+  await assert.rejects(backups.readEncryptedConversationBackup(context()),{code:'backup_unauthorized'});
+  await f.pool.query('DELETE FROM sessions WHERE token=$1',[active.token]);
+  assert.equal((await f.pool.query('SELECT COUNT(*)::int AS n FROM conversation_crypto_session_bindings')).rows[0].n,0);
+  await assert.rejects(backups.readEncryptedConversationBackup(active),{code:'backup_unauthorized'});
+});
+
 test('independent simultaneous first crypto enrollments create one active and one pending device', async t => {
   const f = await cryptoFixture(t), first = await f.client(), second = await f.client(), a = f.make(), b = f.make();
   const results = await Promise.all([
