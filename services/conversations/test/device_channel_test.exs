@@ -123,6 +123,18 @@ defmodule WingaConversations.DeviceChannelTest do
       "issuedAt" => System.system_time(:millisecond), "payload" => %{}, "signature" => "opaque"}
   end
 
+  test "adapter defaults are lazy and unconfigured native operations fail closed" do
+    operation = opaque_operation()
+    assert {:error, :unavailable} = TestAdapter.request("valid", "native", operation)
+    canonical = %{"version" => 1, "requestId" => operation["requestId"], "result" => %{"groups" => []}}
+    reply("native", {:ok, canonical})
+    assert {:ok, ^canonical} = TestAdapter.request("valid", "native", operation)
+    # No default clause exists: configured responses must not evaluate a fallback.
+    reply("configured-only", {:error, :rejected})
+    assert {:error, :rejected} = TestAdapter.request("valid", "configured-only", %{})
+    assert Process.alive?(Process.whereis(TestAdapter))
+  end
+
   test "native support is negotiated independently of legacy join authentication" do
     {:ok, _, socket} = join()
     ref = push(socket, "encrypted.operation", opaque_operation())

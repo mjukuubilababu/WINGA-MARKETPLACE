@@ -56,6 +56,124 @@ test('explicit empty results from a successfully executed security scan pass', t
     levels: { none: 0, note: 0, warning: 0, error: 0 } }, findings: [] });
 });
 
+test('documented CodeQL CLI driver name supports complete empty and security-result reports', t => {
+  // https://docs.github.com/en/code-security/reference/code-scanning/codeql/codeql-cli/sarif-output
+  for (const results of [[], [finding({ level: 'warning' })]]) {
+    const current = run(results);
+    current.tool.driver.name = 'CodeQL command-line toolchain';
+    current.tool.driver.organization = 'GitHub';
+    const value = audit(t, report(current));
+    assert.equal(value.ok, results.length === 0);
+    if (results.length) failed(value, 'CODEQL_SECURITY_FINDINGS');
+  }
+  for (const name of ['Other tool', 'CodeQL command-line toolchain ', 'CodeQL-private-marker']) {
+    const current = run();
+    current.tool.driver.name = name;
+    const value = audit(t, report(current));
+    failed(value, 'CODEQL_SARIF_INVALID');
+    assert.deepEqual(value.diagnostic, { stage: 'tool-metadata', field: 'tool.driver.name', report: 0, run: 0 });
+    assert.equal(JSON.stringify(value).includes(name), false);
+  }
+});
+
+test('CLI driver name with grouped extension rules never bypasses security or completeness checks', t => {
+  const current = run([finding({ rule: { id: 'js/sql-injection', index: 0, toolComponent: { index: 0 } } })]);
+  current.tool.driver.name = 'CodeQL command-line toolchain';
+  current.tool.driver.rules = [];
+  current.tool.extensions = [{ name: 'codeql/javascript-queries', rules: [securityRule()] }];
+  failed(audit(t, report(current)), 'CODEQL_SECURITY_FINDINGS');
+  current.results = [];
+  assert.equal(audit(t, report(current)).ok, true);
+  delete current.results;
+  failed(audit(t, report(current)), 'CODEQL_SARIF_INVALID');
+  current.results = [];
+  delete current.invocations;
+  failed(audit(t, report(current)), 'CODEQL_EXECUTION_UNVERIFIED');
+  current.invocations = [{ executionSuccessful: false }];
+  failed(audit(t, report(current)), 'CODEQL_EXECUTION_UNSUCCESSFUL');
+  current.invocations = [{ executionSuccessful: true, toolExecutionNotifications: [
+    { level: 'warning', message: { text: 'Synthetic diagnostic' } }
+  ] }];
+  failed(audit(t, report(current)), 'CODEQL_EXECUTION_DIAGNOSTIC');
+  current.invocations = [{ executionSuccessful: true }];
+  current.properties = { resultsTruncated: true };
+  failed(audit(t, report(current)), 'CODEQL_SARIF_INCOMPLETE');
+});
+
+test('validation diagnostics identify fixed stages, fields and exact numeric positions', t => {
+  const cases = [
+    [v => { v.version = 'invalid'; }, { stage: 'report-schema', field: 'version', report: 0 }],
+    [v => { delete v.runs[0].results; }, { stage: 'run-schema', field: 'results', report: 0, run: 0 }],
+    [v => { v.runs[0].tool.extensions = {}; }, { stage: 'tool-metadata', field: 'tool.extensions', report: 0, run: 0 }],
+    [v => { v.runs[0].tool.driver.rules[0].properties['security-severity'] = 'private'; },
+      { stage: 'rule-metadata', field: 'security-severity', report: 0, run: 0, component: 0, rule: 0 }],
+    [v => { v.runs[0].results[0].ruleIndex = 99; },
+      { stage: 'rule-reference', field: 'rule.resolution', report: 0, run: 0, result: 0 }],
+    [v => { v.runs[0].results[0].message = {}; },
+      { stage: 'result-schema', field: 'message', report: 0, run: 0, result: 0 }],
+    [v => { v.runs[0].results[0].locations[0].physicalLocation.region.startLine = 0; },
+      { stage: 'location', field: 'startLine', report: 0, run: 0, result: 0, location: 0 }],
+    [v => { v.runs[0].invocations[0].exitCode = 1; },
+      { stage: 'execution', field: 'exit-code', report: 0, run: 0, invocation: 0 }],
+    [v => { v.runs[0].invocations[0].toolExecutionNotifications = [{ level: 'error', message: { text: 'private' } }]; },
+      { stage: 'execution', field: 'notification.level', report: 0, run: 0, invocation: 0, notification: 0 }]
+  ];
+  for (const [mutate, diagnostic] of cases) {
+    const current = report(run([finding()]));
+    mutate(current);
+    const value = audit(t, current);
+    failed(value);
+    assert.deepEqual(value.diagnostic, diagnostic);
+    assert.equal(Object.hasOwn(value, 'totals'), false);
+  }
+  const dir = directory(t);
+  writeReport(dir, report(), 'a.sarif');
+  const current = report(run(), run([finding(), finding({ ruleIndex: 99 })]));
+  writeReport(dir, current, 'z.sarif');
+  assert.deepEqual(auditDirectory(dir, 'success').diagnostic,
+    { stage: 'rule-reference', field: 'rule.resolution', report: 1, run: 1, result: 1 });
+});
+
+test('CLI failure diagnostics are bounded and never reveal input keys, paths, values or parser messages', t => {
+  const dir = directory(t);
+  const privateMarker = 'SYNTHETIC_SECRET_DO_NOT_LOG';
+  const cases = [
+    [v => { v.runs[0].tool.driver.name = privateMarker; }, 'tool-metadata', 'tool.driver.name'],
+    [v => { v.runs[0].tool.driver.rules[0].properties['security-severity'] = privateMarker; }, 'rule-metadata', 'security-severity'],
+    [v => { v.runs[0].results[0].rule = { toolComponent: { name: privateMarker } }; }, 'rule-reference', 'tool-component.resolution'],
+    [v => { v.runs[0].results[0].message = { text: '', privateMarker }; }, 'result-schema', 'message'],
+    [v => { v.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri = null;
+      v.runs[0].results[0].locations[0].physicalLocation.region.snippet = { text: privateMarker }; }, 'location', 'artifact.uri'],
+    [v => { v.runs[0].properties = { ['resultsTruncated-' + privateMarker]: true }; }, 'completeness', 'truncation-marker'],
+    [v => { v.runs[0].invocations[0].toolConfigurationNotifications = [
+      { level: 'error', message: { text: privateMarker } }]; }, 'execution', 'notification.level']
+  ];
+  for (const [mutate, stage, field] of cases) {
+    const current = report(run([finding()]));
+    mutate(current);
+    writeReport(dir, current);
+    const value = cli(dir);
+    assert.equal(value.status, 1);
+    assert.equal(value.stderr, '');
+    assert.equal(value.stdout.includes(privateMarker), false);
+    assert.equal(value.stdout.includes(dir), false);
+    assert.ok(value.stdout.length < 1000);
+    const summary = JSON.parse(value.stdout.trim());
+    assert.equal(summary.diagnostic.stage, stage);
+    assert.equal(summary.diagnostic.field, field);
+    assert.equal(Object.hasOwn(summary, 'totals'), false);
+  }
+  fs.writeFileSync(path.join(dir, 'javascript.sarif'), '{' + privateMarker);
+  const malformed = cli(dir);
+  assert.equal(malformed.status, 1);
+  assert.equal(malformed.stdout.includes(privateMarker), false);
+  assert.deepEqual(JSON.parse(malformed.stdout).diagnostic,
+    { stage: 'report-parse', field: 'json-utf8', report: 0 });
+  fs.writeFileSync(path.join(dir, 'javascript.sarif'), Buffer.from([0xff]));
+  assert.deepEqual(auditDirectory(dir, 'success').diagnostic,
+    { stage: 'report-parse', field: 'json-utf8', report: 0 });
+});
+
 test('all security levels, including warning, note, none and the default level, block', t => {
   for (const level of ['error', 'warning', 'note', 'none', undefined]) {
     const value = audit(t, report(run([finding(level === undefined ? {} : { level })])));

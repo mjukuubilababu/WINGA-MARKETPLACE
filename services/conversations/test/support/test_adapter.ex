@@ -6,7 +6,7 @@ defmodule WingaConversations.TestAdapter do
       if ticket != "valid" do
         {:error, :unauthorized}
       else
-        Map.get(state.responses, command, default(command))
+        Map.get_lazy(state.responses, command, fn -> default(command) end)
       end
     end)
   end
@@ -20,4 +20,5 @@ defmodule WingaConversations.TestAdapter do
   defp default("ack"), do: {:ok, %{"ok" => true, "acknowledged" => 1}}
   defp default("receipt"), do: {:ok, %{"ok" => true}}
   defp default("send"), do: {:ok, %{"id" => "canonical", "conversationSequence" => "1"}}
+  defp default("native"), do: {:error, :unavailable}
 end
