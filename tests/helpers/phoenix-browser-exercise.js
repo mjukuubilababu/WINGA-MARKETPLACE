@@ -23,7 +23,7 @@ module.exports = async function exerciseBrowser({root,backend,port,tokens,csrf,p
         '<!doctype html><title>Phoenix device test</title><script src="/src/api/phoenix-transport.js"></script><script src="/src/api/communications-client.js"></script><script src="/src/chat/device-receipts.js"></script>'});
       if(files.has(url.pathname))return route.fulfill({contentType:'application/javascript',body:fs.readFileSync(path.join(root,files.get(url.pathname))),'headers':{'cache-control':'no-store'}});
       if(url.pathname.startsWith('/api/')) {
-        const response=await route.fetch({url:backend+url.pathname,
+        const response=await route.fetch({url:backend+url.pathname+url.search,
           headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,
             Cookie:`winga_auth=${tokens[account]}; winga_csrf=${csrf}`,Origin:origin}});
         return route.fulfill({response});

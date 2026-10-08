@@ -33,3 +33,28 @@ test('acceptance runner refuses inherited test filtering before attempting any d
   assert.equal(result.status,1);
   assert.deepEqual(JSON.parse(result.stderr.trim()),{ok:false,errorCode:'TEST_RUNTIME_OPTIONS_NOT_ALLOWED'});
 });
+
+test('real transport browser fixture forwards peer and encoded cursor queries with its original authentication',async()=>{
+  let routeHandler,closed=0;
+  const stop=new Error('Stop before opening a real page');
+  const context={grantPermissions:async()=>{},route:async(_pattern,handler)=>{routeHandler=handler;},
+    newPage:async()=>{throw stop;},unrouteAll:async()=>{},close:async()=>{closed++;}};
+  const browser={newContext:async()=>context,close:async()=>{closed++;}};
+  const fixture={exports:{}};
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(root,'tests/helpers/phoenix-browser-exercise.js'),'utf8'),{
+    module:fixture,process:{env:{WINGA_TEST_BROWSER_CHANNEL:'chromium'}},URL,
+    require:name=>name==='@playwright/test'?{chromium:{launch:async()=>browser}}:require(name)
+  });
+  await assert.rejects(fixture.exports({root,backend:'http://127.0.0.1:45000',port:45001,
+    tokens:{bob2:'synthetic-session'},csrf:'synthetic-csrf',pool:{}}),error=>error===stop);
+  assert.equal(closed,2);
+  let forwarded,fulfilled;
+  const response={fixtureResponse:true};
+  await routeHandler({request:()=>({url:()=> 'http://localhost:4173/api/conversations/encrypted/mode?peer=bob&cursor=a%2Fb'}),
+    fetch:async options=>{forwarded=options;return response;},fulfill:async options=>{fulfilled=options;}});
+  assert.equal(forwarded.url,'http://127.0.0.1:45000/api/conversations/encrypted/mode?peer=bob&cursor=a%2Fb');
+  assert.equal(forwarded.headers.Cookie,'winga_auth=synthetic-session; winga_csrf=synthetic-csrf');
+  assert.equal(forwarded.headers['X-CSRF-Token'],'synthetic-csrf');
+  assert.equal(forwarded.headers.Origin,'http://localhost:4173');
+  assert.equal(fulfilled.response,response);
+});

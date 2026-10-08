@@ -92,7 +92,7 @@ exist. This remains an explicit 224 feature/acceptance gap.
 
 - Direct messaging profile: 165 passed, no skips.
 - Secure-content Node profile: 159 passed on the unchanged application release.
-- Security profile: 46 passed, no skips; final scanner/gate policies tested.
+- Security profile: 47 passed, no skips; final scanner/gate and fixture policies tested.
 - Rooms native/service/projection profile: 80 passed, nine PostgreSQL-only cases
   skipped outside a real cluster; canonical reference/rich-content profile:
   14 passed. All nine concurrency cases ran in the strict PostgreSQL suite.
@@ -121,3 +121,13 @@ recipient-offline/protocol browser regression and growth runtime/service tests
 The existing build script regenerated frontend assets as `20261008193054`;
 95-module synchronization passed. This preserves growth changes but does not
 enable growth flags or certify their production acceptance.
+
+Initial CI run `37832889259` completed dependency scanning and CodeQL analysis;
+direct, E2EE, Rooms, security and real PostgreSQL gates passed. BEAM Mix tests
+and compilation passed, but its browser fixture dropped the `peer` query when
+proxying encryption-mode inspection. The fixture now preserves `url.search`;
+a behavioral route-callback regression verifies encoded queries and original
+authentication headers (4/4 gate tests, independently repeated by the reviewer).
+This repair does not change production authorization. BEAM acceptance must be
+rerun; CodeQL findings still require triage rather than treating job success as
+cryptographic approval. Public code-scanning alert access was unavailable.
