@@ -151,6 +151,16 @@ prior source-review evidence and occurrence caps. Same-code result stability
 is not yet proven: the next ledger-only scan must match every result digest;
 any further drift blocks promotion and must be diagnosed, not auto-approved.
 
+The ledger-only verification at `fb9020a`, run `37858338366`, passes functional,
+dependencies and genuine BEAM acceptance. Its successful static scan nevertheless
+rejects all 49 review fingerprints. The tracked-tree digest, exact finding sites
+and all source hashes are unchanged: result-fingerprint volatility is therefore
+a gate defect requiring diagnosis, not permission for another automatic ledger
+rebind. Production promotion remains blocked. Bounded component/field hashes
+will identify the drifting SARIF metadata without logging source snippets or
+arbitrary property values; no fingerprint semantics or review approval is
+relaxed by that diagnostic work.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are

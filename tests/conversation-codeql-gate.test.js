@@ -608,7 +608,7 @@ test('CLI emits aggregate summary and complete safe metadata, never source or se
   assert.deepEqual(detail, { mode: 'codeql-finding-location', report: 0, run: 0, result: 0,
     ruleId: 'js/sql-injection', level: 'warning', securitySeverity: 8.8,
     locations: [{ path: 'backend/synthetic-gate.js', line: 12 }],
-    resultFingerprint: inspectReport(report(current), 0).findings[0].resultFingerprint });
+    ...(({ resultFingerprint, fingerprintDiagnostics }) => ({ resultFingerprint, fingerprintDiagnostics }))(inspectReport(report(current), 0).findings[0]) });
   writeReport(dir, report());
   assert.equal(cli(dir, 'success', []).status, 0);
   fs.writeFileSync(path.join(dir, 'javascript.sarif'), '{' + privateMarker);
@@ -1459,4 +1459,120 @@ test('binary and unknown extensionless files remain byte-exact even when their b
     fs.writeFileSync(target, 'synthetic\nbytes\n');
     assert.notEqual(sourceTreeFingerprint(f.sourceRoot), original);
   }
+});
+
+test('fingerprint diagnostics preserve the existing exact digest compatibility vector', () => {
+  const value = inspectReport(report(run([finding()])), 0).findings[0];
+  assert.equal(value.resultFingerprint, '07b0828e79db6218cd990bfbbc5eb1527c53cf33a607699d4f77e8ee61798299');
+  assert.equal(value.fingerprintDiagnostics.version, 1);
+  assert.deepEqual(Object.keys(value.fingerprintDiagnostics.components), ['result', 'rule', 'toolComponent', 'runReferences']);
+});
+
+test('fingerprint diagnostics emit fixed labels, hashes, types and counts but no SARIF values or unfamiliar keys', t => {
+  const marker = 'SYNTHETIC_PRIVATE_SARIF_DO_NOT_LOG';
+  const guid = '00112233-4455-6677-8899-aabbccddeeff';
+  const current = run([finding({ guid, message: { text: marker }, properties: { [marker]: marker },
+    suppressions: [{ kind: 'external', justification: marker }], codeFlows: [{ message: { text: marker } }] })]);
+  current.tool.driver.guid = guid;
+  current.tool.driver[marker] = marker;
+  current.tool.driver.rules[0][marker] = marker;
+  current.originalUriBaseIds = { [marker]: { uri: 'file:///synthetic/' + marker } };
+  current.artifacts = [{ location: { uri: 'https://synthetic.invalid/' + marker }, contents: { text: marker } }];
+  current.results[0][marker] = { [marker]: marker };
+  const dir = directory(t);
+  writeReport(dir, report(current));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stderr, '');
+  for (const value of [marker, guid, 'file://', 'https://synthetic.invalid/']) assert.equal(output.stdout.includes(value), false);
+  assert.ok(output.stdout.length < 16000);
+  const [summary, detail] = output.stdout.trim().split('\n').map(JSON.parse);
+  assert.deepEqual(summary.fingerprintDiagnosticCounts, { emitted: 1, limit: 64 });
+  const d = detail.fingerprintDiagnostics.components;
+  for (const component of Object.values(d)) {
+    assert.match(component.sha256, /^[a-f0-9]{64}$/);
+    assert.equal(component.type, 'object');
+    assert.match(component.otherFields.sha256, /^[a-f0-9]{64}$/);
+    for (const field of Object.values(component.fields)) assert.match(field.sha256, /^[a-f0-9]{64}$/);
+  }
+  assert.deepEqual(d.result.fields.guid, { sha256: crypto.createHash('sha256').update(JSON.stringify(guid)).digest('hex'),
+    type: 'string', length: 36, uuidFormat: true });
+  assert.equal(d.toolComponent.fields.guid.uuidFormat, true);
+  assert.equal(d.result.fields.message.type, 'object');
+  assert.equal(d.result.fields.suppressions.type, 'array');
+  assert.equal(d.result.fields.suppressions.length, 1);
+  assert.equal(d.runReferences.fields.artifacts.length, 1);
+  assert.equal(d.runReferences.fields.originalUriBaseIds.keys, 1);
+  assert.equal(d.result.otherFields.keys, 1);
+  assert.equal(d.toolComponent.otherFields.keys, 1);
+  assert.equal(d.rule.otherFields.keys, 1);
+});
+
+test('fingerprint diagnostics localize component changes without ignoring GUIDs or run-reference metadata', () => {
+  const original = report(run([finding()]));
+  const before = inspectReport(original, 0).findings[0];
+  for (const [component, field, mutate] of [
+    ['result', 'guid', r => { r.results[0].guid = '00112233-4455-6677-8899-aabbccddeeff'; }],
+    ['rule', 'guid', r => { r.tool.driver.rules[0].guid = '00112233-4455-6677-8899-aabbccddeeff'; }],
+    ['toolComponent', 'guid', r => { r.tool.driver.guid = '00112233-4455-6677-8899-aabbccddeeff'; }],
+    ['runReferences', 'originalUriBaseIds', r => { r.originalUriBaseIds = { SYNTHETIC_ROOT: { uri: 'file:///synthetic/' } }; }],
+    ['runReferences', 'artifacts', r => { r.artifacts = [{ location: { uri: 'src/caller.js' } }]; }],
+    ['result', 'codeFlows', r => { r.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: location('src/caller.js', 7) }] }] }]; }]
+  ]) {
+    const current = structuredClone(original);
+    mutate(current.runs[0]);
+    const after = inspectReport(current, 0).findings[0];
+    assert.notEqual(after.resultFingerprint, before.resultFingerprint);
+    for (const name of ['result', 'rule', 'toolComponent', 'runReferences']) {
+      assert.equal(after.fingerprintDiagnostics.components[name].sha256 === before.fingerprintDiagnostics.components[name].sha256, name !== component);
+    }
+    assert.match(after.fingerprintDiagnostics.components[component].fields[field].sha256, /^[a-f0-9]{64}$/);
+  }
+});
+
+test('fingerprint diagnostic limits are global across reports and runs without hiding findings', t => {
+  const dir = directory(t);
+  writeReport(dir, report(run(Array.from({ length: 35 }, () => finding())), run(Array.from({ length: 5 }, () => finding()))), 'a.sarif');
+  writeReport(dir, report(run(Array.from({ length: 30 }, () => finding()))), 'z.sarif');
+  const value = auditDirectory(dir, 'success');
+  failed(value, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(value.totals.securityFindings, 70);
+  assert.equal(value.findings.length, 70);
+  assert.equal(value.findings.filter(item => Object.hasOwn(item, 'fingerprintDiagnostics')).length, 64);
+  assert.deepEqual(value.fingerprintDiagnosticCounts, { emitted: 64, limit: 64 });
+  assert.ok(value.findings.every(item => /^[a-f0-9]{64}$/.test(item.resultFingerprint)));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stdout.trim().split('\n').length, 71);
+  assert.ok(output.stdout.length < 1024 * 1024);
+});
+
+test('stale ledger retains all findings and bounded fingerprint provenance without approval', t => {
+  const f = reviewFixture(t);
+  fs.appendFileSync(f.sourcePath, '// Force the existing review tree stale\n');
+  const value = f.auditReview();
+  failed(value, 'CODEQL_REVIEW_STALE');
+  assert.equal(value.totals.securityFindings, 1);
+  assert.equal(value.totals.reviewedFindings, 0);
+  assert.equal(value.totals.unreviewedFindings, 1);
+  assert.equal(value.findings[0].reviewed, false);
+  assert.match(value.sourceTreeFingerprint, /^[a-f0-9]{64}$/);
+  assert.match(value.findings[0].sourceSha256, /^[a-f0-9]{64}$/);
+  assert.match(value.findings[0].fingerprintDiagnostics.components.result.sha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(value.fingerprintDiagnosticCounts, { emitted: 1, limit: 64 });
+});
+
+test('diagnostics do not approve GUID drift, changed flows or excess multiplicity', t => {
+  const f = reviewFixture(t);
+  for (const current of [f.reviewedFinding({ guid: '00112233-4455-6677-8899-aabbccddeeff' }),
+    f.reviewedFinding({ codeFlows: [{ message: { text: 'Changed synthetic flow' } }] })]) {
+    const value = f.auditReview(report(run([current])));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.equal(value.totals.reviewedFindings, 0);
+    assert.ok(value.findings[0].fingerprintDiagnostics);
+  }
+  const repeated = f.auditReview(report(run([f.reviewedFinding(), f.reviewedFinding()])));
+  failed(repeated, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(repeated.totals.reviewedFindings, 0);
+  assert.equal(repeated.totals.unreviewedFindings, 2);
 });

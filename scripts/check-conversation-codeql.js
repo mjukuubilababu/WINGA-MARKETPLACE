@@ -13,6 +13,16 @@ const REVIEW_LIMITS = Object.freeze({ manifestBytes: 256 * 1024, entries: 1000,
   treeFiles: 2048, treeBytes: 64 * 1024 * 1024, trackedListBytes: 2 * 1024 * 1024 });
 const REVIEWABLE_LOCATIONS = Symbol('reviewable-locations');
 const SOURCE_LOCATION = Symbol('source-location');
+const FINGERPRINT_DIAGNOSTIC_LIMIT = 64;
+const RUN_REFERENCE_FIELDS = Object.freeze(['artifacts', 'threadFlowLocations', 'logicalLocations', 'originalUriBaseIds', 'taxonomies']);
+const FINGERPRINT_DIAGNOSTIC_FIELDS = Object.freeze({
+  result: ['guid', 'correlationGuid', 'ruleId', 'ruleIndex', 'rule', 'message', 'locations', 'relatedLocations',
+    'codeFlows', 'partialFingerprints', 'fingerprints', 'properties', 'baselineState', 'suppressions', 'rank', 'level', 'kind', 'provenance'],
+  rule: ['id', 'guid', 'name', 'defaultConfiguration', 'properties', 'messageStrings', 'shortDescription', 'fullDescription', 'help', 'helpUri'],
+  toolComponent: ['guid', 'name', 'fullName', 'version', 'semanticVersion', 'releaseDateUtc', 'locations',
+    'properties', 'organization', 'informationUri', 'downloadUri', 'globalMessageStrings'],
+  runReferences: RUN_REFERENCE_FIELDS
+});
 const own = (value, key) => Object.hasOwn(value, key);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string' && value.length > 0;
@@ -289,13 +299,46 @@ function sourceTreeFingerprint(root = path.join(__dirname, '..'), ledger = '.git
   return inspectSourceTree(root, ledger).fingerprint;
 }
 
-function resultFingerprint(result, description, run) {
+function canonicalFingerprint(value) {
   const canonical = value => Array.isArray(value) ? value.map(canonical)
     : object(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-  const runReferences = Object.fromEntries(['artifacts', 'threadFlowLocations', 'logicalLocations', 'originalUriBaseIds', 'taxonomies']
+  return crypto.createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+}
+
+function referencedRunMetadata(run) {
+  return Object.fromEntries(RUN_REFERENCE_FIELDS
     .filter(key => own(run, key)).map(key => [key, run[key]]));
-  return crypto.createHash('sha256').update(JSON.stringify(canonical({ version: 1,
-    result, rule: description.rule, toolComponent: description.toolComponent, runReferences }))).digest('hex');
+}
+
+function resultFingerprint(result, description, run) {
+  return canonicalFingerprint({ version: 1, result, rule: description.rule,
+    toolComponent: description.toolComponent, runReferences: referencedRunMetadata(run) });
+}
+
+function fingerprintDiagnostics(result, description, run) {
+  const shape = value => ({ sha256: canonicalFingerprint(value),
+    type: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
+    ...(Array.isArray(value) || typeof value === 'string' ? { length: value.length } : {}),
+    ...(object(value) ? { keys: Object.keys(value).length } : {}) });
+  const components = { result, rule: description.rule, toolComponent: description.toolComponent,
+    runReferences: referencedRunMetadata(run) };
+  const diagnostics = { version: 1, components: {} };
+  for (const [component, value] of Object.entries(components)) {
+    const names = FINGERPRINT_DIAGNOSTIC_FIELDS[component];
+    const fields = {};
+    for (const name of names) {
+      if (!own(value, name) || value[name] === undefined) continue;
+      fields[name] = shape(value[name]);
+      if (name === 'guid' || name === 'correlationGuid') {
+        fields[name].uuidFormat = typeof value[name] === 'string'
+          && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value[name]);
+      }
+    }
+    const other = Object.fromEntries(Object.entries(value).filter(([key]) => !names.includes(key)));
+    // Arbitrary keys and values are never diagnostic labels; only their aggregate hash and count leave the gate.
+    diagnostics.components[component] = { ...shape(value), fields, otherFields: shape(other) };
+  }
+  return diagnostics;
 }
 
 const sameFile = (left, right) => left.isFile() && right.isFile()
@@ -462,7 +505,7 @@ function safeLocation(location, run, context) {
   return result;
 }
 
-function inspectReport(report, reportIndex) {
+function inspectReport(report, reportIndex, diagnosticBudget = { remaining: FINGERPRINT_DIAGNOSTIC_LIMIT }) {
   const context = { report: reportIndex };
   const check = validator('report-schema', context);
   check(object(report), 'report');
@@ -500,6 +543,10 @@ function inspectReport(report, reportIndex) {
       const finding = { report: reportIndex, run: runIndex, result: resultIndex,
         ruleId: safeRuleId(description.rule.id), level, securitySeverity: description.severity,
         locations: safeLocations, resultFingerprint: resultFingerprint(result, description, run) };
+      if (diagnosticBudget.remaining > 0) {
+        diagnosticBudget.remaining--;
+        finding.fingerprintDiagnostics = fingerprintDiagnostics(result, description, run);
+      }
       Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: locations.length > 0 && locations.length === safeLocations.length
         && safeLocations.every(location => location[SOURCE_LOCATION] && location.line !== null
           && safeSourcePath(location.path)) });
@@ -524,6 +571,7 @@ function auditDirectory(directory, analysisOutcome, options = {}) {
     const totals = { reports: reports.length, runs: 0, results: 0, securityFindings: 0,
       levels: { none: 0, note: 0, warning: 0, error: 0 } };
     const findings = [];
+    const diagnosticBudget = { remaining: FINGERPRINT_DIAGNOSTIC_LIMIT };
     let totalBytes = 0;
     const files = reports.map((entry, reportIndex) => {
       context = { report: reportIndex };
@@ -553,7 +601,7 @@ function auditDirectory(directory, analysisOutcome, options = {}) {
       let report;
       try { report = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length))); }
       catch { validator('report-parse', context)(false, 'json-utf8'); }
-      const inspected = inspectReport(report, reportIndex);
+      const inspected = inspectReport(report, reportIndex, diagnosticBudget);
       totals.runs += inspected.runs;
       totals.results += inspected.results;
       check(totals.results <= LIMITS.results, 'result-count', 'CODEQL_SARIF_LIMIT');
@@ -561,6 +609,8 @@ function auditDirectory(directory, analysisOutcome, options = {}) {
       for (const finding of inspected.findings) findings.push(finding);
     }
     totals.securityFindings = findings.length;
+    const fingerprintDiagnosticCounts = findings.length ? { fingerprintDiagnosticCounts: {
+      emitted: FINGERPRINT_DIAGNOSTIC_LIMIT - diagnosticBudget.remaining, limit: FINGERPRINT_DIAGNOSTIC_LIMIT } } : {};
     const executionVerified = analysisOutcome === 'success';
     let blockingFindings = findings.length;
     let treeFingerprint;
@@ -576,12 +626,14 @@ function auditDirectory(directory, analysisOutcome, options = {}) {
       } catch (error) {
         return { ok: false, errorCode: error.errorCode ?? 'CODEQL_REVIEW_UNAVAILABLE',
           diagnostic: error.diagnostic ?? { stage: 'review-manifest', field: 'file-access' }, totals, findings,
+          ...fingerprintDiagnosticCounts,
           ...(treeFingerprint ? { sourceTreeFingerprint: treeFingerprint } : {}) };
       }
     }
     const ok = executionVerified && blockingFindings === 0;
     return { ok, ...(!executionVerified ? { errorCode: 'CODEQL_ANALYSIS_UNSUCCESSFUL' }
       : blockingFindings ? { errorCode: 'CODEQL_SECURITY_FINDINGS' } : {}), totals, findings,
+      ...fingerprintDiagnosticCounts,
       ...(treeFingerprint ? { sourceTreeFingerprint: treeFingerprint } : {}) };
   } catch (error) {
     return { ok: false, errorCode: error.errorCode ?? 'CODEQL_SARIF_UNAVAILABLE',
