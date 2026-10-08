@@ -3,9 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [master, 'codex/conversations-final-acceptance']
-    paths: ['src/chat/**', 'src/api/**', 'backend/**', 'services/conversations/**', 'tests/**', 'scripts/*conversation*', 'package*.json', '.github/workflows/conversation-tests.yml']
   pull_request:
-    paths: ['src/chat/**', 'src/api/**', 'backend/**', 'services/conversations/**', 'tests/**', 'scripts/*conversation*', 'package*.json', '.github/workflows/conversation-tests.yml']
 permissions:
   contents: read
 concurrency:
@@ -115,7 +113,7 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       - name: Test the fail-closed SARIF gate
-        run: node --test tests/conversation-codeql-gate.test.js
+        run: node --test tests/conversation-codeql-gate.test.js tests/conversation-workflow-trigger.test.js
       - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript

@@ -133,6 +133,14 @@ source hashes and unique sites, generated-source correspondence and the fixed
 history binding. Actual ledger-only CI must still prove stable result digests
 and gate success before production promotion; no scan findings are suppressed.
 
+The ledger-only commit `fb95e39` exposed a real workflow coverage gap: narrow
+path filters did not start verification for a ledger-only change. Both push/PR
+path filters are removed, preserving master/QA branch restrictions, dispatch,
+permissions and every job. Two focused trigger regressions pass independently
+and are wired into static-analysis CI. This intentional tracked-tree change
+invalidates the previous ledger tree until fresh hosted scan provenance is
+reviewed; it does not authorize automatic rebinding or deployment.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are
