@@ -58,3 +58,36 @@ test('real transport browser fixture forwards peer and encoded cursor queries wi
   assert.equal(forwarded.headers.Origin,'http://localhost:4173');
   assert.equal(fulfilled.response,response);
 });
+
+test('transport fixture cannot use an older failed ACK before the target stored receipt resolves',async()=>{
+  const stop=new Error('Stop after capturing browser initialization');
+  let initialization,waits=0,onEvents,release;
+  const stored=new Promise(resolve=>{release=resolve;});
+  const page={on:()=>{},goto:async()=>{},evaluate:async(fn)=>{initialization=fn.toString();},
+    waitForFunction:async()=>{if(++waits===2)throw stop;}};
+  const context={grantPermissions:async()=>{},route:async()=>{},newPage:async()=>page,unrouteAll:async()=>{},close:async()=>{}};
+  const fixture={exports:{}};
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(root,'tests/helpers/phoenix-browser-exercise.js'),'utf8'),{
+    module:fixture,process:{env:{WINGA_TEST_BROWSER_CHANNEL:'chromium'}},URL,
+    require:name=>name==='@playwright/test'?{chromium:{launch:async()=>({newContext:async()=>context,close:async()=>{}})}}:require(name)
+  });
+  await assert.rejects(fixture.exports({root,backend:'http://127.0.0.1:45000',port:45001,
+    tokens:{bob2:'synthetic-session'},csrf:'synthetic-csrf',pool:{}}),error=>error===stop);
+  const sandbox={WingaModules:{api:{communications:{createCommunicationsApiClient:()=>({
+    openRealtimeChannel:options=>{onEvents=options.onDeviceEvents;return {};}
+  })}},chat:{createDeviceReceipts:()=>({acceptEvents:async(batch,ack)=>{
+    if(batch.items[0].id==='target')await stored;
+    return ack(batch.events.map(event=>event.id));
+  }})}}};
+  sandbox.window=sandbox;
+  require('node:vm').runInNewContext('('+initialization+')({port:45001,account:"bob2"})',sandbox);
+  sandbox.failAck=true;
+  const batch=id=>({items:[{id}],events:[{id:'event-'+id}]});
+  await assert.rejects(onEvents(batch('older'),async()=>({ok:true})),/Simulated lost ACK/);
+  const pending=onEvents(batch('target'),async()=>({ok:true}));
+  assert.equal(sandbox.calls.failedAcks,1);
+  assert.equal(sandbox.calls.failedAckMessageIds.includes('target'),false);
+  release();
+  await assert.rejects(pending,/Simulated lost ACK/);
+  assert.deepEqual(Array.from(sandbox.calls.failedAckMessageIds),['older','target']);
+});

@@ -56,7 +56,7 @@ module.exports = async function exerciseBrowser({root,backend,port,tokens,csrf,p
     await page.evaluate(({port,account})=>{
       const owner=account==='bob2'?'bob':account;
       window.session={username:owner,sessionId:account};
-      window.calls={restSends:0,failedAcks:0,tickets:0,states:[]};
+      window.calls={restSends:0,failedAcks:0,failedAckMessageIds:[],tickets:0,states:[]};
       window.failAck=false;window.active=true;
       const client=WingaModules.api.communications.createCommunicationsApiClient({
         baseUrl:'/api',getSession:()=>session,
@@ -76,7 +76,7 @@ module.exports = async function exerciseBrowser({root,backend,port,tokens,csrf,p
       window.client=client;window.receipts=receipts;
       window.stream=client.openRealtimeChannel({isCurrent:()=>active,onTransportState:state=>calls.states.push(state),onDeviceEvents:(batch,ack)=>
         receipts.acceptEvents(batch,ids=>{
-          if(failAck){calls.failedAcks++;throw new Error('Simulated lost ACK before write');}
+          if(failAck){calls.failedAcks++;calls.failedAckMessageIds.push(...batch.items.map(message=>message.id));throw new Error('Simulated lost ACK before write');}
           return ack(ids);
         }).catch(error=>{calls.consumerError={name:error.name,message:error.message,stack:error.stack};throw error;})});
       window.inbox=()=>new Promise((resolve,reject)=>{
@@ -109,8 +109,13 @@ module.exports = async function exerciseBrowser({root,backend,port,tokens,csrf,p
     assert.ok(sent.id);
     assert.equal(await sender.evaluate(()=>calls.restSends),0);
     await receiver.waitForFunction(async id=>(await inbox()).some(row=>row.message?.id===id),sent.id,{timeout:15000});
-    try { await receiver.waitForFunction(()=>calls.failedAcks>0,{},{timeout:15000}); }
+    try { await receiver.waitForFunction(id=>calls.failedAckMessageIds.includes(id),sent.id,{timeout:15000}); }
     catch { throw new Error('Durable browser ACK stalled: '+JSON.stringify({trace:receiver.transportTrace,state:await receiver.evaluate(()=>calls)})); }
+    const proof=(await pool.query(`SELECT stored_at,read_at FROM message_device_receipts
+      WHERE message_id=$1 AND device_id='bob2' AND sender_id='alice' AND receiver_id='bob'`,[sent.id])).rows;
+    assert.equal(proof.length,1);
+    assert.ok(proof[0].stored_at);
+    assert.equal(proof[0].read_at,null);
     const stored=(await pool.query('SELECT is_delivered,is_read FROM messages WHERE id=$1',[sent.id])).rows[0];
     assert.deepEqual(stored,{is_delivered:true,is_read:false});
     assert.ok((await pool.query(`SELECT COUNT(*)::int AS n FROM conversation_device_deliveries d

@@ -92,7 +92,7 @@ exist. This remains an explicit 224 feature/acceptance gap.
 
 - Direct messaging profile: 165 passed, no skips.
 - Secure-content Node profile: 159 passed on the unchanged application release.
-- Security profile: 47 passed, no skips; final scanner/gate and fixture policies tested.
+- Security profile: 48 passed, no skips; final scanner/gate and fixture policies tested.
 - Rooms native/service/projection profile: 80 passed, nine PostgreSQL-only cases
   skipped outside a real cluster; canonical reference/rich-content profile:
   14 passed. All nine concurrency cases ran in the strict PostgreSQL suite.
@@ -123,7 +123,8 @@ The existing build script regenerated frontend assets as `20261008193054`;
 enable growth flags or certify their production acceptance.
 
 Initial CI run `37832889259` completed dependency scanning and CodeQL analysis;
-direct, E2EE, Rooms, security and real PostgreSQL gates passed. BEAM Mix tests
+direct, E2EE, Rooms, security and real PostgreSQL gates passed. All 48 browser
+cases passed in that functional CI job. BEAM Mix tests
 and compilation passed, but its browser fixture dropped the `peer` query when
 proxying encryption-mode inspection. The fixture now preserves `url.search`;
 a behavioral route-callback regression verifies encoded queries and original
@@ -131,3 +132,14 @@ authentication headers (4/4 gate tests, independently repeated by the reviewer).
 This repair does not change production authorization. BEAM acceptance must be
 rerun; CodeQL findings still require triage rather than treating job success as
 cryptographic approval. Public code-scanning alert access was unavailable.
+
+The next BEAM run exposed a second fixture-only timing assertion: a global ACK
+failure counter could come from an older queued message while the target stored
+receipt was in flight. Failed ACKs now retain their batch message IDs, and the
+fixture waits at most 15 seconds for the target message's ACK failure after its
+stored receipt is confirmed. It then independently asserts the exact bob2
+canonical stored proof, no Read proof, Delivered/Read flags and target pending
+event ACK. A behavioral regression holds the target storage response while an
+older ACK fails; the fixture stays blocked until that target response resolves.
+All five gate regressions passed locally and independently with the reviewer.
+Neither fix changes runtime receipt semantics or creates a synthetic receipt.
