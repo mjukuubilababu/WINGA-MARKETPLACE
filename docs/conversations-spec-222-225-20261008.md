@@ -107,7 +107,7 @@ exist. This remains an explicit 224 feature/acceptance gap.
 
 Separate worker and read-only reviewer agents checked disjoint coverage and
 test-gate risks. Their reviews are not external cryptographic certification.
-Remaining approval: new CodeQL/BEAM CI results, encrypted BEAM-loss acceptance,
+Remaining approval: final functional CI and CodeQL alert triage, encrypted BEAM-loss acceptance,
 group-order reference support, deferred physical-device/production load and
 independent crypto/security audit. No pending item is reported as verified.
 
@@ -129,8 +129,8 @@ and compilation passed, but its browser fixture dropped the `peer` query when
 proxying encryption-mode inspection. The fixture now preserves `url.search`;
 a behavioral route-callback regression verifies encoded queries and original
 authentication headers (4/4 gate tests, independently repeated by the reviewer).
-This repair does not change production authorization. BEAM acceptance must be
-rerun; CodeQL findings still require triage rather than treating job success as
+This repair does not change production authorization. BEAM acceptance required
+a rerun, recorded below; CodeQL findings still require triage rather than treating job success as
 cryptographic approval. Public code-scanning alert access was unavailable.
 
 The next BEAM run exposed a second fixture-only timing assertion: a global ACK
@@ -143,3 +143,30 @@ event ACK. A behavioral regression holds the target storage response while an
 older ACK fails; the fixture stays blocked until that target response resolves.
 All five gate regressions passed locally and independently with the reviewer.
 Neither fix changes runtime receipt semantics or creates a synthetic receipt.
+
+## Final Release Evidence
+
+The application is ready on Render at
+`6e3277edd57229f751c5fe3609d95db8741405ae` (exact `X-Winga-Commit`, HTTP 200).
+Frontend build `20261008193054`, Worker version
+`436a4d63-2fdc-4aa2-b80b-095911ece4d3`, passed all eight public production smoke
+routes. The two subsequent fixture repairs affect tests/evidence only; no
+application behavior, CSP, secrets, approvals or feature flags changed.
+
+CI checkpoint: https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/37835056834
+
+- Dependencies: passed.
+- CodeQL security-extended analysis/upload: passed; alert triage remains open.
+- BEAM: nine Mix tests passed, zero failures; genuine two-node PostgreSQL/browser
+  transport exercise passed with lost replies, node loss, replay and writer
+  restart. It still does not claim encrypted-native BEAM-loss acceptance.
+- Functional: all Node/real PostgreSQL gates passed, but 47/48 browser cases
+  passed. The earlier full run passed 48/48. A focused original repeat produced
+  one failure and one pass: an earlier approved recovery device remains in the
+  replacement dropdown, whose package-hash ordering varies. The fixture typed
+  a new device's fingerprint without selecting that device, so verification
+  correctly rejected the mismatch before any reservation. The corrected test
+  explicitly selects/asserts that device ID and asserts the same accepted
+  reservation target; no timeout was raised or runtime check weakened.
+  A separate reviewer confirmed this fixture cause and reviewed the patch.
+  Patched focused repeats and final functional CI remain to be recorded.

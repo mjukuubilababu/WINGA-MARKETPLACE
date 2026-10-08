@@ -7,13 +7,15 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 
 ## Current Production Checkpoint: 2026-10-08
 
-Release `bfe996102dfa5cf0e769fc15cd82bf41ee496691` is verified ready on Render;
-frontend build `20261008184751` is deployed and public production smoke checks
+Release `6e3277edd57229f751c5fe3609d95db8741405ae` is verified ready on Render;
+frontend build `20261008193054` is deployed and public production smoke checks
 passed. The subsequent [222-225 test-suite/security matrix](conversations-spec-222-225-20261008.md)
 records executable coverage, isolated database interruption/retry, native Room
 revocation tests and CI/dependency/fuzz gates. It explicitly retains unsupported
 group-order references, encrypted BEAM-loss acceptance and independent audit/load
-as open, rather than equating a configured test job with approval.
+as open, rather than equating a configured test job with approval. Final BEAM,
+dependency and CodeQL analysis jobs passed in run `37835056834`; the detailed
+matrix records functional results and the remaining security approval boundary.
 
 The subsequent [210-221 invariant and recovery matrix](conversations-spec-210-221-20261008.md)
 records durable acceptance evidence/guards, deferred optional push fan-out,
@@ -24,8 +26,8 @@ cryptographic acceptance; the deferred device approvals remain unchanged.
 The subsequent [193-209 implementation and acceptance matrix](conversations-spec-193-209-20261008.md)
 records globalization/accessibility, constrained-network/local-first behavior,
 canonical reconciliation, rollout/kill controls, non-destructive legacy migration
-and content-free Conversations Operations observations. It is a reviewed code
-candidate until its publication identity is recorded; production SLO targets,
+and content-free Conversations Operations observations. It is included in the
+current deployed application; production SLO targets,
 physical-device/authenticated load and independent crypto acceptance remain open.
 
 Release `f7e77d0559e5528884da3b2615685e0b5348f117` is live on the WINGA backend;

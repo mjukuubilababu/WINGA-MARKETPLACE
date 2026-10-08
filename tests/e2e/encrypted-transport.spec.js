@@ -836,11 +836,14 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
         await db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE owner_id='bob' AND id<>$1",[device.id]);
         const revokedPeer=await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));expect(revokedPeer.status).toBe('blocked');expect(revokedPeer.canReplace).toBe(true);
         await db.query("UPDATE conversation_crypto_devices SET status='active',revoked_at=NULL WHERE owner_id='bob' AND id<>$1",[device.id]);
+        await alice.locator('dialog select[name=device]').selectOption(device.id);
+        await expect(alice.locator('dialog select[name=device]')).toHaveValue(device.id);
         loseReplacementReserve=true;await alice.locator('dialog input[name=fingerprint]').fill(device.fingerprint);await alice.getByRole('button',{name:'Replace contact device'}).click();
         await expect.poll(async()=>(await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_replacements')).rows[0].n).toBe(1);
         await expect(alice.locator('dialog [role=status]')).toContainText('Verification failed');
         await expect(alice.getByRole('button',{name:'Replace contact device'})).toBeEnabled();
         const reservation=(await db.query('SELECT id,intent,status,transfer FROM encrypted_conversation_replacements')).rows[0];
+        expect(reservation.intent.replacementDeviceId).toBe(device.id);
         expect(reservation.status).toBe('reserved');expect(reservation.transfer).toBeNull();
         await alice.reload();expect((await alice.evaluate(()=>start('alice'))).canResume).toBe(true);
         const historyBefore=await alice.evaluate(()=>client.loadConversationPage('bob'));
