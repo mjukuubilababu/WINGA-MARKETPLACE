@@ -121,6 +121,18 @@ or normalizing binary assets. Three focused portability tests pass, and the
 Windows and Linux-equivalent complete-tree digests agree. A fresh actual scan
 is required before writing the reviewed finding fingerprints.
 
+Fresh QA run `37855535222` at `cba9313` passes functional, dependencies and BEAM.
+The BEAM job again passes 15 Mix tests and 9/9 Node acceptance cases with zero
+skips. The complete CodeQL scan emits the same 49 exact sites and its Linux
+tree digest matches the Windows/Linux-equivalent digest
+`3ba1c50489588f36ce18edc7242411aa4c2b6b631c434ba94bbbf8b79f37a51a`.
+The operator-approved ledger now records only these independently reviewed
+sites, with exact source/result fingerprints, reasons, reviewer and evidence;
+each permits one occurrence. A separate final manifest review verifies all 49
+source hashes and unique sites, generated-source correspondence and the fixed
+history binding. Actual ledger-only CI must still prove stable result digests
+and gate success before production promotion; no scan findings are suppressed.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are
