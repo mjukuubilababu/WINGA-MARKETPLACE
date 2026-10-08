@@ -9889,6 +9889,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   return {
     init,
+    ...require('./growth-store').createGrowthStore({ query, withTransaction }),
     ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),
     readStore,
     readProductsPage,

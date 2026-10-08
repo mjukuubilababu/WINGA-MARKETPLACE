@@ -9,6 +9,7 @@ const frontendPort = 4173;
 const backendPort = 43080;
 const rootDir = path.resolve(__dirname, "..", "..");
 const seedSessionsPath = path.join(__dirname, ".seed-sessions.json");
+const growthCanary = process.env.WINGA_TEST_GROWTH_CANARY === 'true';
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "winga-e2e-"));
 const galleryImages = [
   "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADklEQVQImWP4DwUMMAYAj4IP8cvlVgcAAAAASUVORK5CYII=",
@@ -346,7 +347,9 @@ async function seedMarketplace() {
 
   ];
 
-  for (const item of catalog) {
+  // The real-PostgreSQL growth rehearsal needs one photo listing. Video test
+  // fixtures use local-file readiness shortcuts that PostgreSQL rightly rejects.
+  for (const item of growthCanary ? catalog.slice(0, 1) : catalog) {
     const created = await apiRequestWithAuthRefresh(
       "/products",
       () => ({
@@ -458,6 +461,10 @@ function shutdown() {
 }
 
 async function main() {
+  const growthTestUrl = process.env.WINGA_TEST_POSTGRES_URL || '';
+  if (growthCanary && (!growthTestUrl || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(growthTestUrl).hostname))) {
+    throw new Error('Growth canary requires an explicit disposable localhost PostgreSQL URL.');
+  }
   backendProcess = spawn(process.execPath, ["server.js"], {
     cwd: path.join(rootDir, "backend"),
     env: {
@@ -468,7 +475,10 @@ async function main() {
       WINGA_DATA_DIR: path.join(tempRoot, "data"),
       WINGA_UPLOADS_DIR: path.join(tempRoot, "uploads"),
       ALLOWED_ORIGINS: `http://127.0.0.1:${frontendPort}`,
-      DATABASE_URL: ""
+      DATABASE_URL: growthCanary ? growthTestUrl : "",
+      DATABASE_SSL: 'false',
+      WINGA_GROWTH_PRODUCT_SHARING_ENABLED: growthCanary ? 'true' : 'false',
+      WINGA_GROWTH_MEASUREMENT_ENABLED: growthCanary ? 'true' : 'false'
     },
     stdio: "ignore"
   });

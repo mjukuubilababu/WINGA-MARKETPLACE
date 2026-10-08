@@ -118,6 +118,13 @@ test("PostgreSQL schema migrations are locked, transactional, and versioned", as
       if (String(text).includes("SELECT migration_id")) {
         return { rows: [] };
       }
+      // COUNT queries return one row even when the legacy message table is empty.
+      if (String(text).includes('AS total') && String(text).includes('FROM messages entry')) {
+        return { rows: [{ total: 0, incomplete: 0, selfAddressed: 0, compatible: 0 }], rowCount: 1 };
+      }
+      if (String(text).includes('AS missing FROM messages entry')) {
+        return { rows: [{ missing: 0 }], rowCount: 1 };
+      }
       return { rows: [], rowCount: 0 };
     },
     release() {

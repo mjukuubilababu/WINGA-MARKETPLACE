@@ -1120,6 +1120,7 @@
 
       modal.style.display = "grid";
       document.body.classList.add("product-detail-open");
+      try { window.WingaGrowth?.productVisible(product.id); } catch {}
       deps.syncBodyScrollLockState?.();
       if (typeof deps.hydrateContinuationProducts === "function") {
         deps.hydrateContinuationProducts(product)

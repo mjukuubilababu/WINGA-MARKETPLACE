@@ -395,6 +395,35 @@ test("ops intelligence recovery endpoints require token and fail closed without 
   assert.equal(retryUnavailableBody.ok, false);
 });
 
+test('public preview and guest discovery exclude private, pending and suspended-seller products',async()=>{
+  const storePath=path.join(tempRoot,'data','store.json');
+  const original=fs.readFileSync(storePath,'utf8'),store=JSON.parse(original);
+  const image='data:image/png;base64,'+(await sharp({create:{width:2,height:2,channels:4,background:'#ffffff'}}).png().toBuffer()).toString('base64');
+  store.users.push({username:'growth-preview-seller',fullName:'Preview seller',role:'seller',status:'active',createdAt:new Date().toISOString()});
+  for(const [id,status,visibility] of [['growth-public','approved','public'],['growth-private','approved','private'],['growth-followers','approved','followers'],['growth-pending','pending','public']])
+    store.products.push({id,name:'Preview '+id,price:1000,shop:'Preview shop',uploadedBy:'growth-preview-seller',status,visibility,
+      image,images:[image],category:'casual',availability:'available',createdAt:new Date().toISOString()});
+  try {
+    fs.writeFileSync(storePath,JSON.stringify(store));
+    const origin=baseUrl.replace(/\/api$/,'');
+    const good=await fetch(origin+'/product/growth-public?share=invalid');
+    assert.equal(good.status,200);assert.match(await good.text(),/Preview growth-public/);
+    for(const id of ['growth-private','growth-followers','growth-pending','growth-deleted']){
+      const preview=await fetch(origin+'/product/'+id,{headers:{'User-Agent':'WhatsApp/2'}});
+      assert.equal(preview.status,404,id);assert.equal((await preview.text()).includes('Preview '+id),false);
+      const products=await request('/products?productId='+id+'&limit=1');
+      assert.equal(getProductResponseItems(products.body).length,0);
+    }
+    const bootstrap=await request('/bootstrap?limit=50');
+    assert.equal(JSON.stringify(bootstrap.body).includes('Preview growth-private'),false);
+    assert.equal(JSON.stringify(bootstrap.body).includes('Preview growth-followers'),false);
+    store.users.find(u=>u.username==='growth-preview-seller').status='suspended';
+    fs.writeFileSync(storePath,JSON.stringify(store));
+    const suspended=await fetch(origin+'/product/growth-public');assert.equal(suspended.status,404);
+    const missing=await fetch(origin+'/product/%ZZ');assert.equal(missing.status,404);
+  } finally { fs.writeFileSync(storePath,original); }
+});
+
 test("critical seller, buyer, session, moderation, and monitoring flows work together", async () => {
   const tinyImageBuffer = await sharp({
     create: {
