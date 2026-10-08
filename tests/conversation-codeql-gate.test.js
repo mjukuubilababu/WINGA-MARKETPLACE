@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawnSync } = require('node:child_process');
-const { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint } = require('../scripts/check-conversation-codeql');
+const { spawnSync, execFileSync } = require('node:child_process');
+const { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint } = require('../scripts/check-conversation-codeql');
 
 const root = path.resolve(__dirname, '..');
 const script = path.join(root, 'scripts/check-conversation-codeql.js');
@@ -37,14 +37,14 @@ function audit(t, value, outcome = 'success') {
   return auditDirectory(dir, outcome);
 }
 
-function cli(dir, outcome, args = [dir], reviewManifestPath) {
+function cli(dir, outcome, args = [dir], reviewManifestPath, gateScript = script) {
   if (arguments.length < 2) outcome = 'success';
   const env = { ...process.env, CODEQL_ANALYSIS_OUTCOME: outcome, CODEQL_SARIF_DIRECTORY: dir };
   if (outcome === undefined) delete env.CODEQL_ANALYSIS_OUTCOME;
   delete env.NODE_OPTIONS;
   delete env.CODEQL_REVIEW_MANIFEST;
   if (reviewManifestPath !== undefined) env.CODEQL_REVIEW_MANIFEST = reviewManifestPath;
-  return spawnSync(process.execPath, [script, ...args], { env, encoding: 'utf8',
+  return spawnSync(process.execPath, [gateScript, ...args], { env, encoding: 'utf8',
     windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 });
 }
 
@@ -607,7 +607,8 @@ test('CLI emits aggregate summary and complete safe metadata, never source or se
   assert.equal(Object.hasOwn(summary, 'findings'), false);
   assert.deepEqual(detail, { mode: 'codeql-finding-location', report: 0, run: 0, result: 0,
     ruleId: 'js/sql-injection', level: 'warning', securitySeverity: 8.8,
-    locations: [{ path: 'backend/synthetic-gate.js', line: 12 }] });
+    locations: [{ path: 'backend/synthetic-gate.js', line: 12 }],
+    resultFingerprint: inspectReport(report(current), 0).findings[0].resultFingerprint });
   writeReport(dir, report());
   assert.equal(cli(dir, 'success', []).status, 0);
   fs.writeFileSync(path.join(dir, 'javascript.sarif'), '{' + privateMarker);
@@ -635,6 +636,14 @@ test('workflow wires Node 24 and the actual analyze output into an unconditional
   assert.doesNotMatch(job, /continue-on-error|upload-artifact|secrets\.|actions: write|contents: write|upload: never/);
 });
 
+function fixtureGit(root, args) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)));
+  execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'core.fsmonitor=false', '-C', root, ...args],
+    { env, windowsHide: true, stdio: 'ignore', timeout: 15000 });
+}
+
+const fingerprintOf = result => inspectReport(report(run([result])), 0).findings[0].resultFingerprint;
+
 function reviewFixture(t) {
   const sourceRoot = directory(t);
   const reports = path.join(sourceRoot, 'sarif');
@@ -643,12 +652,21 @@ function reviewFixture(t) {
   fs.mkdirSync(path.join(sourceRoot, '.github'));
   fs.mkdirSync(path.dirname(sourcePath));
   fs.writeFileSync(sourcePath, Array.from({ length: 20 }, (_, i) => `// Synthetic source line ${i + 1}\n`).join(''));
+  fixtureGit(sourceRoot, ['init', '--quiet', '--template=']);
+  fixtureGit(sourceRoot, ['add', '--', 'src/synthetic.js']);
   const entry = { ruleId: 'js/sql-injection', path: 'src/synthetic.js', startLine: 12,
-    sourceSha256: sourceFingerprint(fs.readFileSync(sourcePath)), reviewer: 'Independent synthetic reviewer',
+    resultFingerprint: fingerprintOf(finding({ locations: [location('src/synthetic.js', 12)] })),
+    sourceSha256: sourceFingerprint(fs.readFileSync(sourcePath)), maxOccurrences: 1, reviewer: 'Independent synthetic reviewer',
     reason: 'Synthetic reviewed false positive only', evidence: 'Synthetic bounded data-flow review' };
-  const manifest = { version: 1, digestAlgorithm: 'sha256-lf', reviews: [entry] };
+  const manifest = { version: 1, digestAlgorithm: 'sha256-lf', sourceTreeSha256: sourceTreeFingerprint(sourceRoot), reviews: [entry] };
   const manifestPath = path.join(sourceRoot, '.github', 'reviews.json');
-  const writeManifest = (value = manifest) => fs.writeFileSync(manifestPath, JSON.stringify(value));
+  const writeManifest = (value = manifest) => {
+    if (value?.reviews?.length === 0) {
+      value = { ...value };
+      delete value.sourceTreeSha256;
+    }
+    fs.writeFileSync(manifestPath, JSON.stringify(value));
+  };
   writeManifest();
   const reviewedFinding = (overrides = {}) => finding({ locations: [location(entry.path, entry.startLine)], ...overrides });
   const auditReview = (value = report(run([reviewedFinding()])), outcome = 'success', options = {}) => {
@@ -662,6 +680,7 @@ test('opt-in exact reviews preserve all findings and all level counts', t => {
   const f = reviewFixture(t);
   const results = ['error', 'warning', 'note', 'none'].map(level => f.reviewedFinding({ level,
     baselineState: 'unchanged', kind: 'notApplicable', suppressions: [{ kind: 'external', status: 'accepted' }] }));
+  f.writeManifest({ ...f.manifest, reviews: results.map(result => ({ ...f.entry, resultFingerprint: fingerprintOf(result) })) });
   const value = f.auditReview(report(run(results)));
   assert.equal(value.ok, true);
   assert.deepEqual(value.totals, { reports: 1, runs: 1, results: 4, securityFindings: 4,
@@ -740,16 +759,18 @@ test('missing sources and stale registry paths fail closed and retain findings',
   failed(f.auditReview(), 'CODEQL_REVIEW_UNAVAILABLE');
 });
 
-test('duplicate reviews are invalid while duplicate emitted results stay visible and counted', t => {
+test('duplicate reviews are invalid and repeated same-sink results cannot inherit a single review', t => {
   const f = reviewFixture(t);
   f.writeManifest({ ...f.manifest, reviews: [f.entry, { ...f.entry }] });
   failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
   f.writeManifest();
   const value = f.auditReview(report(run([f.reviewedFinding(), f.reviewedFinding()])));
-  assert.equal(value.ok, true);
+  failed(value, 'CODEQL_SECURITY_FINDINGS');
   assert.equal(value.findings.length, 2);
   assert.equal(value.totals.securityFindings, 2);
-  assert.equal(value.totals.reviewedFindings, 2);
+  assert.equal(value.totals.reviewedFindings, 0);
+  assert.equal(value.totals.unreviewedFindings, 2);
+  assert.ok(value.findings.every(item => item.reviewed === false));
 });
 
 test('suppression, baseline and lowered severity never approve unmatched emitted findings', t => {
@@ -864,22 +885,23 @@ test('symlinked source and registry files fail closed', t => {
 });
 
 test('CLI review opt-in logs every finding but never registry metadata or source contents', t => {
-  const dir = fs.mkdtempSync(path.join(root, '.github', 'codeql-review-synthetic-'));
-  t.after(() => {
-    assert.equal(path.dirname(path.resolve(dir)), path.join(root, '.github'));
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-  const sourcePath = 'tests/conversation-codeql-gate.test.js';
+  const f = reviewFixture(t);
+  const dir = f.reports;
+  const gateScript = path.join(f.sourceRoot, 'scripts', 'check-conversation-codeql.js');
+  fs.mkdirSync(path.dirname(gateScript));
+  fs.copyFileSync(script, gateScript);
+  fixtureGit(f.sourceRoot, ['add', '--', 'scripts/check-conversation-codeql.js']);
+  const sourcePath = f.entry.path;
   const marker = 'SYNTHETIC_REVIEW_PRIVATE_METADATA';
-  const entry = { ruleId: 'js/sql-injection', path: sourcePath, startLine: 1,
-    sourceSha256: sourceFingerprint(fs.readFileSync(path.join(root, sourcePath))),
+  const entry = { ...f.entry,
     reviewer: marker, reason: marker, evidence: marker };
-  const manifestPath = path.join(dir, 'reviews.json');
-  fs.writeFileSync(manifestPath, JSON.stringify({ version: 1, digestAlgorithm: 'sha256-lf', reviews: [entry] }));
-  const relativeManifest = path.relative(root, manifestPath).split(path.sep).join('/');
-  writeReport(dir, report(run([finding({ locations: [location(sourcePath, 1)] }),
-    finding({ level: 'none', locations: [location(sourcePath, 2)], suppressions: [{ kind: 'external', status: 'accepted' }] })])));
-  const result = cli(dir, 'success', [dir], relativeManifest);
+  const manifestPath = f.manifestPath;
+  f.writeManifest({ ...f.manifest, sourceTreeSha256: sourceTreeFingerprint(f.sourceRoot), reviews: [entry] });
+  const relativeManifest = '.github/reviews.json';
+  const invoke = () => cli(dir, 'success', [dir], relativeManifest, gateScript);
+  writeReport(dir, report(run([f.reviewedFinding(),
+    finding({ level: 'none', locations: [location(sourcePath, 13)], suppressions: [{ kind: 'external', status: 'accepted' }] })])));
+  const result = invoke();
   assert.equal(result.status, 1);
   assert.equal(result.stderr, '');
   assert.equal(result.stdout.includes(marker), false);
@@ -887,12 +909,18 @@ test('CLI review opt-in logs every finding but never registry metadata or source
   assert.equal(summary.totals.securityFindings, 2);
   assert.equal(summary.totals.reviewedFindings, 1);
   assert.equal(summary.totals.unreviewedFindings, 1);
+  assert.match(summary.sourceTreeFingerprint, /^[a-f0-9]{64}$/);
+  assert.match(reviewed.resultFingerprint, /^[a-f0-9]{64}$/);
+  assert.match(unreviewed.resultFingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(reviewed.sourceSha256, f.entry.sourceSha256);
+  assert.equal(reviewed.locations[0].sourceSha256, f.entry.sourceSha256);
+  assert.equal(unreviewed.sourceSha256, f.entry.sourceSha256);
   assert.equal(reviewed.reviewed, true);
   assert.equal(unreviewed.reviewed, false);
-  writeReport(dir, report(run([finding({ locations: [location(sourcePath, 1)] })])));
-  assert.equal(cli(dir, 'success', [dir], relativeManifest).status, 0);
+  writeReport(dir, report(run([f.reviewedFinding()])));
+  assert.equal(invoke().status, 0);
   fs.writeFileSync(manifestPath, '{' + marker);
-  const malformed = cli(dir, 'success', [dir], relativeManifest);
+  const malformed = invoke();
   assert.equal(malformed.status, 1);
   assert.equal(malformed.stdout.includes(marker), false);
   assert.equal(malformed.stdout.trim().split('\n').length, 2);
@@ -1024,4 +1052,359 @@ test('source growth during a read fails within the original buffer bound and clo
   });
   failed(f.auditReview(), 'CODEQL_REVIEW_UNSAFE');
   assert.equal(tracked.closes(), 1);
+});
+
+function trackedFile(f, filename, content) {
+  const target = path.join(f.sourceRoot, filename);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content);
+  fixtureGit(f.sourceRoot, ['add', '--', filename]);
+  return target;
+}
+
+test('other callers, JSON, configuration, native code, bundles and data paths bind the tree', t => {
+  const f = reviewFixture(t);
+  const names = ['src/caller.js', 'config/runtime.json', 'config/runtime.yaml', 'native/source.rs',
+    'db/schema.sql', 'winga-modules.bundle.js', 'data/runtime.json', 'uploads/runtime.js',
+    'docs/runtime.js', 'package-lock.json', 'backend/mix.lock', 'config/opaque-extension'];
+  for (const name of names) trackedFile(f, name, 'synthetic runtime input\n');
+  const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
+  f.writeManifest({ ...f.manifest, sourceTreeSha256 });
+  assert.equal(f.auditReview().ok, true);
+  const sinkHash = sourceFingerprint(fs.readFileSync(f.sourcePath));
+  for (const name of names) {
+    fs.appendFileSync(path.join(f.sourceRoot, name), 'changed upstream input\n');
+    failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+    assert.equal(sourceFingerprint(fs.readFileSync(f.sourcePath)), sinkHash);
+    fs.writeFileSync(path.join(f.sourceRoot, name), 'synthetic runtime input\n');
+  }
+  assert.equal(f.auditReview().ok, true);
+});
+
+test('new tracked files invalidate reviews but untracked files are never read', t => {
+  const f = reviewFixture(t);
+  const filename = path.join(f.sourceRoot, 'src/new-caller.js');
+  fs.writeFileSync(filename, Buffer.from([0xff]));
+  const open = fs.openSync;
+  let opens = 0;
+  t.mock.method(fs, 'openSync', (target, ...args) => {
+    if (target === filename) opens++;
+    return open(target, ...args);
+  });
+  assert.equal(f.auditReview().ok, true);
+  assert.equal(opens, 0);
+  fs.writeFileSync(filename, 'synthetic new caller\n');
+  fixtureGit(f.sourceRoot, ['add', '--', 'src/new-caller.js']);
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+  assert.equal(opens, 1);
+});
+
+test('tracked file modes and POSIX working-tree executable modes invalidate reviews', t => {
+  const f = reviewFixture(t);
+  fixtureGit(f.sourceRoot, ['update-index', '--chmod=+x', '--', 'src/synthetic.js']);
+  if (process.platform !== 'win32') fs.chmodSync(f.sourcePath, 0o755);
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+  fixtureGit(f.sourceRoot, ['update-index', '--chmod=-x', '--', 'src/synthetic.js']);
+  if (process.platform !== 'win32') fs.chmodSync(f.sourcePath, 0o644);
+  assert.equal(f.auditReview().ok, true);
+  if (process.platform !== 'win32') {
+    fs.chmodSync(f.sourcePath, 0o755);
+    failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+  }
+});
+
+test('only the exact ledger and explicit non-runtime documents are excluded', t => {
+  const f = reviewFixture(t);
+  const excluded = ['README.md', 'docs/conversations-final-acceptance-20261009.md'];
+  for (const name of excluded) trackedFile(f, name, 'synthetic report\n');
+  fixtureGit(f.sourceRoot, ['add', '--', '.github/reviews.json']);
+  const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot, '.github/reviews.json');
+  f.writeManifest({ ...f.manifest, sourceTreeSha256 });
+  for (const name of excluded) fs.appendFileSync(path.join(f.sourceRoot, name), 'updated report\n');
+  assert.equal(sourceTreeFingerprint(f.sourceRoot, '.github/reviews.json'), sourceTreeSha256);
+  assert.equal(f.auditReview().ok, true);
+  f.writeManifest({ ...f.manifest, sourceTreeSha256, reviews: [{ ...f.entry, reason: 'Changed review notes' }] });
+  assert.equal(f.auditReview().ok, true);
+  trackedFile(f, 'docs/new-unknown.md', 'potential imported runtime input\n');
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+  assert.notEqual(sourceTreeFingerprint(f.sourceRoot), sourceTreeSha256);
+});
+
+test('binary assets hash raw bytes while known text normalizes CRLF only', t => {
+  const f = reviewFixture(t);
+  const binary = trackedFile(f, 'assets/synthetic.png', Buffer.from([0x89, 0x50, 0xff, 0x0d, 0x0a]));
+  const config = trackedFile(f, 'config/runtime.json', '{"synthetic":true}\n');
+  const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
+  f.writeManifest({ ...f.manifest, sourceTreeSha256 });
+  assert.equal(f.auditReview().ok, true);
+  fs.writeFileSync(config, '{"synthetic":true}\r\n');
+  assert.equal(f.auditReview().ok, true);
+  fs.writeFileSync(binary, Buffer.from([0x89, 0x50, 0xff, 0x0a]));
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+});
+
+test('sensitive tracked paths fail closed before any tracked content is opened', t => {
+  for (const name of ['.env', '.ENV', 'backend/.env.production', 'src/.env.example',
+    'private/synthetic.json', 'profiles/synthetic.json', '.aws/synthetic.json', 'certs/synthetic.key']) {
+    const f = reviewFixture(t);
+    trackedFile(f, name, 'synthetic placeholder only\n');
+    const open = fs.openSync;
+    let opens = 0;
+    const mock = t.mock.method(fs, 'openSync', (...args) => { opens++; return open(...args); });
+    assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_UNSAFE');
+    assert.equal(opens, 0);
+    mock.mock.restore();
+  }
+});
+
+test('only the two exact public env templates are included and fingerprinted', t => {
+  const f = reviewFixture(t);
+  for (const name of ['.env.production.example', 'backend/.env.example']) trackedFile(f, name, 'SYNTHETIC_PLACEHOLDER=\n');
+  const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
+  f.writeManifest({ ...f.manifest, sourceTreeSha256 });
+  assert.equal(f.auditReview().ok, true);
+  fs.appendFileSync(path.join(f.sourceRoot, 'backend/.env.example'), 'NEW_SYNTHETIC_PLACEHOLDER=\n');
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+});
+
+test('tracked symlink modes and absent tracked files fail closed without following links', t => {
+  const f = reviewFixture(t);
+  const oid = crypto.createHash('sha1').update(Buffer.from('blob 0\0')).digest('hex');
+  fixtureGit(f.sourceRoot, ['update-index', '--add', '--cacheinfo', `120000,${oid},src/synthetic-link.js`]);
+  const open = fs.openSync;
+  let opens = 0;
+  const mock = t.mock.method(fs, 'openSync', (...args) => { opens++; return open(...args); });
+  assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_UNSAFE');
+  assert.equal(opens, 0);
+  mock.mock.restore();
+  fixtureGit(f.sourceRoot, ['update-index', '--force-remove', '--', 'src/synthetic-link.js']);
+  fs.unlinkSync(f.sourcePath);
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNAVAILABLE');
+});
+
+test('full flow fingerprints prevent a replacement or additional same-sink flow inheriting review', t => {
+  const f = reviewFixture(t);
+  const old = f.reviewedFinding({ codeFlows: [{ threadFlows: [{ locations: [{ location: location('src/caller.js', 2) }] }] }] });
+  const newer = structuredClone(old);
+  newer.codeFlows[0].threadFlows[0].locations[0].location.physicalLocation.region.startLine = 3;
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, resultFingerprint: fingerprintOf(old) }] });
+  assert.equal(f.auditReview(report(run([old]))).ok, true);
+  const replacement = f.auditReview(report(run([newer])));
+  failed(replacement, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(replacement.totals.reviewedFindings, 0);
+  const additional = f.auditReview(report(run([old, newer])));
+  failed(additional, 'CODEQL_SECURITY_FINDINGS');
+  assert.deepEqual(additional.findings.map(item => item.reviewed), [true, false]);
+  assert.equal(additional.totals.unreviewedFindings, 1);
+  assert.notEqual(additional.findings[0].resultFingerprint, additional.findings[1].resultFingerprint);
+});
+
+test('complete result and resolved rule, tool and indexed-flow metadata bind the review', t => {
+  const f = reviewFixture(t);
+  for (const mutate of [
+    current => { current.results[0].message.text = 'Different result'; },
+    current => { current.results[0].relatedLocations = [location('src/caller.js', 7)]; },
+    current => { current.results[0].properties = { distinct: true }; },
+    current => { current.results[0].locations[0].physicalLocation.region.snippet = { text: 'changed snippet' }; },
+    current => { current.tool.driver.rules[0].properties['security-severity'] = '9.0'; },
+    current => { current.tool.driver.version = '2.25.0'; },
+    current => { current.threadFlowLocations = [{ location: location('src/caller.js', 5) }]; },
+    current => { current.artifacts = [{ location: { uri: 'src/caller.js' } }]; }
+  ]) {
+    const current = run([f.reviewedFinding()]);
+    mutate(current);
+    const value = f.auditReview(report(current));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.equal(value.totals.reviewedFindings, 0);
+    assert.notEqual(value.findings[0].resultFingerprint, f.entry.resultFingerprint);
+  }
+});
+
+test('canonical fingerprints ignore object key insertion order but preserve array order', t => {
+  const f = reviewFixture(t);
+  const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reorder(value[key])])) : value;
+  assert.equal(f.auditReview(reorder(report(run([f.reviewedFinding()])))).ok, true);
+  const old = f.reviewedFinding({ codeFlows: [{ properties: { steps: [1, 2] } }] });
+  const newer = f.reviewedFinding({ codeFlows: [{ properties: { steps: [2, 1] } }] });
+  assert.notEqual(fingerprintOf(old), fingerprintOf(newer));
+});
+
+test('approved multiplicity is global across reports and runs, never per-file or per-sink counts', t => {
+  const f = reviewFixture(t);
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, maxOccurrences: 2 }] });
+  writeReport(f.reports, report(run([f.reviewedFinding()])), 'z.sarif');
+  const current = report(run([f.reviewedFinding()]), run([f.reviewedFinding()]));
+  const excess = f.auditReview(current);
+  failed(excess, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(excess.totals.securityFindings, 3);
+  assert.equal(excess.totals.reviewedFindings, 0);
+  assert.equal(excess.totals.unreviewedFindings, 3);
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, maxOccurrences: 3 }] });
+  assert.equal(f.auditReview(current).ok, true);
+});
+
+test('an empty ledger emits tree and result hashes but blocks every finding at every level', t => {
+  const f = reviewFixture(t);
+  f.writeManifest({ ...f.manifest, reviews: [] });
+  const current = report(run(['none', 'note', 'warning', 'error'].map(level => f.reviewedFinding({ level }))));
+  const value = f.auditReview(current);
+  failed(value, 'CODEQL_SECURITY_FINDINGS');
+  assert.match(value.sourceTreeFingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(value.totals.securityFindings, 4);
+  assert.equal(value.totals.reviewedFindings, 0);
+  assert.equal(value.totals.unreviewedFindings, 4);
+  assert.ok(value.findings.every(item => !item.reviewed && /^[a-f0-9]{64}$/.test(item.resultFingerprint)));
+  assert.ok(value.findings.every(item => item.sourceSha256 === f.entry.sourceSha256));
+});
+
+test('even an exact full-result fingerprint cannot approve unsafe or foreign primary locations', t => {
+  const f = reviewFixture(t);
+  const foreign = location(f.entry.path);
+  foreign.physicalLocation.artifactLocation.uriBaseId = 'OTHER_ROOT';
+  for (const locations of [[location(f.entry.path), location('../outside.js')],
+    [location(f.entry.path), foreign]]) {
+    const unsafe = f.reviewedFinding({ locations });
+    f.writeManifest({ ...f.manifest, reviews: [f.entry, { ...f.entry, resultFingerprint: fingerprintOf(unsafe) }] });
+    const value = f.auditReview(report(run([unsafe, f.reviewedFinding()])));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.deepEqual(value.findings.map(item => item.reviewed), [false, true]);
+  }
+});
+
+test('every safe primary location needs an exact entry and emits its own source hash', t => {
+  const f = reviewFixture(t);
+  const other = trackedFile(f, 'src/other.js', '// Other synthetic source\n');
+  const current = f.reviewedFinding({ locations: [location(f.entry.path, 12), location('src/other.js', 1)] });
+  const first = { ...f.entry, resultFingerprint: fingerprintOf(current) };
+  const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
+  f.writeManifest({ ...f.manifest, sourceTreeSha256, reviews: [first] });
+  const unmatched = f.auditReview(report(run([current])));
+  failed(unmatched, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(unmatched.findings[0].reviewed, false);
+  const second = { ...first, path: 'src/other.js', startLine: 1, sourceSha256: sourceFingerprint(fs.readFileSync(other)) };
+  f.writeManifest({ ...f.manifest, sourceTreeSha256, reviews: [first, second] });
+  const approved = f.auditReview(report(run([current])));
+  assert.equal(approved.ok, true);
+  assert.deepEqual(approved.findings[0].locations.map(item => item.sourceSha256), [first.sourceSha256, second.sourceSha256]);
+  assert.equal(Object.hasOwn(approved.findings[0], 'sourceSha256'), false);
+});
+
+test('safe hashing does not open untracked or foreign SARIF source paths', t => {
+  const f = reviewFixture(t);
+  const filename = path.join(f.sourceRoot, 'src/untracked.js');
+  fs.writeFileSync(filename, Buffer.from([0xff]));
+  f.writeManifest({ ...f.manifest, reviews: [] });
+  const open = fs.openSync;
+  let opens = 0;
+  t.mock.method(fs, 'openSync', (target, ...args) => {
+    if (target === filename) opens++;
+    return open(target, ...args);
+  });
+  const foreign = location(f.entry.path);
+  foreign.physicalLocation.artifactLocation.uriBaseId = 'OTHER_ROOT';
+  const value = f.auditReview(report(run([f.reviewedFinding({ locations: [location('src/untracked.js')] }),
+    f.reviewedFinding({ locations: [foreign] })])));
+  failed(value, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(opens, 0);
+  assert.ok(value.findings.every(item => !Object.hasOwn(item, 'sourceSha256')
+    && !Object.hasOwn(item.locations[0], 'sourceSha256')));
+});
+
+test('missing flow hashes, malformed multiplicity and a missing tree binding are invalid', t => {
+  const f = reviewFixture(t);
+  const missing = { ...f.entry };
+  delete missing.resultFingerprint;
+  for (const entry of [missing, { ...f.entry, resultFingerprint: 'bad' },
+    ...[0, -1, 1.5, '1', LIMITS.results + 1].map(maxOccurrences => ({ ...f.entry, maxOccurrences }))]) {
+    f.writeManifest({ ...f.manifest, reviews: [entry] });
+    failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+  }
+  const manifest = { ...f.manifest };
+  delete manifest.sourceTreeSha256;
+  f.writeManifest(manifest);
+  failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+});
+
+test('later reads cannot hide a changed earlier file or a changed tracked inventory', t => {
+  const f = reviewFixture(t);
+  const later = trackedFile(f, 'src/z-later.js', '// Later synthetic input\n');
+  const open = fs.openSync;
+  let changed = false;
+  const mock = t.mock.method(fs, 'openSync', (target, ...args) => {
+    if (target === later && !changed) {
+      changed = true;
+      fs.appendFileSync(f.sourcePath, '// Changed after its descriptor closed\n');
+    }
+    return open(target, ...args);
+  });
+  assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_UNSAFE');
+  mock.mock.restore();
+  changed = false;
+  t.mock.method(fs, 'openSync', (target, ...args) => {
+    if (target === later && !changed) {
+      changed = true;
+      trackedFile(f, 'src/new-tracked.js', '// New inventory member\n');
+    }
+    return open(target, ...args);
+  });
+  assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_UNSAFE');
+});
+
+test('tracked file count and aggregate bytes are bounded before excess content reads', t => {
+  assert.equal(REVIEW_LIMITS.treeFiles, 2048);
+  assert.equal(REVIEW_LIMITS.treeBytes, 64 * 1024 * 1024);
+  assert.equal(REVIEW_LIMITS.sourceBytes, 8 * 1024 * 1024);
+  const f = reviewFixture(t);
+  const data = Buffer.alloc(REVIEW_LIMITS.sourceBytes, 0xff);
+  for (let i = 0; i < 9; i++) {
+    const filename = path.join(f.sourceRoot, `asset-${i}.bin`);
+    fs.writeFileSync(filename, data);
+  }
+  fixtureGit(f.sourceRoot, ['add', '--', '*.bin']);
+  const open = fs.openSync;
+  let contentBytes = 0;
+  const mock = t.mock.method(fs, 'openSync', (target, ...args) => {
+    contentBytes += fs.statSync(target).size;
+    return open(target, ...args);
+  });
+  assert.throws(() => sourceTreeFingerprint(f.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_LIMIT');
+  assert.ok(contentBytes <= REVIEW_LIMITS.treeBytes);
+  mock.mock.restore();
+  const many = reviewFixture(t);
+  fs.mkdirSync(path.join(many.sourceRoot, 'many'));
+  for (let i = 0; i < REVIEW_LIMITS.treeFiles; i++) fs.writeFileSync(path.join(many.sourceRoot, 'many', `${i}.bin`), '');
+  fixtureGit(many.sourceRoot, ['add', '--', 'many']);
+  let opens = 0;
+  t.mock.method(fs, 'openSync', (...args) => { opens++; return open(...args); });
+  assert.throws(() => sourceTreeFingerprint(many.sourceRoot), error => error.errorCode === 'CODEQL_REVIEW_LIMIT');
+  assert.equal(opens, 0);
+});
+
+test('literal bracket route paths and internal spaces are tracked, hashed and exactly reviewable', t => {
+  const f = reviewFixture(t);
+  for (const filename of ['api/[...path].js', 'api/product/[id].js', 'src/internal space.js']) {
+    const target = trackedFile(f, filename, '// Synthetic route source\n');
+    const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
+    const current = f.reviewedFinding({ locations: [location(filename, 1)] });
+    const entry = { ...f.entry, path: filename, startLine: 1,
+      sourceSha256: sourceFingerprint(fs.readFileSync(target)), resultFingerprint: fingerprintOf(current) };
+    f.writeManifest({ ...f.manifest, sourceTreeSha256, reviews: [entry] });
+    const value = f.auditReview(report(run([current])));
+    assert.equal(value.ok, true);
+    assert.equal(value.findings[0].locations[0].path, filename);
+    assert.equal(value.findings[0].sourceSha256, entry.sourceSha256);
+    fs.appendFileSync(target, '// New route code\n');
+    failed(f.auditReview(report(run([current]))), 'CODEQL_REVIEW_STALE');
+  }
+});
+
+test('bracket acceptance cannot admit traversal, controls, absolute paths or ambiguous Windows names', t => {
+  const f = reviewFixture(t);
+  for (const filename of ['api/[id]/../outside.js', '/api/[id].js', 'C:/api/[id].js',
+    'api\\[id].js', 'api/[id].js\n', 'api/[id].js ', 'api/ [id].js', 'api/[id].js.',
+    'api/[id]:stream.js', 'api/[id];command.js', 'api/[id]/NUL.js']) {
+    f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: filename }] });
+    failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+  }
 });

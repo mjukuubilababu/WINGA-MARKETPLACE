@@ -41,13 +41,13 @@ async function fixture(run) {
     fs.writeFileSync(path.join(directory, "public-640.webp"), PUBLIC_IMAGE);
     fs.writeFileSync(path.join(directory, "private.webp"), PRIVATE_IMAGE);
     fs.writeFileSync(path.join(directory, "orphan.webp"), PRIVATE_IMAGE);
-    const inventory = await readUploadInventory(directory);
     const records = {
       products: [
         { image: "/uploads/public-640.webp", status: "approved", visibility: "public" },
         { image: "/uploads/private.webp", status: "approved", visibility: "private" }
       ]
     };
+    const inventory = await readUploadInventory(directory, { publicCopyRecords: records });
     await run({ directory, inventory, records });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -149,6 +149,71 @@ test("a same-size replacement after preflight cannot be copied into the public b
       fs.renameSync(filename, filename + ".previous");
       fs.writeFileSync(filename, "private-data");
       return open(filename, flags);
+    });
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+    assert.equal(r2.objects.size, 0);
+  });
+});
+
+test("same-size replacement before the read's first lstat is bound to the original inventory", async () => {
+  await fixture(async (args) => {
+    const filename = path.join(args.directory, "public-320.webp");
+    fs.renameSync(filename, filename + ".previous");
+    fs.writeFileSync(filename, "private-data");
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+    assert.equal(r2.objects.size, 0);
+  });
+});
+
+test("in-place same-size content change cannot reuse the preflight identity", async () => {
+  await fixture(async (args) => {
+    const filename = path.join(args.directory, "public-320.webp");
+    const previous = fs.statSync(filename);
+    fs.writeFileSync(filename, "private-data");
+    fs.utimesSync(filename, previous.atime, new Date(previous.mtimeMs + 1000));
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+  });
+});
+
+test("size-only inventories cannot authorize a public copy", async () => {
+  await fixture(async (args) => {
+    delete args.inventory.fileIdentities;
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+  });
+});
+
+test("public source hashes cover only approved public files and read-only inventory never opens bytes", async (t) => {
+  await fixture(async (args) => {
+    assert.deepEqual([...args.inventory.sourceHashes.keys()].sort(), ["public-320.webp", "public-640.webp"]);
+    const open = t.mock.method(fs.promises, "open", async () => { throw new Error("UNEXPECTED_SOURCE_READ"); });
+    const metadataOnly = await readUploadInventory(args.directory);
+    assert.equal(metadataOnly.sourceHashes, undefined);
+    assert.equal(open.mock.callCount(), 0);
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, inventory: metadataOnly, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+  });
+});
+
+test("same-size in-place mutation with matching stat identity fails cryptographic preflight binding", async (t) => {
+  await fixture(async (args) => {
+    const filename = path.join(args.directory, "public-320.webp");
+    const before = await fs.promises.lstat(filename);
+    fs.writeFileSync(filename, "private-data");
+    const lstat = fs.promises.lstat, open = fs.promises.open;
+    t.mock.method(fs.promises, "lstat", async (target) => target === filename ? before : lstat(target));
+    t.mock.method(fs.promises, "open", async (target, flags) => {
+      const handle = await open(target, flags);
+      if (target === filename) handle.stat = async () => before;
+      return handle;
     });
     const r2 = fakeR2();
     await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);

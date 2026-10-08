@@ -5,7 +5,25 @@ This is the current grouped implementation index for the preserved 0-109 and
 or a replacement for the source specification. Historical audit/handoff files
 describe their dated checkpoints, not necessarily the current enabled runtime.
 
-## Current Production Checkpoint: 2026-10-08
+## Current Candidate Checkpoint: 2026-10-09
+
+The [final acceptance record](conversations-final-acceptance-20261009.md) is the
+current candidate index. Room order references use canonical order IDs only;
+they do not create group orders, wallets or payment authority. Genuine signed
+encrypted native operations now pass between two BEAM nodes, including exact
+ciphertext recovery after node loss: QA run `37851516983` at `e2b853f` passed
+the functional, dependency and BEAM jobs, with all nine native acceptance tests
+passing and no skips. This is isolated acceptance, not production capacity.
+
+Actual CodeQL analysis/upload succeeded but its fail-closed gate rejected 46
+unreviewed findings. Independent review is fixing real defects before recording
+narrow false-positive approvals bound to the complete tracked tree and exact
+finding flows. The candidate is published only to the QA branch, not deployed.
+Designated production devices remain Pending; authenticated production load,
+physical-device media/recovery/replacement and independent cryptographic
+approval remain open. Sections 228, 229, 237 and 238 are not production accepted.
+
+## Last Verified Production Checkpoint: 2026-10-08
 
 Release `6e3277edd57229f751c5fe3609d95db8741405ae` is verified ready on Render;
 frontend build `20261008193054` is deployed and public production smoke checks

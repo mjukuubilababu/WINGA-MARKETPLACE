@@ -42,7 +42,7 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - name: Test file and untrusted-key security regressions
-        run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js
+        run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js tests/loopback-proxy-security.test.js
       - run: npm run test:conversation-postgres
       - run: npx playwright install --with-deps chromium
       - name: Test DOM URL guards with the actual browser parser

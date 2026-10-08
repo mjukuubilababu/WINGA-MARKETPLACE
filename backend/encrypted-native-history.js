@@ -25,7 +25,7 @@ function createNativeHistory({access,frozen,roster}) {
     await access(client,g,op.actorId,c.owner);
     need(!await frozen(client,g.id),'encrypted_membership_pending',409);
     if(r) {
-      need(r.owner_id===c.owner&&r.epoch===g.epoch&&new Date(r.expires_at).getTime()>Date.now()
+      need(r.conversation_id===g.id&&r.owner_id===c.owner&&r.epoch===g.epoch&&new Date(r.expires_at).getTime()>Date.now()
         && [r.recipient_device,r.donor_device].includes(op.actorId),'encrypted_history_access_denied',403);
       const members=await roster(client,g);
       need([r.recipient_device,r.donor_device].every(id=>members.some(m=>m.id===id&&m.owner===c.owner&&m.status==='active')),

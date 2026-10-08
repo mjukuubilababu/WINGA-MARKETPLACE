@@ -57,10 +57,13 @@ async function copyApprovedPublicMedia({
 
   for (const name of names) {
     const filePath = path.join(directory, name);
+    const expectedIdentity = inventory.fileIdentities?.get(name);
+    const expectedHash = inventory.sourceHashes?.get(name);
+    if (!expectedIdentity || !/^[a-f0-9]{64}$/.test(expectedHash || "")) throw new Error("SOURCE_FILE_CHANGED");
     let source;
     try {
       source = await readStableLocalFile(filePath, {
-        maxBytes: MAX_PRODUCT_IMAGE_BYTES, expectedSize: inventory.files.get(name)
+        maxBytes: MAX_PRODUCT_IMAGE_BYTES, expectedSize: inventory.files.get(name), expectedIdentity
       });
     } catch (error) {
       if (error.message === "LOCAL_FILE_CHANGED" || error.code === "ELOOP") {
@@ -69,6 +72,7 @@ async function copyApprovedPublicMedia({
       throw error;
     }
     const sourceHash = checksum(source);
+    if (sourceHash !== expectedHash) throw new Error("SOURCE_FILE_CHANGED");
     const key = "products/legacy/" + name;
     let remote = await readR2Bytes(client, bucket, key);
     if (remote === null) {
@@ -133,9 +137,8 @@ async function main() {
     await db.connect();
     await db.query("SET statement_timeout = '20s'");
     const directory = path.resolve(process.env.WINGA_UPLOADS_DIR);
-    const [inventory, records] = await Promise.all([
-      readUploadInventory(directory), readReferenceRows(db)
-    ]);
+    const records = await readReferenceRows(db);
+    const inventory = await readUploadInventory(directory, copy ? { publicCopyRecords: records } : {});
     const result = await copyApprovedPublicMedia({
       directory, inventory, records, client, bucket: config?.bucketName, copy,
       onProgress: (progress) => process.stdout.write(JSON.stringify(progress) + "\n")

@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const { TextDecoder } = require('node:util');
 
 const LIMITS = Object.freeze({ fileBytes: 32 * 1024 * 1024, totalBytes: 128 * 1024 * 1024,
@@ -8,7 +9,8 @@ const LIMITS = Object.freeze({ fileBytes: 32 * 1024 * 1024, totalBytes: 128 * 10
 const LEVELS = new Set(['none', 'note', 'warning', 'error']);
 const KINDS = new Set(['notApplicable', 'pass', 'fail', 'review', 'open', 'informational']);
 const REVIEW_LIMITS = Object.freeze({ manifestBytes: 256 * 1024, entries: 1000,
-  sourceBytes: 8 * 1024 * 1024, totalSourceBytes: 64 * 1024 * 1024, sourceFiles: 128 });
+  sourceBytes: 8 * 1024 * 1024, totalSourceBytes: 64 * 1024 * 1024, sourceFiles: 128,
+  treeFiles: 2048, treeBytes: 64 * 1024 * 1024, trackedListBytes: 2 * 1024 * 1024 });
 const REVIEWABLE_LOCATIONS = Symbol('reviewable-locations');
 const SOURCE_LOCATION = Symbol('source-location');
 const own = (value, key) => Object.hasOwn(value, key);
@@ -142,7 +144,7 @@ function resolveRule(result, components, context) {
   check(description && ids.every(id => id === description.rule.id), 'rule.resolution');
   // Unclassified rule metadata cannot establish that a result is non-security.
   check(description.security || description.rule.properties?.tags?.length > 0, 'rule.classification');
-  return description;
+  return { ...description, toolComponent: Object.fromEntries(Object.entries(component.component).filter(([key]) => key !== 'rules')) };
 }
 
 function requireInvocations(run, context) {
@@ -182,9 +184,9 @@ function safeRuleId(id) {
 
 function safeRepositoryPath(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= 512
-    && /^[A-Za-z0-9_.\/-]+$/.test(value) && !value.startsWith('/')
+    && /^[A-Za-z0-9_.\[\] \/-]+$/.test(value) && !value.startsWith('/')
     && value.split('/').every(part => part && part !== '.' && part !== '..'
-      && !part.endsWith('.') && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+      && part.trim() === part && !part.endsWith('.') && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
 }
 
 function safeSourcePath(value) {
@@ -197,8 +199,95 @@ function sourceFingerprint(buffer) {
   return crypto.createHash('sha256').update(source.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
 }
 
-function readReviewFile(root, relativePath, maxBytes, check) {
+const NON_RUNTIME_DOCUMENTS = new Set([
+  'README.md', 'AGENTS.md', 'CHANGELOG.md', 'LICENSE.md', 'LICENSE.txt',
+  'docs/audits/e2ee-20261003.md', 'docs/audits/e2ee-release-20261003.md',
+  'docs/conversations-final-acceptance-20261009.md',
+  'docs/conversations-audit-fixes-20261008.md', 'docs/conversations-audit-soak-20261008.md'
+]);
+const PUBLIC_ENV_TEMPLATES = new Set(['.env.production.example', 'backend/.env.example']);
+const sensitivePath = filename => !PUBLIC_ENV_TEMPLATES.has(filename)
+  && (/(?:^|\/)\.env(?:\.|$)/i.test(filename)
+    || /(?:^|\/)(?:private|profiles|browser-profiles|recovery-data|\.aws|\.ssh|\.codex|\.git)(?:\/|$)/i.test(filename)
+    || /\.(?:pem|key|p12|pfx)$/i.test(filename));
+
+function inspectSourceTree(root, ledger) {
+  const check = validator('review-source-tree');
+  root = path.resolve(root);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key)));
+  const git = args => execFileSync('git', ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
+    '-C', root, ...args], { env, windowsHide: true, timeout: 15000,
+    maxBuffer: REVIEW_LIMITS.trackedListBytes, stdio: ['ignore', 'pipe', 'pipe'] });
+  check(path.resolve(git(['rev-parse', '--show-toplevel']).toString('utf8').trim()) === root,
+    'repository-root', 'CODEQL_REVIEW_UNSAFE');
+  check(safeRepositoryPath(ledger) && ledger.startsWith('.github/') && ledger.endsWith('.json'),
+    'ledger-path', 'CODEQL_REVIEW_INVALID');
+  const tracked = new TextDecoder('utf-8', { fatal: true }).decode(git(['ls-files', '--stage', '-z']));
+  check(tracked.endsWith('\0'), 'tracked-files', 'CODEQL_REVIEW_INVALID');
+  const inventory = tracked.slice(0, -1).split('\0').map(record => {
+    const tab = record.indexOf('\t'), header = record.slice(0, tab).split(' '), filename = record.slice(tab + 1);
+    check(tab > 0 && header.length === 3 && header[2] === '0', 'tracked-entry', 'CODEQL_REVIEW_UNSAFE');
+    return { filename, mode: header[0] };
+  });
+  check(inventory.length > 0 && inventory.length <= REVIEW_LIMITS.treeFiles
+    && new Set(inventory.map(file => file.filename)).size === inventory.length, 'source-count', 'CODEQL_REVIEW_LIMIT');
+  // Validate the complete inventory before opening even one tracked content file.
+  for (const { filename, mode } of inventory) {
+    check(safeRepositoryPath(filename) && ['100644', '100755'].includes(mode), 'source-path', 'CODEQL_REVIEW_UNSAFE');
+    check(!sensitivePath(filename), 'sensitive-path', 'CODEQL_REVIEW_UNSAFE');
+  }
+  const sourceFiles = inventory.filter(({ filename }) => filename !== ledger && !NON_RUNTIME_DOCUMENTS.has(filename))
+    .sort((left, right) => left.filename < right.filename ? -1 : left.filename > right.filename ? 1 : 0);
+  let bytes = 0;
+  const identities = [];
+  const sources = new Map();
+  const files = sourceFiles.map(({ filename, mode }) => {
+    let verified;
+    const source = readReviewFile(root, filename, Math.min(REVIEW_LIMITS.sourceBytes, REVIEW_LIMITS.treeBytes - bytes),
+      check, true, stat => { verified = stat; });
+    identities.push({ filename, stat: verified });
+    bytes += source.length;
+    check(bytes <= REVIEW_LIMITS.treeBytes, 'source-byte-bounds', 'CODEQL_REVIEW_LIMIT');
+    const textFile = /\.(?:js|mjs|cjs|jsx|ts|tsx|html|htm|vue|css|ex|exs|heex|eex|sql|rs|py|sh|ps1|bat|yml|yaml|toml|c|h|cpp|m|mm|swift|json|jsonc|webmanifest|lock|xml|svg|md|txt|conf|cfg|ini|properties|example)$/i.test(filename)
+      || PUBLIC_ENV_TEMPLATES.has(filename) || ['.gitignore', '.gitattributes', '.editorconfig', 'Dockerfile'].includes(path.posix.basename(filename));
+    let fingerprint;
+    try { fingerprint = textFile ? sourceFingerprint(source) : crypto.createHash('sha256').update(source).digest('hex'); }
+    catch { check(false, 'source-utf8', 'CODEQL_REVIEW_INVALID'); }
+    sources.set(filename, { sha256: fingerprint, bytes: source.length });
+    const effectiveMode = process.platform === 'win32' ? mode
+      : verified.mode & 0o111 ? '100755' : '100644';
+    return [filename, mode, effectiveMode, textFile ? 'sha256-lf' : 'sha256-bytes', fingerprint];
+  });
+  // A tree digest cannot mix files or inventory from different working-tree states.
+  check(git(['ls-files', '--stage', '-z']).equals(Buffer.from(tracked, 'utf8')),
+    'tracked-inventory-change', 'CODEQL_REVIEW_UNSAFE');
+  for (const { filename, stat } of identities) {
+    const target = path.join(root, filename), current = fs.lstatSync(target);
+    check(sameFile(current, stat) && fs.realpathSync(target) === target,
+      'tree-file-change', 'CODEQL_REVIEW_UNSAFE');
+  }
+  return { fingerprint: crypto.createHash('sha256').update(JSON.stringify(['winga-codeql-tracked-tree', 1, files])).digest('hex'), sources };
+}
+
+function sourceTreeFingerprint(root = path.join(__dirname, '..'), ledger = '.github/codeql-reviewed-findings.v1.json') {
+  return inspectSourceTree(root, ledger).fingerprint;
+}
+
+function resultFingerprint(result, description, run) {
+  const canonical = value => Array.isArray(value) ? value.map(canonical)
+    : object(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+  const runReferences = Object.fromEntries(['artifacts', 'threadFlowLocations', 'logicalLocations', 'originalUriBaseIds', 'taxonomies']
+    .filter(key => own(run, key)).map(key => [key, run[key]]));
+  return crypto.createHash('sha256').update(JSON.stringify(canonical({ version: 1,
+    result, rule: description.rule, toolComponent: description.toolComponent, runReferences }))).digest('hex');
+}
+
+const sameFile = (left, right) => left.isFile() && right.isFile()
+  && ['dev', 'ino', 'size', 'mode', 'mtimeMs', 'ctimeMs'].every(field => left[field] === right[field]);
+
+function readReviewFile(root, relativePath, maxBytes, check, allowEmpty = false, onVerified) {
   check(safeRepositoryPath(relativePath), 'path', 'CODEQL_REVIEW_INVALID');
+  check(!sensitivePath(relativePath), 'sensitive-path', 'CODEQL_REVIEW_UNSAFE');
   const target = path.resolve(root, relativePath);
   const relative = path.relative(root, target);
   check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'containment', 'CODEQL_REVIEW_INVALID');
@@ -217,10 +306,8 @@ function readReviewFile(root, relativePath, maxBytes, check) {
     return fs.lstatSync(target);
   };
   const stat = verifyPath();
-  check(stat.size > 0 && stat.size <= maxBytes, 'byte-bounds', 'CODEQL_REVIEW_LIMIT');
+  check(stat.size >= (allowEmpty ? 0 : 1) && stat.size <= maxBytes, 'byte-bounds', 'CODEQL_REVIEW_LIMIT');
   const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
-  const sameFile = (left, right) => left.isFile() && right.isFile()
-    && ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].every(field => left[field] === right[field]);
   try {
     const opened = fs.fstatSync(fd);
     const current = verifyPath();
@@ -235,11 +322,12 @@ function readReviewFile(root, relativePath, maxBytes, check) {
     const after = fs.fstatSync(fd);
     check(length === stat.size && sameFile(after, opened) && sameFile(verifyPath(), opened),
       'read-size', 'CODEQL_REVIEW_UNSAFE');
+    onVerified?.(after);
     return buffer.subarray(0, length);
   } finally { fs.closeSync(fd); }
 }
 
-function applyReviews(findings, options) {
+function applyReviews(findings, options, onTree) {
   const check = validator('review-manifest');
   const root = path.resolve(options.sourceRoot ?? path.join(__dirname, '..'));
   const manifestPath = options.reviewManifestPath;
@@ -251,48 +339,78 @@ function applyReviews(findings, options) {
   catch { check(false, 'json-utf8', 'CODEQL_REVIEW_INVALID'); }
   const exactKeys = (value, keys) => object(value) && Object.keys(value).length === keys.length
     && keys.every(key => own(value, key));
-  check(exactKeys(manifest, ['version', 'digestAlgorithm', 'reviews']) && manifest.version === 1
+  const hasReviews = Array.isArray(manifest?.reviews) && manifest.reviews.length > 0;
+  check(exactKeys(manifest, hasReviews ? ['version', 'digestAlgorithm', 'sourceTreeSha256', 'reviews']
+    : ['version', 'digestAlgorithm', 'reviews']) && manifest.version === 1
     && manifest.digestAlgorithm === 'sha256-lf'
     && Array.isArray(manifest.reviews), 'schema-version', 'CODEQL_REVIEW_INVALID');
   check(manifest.reviews.length <= REVIEW_LIMITS.entries, 'entry-count', 'CODEQL_REVIEW_LIMIT');
+  const tree = inspectSourceTree(root, manifestPath);
+  const treeFingerprint = tree.fingerprint;
+  onTree?.(treeFingerprint);
+  for (const finding of findings) {
+    for (const location of finding.locations) {
+      if (location[SOURCE_LOCATION] && safeSourcePath(location.path) && tree.sources.has(location.path)) {
+        location.sourceSha256 = tree.sources.get(location.path).sha256;
+      }
+    }
+    if (finding.locations.length === 1 && finding.locations[0].sourceSha256) {
+      finding.sourceSha256 = finding.locations[0].sourceSha256;
+    }
+  }
+  if (hasReviews) {
+    check(typeof manifest.sourceTreeSha256 === 'string' && /^[a-f0-9]{64}$/.test(manifest.sourceTreeSha256),
+      'source-tree-fingerprint', 'CODEQL_REVIEW_INVALID');
+    check(treeFingerprint === manifest.sourceTreeSha256, 'source-tree-fingerprint', 'CODEQL_REVIEW_STALE');
+  }
   const entries = new Map();
   const sources = new Map();
   const sourcePaths = new Set(findings.flatMap(finding => finding.locations
     .filter(location => location[SOURCE_LOCATION] && safeSourcePath(location.path)).map(location => location.path)));
   let totalBytes = 0;
-  const key = (ruleId, filename, line) => JSON.stringify([ruleId, filename, line]);
+  const key = (ruleId, filename, line, fingerprint) => JSON.stringify([ruleId, filename, line, fingerprint]);
   for (const [entryIndex, entry] of manifest.reviews.entries()) {
     const check = validator('review-manifest', { entry: entryIndex });
-    check(exactKeys(entry, ['ruleId', 'path', 'startLine', 'sourceSha256', 'reviewer', 'reason', 'evidence']),
+    check(exactKeys(entry, ['ruleId', 'path', 'startLine', 'sourceSha256', 'resultFingerprint', 'maxOccurrences', 'reviewer', 'reason', 'evidence']),
       'entry-schema', 'CODEQL_REVIEW_INVALID');
     check(text(entry.ruleId) && safeRuleId(entry.ruleId) === entry.ruleId && safeSourcePath(entry.path)
       && index(entry.startLine) && entry.startLine > 0
+      && index(entry.maxOccurrences) && entry.maxOccurrences > 0 && entry.maxOccurrences <= LIMITS.results
+      && typeof entry.resultFingerprint === 'string' && /^[a-f0-9]{64}$/.test(entry.resultFingerprint)
       && typeof entry.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(entry.sourceSha256),
     'entry-identity', 'CODEQL_REVIEW_INVALID');
     for (const field of ['reviewer', 'reason', 'evidence']) {
       check(typeof entry[field] === 'string' && entry[field].trim().length > 0
         && entry[field].length <= (field === 'reviewer' ? 200 : 4096), 'review-metadata', 'CODEQL_REVIEW_INVALID');
     }
-    const identity = key(entry.ruleId, entry.path, entry.startLine);
+    const identity = key(entry.ruleId, entry.path, entry.startLine, entry.resultFingerprint);
     check(!entries.has(identity), 'duplicate-entry', 'CODEQL_REVIEW_INVALID');
     check(sourcePaths.has(entry.path), 'source-location', 'CODEQL_REVIEW_STALE');
     if (!sources.has(entry.path)) {
       check(sources.size < REVIEW_LIMITS.sourceFiles, 'source-count', 'CODEQL_REVIEW_LIMIT');
-      const source = readReviewFile(root, entry.path, REVIEW_LIMITS.sourceBytes, check);
-      totalBytes += source.length;
+      check(tree.sources.has(entry.path), 'tracked-source', 'CODEQL_REVIEW_UNSAFE');
+      const source = tree.sources.get(entry.path);
+      totalBytes += source.bytes;
       check(totalBytes <= REVIEW_LIMITS.totalSourceBytes, 'source-byte-bounds', 'CODEQL_REVIEW_LIMIT');
-      try { sources.set(entry.path, sourceFingerprint(source)); }
-      catch { check(false, 'source-utf8', 'CODEQL_REVIEW_INVALID'); }
+      sources.set(entry.path, source.sha256);
     }
     check(sources.get(entry.path) === entry.sourceSha256, 'source-fingerprint', 'CODEQL_REVIEW_STALE');
     entries.set(identity, entry);
   }
-  // Every primary location must be independently reviewed; unsafe or absent locations never match.
+  const occurrences = new Map();
   for (const finding of findings) {
-    finding.reviewed = finding[REVIEWABLE_LOCATIONS] && finding.locations.every(location =>
-      entries.has(key(finding.ruleId, location.path, location.line)));
+    for (const identity of new Set(finding.locations.map(location => key(finding.ruleId, location.path, location.line, finding.resultFingerprint)))) {
+      occurrences.set(identity, (occurrences.get(identity) ?? 0) + 1);
+    }
   }
-  return findings.filter(finding => finding.reviewed).length;
+  // Over-capacity identities approve no result: scan ordering must not choose which distinct flow inherits a review.
+  for (const finding of findings) {
+    finding.reviewed = finding[REVIEWABLE_LOCATIONS] && finding.locations.every(location => {
+      const identity = key(finding.ruleId, location.path, location.line, finding.resultFingerprint);
+      return entries.has(identity) && occurrences.get(identity) <= entries.get(identity).maxOccurrences;
+    });
+  }
+  return { reviewed: findings.filter(finding => finding.reviewed).length, sourceTreeFingerprint: treeFingerprint };
 }
 
 function safeLocation(location, run, context) {
@@ -313,8 +431,7 @@ function safeLocation(location, run, context) {
   check(text(artifact.uri), 'artifact.uri');
   const uri = artifact.uri;
   // Only repository-relative ASCII paths; omit absolute URLs, credentials and control characters.
-  const safePath = uri.length <= 512 && /^[a-zA-Z0-9_. /-]+$/.test(uri) && !uri.startsWith('/')
-    && uri.split('/').every(part => part && part !== '.' && part !== '..');
+  const safePath = safeRepositoryPath(uri);
   const region = physical.region;
   if (region !== undefined) {
     check(object(region), 'region');
@@ -366,7 +483,7 @@ function inspectReport(report, reportIndex) {
       levels[level]++;
       const finding = { report: reportIndex, run: runIndex, result: resultIndex,
         ruleId: safeRuleId(description.rule.id), level, securitySeverity: description.severity,
-        locations: safeLocations };
+        locations: safeLocations, resultFingerprint: resultFingerprint(result, description, run) };
       Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: locations.length > 0 && locations.length === safeLocations.length
         && safeLocations.every(location => location[SOURCE_LOCATION] && location.line !== null
           && safeSourcePath(location.path)) });
@@ -430,21 +547,26 @@ function auditDirectory(directory, analysisOutcome, options = {}) {
     totals.securityFindings = findings.length;
     const executionVerified = analysisOutcome === 'success';
     let blockingFindings = findings.length;
+    let treeFingerprint;
     if (options.reviewManifestPath !== undefined) {
       totals.reviewedFindings = 0;
       totals.unreviewedFindings = findings.length;
       for (const finding of findings) finding.reviewed = false;
       try {
-        totals.reviewedFindings = applyReviews(findings, options);
+        const reviews = applyReviews(findings, options, fingerprint => { treeFingerprint = fingerprint; });
+        totals.reviewedFindings = reviews.reviewed;
+        treeFingerprint = reviews.sourceTreeFingerprint;
         blockingFindings = totals.unreviewedFindings = findings.length - totals.reviewedFindings;
       } catch (error) {
         return { ok: false, errorCode: error.errorCode ?? 'CODEQL_REVIEW_UNAVAILABLE',
-          diagnostic: error.diagnostic ?? { stage: 'review-manifest', field: 'file-access' }, totals, findings };
+          diagnostic: error.diagnostic ?? { stage: 'review-manifest', field: 'file-access' }, totals, findings,
+          ...(treeFingerprint ? { sourceTreeFingerprint: treeFingerprint } : {}) };
       }
     }
     const ok = executionVerified && blockingFindings === 0;
     return { ok, ...(!executionVerified ? { errorCode: 'CODEQL_ANALYSIS_UNSUCCESSFUL' }
-      : blockingFindings ? { errorCode: 'CODEQL_SECURITY_FINDINGS' } : {}), totals, findings };
+      : blockingFindings ? { errorCode: 'CODEQL_SECURITY_FINDINGS' } : {}), totals, findings,
+      ...(treeFingerprint ? { sourceTreeFingerprint: treeFingerprint } : {}) };
   } catch (error) {
     return { ok: false, errorCode: error.errorCode ?? 'CODEQL_SARIF_UNAVAILABLE',
       diagnostic: error.diagnostic ?? { stage: 'report-files', field: 'file-access', ...context } };
@@ -464,4 +586,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint };
+module.exports = { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint, sourceTreeFingerprint };

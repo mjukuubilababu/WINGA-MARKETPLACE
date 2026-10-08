@@ -1,5 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+const { readStableLocalFile } = require("./stable-local-file");
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"]);
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -77,9 +79,10 @@ function getApprovedPublicCopyNames(inventory, records) {
   return [...withStoredVariants(classified.approvedPublicNames, inventory)].sort();
 }
 
-async function readUploadInventory(directory) {
+async function readUploadInventory(directory, { publicCopyRecords } = {}) {
   const entries = await fs.promises.readdir(directory, { withFileTypes: true });
   const files = new Map();
+  const fileIdentities = new Map();
   let unexpectedEntries = 0;
   let emptyFiles = 0;
   let unsupportedFiles = 0;
@@ -89,13 +92,32 @@ async function readUploadInventory(directory) {
       unexpectedEntries += 1;
       continue;
     }
-    const size = (await fs.promises.stat(path.join(directory, entry.name))).size;
+    const stat = await fs.promises.lstat(path.join(directory, entry.name));
+    if (!stat.isFile()) {
+      unexpectedEntries += 1;
+      continue;
+    }
+    const { size, dev, ino, mtimeMs, ctimeMs } = stat;
     files.set(entry.name, size);
+    fileIdentities.set(entry.name, Object.freeze({ size, dev, ino, mtimeMs, ctimeMs }));
     totalBytes += size;
     if (!size) emptyFiles += 1;
     if (!IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) unsupportedFiles += 1;
   }
-  return { files, totalBytes, unexpectedEntries, emptyFiles, unsupportedFiles };
+  const inventory = { files, fileIdentities, totalBytes, unexpectedEntries, emptyFiles, unsupportedFiles };
+  if (publicCopyRecords !== undefined) {
+    if (!analyzeLegacyUploads(inventory, publicCopyRecords).publicSubsetCopyReady) {
+      throw new Error("PUBLIC_SUBSET_PREFLIGHT_FAILED");
+    }
+    inventory.sourceHashes = new Map();
+    for (const name of getApprovedPublicCopyNames(inventory, publicCopyRecords)) {
+      const bytes = await readStableLocalFile(path.join(directory, name), {
+        maxBytes: 8 * 1024 * 1024, expectedSize: files.get(name), expectedIdentity: fileIdentities.get(name)
+      });
+      inventory.sourceHashes.set(name, crypto.createHash("sha256").update(bytes).digest("hex"));
+    }
+  }
+  return inventory;
 }
 
 function analyzeLegacyUploads(inventory, records) {

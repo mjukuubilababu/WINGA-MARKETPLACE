@@ -4,11 +4,13 @@ function changed() {
   throw new Error("LOCAL_FILE_CHANGED");
 }
 
-async function readStableLocalFile(filename, { maxBytes, expectedSize } = {}) {
+async function readStableLocalFile(filename, { maxBytes, expectedSize, expectedIdentity } = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) changed();
   const before = await fs.promises.lstat(filename);
   if (!before.isFile() || !Number.isSafeInteger(before.size) || before.size <= 0
     || before.size > maxBytes || (expectedSize !== undefined && before.size !== expectedSize)) changed();
+  if (expectedIdentity !== undefined && (!expectedIdentity
+    || ["size", "dev", "ino", "mtimeMs", "ctimeMs"].some(key => before[key] !== expectedIdentity[key]))) changed();
   const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
   try {
     const opened = await handle.stat();

@@ -35,6 +35,7 @@ function createStaticServer() {
           ? `${BACKEND_URL}${requestUrl.pathname.replace(/^\/api/, "")}${requestUrl.search}`
           : `http://127.0.0.1:43080${requestUrl.pathname}${requestUrl.search}`;
         const proxyResponse = await fetch(proxyTarget, {
+          redirect: "error",
           method: req.method,
           headers: req.headers,
           body: req.method && ["GET", "HEAD"].includes(req.method.toUpperCase()) ? undefined : req

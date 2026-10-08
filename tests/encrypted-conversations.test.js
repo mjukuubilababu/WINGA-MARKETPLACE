@@ -220,6 +220,62 @@ test('native history is own-account only, immutable and exactly retryable withou
   assert.equal(Object.hasOwn(saved.publication,'capsule'),false);assert.deepEqual(saved.publication_proof,{});
   assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_receipts`)).rows[0].n,0);
 });
+test('native history binds signed retries, uploads, downloads, acceptances and cancellations to the original conversation',async t=>{
+  const f=await admittedFixture(t),otherId=crypto.randomUUID();
+  // Reuse the same native devices in a second real MLS conversation, with fresh packages.
+  for(const label of ['alice','next']){
+    const m=f.members[label],seconds=BigInt(Math.floor(Date.now()/1000));
+    m.pkg=await f.mls.generateKeyPackage({credentialType:'basic',identity:new TextEncoder().encode(JSON.stringify(['winga-mls-device',1,m.context.owner,m.id,m.fingerprint]))},
+      f.mls.defaultCapabilities(),{notBefore:seconds-10n,notAfter:seconds+86400n},[],f.suite);
+    const bytes=Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_key_package',keyPackage:m.pkg.publicPackage}));m.hash=hash(bytes);
+    await f.db.query(`INSERT INTO conversation_crypto_key_packages(hash,device_id,package,mls_public_key,identity_proof,expires_at)
+      VALUES($1,$2,$3,$4,'{}',NOW()+interval '1 day')`,[m.hash,m.id,bytes.toString('base64url'),Buffer.from(m.pkg.publicPackage.leafNode.signaturePublicKey).toString('base64url')]);
+  }
+  const otherGroup=await f.mls.createGroup(new TextEncoder().encode(otherId),f.members.alice.pkg.publicPackage,f.members.alice.pkg.privatePackage,[],f.suite);
+  const committed=await f.mls.createCommit({state:otherGroup,cipherSuite:f.suite},{extraProposals:[{proposalType:'add',add:{keyPackage:f.members.eve.pkg.publicPackage}}]});
+  const {encodeRatchetTree}=await import('ts-mls/ratchetTree.js');
+  const transfer={id:crypto.randomUUID(),conversationId:otherId,epoch:'1',packageHash:f.members.eve.hash,
+    commit:Buffer.from(f.mls.encodeMlsMessage(committed.commit)).toString('base64url'),
+    welcome:Buffer.from(f.mls.encodeMlsMessage({version:'mls10',wireformat:'mls_welcome',welcome:committed.welcome})).toString('base64url'),
+    tree:Buffer.from(encodeRatchetTree(committed.newState.ratchetTree)).toString('base64url')};
+  await f.call('alice','reserve',{conversationId:otherId,peer:'eve',sourceHash:f.members.alice.hash,targetHash:f.members.eve.hash});
+  await f.call('alice','transfer',transfer);await f.call('eve','accept',{conversationId:otherId,transferId:transfer.id});
+  const admission=await admissionPacket({...f,id:otherId,group:committed.newState},f.members.next);
+  await f.call('alice','device-reserve',admission.intent);await f.call('alice','device-transfer',admission.transfer);
+  for(const label of ['alice','eve','next'])await f.call(label,'device-accept',admission.acceptance);
+  const groups=(await f.db.query('SELECT id,epoch,status FROM encrypted_conversations ORDER BY id')).rows;
+  assert.equal(groups.length,2);assert.ok(groups.every(g=>g.epoch==='2'&&g.status==='active'));
+  const r=historyRequest(f),otherRequest={...r,id:crypto.randomUUID(),conversationId:otherId};
+  await f.call('next','history-reserve',otherRequest);
+  await f.call('next','history-cancel',{id:otherRequest.id,conversationId:otherId,epoch:'2'});
+  await f.call('next','history-reserve',r);
+  const page={id:r.id,conversationId:f.id,epoch:'2',index:0,capsule:historyCapsule(r.id+':0')};page.hash=capsuleHash(page.capsule);
+  await f.call('alice','history-page-put',page);await f.call('alice','history-page-put',page);
+  const key=crypto.createECDH('prime256v1');key.generateKeys();
+  const root={id:r.id,conversationId:f.id,epoch:'2',publicKey:key.getPublicKey().toString('base64url'),capsule:historyCapsule(r.id),pageCount:1};root.hash=capsuleHash(root.capsule);
+  const extraPage={...page,index:1,capsule:historyCapsule(r.id+':1')};extraPage.hash=capsuleHash(extraPage.capsule);
+  const snapshot=async()=>({transfers:(await f.db.query('SELECT * FROM encrypted_conversation_history_transfers ORDER BY id')).rows,
+    pages:(await f.db.query('SELECT * FROM encrypted_conversation_history_pages ORDER BY transfer_id,page_index')).rows});
+  const rejectMismatch=async(label,action,payload)=>{
+    const before=await snapshot();
+    // f.call signs the changed conversation ID: this is not a signature-tampering rejection.
+    await assert.rejects(f.call(label,action,{...payload,conversationId:otherId}),{status:403,code:'encrypted_history_access_denied'});
+    assert.deepEqual(await snapshot(),before);
+  };
+  for(const [label,action,payload] of [['next','history-reserve',r],['next','history-cancel',{id:r.id,conversationId:f.id,epoch:'2'}],
+    ['alice','history-page-put',extraPage],['alice','history-publish',root]])await rejectMismatch(label,action,payload);
+  await f.call('next','history-reserve',r);
+  await f.call('alice','history-publish',root);await f.call('alice','history-publish',root);
+  const query={id:r.id,conversationId:f.id,epoch:'2',after:-1};
+  await rejectMismatch('next','history-pages',query);
+  const received=await f.call('next','history-pages',query);assert.equal(received.pages.length,1);assert.deepEqual(received.pages[0].capsule,page.capsule);
+  const accept={id:r.id,conversationId:f.id,epoch:'2',hash:root.hash};
+  await rejectMismatch('next','history-accept',accept);
+  await f.call('next','history-accept',accept);await f.call('next','history-accept',accept);
+  assert.equal((await f.call('alice','history-publish',root)).status,'accepted');
+  assert.equal((await snapshot()).pages.length,0);
+});
+
 test('native history rejects unsigned nested capsule mutation and cancelled reservation resurrection',async t=>{
   const f=await admittedFixture(t),r=historyRequest(f);await f.call('next','history-reserve',r);
   const capsule=historyCapsule(r.id+':0'),p={id:r.id,conversationId:f.id,epoch:'2',index:0,capsule,hash:capsuleHash(capsule)};

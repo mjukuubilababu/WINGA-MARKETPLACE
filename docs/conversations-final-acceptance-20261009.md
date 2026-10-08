@@ -74,6 +74,44 @@ Focused local media/security regressions pass 61/61; actual server startup,
 cookie-only authentication and intelligence regressions pass 15/15; frontend
 core passes 145/145. Fresh CI must verify the revised candidate before promotion.
 
+QA run `37851516983` at `e2b853f` subsequently passed functional, dependencies
+and genuine BEAM jobs. The transport job passed 9/9 with zero skips, including
+signed MLS delivery across two live nodes and exact-ciphertext recovery after
+real node loss. Its bounded 65-message load is the separate legacy transport
+fixture, not a claim of encrypted production throughput or saturation capacity.
+CodeQL completed with 46 emitted findings and zero approved reviews; the static
+gate remains failed until valid independent triage is recorded.
+
+Follow-up independent review reproduced same-size in-place source mutations
+that filesystem timestamps alone cannot distinguish. Public-copy preflight now
+captures SHA-256 only for the approved public subset and requires a matching
+hash before any R2 read/write. Ordinary inventory/audit calls remain metadata
+only. No broad claim of immutable local files is made. Loopback-only test proxies
+now reject redirects explicitly. Separate review also identified a same-sink
+approval reuse risk in the first review-ledger implementation; approvals remain
+empty while exact result/flow identity, multiplicity and whole-source-tree
+binding are added and independently checked.
+
+Independent public-copy reproduction now rejects 20/20 natural same-size
+overwrites (including four identical-stat collisions) and 20/20 forced stat
+collisions, with zero R2 calls. The focused preflight suite passes 26/26 and
+related backup/coverage/local-guard/proxy checks pass 42/42. These are bounded
+preflight-snapshot protections, not a transactional multi-file copy guarantee.
+
+The encryption reviewer also found a real history-transfer defect: a signed
+request could name another authorized conversation while accessing an existing
+transfer with the same epoch. The shared transfer authorization now requires
+the stored conversation ID to match the authorized conversation before any
+existing-transfer data access or mutation. A real MLS/signed regression covers
+reservation retries, upload, publication, download, acceptance and cancellation
+against two same-owner, same-epoch conversations, with no mutation on rejection.
+
+The frontend build `20261008220542` passes Wrangler's deployment dry-run, but is
+not yet published. The review gate binds all tracked runtime/config/native and
+binary files (including file modes), exact SARIF result/flow/rule metadata and
+global finding multiplicity. Local gate regressions passed 65 with two Windows
+file-symlink privilege skips; Linux CI must run those cases before acceptance.
+
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.
 No production flags, credentials, CSP, recovery keys or pending approvals are
