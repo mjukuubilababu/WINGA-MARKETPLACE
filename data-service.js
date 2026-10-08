@@ -1887,6 +1887,12 @@ async loadAdminPayments(filters) {
     }
 
     return {
+      async growthRequest(kind, payload) {
+        if (!['shares','events'].includes(kind)) throw new Error('growth_route_invalid'); // i18n-gate: allow -- internal routing contract
+        return fetchJson(`${baseUrl}/growth/${kind}`, { method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...createAuthHeaders() },
+          body: JSON.stringify(payload), timeoutMs: 3000 });
+      },
       async loadUsers() {
         const data = await fetchJson(`${baseUrl}/users`, {
           headers: {
@@ -1979,6 +1985,7 @@ async loadAdminPayments(filters) {
         const query = new URLSearchParams();
         query.set("limit", String(pageWindow.limit));
         query.set("page", String(pageWindow.page));
+        if (String(options.productId || '').trim()) query.set('productId',String(options.productId));
         if (pageWindow.cursor) {
           query.set("cursor", pageWindow.cursor);
         }
@@ -1995,6 +2002,7 @@ async loadAdminPayments(filters) {
           headers: {
             ...createAuthHeaders()
           },
+          timeoutMs: options.timeoutMs,
           signal: options.signal
         });
         const page = normalizeProductPageResponse(data, pageWindow, resolveProductImages);
@@ -3540,6 +3548,21 @@ async loadAdminPayments() {
   }
 
   window.WingaDataLayer = {
+    async growthRequest(kind, payload) {
+      ensureAdapter();
+      if (!state.adapter.growthRequest) throw Object.assign(new Error('growth_unavailable'), { status: 503 }); // i18n-gate: allow -- internal availability diagnostic
+      return state.adapter.growthRequest(kind, payload);
+    },
+    async loadSharedProduct(productId) {
+      ensureAdapter();
+      if (!window.WingaModules.growth.contract.id(productId)) return null;
+      if (state.activeProvider !== 'api') return clone(state.products.find(p => p.id === productId) || null);
+      const page = await state.adapter.loadProductsPage({ productId, limit: 1, timeoutMs: 3000 });
+      const product = page?.items?.find(p => p.id === productId);
+      if (!product) return null;
+      state.products = sortProductsNewestFirst(mergeUniqueProducts(state.products, [product]));
+      return clone(product);
+    },
     async init() {
       if (state.initialized) return;
       ensureAdapter();
@@ -4462,7 +4485,9 @@ async loadAdminPayments() {
       },
     async createOrder(payload) {
       assertBuyerCapableAccess();
-      return state.adapter.createOrder ? state.adapter.createOrder(payload) : null;
+      const result = state.adapter.createOrder ? await state.adapter.createOrder(payload) : null;
+      try { if (result?.id) window.WingaGrowth?.event('shared_product_order_started', payload.productId, { orderId: result.id }); } catch {}
+      return result;
     },
     async updateOrderStatus(orderId, payload) {
       assertBuyerCapableAccess();
@@ -4612,6 +4637,7 @@ async loadAdminPayments(filters) {
     async likeProduct(productId, liked = true) {
       const result = await state.adapter.likeProduct(productId, liked);
       mergeProductMutationResult(productId, result);
+      try { if (liked && result?.liked === true) window.WingaGrowth?.event('shared_product_saved',productId); } catch {}
       return result;
     },
     async trackProductView(productId) {

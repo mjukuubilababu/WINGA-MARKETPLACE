@@ -1,0 +1,113 @@
+{
+  "scope": "synthetic_local_rehearsal",
+  "liveCanaryRun": false,
+  "startedAt": "2026-10-08T19:22:30.762Z",
+  "cohort": {
+    "syntheticAccounts": 3,
+    "recipientJourneys": 2,
+    "controlBrowsers": 1
+  },
+  "simulatedHumanUserAgent": true,
+  "checks": [
+    "source copied an opaque share; durable envelope/outbox confirmed",
+    "two independent guests opened product detail and recorded two-second meaningful views",
+    "both guest auth returns preserved the exact product destination",
+    "canonical save and synthetic order start verified; recipient reshare linked to its parent",
+    "unselected browser: usable guest detail/plain copy, zero growth writes",
+    "admin-only aggregate reporting matches both canonical value journeys; growth responses/outboxes healthy",
+    "rollback handler rejects new writes, resolves existing share; browser flags restore plain sharing"
+  ],
+  "failures": [],
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "metrics": {
+    "schemaVersion": 1,
+    "loop": "product_share",
+    "windowDays": 30,
+    "counts": {
+      "shared_product_saved": 1,
+      "shared_product_order_started": 1,
+      "product_share_opened": 2,
+      "shared_product_viewed": 2,
+      "product_share_created": 2,
+      "shared_product_reshared": 1
+    },
+    "shares": 2,
+    "recipientOpens": 2,
+    "meaningfulViews": 2,
+    "confirmedSaves": 1,
+    "confirmedOrderStarts": 1,
+    "opensPerShare": 1,
+    "viewsPerOpen": 1,
+    "resharesPerView": 0.5,
+    "cohort": {
+      "basis": "shares_created_last_30_days",
+      "entryCount": 2,
+      "humanOpenShareRate": 0.5,
+      "recipientJourneys": 2,
+      "activationCount": 2,
+      "valueCount": 2,
+      "continuationCount": 1,
+      "activationRate": 1,
+      "valueRate": 1,
+      "continuationRate": 0.5,
+      "timeToValueSeconds": 4.358973,
+      "repeatRecipients": 0,
+      "viralCoefficient": null
+    },
+    "evidence": [
+      {
+        "event_type": "shared_product_saved",
+        "verification": "server",
+        "count": 1
+      },
+      {
+        "event_type": "shared_product_order_started",
+        "verification": "server",
+        "count": 1
+      },
+      {
+        "event_type": "product_share_opened",
+        "verification": "client_observed",
+        "count": 2
+      },
+      {
+        "event_type": "shared_product_viewed",
+        "verification": "client_observed",
+        "count": 2
+      },
+      {
+        "event_type": "product_share_created",
+        "verification": "server",
+        "count": 2
+      },
+      {
+        "event_type": "shared_product_reshared",
+        "verification": "server",
+        "count": 1
+      }
+    ],
+    "limitations": [
+      "Client-observed views and message starts are not verified sales.",
+      "Known crawlers and self-touches excluded; unknown bots require production abuse analysis.",
+      "Cohort denominators use opened recipient/share pairs, not registrations or claimed invitation deliveries.",
+      "Time to value uses server event-receipt times; missing/unordered events are excluded.",
+      "A save or order start is value, not a completed purchase. Cross-device identities are not inferred."
+    ]
+  },
+  "outbox": {
+    "pending": 0,
+    "deadLetters": 0,
+    "retrySignals": 0
+  },
+  "growthRequests": {
+    "count": 12,
+    "failures": 0
+  },
+  "canonicalDeltas": {
+    "products": 0,
+    "syntheticOrders": 1,
+    "saves": 1
+  },
+  "ok": true,
+  "finishedAt": "2026-10-08T19:22:43.824Z"
+}

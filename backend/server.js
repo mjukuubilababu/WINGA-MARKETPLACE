@@ -35,6 +35,7 @@ const {
 } = require("./video-safety");
 const { getOrSetCache, deleteCachePrefix, closeCache } = require("./cache");
 const { createAdsApi } = require("./ads-api");
+const { createGrowthApi } = require('./growth-api');
 const { createConversationOffersApi } = require("./conversation-offers-api");
 const { createConversationAvailabilityApi } = require("./conversation-availability-api");
 const { createConversationTransport, MAX_COMMAND_BYTES } = require("./conversation-transport");
@@ -296,6 +297,8 @@ const RATE_LIMIT_RULES = {
   "/api/messages/reports/files": { limit: 12, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/admin/reports/files": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/client-events": { limit: 20, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/growth/shares": { limit: 60, windowMs: RATE_LIMIT_WINDOW_MS },
+  "/api/growth/events": { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/search-demand": { limit: 18, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/opportunities": { limit: 30, windowMs: RATE_LIMIT_WINDOW_MS },
   "/api/users/me/whatsapp/request-change": { limit: 6, windowMs: RATE_LIMIT_WINDOW_MS },
@@ -2811,6 +2814,8 @@ function sanitizeVisibleProduct(product, viewer = null, storeRef = null) {
   if (!canSeeModerationData && normalizedProduct.status !== "approved") {
     return null;
   }
+  if (!canSeeModerationData && ((!viewer && normalizedProduct.visibility !== 'public')
+    || (owner && owner.status !== 'active'))) return null;
 
   const safeProduct = {
     ...normalizedProduct,
@@ -6918,6 +6923,9 @@ function getRateLimitIdentity(req, store) {
 
 function getRateLimitRule(pathname, method = "GET") {
   const normalizedMethod = String(method || "GET").toUpperCase();
+  if (pathname.startsWith('/api/growth/shares/') || pathname.startsWith('/api/admin/growth/')) {
+    return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: '/api/growth/read' };
+  }
   if (normalizedMethod === "POST" && /^\/api\/orders\/[^/]+\/payment-reference$/.test(pathname)) {
     return { ...RATE_LIMIT_RULES["/api/orders"], key: "/api/orders/payment-reference" };
   }
@@ -8061,6 +8069,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    if (url.pathname.startsWith('/api/growth/') || url.pathname.startsWith('/api/admin/growth/')) {
+      const growthApi = createGrowthApi({ collectBody, sendJson,
+        findSession: token => findSession(store, token), readAuthToken,
+        ensureUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
+        isAdminSession, clientIp: getClientIp, getStore: () => postgresStore,
+        productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
+        measurementEnabled: process.env.WINGA_GROWTH_MEASUREMENT_ENABLED === 'true' });
+      if (await growthApi.handle(req, res, url)) return;
+    }
     if (url.pathname.startsWith("/api/conversations/") || url.pathname.startsWith("/api/conversation-offers/")) {
       const cryptoDevices = createConversationCryptoDevicesApi({
         collectBody, sendJson, findSession: token => findSession(store, token), readAuthToken,
@@ -8650,12 +8667,21 @@ const server = http.createServer(async (req, res) => {
 
     const productDeepLinkMatch = url.pathname.match(/^\/product\/([^/]+)\/?$/);
     if (req.method === "GET" && productDeepLinkMatch) {
-      const productId = decodeURIComponent(productDeepLinkMatch[1] || "").trim();
+      const target = require('../src/growth/contract').parseDestination(url.href,url.origin);
+      const productId = target?.id || '';
       const origin = getPublicRequestOrigin(req);
       const assetOrigin = getProductShareAssetOrigin(req);
       const canonicalUrl = `${origin}/product/${encodeURIComponent(productId)}`;
-      const foundProduct = productId ? getProductById(store, productId) : null;
-      const product = foundProduct ? repairNormalizedProductImageState(foundProduct) : null;
+      const foundProduct = productId && postgresStore?.readProductsPage
+        ? (await postgresStore.readProductsPage({ productId, limit: 1 })).items?.[0]
+        : productId ? getProductById(store, productId) : null;
+      const owner = foundProduct ? getUserByUsername(store,foundProduct.uploadedBy) : null;
+      const previewViewer = findSession(store,readAuthToken(req));
+      const blockedOwners = previewViewer?.username && postgresStore?.readUserBlockRelationships
+        ? new Set(await postgresStore.readUserBlockRelationships(previewViewer.username)) : new Set();
+      const publicEligible = foundProduct?.status === 'approved' && (foundProduct.visibility || 'public') === 'public'
+        && owner?.status === 'active' && !blockedOwners.has(foundProduct.uploadedBy);
+      const product = publicEligible ? repairNormalizedProductImageState(foundProduct) : null;
       const crawlerRequest = isCrawlerRequest(req);
 
       if (!product) {

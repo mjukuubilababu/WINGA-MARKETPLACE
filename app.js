@@ -458,7 +458,7 @@ function getStoredAppView() {
 
 function getPendingGuestIntent() {
   try {
-    return JSON.parse(localStorage.getItem(PENDING_GUEST_INTENT_KEY) || "null");
+    return window.WingaModules.growth.contract.authIntent(JSON.parse(localStorage.getItem(PENDING_GUEST_INTENT_KEY) || "null"));
   } catch (error) {
     return null;
   }
@@ -466,11 +466,12 @@ function getPendingGuestIntent() {
 
 function savePendingGuestIntent(intent = null) {
   try {
-    if (!intent || typeof intent !== "object") {
+    const safeIntent = window.WingaModules.growth.contract.authIntent(intent);
+    if (!safeIntent) {
       localStorage.removeItem(PENDING_GUEST_INTENT_KEY);
       return;
     }
-    localStorage.setItem(PENDING_GUEST_INTENT_KEY, JSON.stringify(intent));
+    localStorage.setItem(PENDING_GUEST_INTENT_KEY, JSON.stringify(safeIntent));
   } catch (error) {
     reportClientEvent("warn", "pending_guest_intent_persist_failed", "Unable to persist pending guest intent.", {
       category: "runtime"
@@ -4152,7 +4153,7 @@ function closeAuthModal() {
 }
 
 function promptGuestAuth(options = {}) {
-  pendingGuestIntent = options.intent || null;
+  pendingGuestIntent = window.WingaModules.growth.contract.authIntent({ ...options.intent, createdAt: Date.now() });
   savePendingGuestIntent(pendingGuestIntent);
   openAuthModal(options.preferredMode || "signup", {
     gated: true,
@@ -5474,7 +5475,7 @@ function updateMarketplaceActionChrome() {
   return appChrome.updateMarketplaceActionChrome?.();
 }
 
-function resumePendingGuestIntent() {
+async function resumePendingGuestIntent() {
   if (!pendingGuestIntent) {
     pendingGuestIntent = getPendingGuestIntent();
   }
@@ -5482,15 +5483,39 @@ function resumePendingGuestIntent() {
     return;
   }
 
-  const intent = pendingGuestIntent;
+  const intent = window.WingaModules.growth.contract.authIntent(pendingGuestIntent);
   clearPendingGuestIntent();
-  const intentType = String(intent.type || "").trim();
-  const shouldClearDeepLinkRoute = intentType !== "focus-product";
-  if (shouldClearDeepLinkRoute) {
-    clearPendingDeepLinkProductRoute();
-    if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
-      safeReplaceState(window.history.state || null, "/");
+  if (!intent) return;
+  if (intent.productId) {
+    const returningUser = currentUser;
+    let availableProduct = null;
+    try { availableProduct = await window.WingaDataLayer.loadSharedProduct(intent.productId); } catch {}
+    if (currentUser !== returningUser) return;
+    if (!availableProduct) {
+      closeProductDetailModal({ skipHistoryBack: true });
+      clearPendingDeepLinkProductRoute();
+      safeReplaceState(window.history.state || null,'/');
+      setCurrentViewState('home', { syncHistory: false });
+      renderCurrentView();
+      showInAppNotification({ title: translateUi('legacy.app.388851df8554',{},'Product not found'),
+        body: translateUi('legacy.app.96d5b7c827d3',{},'Bidhaa hii haipo tena au link imebadilika. Tumerudisha home salama.'),variant:'warning' });
+      return;
     }
+    refreshProductsFromStore();
+    if (getProductById(intent.productId)) {
+      setCurrentViewState('home', { syncHistory: false });
+      openProductDetailModal(intent.productId, { initialImageIndex: intent.initialImageIndex || 0 });
+    }
+  }
+
+  if (intent.type === 'save-product' && intent.productId && getProductById(intent.productId)) {
+    if (!isProductSaved(intent.productId)) { toggleSavedProduct(intent.productId); syncSavedProductLike(intent.productId,true); }
+    return;
+  }
+  if (intent.type === 'follow-person' && intent.username) {
+    if (!isPersonFollowed(intent.username)) toggleFollowPerson(intent.username);
+    if (!intent.productId) openPersonProfile(intent.username);
+    return;
   }
 
   if (intent.type === "open-chat" && intent.productId) {
@@ -5538,16 +5563,6 @@ function resumePendingGuestIntent() {
   if (intent.type === "focus-product" && intent.productId) {
     const product = getProductById(intent.productId);
     if (product) {
-      setCurrentViewState("home", { syncHistory: false });
-      renderCurrentView();
-      syncAppShellHistoryState({
-        force: true,
-        mode: "replace",
-        url: "/"
-      });
-      window.requestAnimationFrame(() => {
-        scrollToProductCard(intent.productId);
-      });
       return;
     }
   }
@@ -7625,9 +7640,9 @@ function ensureMediaActionSheetRoot() {
       return;
     }
 
-    if (action === "share") {
+    if (['share','share-copy','share-whatsapp'].includes(action)) {
       closeMediaActionSheet();
-      handleShareProduct(product).catch((error) => {
+      handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
         captureClientError("media_sheet_share_failed", error, {
           productId: product.id
         });
@@ -7927,6 +7942,8 @@ function openMediaActionSheet(product, options = {}) {
   [
     { action: "save", label: saved ? "Remove saved" : "Save" },
     { action: "share", label: translateUi("common.share", {}, "Share") },
+    { action: 'share-copy', label: translateUi('detail.copyDeepLink', {}, 'Copy Deep Link') },
+    { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
     { action: "download", label: translateUi("common.download", {}, "Download") },
     { action: "open", label: translateUi("ui.label.2147b4d78f0d", {}, "Open product") }
   ].forEach((item) => {
@@ -9928,6 +9945,7 @@ async function openContextChatModal() {
 }
 
 function openProductChat(product) {
+  try { if (isAuthenticatedUser()) window.WingaGrowth?.event('shared_product_message_started',product?.id); } catch {}
   return openProductChatFromController(product);
 }
 
@@ -12583,7 +12601,9 @@ function bindTrustReportEntryActions() {
           preferredMode: "signup",
           role: "buyer",
           title: translateUi("follow.authTitle", {}, "Sign in to follow people"),
-          message: translateUi("follow.authBody", {}, "Create an account first so Winga can save the people you follow safely.")
+          message: translateUi("follow.authBody", {}, "Create an account first so Winga can save the people you follow safely."),
+          intent: { type: 'follow-person', username: followPersonButton.dataset.followPerson || followPersonButton.dataset.followSeller || '',
+            productId: getDeepLinkedProductIdFromRoute() }
         });
         return;
       }
@@ -14367,6 +14387,7 @@ let authSignupStep = 1;
 let currentSession = null;
 let pendingGuestIntent = null;
 let pendingDeepLinkProductId = "";
+let deepLinkProductFetchId = '';
 let suppressInitialProductHomeRender = false;
 let isSessionRestorePending = false;
 let deepLinkLoadingOverlay = null;
@@ -16019,25 +16040,16 @@ function canonicalizeProductDetailPath(pathname = window.location.pathname) {
 }
 
 function getDeepLinkedProductIdFromRoute() {
-  const normalizedPath = canonicalizeProductDetailPath(window.location.pathname);
-  const match = String(normalizedPath || "").trim().replace(/\/+$/, "").match(/\/product\/([^/]+)$/i);
-  if (!match) {
-    return "";
-  }
-  try {
-    return decodeURIComponent(match[1] || "").trim();
-  } catch (error) {
-    return String(match[1] || "").trim();
-  }
+  return window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin)?.id || '';
 }
 
 function getProductDetailPath(productId) {
-  const safeId = encodeURIComponent(normalizeProductIdValue(productId));
-  return safeId ? `/product/${safeId}` : window.location.pathname;
+  return window.WingaModules.growth.contract.destination('PRODUCT',normalizeProductIdValue(productId))?.path || '/';
 }
 
 function clearPendingDeepLinkProductRoute() {
   pendingDeepLinkProductId = "";
+  deepLinkProductFetchId = '';
   if (deepLinkRecoveryTimer) {
     window.clearTimeout(deepLinkRecoveryTimer);
     deepLinkRecoveryTimer = null;
@@ -16499,6 +16511,7 @@ function tryOpenPendingDeepLinkProductRoute() {
 
   const product = getProductById(productId);
   if (!product) {
+    if (deepLinkProductFetchId === productId) return false;
     if (!window.WingaDataLayer?.isProductsHydrated?.()) {
       return false;
     }
@@ -16548,6 +16561,7 @@ function tryOpenPendingDeepLinkProductRoute() {
 }
 
 function openDeepLinkedProductRouteIfNeeded(options = {}) {
+  try { window.WingaGrowth?.capture(); } catch {}
   const { skipHomeRender = false } = options;
   const pathname = String(window.location.pathname || "").trim();
   const canonicalPath = canonicalizeProductDetailPath(pathname);
@@ -16578,6 +16592,21 @@ function openDeepLinkedProductRouteIfNeeded(options = {}) {
   });
   const product = getProductById(productId);
   if (!product) {
+    if (typeof window.WingaDataLayer?.loadSharedProduct === 'function') {
+      pendingDeepLinkProductId = productId;
+      if (deepLinkProductFetchId !== productId) {
+        deepLinkProductFetchId = productId;
+        showDeepLinkLoadingState();
+        scheduleDeepLinkRecovery(productId);
+        window.WingaDataLayer.loadSharedProduct(productId).catch(() => null).then(() => {
+          if (pendingDeepLinkProductId !== productId || deepLinkProductFetchId !== productId) return;
+          deepLinkProductFetchId = '';
+          refreshProductsFromStore();
+          tryOpenPendingDeepLinkProductRoute();
+        });
+      }
+      return true;
+    }
     if (!window.WingaDataLayer?.isProductsHydrated?.()) {
       pendingDeepLinkProductId = productId;
       setCurrentViewState("home", { syncHistory: false });
@@ -19434,7 +19463,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
   const hasActiveProductDeepLink = Boolean(getDeepLinkedProductIdFromRoute());
   const shouldKeepHomeFirst = nextView === "home"
     && Boolean(hasActiveProductDeepLink || activeGuestIntentType === "focus-product");
-  if (activeGuestIntent && activeGuestIntentType !== "focus-product") {
+  if (activeGuestIntent && !activeGuestIntent.productId) {
     clearPendingDeepLinkProductRoute();
     if (String(window.location.pathname || "").trim().match(/^\/product\/.+/i)) {
       safeReplaceState(window.history.state || null, "/");
@@ -19502,7 +19531,7 @@ function loginSuccess(username, preferredCategory = "", sessionData = null, opti
       hydrateRealtimeState();
     }
   }
-  resumePendingGuestIntent();
+  resumePendingGuestIntent().catch(error => captureClientError('auth_return_failed',error));
   const handledDeepLink = activeGuestIntent
     ? true
     : nextView === "home"
@@ -24143,21 +24172,34 @@ function getProductDownloadName(product) {
   return product.name.replace(/[^a-z0-9]/gi, "-").toLowerCase() || "winga-product";
 }
 
-async function handleShareProduct(product) {
+async function handleShareProduct(product, options = {}) {
   if (!product) {
     return;
   }
 
   const shareText = `${product.name} - ${formatProductPrice(product.price)} | ${product.shop}`;
-  const shareUrl = `${window.location.origin}${getProductDetailPath(product.id)}`;
+  let preparedShare;
+  try { preparedShare = getGrowthRuntime()?.prepareShare(product.id, options.sourceSurface
+    || (document.body.classList.contains('product-detail-open') ? 'product_detail' : 'feed')); } catch {}
+  const shareUrl = preparedShare?.url || `${window.location.origin}${getProductDetailPath(product.id)}`;
+  const commitShare = () => { try { preparedShare?.commit(); } catch {} };
 
-  if (navigator.share) {
+  if (options.channel === 'whatsapp') {
+    const externalUrl = 'https://wa.me/?text=' + encodeURIComponent(`${shareText} ${shareUrl}`);
+    const opened = window.open(externalUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) window.location.href = externalUrl;
+    commitShare();
+    return;
+  }
+
+  if (navigator.share && options.channel !== 'copy') {
     try {
       await navigator.share({
         title: product.name,
         text: shareText,
         url: shareUrl
       });
+      commitShare();
       return;
     } catch (error) {
       if (error && error.name === "AbortError") {
@@ -24167,16 +24209,28 @@ async function handleShareProduct(product) {
   }
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
-    showInAppNotification({
-      title: translateUi("share.readyTitle", {}, "Share ready"),
-      body: translateUi("share.readyBody", {}, "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa."),
-      variant: "success"
-    });
-    return;
+    try {
+      await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+      commitShare();
+      showInAppNotification({
+        title: translateUi("share.readyTitle", {}, "Share ready"),
+        body: translateUi("share.readyBody", {}, "Maelezo ya bidhaa yamenakiliwa na yako tayari kushirikiwa."),
+        variant: "success"
+      });
+      return;
+    } catch { /* A denied clipboard permission still leaves a usable link. */ }
   }
 
   alert(`${shareText} | Link: ${shareUrl}`);
+  commitShare();
+}
+
+function getGrowthRuntime() {
+  if (!window.WingaGrowth) {
+    window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
+      getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
+  }
+  return window.WingaGrowth;
 }
 
 function handleAccessRouteChange() {
@@ -25506,6 +25560,7 @@ async function bootApp() {
   initializePwaInstallExperience();
   refreshPublicEntryChrome({ deferHeavyChrome: true });
   homeFeedRefreshCursor = initializeHomeFeedRefreshCursor();
+  try { getGrowthRuntime(); } catch { /* Optional attribution must not affect boot. */ }
   suppressInitialProductHomeRender = Boolean(getDeepLinkedProductIdFromRoute());
   const cachedSession = window.WingaDataLayer.bootstrapSession
     ? window.WingaDataLayer.bootstrapSession()

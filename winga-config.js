@@ -24,6 +24,9 @@ const WINGA_DEFAULT_CONFIG = {
   feedPageLimitDesktop: 24,
   // Use the bounded telemetry transport on production too; overrides can disable it.
   enableClientEventLogging: true,
+  // Phase 1 measurement is opt-in; plain public links always remain available.
+  growthProductSharing: false,
+  growthMeasurement: false,
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,
