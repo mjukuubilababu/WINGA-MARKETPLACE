@@ -1,4 +1,3 @@
-const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
@@ -7,6 +6,8 @@ const {
   readReferenceRows, readUploadInventory
 } = require("./audit-legacy-uploads");
 const { readR2Config } = require("./storage-r2");
+const { readStableLocalFile } = require("./stable-local-file");
+const { MAX_PRODUCT_IMAGE_BYTES } = require("./image-processing");
 
 const CONTENT_TYPES = {
   ".jpg": "image/jpeg",
@@ -56,12 +57,17 @@ async function copyApprovedPublicMedia({
 
   for (const name of names) {
     const filePath = path.join(directory, name);
-    const stat = await fs.promises.lstat(filePath);
-    if (!stat.isFile() || stat.size !== inventory.files.get(name) || stat.size === 0) {
-      throw new Error("SOURCE_FILE_CHANGED");
+    let source;
+    try {
+      source = await readStableLocalFile(filePath, {
+        maxBytes: MAX_PRODUCT_IMAGE_BYTES, expectedSize: inventory.files.get(name)
+      });
+    } catch (error) {
+      if (error.message === "LOCAL_FILE_CHANGED" || error.code === "ELOOP") {
+        throw new Error("SOURCE_FILE_CHANGED");
+      }
+      throw error;
     }
-    const source = await fs.promises.readFile(filePath);
-    if (source.length !== stat.size) throw new Error("SOURCE_FILE_CHANGED");
     const sourceHash = checksum(source);
     const key = "products/legacy/" + name;
     let remote = await readR2Bytes(client, bucket, key);

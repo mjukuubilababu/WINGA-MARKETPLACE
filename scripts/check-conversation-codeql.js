@@ -1,11 +1,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
 
 const LIMITS = Object.freeze({ fileBytes: 32 * 1024 * 1024, totalBytes: 128 * 1024 * 1024,
   files: 32, runs: 20, results: 100000, nodes: 1000000, depth: 100 });
 const LEVELS = new Set(['none', 'note', 'warning', 'error']);
 const KINDS = new Set(['notApplicable', 'pass', 'fail', 'review', 'open', 'informational']);
+const REVIEW_LIMITS = Object.freeze({ manifestBytes: 256 * 1024, entries: 1000,
+  sourceBytes: 8 * 1024 * 1024, totalSourceBytes: 64 * 1024 * 1024, sourceFiles: 128 });
+const REVIEWABLE_LOCATIONS = Symbol('reviewable-locations');
+const SOURCE_LOCATION = Symbol('source-location');
 const own = (value, key) => Object.hasOwn(value, key);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string' && value.length > 0;
@@ -175,6 +180,121 @@ function safeRuleId(id) {
   return id.length <= 160 && /^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(id) ? id : null;
 }
 
+function safeRepositoryPath(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 512
+    && /^[A-Za-z0-9_.\/-]+$/.test(value) && !value.startsWith('/')
+    && value.split('/').every(part => part && part !== '.' && part !== '..'
+      && !part.endsWith('.') && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+}
+
+function safeSourcePath(value) {
+  return safeRepositoryPath(value) && /\.(?:js|mjs|cjs|jsx|ts|tsx|html|htm|vue)$/i.test(value)
+    && value.split('/').every(part => !part.startsWith('.') && part !== 'node_modules');
+}
+
+function sourceFingerprint(buffer) {
+  const source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+  return crypto.createHash('sha256').update(source.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
+}
+
+function readReviewFile(root, relativePath, maxBytes, check) {
+  check(safeRepositoryPath(relativePath), 'path', 'CODEQL_REVIEW_INVALID');
+  const target = path.resolve(root, relativePath);
+  const relative = path.relative(root, target);
+  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'containment', 'CODEQL_REVIEW_INVALID');
+  const verifyPath = () => {
+    let current = root;
+    check(fs.lstatSync(current).isDirectory() && !fs.lstatSync(current).isSymbolicLink(),
+      'root-type', 'CODEQL_REVIEW_UNSAFE');
+    for (const [i, part] of relativePath.split('/').entries()) {
+      current = path.join(current, part);
+      const stat = fs.lstatSync(current);
+      check(!stat.isSymbolicLink(), 'symlink', 'CODEQL_REVIEW_UNSAFE');
+      check(i === relativePath.split('/').length - 1 ? stat.isFile() : stat.isDirectory(),
+        'file-type', 'CODEQL_REVIEW_UNSAFE');
+    }
+    check(fs.realpathSync(target) === target, 'canonical-path', 'CODEQL_REVIEW_UNSAFE');
+    return fs.lstatSync(target);
+  };
+  const stat = verifyPath();
+  check(stat.size > 0 && stat.size <= maxBytes, 'byte-bounds', 'CODEQL_REVIEW_LIMIT');
+  const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  const sameFile = (left, right) => left.isFile() && right.isFile()
+    && ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].every(field => left[field] === right[field]);
+  try {
+    const opened = fs.fstatSync(fd);
+    const current = verifyPath();
+    check(sameFile(opened, stat) && sameFile(opened, current), 'file-identity', 'CODEQL_REVIEW_UNSAFE');
+    const buffer = Buffer.alloc(stat.size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = fs.readSync(fd, buffer, length, buffer.length - length, null);
+      if (count === 0) break;
+      length += count;
+    }
+    const after = fs.fstatSync(fd);
+    check(length === stat.size && sameFile(after, opened) && sameFile(verifyPath(), opened),
+      'read-size', 'CODEQL_REVIEW_UNSAFE');
+    return buffer.subarray(0, length);
+  } finally { fs.closeSync(fd); }
+}
+
+function applyReviews(findings, options) {
+  const check = validator('review-manifest');
+  const root = path.resolve(options.sourceRoot ?? path.join(__dirname, '..'));
+  const manifestPath = options.reviewManifestPath;
+  check(safeRepositoryPath(manifestPath) && manifestPath.startsWith('.github/') && manifestPath.endsWith('.json'),
+    'manifest-path', 'CODEQL_REVIEW_INVALID');
+  const buffer = readReviewFile(root, manifestPath, REVIEW_LIMITS.manifestBytes, check);
+  let manifest;
+  try { manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer)); }
+  catch { check(false, 'json-utf8', 'CODEQL_REVIEW_INVALID'); }
+  const exactKeys = (value, keys) => object(value) && Object.keys(value).length === keys.length
+    && keys.every(key => own(value, key));
+  check(exactKeys(manifest, ['version', 'digestAlgorithm', 'reviews']) && manifest.version === 1
+    && manifest.digestAlgorithm === 'sha256-lf'
+    && Array.isArray(manifest.reviews), 'schema-version', 'CODEQL_REVIEW_INVALID');
+  check(manifest.reviews.length <= REVIEW_LIMITS.entries, 'entry-count', 'CODEQL_REVIEW_LIMIT');
+  const entries = new Map();
+  const sources = new Map();
+  const sourcePaths = new Set(findings.flatMap(finding => finding.locations
+    .filter(location => location[SOURCE_LOCATION] && safeSourcePath(location.path)).map(location => location.path)));
+  let totalBytes = 0;
+  const key = (ruleId, filename, line) => JSON.stringify([ruleId, filename, line]);
+  for (const [entryIndex, entry] of manifest.reviews.entries()) {
+    const check = validator('review-manifest', { entry: entryIndex });
+    check(exactKeys(entry, ['ruleId', 'path', 'startLine', 'sourceSha256', 'reviewer', 'reason', 'evidence']),
+      'entry-schema', 'CODEQL_REVIEW_INVALID');
+    check(text(entry.ruleId) && safeRuleId(entry.ruleId) === entry.ruleId && safeSourcePath(entry.path)
+      && index(entry.startLine) && entry.startLine > 0
+      && typeof entry.sourceSha256 === 'string' && /^[a-f0-9]{64}$/.test(entry.sourceSha256),
+    'entry-identity', 'CODEQL_REVIEW_INVALID');
+    for (const field of ['reviewer', 'reason', 'evidence']) {
+      check(typeof entry[field] === 'string' && entry[field].trim().length > 0
+        && entry[field].length <= (field === 'reviewer' ? 200 : 4096), 'review-metadata', 'CODEQL_REVIEW_INVALID');
+    }
+    const identity = key(entry.ruleId, entry.path, entry.startLine);
+    check(!entries.has(identity), 'duplicate-entry', 'CODEQL_REVIEW_INVALID');
+    check(sourcePaths.has(entry.path), 'source-location', 'CODEQL_REVIEW_STALE');
+    if (!sources.has(entry.path)) {
+      check(sources.size < REVIEW_LIMITS.sourceFiles, 'source-count', 'CODEQL_REVIEW_LIMIT');
+      const source = readReviewFile(root, entry.path, REVIEW_LIMITS.sourceBytes, check);
+      totalBytes += source.length;
+      check(totalBytes <= REVIEW_LIMITS.totalSourceBytes, 'source-byte-bounds', 'CODEQL_REVIEW_LIMIT');
+      try { sources.set(entry.path, sourceFingerprint(source)); }
+      catch { check(false, 'source-utf8', 'CODEQL_REVIEW_INVALID'); }
+    }
+    check(sources.get(entry.path) === entry.sourceSha256, 'source-fingerprint', 'CODEQL_REVIEW_STALE');
+    entries.set(identity, entry);
+  }
+  // Every primary location must be independently reviewed; unsafe or absent locations never match.
+  for (const finding of findings) {
+    finding.reviewed = finding[REVIEWABLE_LOCATIONS] && finding.locations.every(location =>
+      entries.has(key(finding.ruleId, location.path, location.line)));
+  }
+  return findings.filter(finding => finding.reviewed).length;
+}
+
 function safeLocation(location, run, context) {
   const check = validator('location', context);
   check(object(location), 'location');
@@ -202,7 +322,11 @@ function safeLocation(location, run, context) {
       if (own(region, key)) check(index(region[key]) && region[key] > 0, key);
     }
   }
-  return safePath ? { path: uri, line: region?.startLine ?? null } : null;
+  if (!safePath) return null;
+  const result = { path: uri, line: region?.startLine ?? null };
+  Object.defineProperty(result, SOURCE_LOCATION,
+    { value: !own(artifact, 'uriBaseId') || artifact.uriBaseId === '%SRCROOT%' });
+  return result;
 }
 
 function inspectReport(report, reportIndex) {
@@ -240,15 +364,19 @@ function inspectReport(report, reportIndex) {
       if (!description.security) continue;
       // Baseline, suppression, level and kind never exempt an emitted security finding.
       levels[level]++;
-      findings.push({ report: reportIndex, run: runIndex, result: resultIndex,
+      const finding = { report: reportIndex, run: runIndex, result: resultIndex,
         ruleId: safeRuleId(description.rule.id), level, securitySeverity: description.severity,
-        locations: safeLocations });
+        locations: safeLocations };
+      Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: locations.length > 0 && locations.length === safeLocations.length
+        && safeLocations.every(location => location[SOURCE_LOCATION] && location.line !== null
+          && safeSourcePath(location.path)) });
+      findings.push(finding);
     }
   }
   return { runs: report.runs.length, results: resultCount, levels, findings };
 }
 
-function auditDirectory(directory, analysisOutcome) {
+function auditDirectory(directory, analysisOutcome, options = {}) {
   let context = {};
   const check = (condition, field, errorCode) => validator('report-files', context)(condition, field, errorCode);
   try {
@@ -301,9 +429,22 @@ function auditDirectory(directory, analysisOutcome) {
     }
     totals.securityFindings = findings.length;
     const executionVerified = analysisOutcome === 'success';
-    const ok = executionVerified && findings.length === 0;
+    let blockingFindings = findings.length;
+    if (options.reviewManifestPath !== undefined) {
+      totals.reviewedFindings = 0;
+      totals.unreviewedFindings = findings.length;
+      for (const finding of findings) finding.reviewed = false;
+      try {
+        totals.reviewedFindings = applyReviews(findings, options);
+        blockingFindings = totals.unreviewedFindings = findings.length - totals.reviewedFindings;
+      } catch (error) {
+        return { ok: false, errorCode: error.errorCode ?? 'CODEQL_REVIEW_UNAVAILABLE',
+          diagnostic: error.diagnostic ?? { stage: 'review-manifest', field: 'file-access' }, totals, findings };
+      }
+    }
+    const ok = executionVerified && blockingFindings === 0;
     return { ok, ...(!executionVerified ? { errorCode: 'CODEQL_ANALYSIS_UNSUCCESSFUL' }
-      : findings.length ? { errorCode: 'CODEQL_SECURITY_FINDINGS' } : {}), totals, findings };
+      : blockingFindings ? { errorCode: 'CODEQL_SECURITY_FINDINGS' } : {}), totals, findings };
   } catch (error) {
     return { ok: false, errorCode: error.errorCode ?? 'CODEQL_SARIF_UNAVAILABLE',
       diagnostic: error.diagnostic ?? { stage: 'report-files', field: 'file-access', ...context } };
@@ -313,7 +454,8 @@ function auditDirectory(directory, analysisOutcome) {
 function main() {
   const args = process.argv.slice(2);
   const result = args.length > 1 ? { ok: false, errorCode: 'CODEQL_GATE_ARGUMENTS_INVALID' }
-    : auditDirectory(args[0] ?? process.env.CODEQL_SARIF_DIRECTORY, process.env.CODEQL_ANALYSIS_OUTCOME);
+    : auditDirectory(args[0] ?? process.env.CODEQL_SARIF_DIRECTORY, process.env.CODEQL_ANALYSIS_OUTCOME,
+      { reviewManifestPath: process.env.CODEQL_REVIEW_MANIFEST });
   const { findings, ...summary } = result;
   console.log(JSON.stringify({ mode: 'conversation-codeql-gate', privacy: 'aggregate-only', ...summary }));
   // All findings remain retrievable in job logs without uploading raw, source-bearing SARIF artifacts.
@@ -322,4 +464,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { auditDirectory, inspectReport, LIMITS };
+module.exports = { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint };

@@ -854,11 +854,24 @@ function loadLocalProductsForPrerender() {
   }
 }
 
+function normalizeProductPathId(value) {
+  const productId = String(value || "").trim();
+  // Product IDs become directory names on both POSIX and Windows build hosts.
+  if (
+    productId.length > 100
+    || !/^[A-Za-z0-9_-]+$/.test(productId)
+    || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(productId)
+  ) {
+    return "";
+  }
+  return productId;
+}
+
 function normalizeProductList(products) {
   const seenIds = new Set();
   const normalized = [];
   (Array.isArray(products) ? products : []).forEach((product) => {
-    const productId = String(product?.id || "").trim();
+    const productId = normalizeProductPathId(product?.id);
     if (!productId || seenIds.has(productId)) {
       return;
     }
@@ -928,7 +941,7 @@ async function generateProductSharePages(baseHtml, origin) {
   const assetOrigin = getProductionAssetOrigin();
   const criticalImageUrls = [];
   for (const product of products) {
-    const productId = String(product?.id || "").trim();
+    const productId = normalizeProductPathId(product?.id);
     if (!productId) {
       continue;
     }

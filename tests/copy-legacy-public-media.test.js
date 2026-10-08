@@ -141,3 +141,18 @@ test("changed source file blocks copy", async () => {
     assert.equal(r2.writes.length, 0);
   });
 });
+
+test("a same-size replacement after preflight cannot be copied into the public bucket", async (t) => {
+  await fixture(async (args) => {
+    const open = fs.promises.open;
+    t.mock.method(fs.promises, "open", async (filename, flags) => {
+      fs.renameSync(filename, filename + ".previous");
+      fs.writeFileSync(filename, "private-data");
+      return open(filename, flags);
+    });
+    const r2 = fakeR2();
+    await assert.rejects(copyApprovedPublicMedia({ ...args, client: r2, bucket: "test", copy: true }), /SOURCE_FILE_CHANGED/);
+    assert.equal(r2.writes.length, 0);
+    assert.equal(r2.objects.size, 0);
+  });
+});

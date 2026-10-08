@@ -4709,7 +4709,9 @@ test("shared DOM helper blocks unsafe attributes before setAttribute", () => {
   [helperSource, bundleSource].forEach((source) => {
     assert.match(source, /function isUnsafeAttribute\(key, value\)/);
     assert.match(source, /name\.startsWith\("on"\) \|\| name === "srcdoc"/);
-    assert.match(source, /URL_ATTRIBUTE_NAMES\.has\(name\) && normalizedValue\.startsWith\("javascript:"\)/);
+    assert.match(source, /if \(!URL_ATTRIBUTE_NAMES\.has\(name\)\)/);
+    assert.match(source, /new URL\(String\(value \|\| ""\)/);
+    assert.match(source, /\["https:", "http:"\]\.includes\(url\.protocol\)/);
     assert.match(source, /value !== undefined && value !== null && !isUnsafeAttribute\(key, value\)/);
   });
 });

@@ -4,6 +4,7 @@ const http = require("http");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { readStableLocalFile } = require("./stable-local-file");
 const { createPostgresStore } = require("./db");
 const { readMessageIdempotencyKey, messageRequestHash } = require("./message-idempotency");
 const { getMessageStateEventOwners } = require("./message-replay");
@@ -614,6 +615,7 @@ function ensureLocalArtifacts() {
       password: createPasswordHash(seedUser.password),
       createdAt: new Date().toISOString()
     }));
+    try {
       fs.writeFileSync(DATA_FILE, JSON.stringify({
         categories: DEFAULT_CATEGORIES,
         users: seededUsers,
@@ -636,7 +638,10 @@ function ensureLocalArtifacts() {
           requireExplicitSignOut: true,
           messageReviewRequiresReason: true
         }
-      }, null, 2));
+      }, null, 2), { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
   }
 }
 
@@ -3820,7 +3825,7 @@ function getSessionRequestContext(req) {
 function parseCookies(req) {
   const cookieHeader = String(req?.headers?.cookie || "");
   if (!cookieHeader) {
-    return {};
+    return Object.create(null);
   }
   return cookieHeader.split(";").reduce((cookies, part) => {
     const separatorIndex = part.indexOf("=");
@@ -3838,7 +3843,7 @@ function parseCookies(req) {
       cookies[name] = value;
     }
     return cookies;
-  }, {});
+  }, Object.create(null));
 }
 
 function getAuthCookieSameSite() {
@@ -4596,10 +4601,9 @@ function pruneProductImageMetadataSeen(now = Date.now()) {
 async function enrichStoredProductImageMetadata(job) {
   if (MEDIA_STORAGE_POLICY.remoteOnly) return false;
   const filePath = getLocalUploadFilePath(job.imageUrl);
-  if (!filePath || !filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) return false;
-  const stat = await fs.promises.stat(filePath);
-  if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_PRODUCT_IMAGE_BYTES) return false;
-  const metadata = await readProductImageMetadata(await fs.promises.readFile(filePath));
+  if (!filePath || path.dirname(filePath) !== UPLOADS_DIR) return false;
+  const bytes = await readStableLocalFile(filePath, { maxBytes: MAX_PRODUCT_IMAGE_BYTES });
+  const metadata = await readProductImageMetadata(bytes);
   const result = await postgresStore.updateProductImageMediaMetadata(job.productId, job.imageUrl, metadata);
   return Boolean(result?.updated);
 }

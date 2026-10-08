@@ -3,8 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { auditDirectory, inspectReport, LIMITS } = require('../scripts/check-conversation-codeql');
+const { auditDirectory, inspectReport, LIMITS, REVIEW_LIMITS, sourceFingerprint } = require('../scripts/check-conversation-codeql');
 
 const root = path.resolve(__dirname, '..');
 const script = path.join(root, 'scripts/check-conversation-codeql.js');
@@ -36,11 +37,13 @@ function audit(t, value, outcome = 'success') {
   return auditDirectory(dir, outcome);
 }
 
-function cli(dir, outcome, args = [dir]) {
+function cli(dir, outcome, args = [dir], reviewManifestPath) {
   if (arguments.length < 2) outcome = 'success';
   const env = { ...process.env, CODEQL_ANALYSIS_OUTCOME: outcome, CODEQL_SARIF_DIRECTORY: dir };
   if (outcome === undefined) delete env.CODEQL_ANALYSIS_OUTCOME;
   delete env.NODE_OPTIONS;
+  delete env.CODEQL_REVIEW_MANIFEST;
+  if (reviewManifestPath !== undefined) env.CODEQL_REVIEW_MANIFEST = reviewManifestPath;
   return spawnSync(process.execPath, [script, ...args], { env, encoding: 'utf8',
     windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 });
 }
@@ -626,7 +629,399 @@ test('workflow wires Node 24 and the actual analyze output into an unconditional
   assert.match(job, /if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(job, /CODEQL_ANALYSIS_OUTCOME: \$\{\{ steps.codeql-analysis.outcome \}\}/);
   assert.match(job, /CODEQL_SARIF_DIRECTORY: \$\{\{ runner.temp \}\}\/conversation-codeql-sarif/);
+  assert.match(job, /CODEQL_REVIEW_MANIFEST: \.github\/codeql-reviewed-findings\.v1\.json/);
   assert.match(job, /run: node scripts\/check-conversation-codeql\.js/);
   assert.match(job, /queries: security-extended/);
   assert.doesNotMatch(job, /continue-on-error|upload-artifact|secrets\.|actions: write|contents: write|upload: never/);
+});
+
+function reviewFixture(t) {
+  const sourceRoot = directory(t);
+  const reports = path.join(sourceRoot, 'sarif');
+  const sourcePath = path.join(sourceRoot, 'src', 'synthetic.js');
+  fs.mkdirSync(reports);
+  fs.mkdirSync(path.join(sourceRoot, '.github'));
+  fs.mkdirSync(path.dirname(sourcePath));
+  fs.writeFileSync(sourcePath, Array.from({ length: 20 }, (_, i) => `// Synthetic source line ${i + 1}\n`).join(''));
+  const entry = { ruleId: 'js/sql-injection', path: 'src/synthetic.js', startLine: 12,
+    sourceSha256: sourceFingerprint(fs.readFileSync(sourcePath)), reviewer: 'Independent synthetic reviewer',
+    reason: 'Synthetic reviewed false positive only', evidence: 'Synthetic bounded data-flow review' };
+  const manifest = { version: 1, digestAlgorithm: 'sha256-lf', reviews: [entry] };
+  const manifestPath = path.join(sourceRoot, '.github', 'reviews.json');
+  const writeManifest = (value = manifest) => fs.writeFileSync(manifestPath, JSON.stringify(value));
+  writeManifest();
+  const reviewedFinding = (overrides = {}) => finding({ locations: [location(entry.path, entry.startLine)], ...overrides });
+  const auditReview = (value = report(run([reviewedFinding()])), outcome = 'success', options = {}) => {
+    writeReport(reports, value);
+    return auditDirectory(reports, outcome, { sourceRoot, reviewManifestPath: '.github/reviews.json', ...options });
+  };
+  return { sourceRoot, sourcePath, reports, manifestPath, entry, manifest, writeManifest, reviewedFinding, auditReview };
+}
+
+test('opt-in exact reviews preserve all findings and all level counts', t => {
+  const f = reviewFixture(t);
+  const results = ['error', 'warning', 'note', 'none'].map(level => f.reviewedFinding({ level,
+    baselineState: 'unchanged', kind: 'notApplicable', suppressions: [{ kind: 'external', status: 'accepted' }] }));
+  const value = f.auditReview(report(run(results)));
+  assert.equal(value.ok, true);
+  assert.deepEqual(value.totals, { reports: 1, runs: 1, results: 4, securityFindings: 4,
+    levels: { none: 1, note: 1, warning: 1, error: 1 }, reviewedFindings: 4, unreviewedFindings: 0 });
+  assert.equal(value.findings.length, 4);
+  assert.ok(value.findings.every(item => item.reviewed === true));
+  failed(auditDirectory(f.reports, 'success'), 'CODEQL_SECURITY_FINDINGS');
+});
+
+test('changed source invalidates a whole-file review even away from the alert line', t => {
+  const f = reviewFixture(t);
+  fs.appendFileSync(f.sourcePath, '// New code elsewhere in the file\n');
+  const value = f.auditReview();
+  failed(value, 'CODEQL_REVIEW_STALE');
+  assert.equal(value.findings.length, 1);
+  assert.equal(value.findings[0].reviewed, false);
+  assert.equal(value.totals.securityFindings, 1);
+});
+
+test('sha256-lf normalizes CRLF only and rejects malformed UTF-8', t => {
+  const f = reviewFixture(t);
+  const lf = fs.readFileSync(f.sourcePath);
+  const expected = crypto.createHash('sha256').update(lf).digest('hex');
+  assert.equal(sourceFingerprint(lf), expected);
+  fs.writeFileSync(f.sourcePath, lf.toString('utf8').replace(/\n/g, '\r\n'));
+  assert.equal(f.auditReview().ok, true);
+  assert.notEqual(sourceFingerprint(Buffer.from('x\ry')), sourceFingerprint(Buffer.from('x\ny')));
+  assert.notEqual(sourceFingerprint(Buffer.from('\ufeffx\n')), sourceFingerprint(Buffer.from('x\n')));
+  assert.notEqual(sourceFingerprint(Buffer.from('x \n')), sourceFingerprint(Buffer.from('x\n')));
+  fs.writeFileSync(f.sourcePath, Buffer.from([0xff]));
+  failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+});
+
+test('new rules, paths and start lines block despite another exact reviewed finding', t => {
+  const f = reviewFixture(t);
+  for (const extra of [f.reviewedFinding({ locations: [location(f.entry.path, 13)] }),
+    f.reviewedFinding({ locations: [location('src/new-file.js', 12)] }),
+    f.reviewedFinding({ ruleId: 'js/xss', ruleIndex: 2 })]) {
+    const current = run([f.reviewedFinding(), extra]);
+    current.tool.driver.rules.push({ ...securityRule(), id: 'js/xss' });
+    const value = f.auditReview(report(current));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.equal(value.totals.reviewedFindings, 1);
+    assert.equal(value.totals.unreviewedFindings, 1);
+    assert.deepEqual(value.findings.map(item => item.reviewed), [true, false]);
+  }
+});
+
+test('reviews require every primary location and never trust unsafe or foreign locations', t => {
+  const f = reviewFixture(t);
+  const foreign = location(f.entry.path);
+  foreign.physicalLocation.artifactLocation.uriBaseId = 'OTHER_ROOT';
+  const noLine = location(f.entry.path);
+  delete noLine.physicalLocation.region;
+  for (const locations of [[], [noLine], [foreign], [location(f.entry.path), location('../outside.js')],
+    [location(f.entry.path), location('src/unreviewed.js')]]) {
+    const value = f.auditReview(report(run([f.reviewedFinding({ locations }), f.reviewedFinding()])));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.equal(value.findings[0].reviewed, false);
+    assert.equal(value.findings[1].reviewed, true);
+    assert.equal(value.totals.unreviewedFindings, 1);
+  }
+});
+
+test('missing sources and stale registry paths fail closed and retain findings', t => {
+  const f = reviewFixture(t);
+  for (const filename of ['src/renamed.js', 'src/missing.js']) {
+    f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: filename }] });
+    const value = f.auditReview();
+    failed(value, 'CODEQL_REVIEW_STALE');
+    assert.equal(value.findings.length, 1);
+    assert.equal(value.totals.unreviewedFindings, 1);
+  }
+  f.writeManifest();
+  fs.unlinkSync(f.sourcePath);
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNAVAILABLE');
+});
+
+test('duplicate reviews are invalid while duplicate emitted results stay visible and counted', t => {
+  const f = reviewFixture(t);
+  f.writeManifest({ ...f.manifest, reviews: [f.entry, { ...f.entry }] });
+  failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+  f.writeManifest();
+  const value = f.auditReview(report(run([f.reviewedFinding(), f.reviewedFinding()])));
+  assert.equal(value.ok, true);
+  assert.equal(value.findings.length, 2);
+  assert.equal(value.totals.securityFindings, 2);
+  assert.equal(value.totals.reviewedFindings, 2);
+});
+
+test('suppression, baseline and lowered severity never approve unmatched emitted findings', t => {
+  const f = reviewFixture(t);
+  for (const level of ['error', 'warning', 'note', 'none']) {
+    const value = f.auditReview(report(run([f.reviewedFinding({ level, baselineState: 'absent', kind: 'pass',
+      locations: [location(f.entry.path, 13)], suppressions: [{ kind: 'external', status: 'accepted' }] })])));
+    failed(value, 'CODEQL_SECURITY_FINDINGS');
+    assert.equal(value.totals.levels[level], 1);
+    assert.equal(value.totals.unreviewedFindings, 1);
+  }
+});
+
+test('approved findings cannot override failed analysis or failed and incomplete scans', t => {
+  const f = reviewFixture(t);
+  for (const outcome of [undefined, '', 'failure', 'skipped', 'cancelled']) {
+    writeReport(f.reports, report(run([f.reviewedFinding()])));
+    failed(auditDirectory(f.reports, outcome, { sourceRoot: f.sourceRoot, reviewManifestPath: '.github/reviews.json' }),
+      'CODEQL_ANALYSIS_UNSUCCESSFUL');
+  }
+  for (const mutate of [current => { current.invocations[0].executionSuccessful = false; },
+    current => { current.properties = { resultsTruncated: true }; }]) {
+    const current = run([f.reviewedFinding()]);
+    mutate(current);
+    failed(f.auditReview(report(current)));
+  }
+});
+
+test('missing malformed unversioned and incomplete review registries fail closed even for empty scans', t => {
+  const f = reviewFixture(t);
+  for (const value of [null, [], {}, { ...f.manifest, version: 2 }, { ...f.manifest, digestAlgorithm: 'sha256' },
+    { ...f.manifest, extra: 'not allowed' }, { version: 1, reviews: [f.entry] },
+    { ...f.manifest, reviews: {} }, ...['reviewer', 'reason', 'evidence'].map(field => ({ ...f.manifest,
+      reviews: [{ ...f.entry, [field]: ' ' }] })),
+    { ...f.manifest, reviews: [{ ...f.entry, extra: true }] },
+    { ...f.manifest, reviews: [{ ...f.entry, sourceSha256: 'bad' }] },
+    { ...f.manifest, reviews: [{ ...f.entry, startLine: '12' }] }]) {
+    f.writeManifest(value);
+    failed(f.auditReview(report()), 'CODEQL_REVIEW_INVALID');
+  }
+  for (const content of ['{invalid', '', Buffer.from([0xff])]) {
+    fs.writeFileSync(f.manifestPath, content);
+    failed(f.auditReview(report()));
+  }
+  fs.unlinkSync(f.manifestPath);
+  failed(f.auditReview(report()), 'CODEQL_REVIEW_UNAVAILABLE');
+  failed(f.auditReview(report(), 'success', { reviewManifestPath: '' }), 'CODEQL_REVIEW_INVALID');
+});
+
+test('unsafe registry and source paths are rejected without reading outside the repository', t => {
+  const f = reviewFixture(t);
+  for (const filename of ['backend/recovery.json', 'reviews.json', '../outside.json', '/outside.json', 'C:/outside.json', 'src\\reviews.json',
+    'file:///outside.json', 'reviews.json\u0000', 'src/../reviews.json', 'src//reviews.json']) {
+    failed(f.auditReview(report(), 'success', { reviewManifestPath: filename }), 'CODEQL_REVIEW_INVALID');
+  }
+  for (const filename of ['../outside.js', '/outside.js', 'C:/outside.js', 'src\\outside.js',
+    '.git/private.js', 'node_modules/private.js', 'backend/recovery.json', '.env', 'src/CON.js',
+    'src/file.js.', 'src/file.js\n', 'src/' + 'x'.repeat(513)]) {
+    f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: filename }] });
+    failed(f.auditReview(), 'CODEQL_REVIEW_INVALID');
+  }
+});
+
+test('registry and source read limits fail closed before oversized reads', t => {
+  const f = reviewFixture(t);
+  const enlarge = (filename, size) => {
+    const fd = fs.openSync(filename, 'w');
+    try { fs.ftruncateSync(fd, size); } finally { fs.closeSync(fd); }
+  };
+  enlarge(f.manifestPath, REVIEW_LIMITS.manifestBytes + 1);
+  failed(f.auditReview(), 'CODEQL_REVIEW_LIMIT');
+  f.writeManifest();
+  enlarge(f.sourcePath, REVIEW_LIMITS.sourceBytes + 1);
+  failed(f.auditReview(), 'CODEQL_REVIEW_LIMIT');
+  f.writeManifest({ ...f.manifest, reviews: Array(REVIEW_LIMITS.entries + 1).fill(f.entry) });
+  failed(f.auditReview(), 'CODEQL_REVIEW_LIMIT');
+});
+
+test('symlinked source or manifest ancestors, including Windows junctions, are never read', t => {
+  const f = reviewFixture(t);
+  const external = directory(t);
+  fs.writeFileSync(path.join(external, 'synthetic.js'), fs.readFileSync(f.sourcePath));
+  fs.writeFileSync(path.join(external, 'reviews.json'), JSON.stringify(f.manifest));
+  const linked = path.join(f.sourceRoot, 'linked');
+  fs.symlinkSync(external, linked, process.platform === 'win32' ? 'junction' : 'dir');
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: 'linked/synthetic.js' }] });
+  failed(f.auditReview(report(run([f.reviewedFinding({ locations: [location('linked/synthetic.js')] })]))), 'CODEQL_REVIEW_UNSAFE');
+  f.writeManifest();
+  const linkedRegistry = path.join(f.sourceRoot, '.github', 'linked');
+  fs.symlinkSync(external, linkedRegistry, process.platform === 'win32' ? 'junction' : 'dir');
+  failed(f.auditReview(report(), 'success', { reviewManifestPath: '.github/linked/reviews.json' }), 'CODEQL_REVIEW_UNSAFE');
+});
+
+test('symlinked source and registry files fail closed', t => {
+  const f = reviewFixture(t);
+  const linkedSource = path.join(f.sourceRoot, 'src', 'linked.js');
+  const linkedManifest = path.join(f.sourceRoot, '.github', 'linked.json');
+  try {
+    fs.symlinkSync(f.sourcePath, linkedSource, 'file');
+    fs.symlinkSync(f.manifestPath, linkedManifest, 'file');
+  } catch (error) {
+    if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) {
+      t.skip('Windows file symlinks require a privilege; CI runs this on Linux');
+      return;
+    }
+    throw error;
+  }
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: 'src/linked.js' }] });
+  failed(f.auditReview(report(run([f.reviewedFinding({ locations: [location('src/linked.js')] })]))), 'CODEQL_REVIEW_UNSAFE');
+  f.writeManifest();
+  failed(f.auditReview(report(), 'success', { reviewManifestPath: '.github/linked.json' }), 'CODEQL_REVIEW_UNSAFE');
+});
+
+test('CLI review opt-in logs every finding but never registry metadata or source contents', t => {
+  const dir = fs.mkdtempSync(path.join(root, '.github', 'codeql-review-synthetic-'));
+  t.after(() => {
+    assert.equal(path.dirname(path.resolve(dir)), path.join(root, '.github'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const sourcePath = 'tests/conversation-codeql-gate.test.js';
+  const marker = 'SYNTHETIC_REVIEW_PRIVATE_METADATA';
+  const entry = { ruleId: 'js/sql-injection', path: sourcePath, startLine: 1,
+    sourceSha256: sourceFingerprint(fs.readFileSync(path.join(root, sourcePath))),
+    reviewer: marker, reason: marker, evidence: marker };
+  const manifestPath = path.join(dir, 'reviews.json');
+  fs.writeFileSync(manifestPath, JSON.stringify({ version: 1, digestAlgorithm: 'sha256-lf', reviews: [entry] }));
+  const relativeManifest = path.relative(root, manifestPath).split(path.sep).join('/');
+  writeReport(dir, report(run([finding({ locations: [location(sourcePath, 1)] }),
+    finding({ level: 'none', locations: [location(sourcePath, 2)], suppressions: [{ kind: 'external', status: 'accepted' }] })])));
+  const result = cli(dir, 'success', [dir], relativeManifest);
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, '');
+  assert.equal(result.stdout.includes(marker), false);
+  const [summary, reviewed, unreviewed] = result.stdout.trim().split('\n').map(JSON.parse);
+  assert.equal(summary.totals.securityFindings, 2);
+  assert.equal(summary.totals.reviewedFindings, 1);
+  assert.equal(summary.totals.unreviewedFindings, 1);
+  assert.equal(reviewed.reviewed, true);
+  assert.equal(unreviewed.reviewed, false);
+  writeReport(dir, report(run([finding({ locations: [location(sourcePath, 1)] })])));
+  assert.equal(cli(dir, 'success', [dir], relativeManifest).status, 0);
+  fs.writeFileSync(manifestPath, '{' + marker);
+  const malformed = cli(dir, 'success', [dir], relativeManifest);
+  assert.equal(malformed.status, 1);
+  assert.equal(malformed.stdout.includes(marker), false);
+  assert.equal(malformed.stdout.trim().split('\n').length, 2);
+});
+
+test('an empty strict registry passes only a clean complete scan', t => {
+  const f = reviewFixture(t);
+  f.writeManifest({ ...f.manifest, reviews: [] });
+  const clean = f.auditReview(report());
+  assert.equal(clean.ok, true);
+  assert.equal(clean.totals.reviewedFindings, 0);
+  failed(f.auditReview(), 'CODEQL_SECURITY_FINDINGS');
+});
+
+test('registry paths absent from emitted SARIF cannot authorize source hashing', t => {
+  const f = reviewFixture(t);
+  fs.writeFileSync(path.join(f.sourceRoot, 'src', 'not-scanned.js'), Buffer.from([0xff]));
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, path: 'src/not-scanned.js' }] });
+  const open = fs.openSync;
+  let sourceOpens = 0;
+  t.mock.method(fs, 'openSync', (filename, ...args) => {
+    if (filename === path.join(f.sourceRoot, 'src', 'not-scanned.js')) sourceOpens++;
+    return open(filename, ...args);
+  });
+  failed(f.auditReview(), 'CODEQL_REVIEW_STALE');
+  assert.equal(sourceOpens, 0);
+});
+
+function trackSourceDescriptor(t, f, onOpen, onRead) {
+  const open = fs.openSync, close = fs.closeSync, read = fs.readSync;
+  let descriptor = null;
+  let closes = 0;
+  t.mock.method(fs, 'openSync', (filename, ...args) => {
+    if (filename === f.sourcePath && descriptor === null) {
+      // Reserve the slot before a race hook performs its own write/open.
+      descriptor = -1;
+      onOpen?.();
+      descriptor = open(filename, ...args);
+      return descriptor;
+    }
+    return open(filename, ...args);
+  });
+  t.mock.method(fs, 'readSync', (fd, ...args) => {
+    const count = read(fd, ...args);
+    if (fd === descriptor) onRead?.(args, count);
+    return count;
+  });
+  t.mock.method(fs, 'closeSync', fd => {
+    if (fd === descriptor) closes++;
+    return close(fd);
+  });
+  return { descriptor: () => descriptor, closes: () => closes };
+}
+
+test('same-size same-time source replacement before open rejects initial inode changes and closes', t => {
+  const f = reviewFixture(t);
+  const initial = fs.statSync(f.sourcePath);
+  const original = fs.readFileSync(f.sourcePath);
+  const lstat = fs.lstatSync, fstat = fs.fstatSync;
+  const tracked = trackSourceDescriptor(t, f, () => {
+    fs.renameSync(f.sourcePath, path.join(f.sourceRoot, 'previous.js'));
+    fs.writeFileSync(f.sourcePath, original);
+  });
+  // Equal timestamps and size deliberately leave only inode identity to catch the swap.
+  t.mock.method(fs, 'lstatSync', filename => {
+    const stat = lstat(filename);
+    return filename === f.sourcePath ? Object.assign(stat, { mtimeMs: initial.mtimeMs, ctimeMs: initial.ctimeMs }) : stat;
+  });
+  t.mock.method(fs, 'fstatSync', fd => {
+    const stat = fstat(fd);
+    return fd === tracked.descriptor() ? Object.assign(stat, { mtimeMs: initial.mtimeMs, ctimeMs: initial.ctimeMs }) : stat;
+  });
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNSAFE');
+  assert.equal(tracked.closes(), 1);
+});
+
+test('pre-open ctime drift with stable inode size and mtime fails closed and closes', t => {
+  const f = reviewFixture(t);
+  const initial = fs.statSync(f.sourcePath);
+  const lstat = fs.lstatSync, fstat = fs.fstatSync;
+  let changed = false;
+  const tracked = trackSourceDescriptor(t, f, () => { changed = true; });
+  t.mock.method(fs, 'lstatSync', filename => {
+    const stat = lstat(filename);
+    return filename === f.sourcePath && changed ? Object.assign(stat, { ctimeMs: initial.ctimeMs + 1 }) : stat;
+  });
+  t.mock.method(fs, 'fstatSync', fd => {
+    const stat = fstat(fd);
+    return fd === tracked.descriptor() ? Object.assign(stat, { ctimeMs: initial.ctimeMs + 1 }) : stat;
+  });
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNSAFE');
+  assert.equal(tracked.closes(), 1);
+});
+
+test('path swap during a stable descriptor read fails the final inode check and closes', t => {
+  const f = reviewFixture(t);
+  const initial = fs.statSync(f.sourcePath);
+  const original = fs.readFileSync(f.sourcePath);
+  const lstat = fs.lstatSync, fstat = fs.fstatSync;
+  let swapped = false;
+  const tracked = trackSourceDescriptor(t, f, undefined, () => {
+    if (swapped) return;
+    swapped = true;
+    fs.renameSync(f.sourcePath, path.join(f.sourceRoot, 'previous.js'));
+    fs.writeFileSync(f.sourcePath, original);
+  });
+  t.mock.method(fs, 'lstatSync', filename => {
+    const stat = lstat(filename);
+    return filename === f.sourcePath ? Object.assign(stat, { mtimeMs: initial.mtimeMs, ctimeMs: initial.ctimeMs }) : stat;
+  });
+  t.mock.method(fs, 'fstatSync', fd => {
+    const stat = fstat(fd);
+    return fd === tracked.descriptor() ? Object.assign(stat, { mtimeMs: initial.mtimeMs, ctimeMs: initial.ctimeMs }) : stat;
+  });
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNSAFE');
+  assert.equal(tracked.closes(), 1);
+});
+
+test('source growth during a read fails within the original buffer bound and closes', t => {
+  const f = reviewFixture(t);
+  const initial = fs.statSync(f.sourcePath);
+  let appended = false;
+  const tracked = trackSourceDescriptor(t, f, undefined, args => {
+    assert.equal(args[0].length, initial.size + 1);
+    if (!appended) {
+      appended = true;
+      fs.appendFileSync(f.sourcePath, '// added code\n');
+    }
+  });
+  failed(f.auditReview(), 'CODEQL_REVIEW_UNSAFE');
+  assert.equal(tracked.closes(), 1);
 });

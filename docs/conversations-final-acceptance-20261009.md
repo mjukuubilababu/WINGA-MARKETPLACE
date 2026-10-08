@@ -46,10 +46,33 @@ after execution. Local unit tests cannot replace genuine BEAM execution.
 ## Actual Static-Analysis Gate
 
 CodeQL security-extended output is now checked with a fail-closed SARIF gate.
-All emitted security findings, including suppressed/baseline findings, block
+All unreviewed security findings, including suppressed/baseline findings, block
 the candidate. Missing, incomplete, unsuccessful or malformed scans do not pass.
 Triage output contains only safe rule/path/line metadata, never source snippets.
 The gate has dedicated regressions and uses the actual analyze output in CI.
+
+Actual candidate run `37848028618` at `76d3f41` passed the functional profile
+(including real PostgreSQL and browser execution) and the dependency scan.
+CodeQL analysis completed and reported 53 security findings; its gate correctly
+failed. The native BEAM run passed 15 Mix tests but failed the negative sender
+receipt assertion because a test fault injector withheld receipts from the
+forbidden sender as well as the receiver. This is not a successful native
+failover certification. The revised injector targets only the receiver and
+retains the canonical 403 denial assertion.
+
+The operator approved recording only independently reviewed false positives,
+with a reason, exact rule/location and code fingerprint. New findings and
+changed source fingerprints must still fail. No blanket rule/path exclusions
+or automatic baseline acceptance are authorized. The review ledger is not
+permission to waive a real vulnerability or external cryptographic approval.
+
+Security follow-up fixes use checked, bounded file descriptors for public
+legacy copying and local product-image metadata, exclusive local seed creation,
+prototype-safe demand/cookie dictionaries, and explicit webhook signature
+fields. Remote product IDs are validated before writing generated share pages.
+Focused local media/security regressions pass 61/61; actual server startup,
+cookie-only authentication and intelligence regressions pass 15/15; frontend
+core passes 145/145. Fresh CI must verify the revised candidate before promotion.
 
 The candidate is first published to `codex/conversations-final-acceptance` so
 the backend's On Commit deploy does not publish unverified native runtime code.

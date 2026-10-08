@@ -1,14 +1,34 @@
 (() => {
   const BLOCKED_TAGS = new Set(["script", "style", "iframe", "object", "embed", "link", "meta"]);
-  const URL_ATTRIBUTE_NAMES = new Set(["href", "src", "xlink:href", "formaction"]);
+  const URL_ATTRIBUTE_NAMES = new Set(["href", "src", "xlink:href", "formaction", "action", "poster"]);
 
   function isUnsafeAttribute(key, value) {
     const name = String(key || "").toLowerCase();
-    const normalizedValue = String(value || "").trim().toLowerCase();
     if (name.startsWith("on") || name === "srcdoc") {
       return true;
     }
-    return URL_ATTRIBUTE_NAMES.has(name) && normalizedValue.startsWith("javascript:");
+    if (!URL_ATTRIBUTE_NAMES.has(name)) {
+      return false;
+    }
+    try {
+      // Browser parsing normalizes embedded tabs/newlines before interpreting the scheme.
+      const url = new URL(String(value || ""), window.location?.href || "https://winga.invalid/");
+      if (["https:", "http:"].includes(url.protocol)) {
+        return false;
+      }
+      if (["href", "xlink:href"].includes(name) && ["mailto:", "tel:"].includes(url.protocol)) {
+        return false;
+      }
+      if (["src", "poster"].includes(name) && url.protocol === "blob:") {
+        return false;
+      }
+      if (["src", "poster"].includes(name) && url.protocol === "data:") {
+        return !/^data:(?:image|audio|video)\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(url.href);
+      }
+      return true;
+    } catch {
+      return true;
+    }
   }
 
   function createElement(tagName, options = {}) {
@@ -81,24 +101,7 @@
       }
 
       Array.from(node.attributes || []).forEach((attribute) => {
-        const name = String(attribute.name || "").toLowerCase();
-        const value = String(attribute.value || "").trim();
-        const normalizedValue = value.toLowerCase();
-
-        if (name.startsWith("on")) {
-          node.removeAttribute(attribute.name);
-          return;
-        }
-
-        if (name === "srcdoc") {
-          node.removeAttribute(attribute.name);
-          return;
-        }
-
-        if (
-          ["href", "src", "xlink:href", "formaction"].includes(name)
-          && normalizedValue.startsWith("javascript:")
-        ) {
+        if (isUnsafeAttribute(attribute.name, attribute.value)) {
           node.removeAttribute(attribute.name);
         }
       });

@@ -31,6 +31,16 @@ test("Stream webhook verification rejects tampering and replayed signatures", ()
   assert.equal(verifyCloudflareStreamWebhook(rawBody, header, secret, { nowSeconds: nowSeconds + 301 }).reason, "stale_signature");
 });
 
+test("Stream webhook headers ignore arbitrary property names without changing signature authority", () => {
+  const secret = "stream-webhook-test-secret-32-characters", rawBody = '{"uid":"video"}', nowSeconds = 1788089000;
+  const signature = crypto.createHmac("sha256", secret).update(`${nowSeconds}.${rawBody}`).digest("hex");
+  const reserved = "__proto__=poison,constructor=poison,toString=poison";
+  assert.equal(verifyCloudflareStreamWebhook(rawBody, `${reserved},time=${nowSeconds},sig1=${signature}`, secret, { nowSeconds }).ok, true);
+  assert.equal(verifyCloudflareStreamWebhook(rawBody, `${reserved},time=${nowSeconds}`, secret, { nowSeconds }).ok, false);
+  assert.equal(verifyCloudflareStreamWebhook(rawBody, `time=${nowSeconds},sig1=${signature},${reserved},sig1=bad`, secret, { nowSeconds }).ok, false);
+  assert.equal(Object.prototype.poison, undefined);
+});
+
 test("Stream video normalization exposes playback only after encoding is ready", () => {
   const processing = normalizeStreamVideo({ uid: "video-one", readyToStream: false, status: { state: "inprogress" }, playback: { hls: "https://invalid/private.m3u8" } });
   const ready = normalizeStreamVideo({ uid: "video-one", creator: "seller-one", duration: 12.5, readyToStream: true, status: { state: "ready" }, input: { width: 1080, height: 1920 }, meta: { contentType: "VIDEO/MP4" }, playback: { hls: "https://video.example/manifest.m3u8" }, thumbnail: "https://video.example/thumb.jpg" });

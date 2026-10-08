@@ -41,8 +41,14 @@ jobs:
       - run: npm run test:conversation-e2ee
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
+      - name: Test file and untrusted-key security regressions
+        run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js
       - run: npm run test:conversation-postgres
       - run: npx playwright install --with-deps chromium
+      - name: Test DOM URL guards with the actual browser parser
+        env:
+          WINGA_DOM_BROWSER_TEST: 'true'
+        run: node --test tests/dom-url-security.test.js
       - run: npm run test:secure-content-browser
   dependencies:
     runs-on: ubuntu-24.04
@@ -125,4 +131,5 @@ jobs:
         env:
           CODEQL_ANALYSIS_OUTCOME: ${{ steps.codeql-analysis.outcome }}
           CODEQL_SARIF_DIRECTORY: ${{ runner.temp }}/conversation-codeql-sarif
+          CODEQL_REVIEW_MANIFEST: .github/codeql-reviewed-findings.v1.json
         run: node scripts/check-conversation-codeql.js

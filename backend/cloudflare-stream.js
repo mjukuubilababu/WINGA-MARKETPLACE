@@ -89,12 +89,16 @@ function isCloudflareStreamConfigured(config = readCloudflareStreamConfig()) {
   return Boolean(config.accountId && config.apiToken && config.allowedOrigins.length);
 }
 function parseWebhookSignature(header = "") {
-  const values = {};
+  let time = "";
+  let signature = "";
   for (const part of String(header || "").split(",")) {
     const separator = part.indexOf("=");
-    if (separator > 0) values[part.slice(0, separator).trim()] = part.slice(separator + 1).trim();
+    if (separator <= 0) continue;
+    const name = part.slice(0, separator).trim();
+    if (name === "time") time = part.slice(separator + 1).trim();
+    if (name === "sig1") signature = part.slice(separator + 1).trim();
   }
-  return { time: values.time || "", signature: values.sig1 || "" };
+  return { time, signature };
 }
 function verifyCloudflareStreamWebhook(rawBody, signatureHeader, secret, options = {}) {
   const { time, signature } = parseWebhookSignature(signatureHeader);

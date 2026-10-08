@@ -38,7 +38,7 @@ function normalizeIdentifier(value, maxLength = 80) {
 
 function normalizeDemandAction(value) {
   const action = normalizeIdentifier(value, 40).replace(/[^a-z0-9_:-]+/g, "_");
-  return DEMAND_ACTIONS[action] ? action : "";
+  return Object.hasOwn(DEMAND_ACTIONS, action) ? action : "";
 }
 
 function getHeader(headers = {}, name = "") {
@@ -170,9 +170,9 @@ function summarizeDemandEvents(events = [], products = []) {
         restockInterest: 0,
         demandScore: 0,
         lastDemandAt: "",
-        actionCounts: {},
-        colors: {},
-        sizes: {},
+        actionCounts: new Map(),
+        colors: new Map(),
+        sizes: new Map(),
         identities: new Set()
       });
     }
@@ -180,7 +180,7 @@ function summarizeDemandEvents(events = [], products = []) {
     const action = normalizeDemandAction(event.action) || "unknown";
     summary.totalDemand += 1;
     summary.demandScore += Number(event.demandScore || DEMAND_ACTIONS[action]?.score || 1);
-    summary.actionCounts[action] = (summary.actionCounts[action] || 0) + 1;
+    summary.actionCounts.set(action, (summary.actionCounts.get(action) || 0) + 1);
     if (event.contributesRestockInterest !== false && action !== "show_similar") {
       summary.restockInterest += 1;
     }
@@ -189,10 +189,10 @@ function summarizeDemandEvents(events = [], products = []) {
       summary.identities.add(identity);
     }
     if (event.color) {
-      summary.colors[event.color] = (summary.colors[event.color] || 0) + 1;
+      summary.colors.set(event.color, (summary.colors.get(event.color) || 0) + 1);
     }
     if (event.size) {
-      summary.sizes[event.size] = (summary.sizes[event.size] || 0) + 1;
+      summary.sizes.set(event.size, (summary.sizes.get(event.size) || 0) + 1);
     }
     if (!summary.lastDemandAt || new Date(event.createdAt || 0).getTime() > new Date(summary.lastDemandAt || 0).getTime()) {
       summary.lastDemandAt = event.createdAt || "";
@@ -208,9 +208,9 @@ function summarizeDemandEvents(events = [], products = []) {
     restockInterest: summary.restockInterest,
     demandScore: summary.demandScore,
     lastDemandAt: summary.lastDemandAt,
-    actionCounts: summary.actionCounts,
-    topColors: Object.entries(summary.colors).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([color, count]) => ({ color, count })),
-    topSizes: Object.entries(summary.sizes).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([size, count]) => ({ size, count }))
+    actionCounts: Object.fromEntries(summary.actionCounts),
+    topColors: [...summary.colors].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([color, count]) => ({ color, count })),
+    topSizes: [...summary.sizes].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([size, count]) => ({ size, count }))
   }));
 }
 

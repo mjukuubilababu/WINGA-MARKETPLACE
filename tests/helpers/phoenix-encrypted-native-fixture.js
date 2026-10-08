@@ -72,7 +72,8 @@ module.exports = async function nativeFixture({root, output, store, sessions, ba
           body = await collectBody(req);
           if (url.pathname.endsWith('/operations')) {
             requests.push({account: session.sessionId, operation: structuredClone(body), transport: 'HTTP'});
-            if (body.action === 'receipt' && body.payload.kind === 'delivered' && faults.withholdDelivered)
+            if (session.username === 'bob' && body.action === 'receipt'
+              && body.payload.kind === 'delivered' && faults.withholdDelivered)
               return sendJson(res, 503, {code: 'fixture_receipt_withheld'});
           }
         }
@@ -88,7 +89,8 @@ module.exports = async function nativeFixture({root, output, store, sessions, ba
         const session = byToken.get(common.readAuthToken(req));
         requests.push({account: session?.sessionId, operation: structuredClone(operation)});
         // Faults occur at the real handler boundary; no acceptance or receipt is invented.
-        if (operation.action === 'receipt' && operation.payload.kind === 'delivered' && faults.withholdDelivered)
+        if (session?.username === 'bob' && operation.action === 'receipt'
+          && operation.payload.kind === 'delivered' && faults.withholdDelivered)
           return sendJson(res, 503, {code: 'fixture_receipt_withheld'});
         const lose = operation.action === 'send' && faults.loseSendReply;
         if (lose) faults.loseSendReply = false;

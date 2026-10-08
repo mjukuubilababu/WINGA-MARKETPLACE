@@ -197,7 +197,7 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
 
     const text = 'NATIVE PRIVATE BEAM LOSS ' + crypto.randomUUID(), id = crypto.randomUUID();
     fixture.faults.loseSendReply = true;
-    if (onLoss) fixture.faults.withholdDelivered = true;
+    fixture.faults.withholdDelivered = true;
     onProgress('send with lost accepted reply');
     const pending = await sender.evaluate(({id, text}) => native.sendMessage({clientMessageId: id, receiverId: 'bob', messageType: 'text', message: text}), {id, text});
     assert.equal(pending.id, id); assert.equal(pending.status, onLoss ? 'sent' : 'pending');
