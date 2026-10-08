@@ -27,7 +27,15 @@
         need(item.kind==='shopping-room'&&item.peer==='room:'+g.id&&typeof item.owner==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(item.owner)
           &&typeof item.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(item.sequence));fields.push('kind','sequence');
         if(item.mediaId!==undefined){need(uuid(item.mediaId));fields.push('mediaId');}
-      }else need(item.kind!=='shopping-room'&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
+      }else {
+        need(item.kind!=='shopping-room'&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
+        if(item.sequence!==undefined||item.conversationSequence!==undefined){
+          for(const key of ['sequence','conversationSequence'])if(item[key]!==undefined)need(typeof item[key]==='string'&&/^[1-9][0-9]{0,18}$/.test(item[key]));
+          need(item.sequence===undefined||item.conversationSequence===undefined||item.sequence===item.conversationSequence);
+          const sequence=item.sequence||item.conversationSequence;item={...item,sequence,conversationSequence:sequence};
+          fields.push('sequence','conversationSequence');
+        }
+      }
       return Object.fromEntries(fields.map(k=>[k,item[k]]));
     }
     async function history(g){
@@ -184,7 +192,14 @@
         for(const [id,item] of Object.entries(items)){
           const old=local.values[id];if(old){
             need(old.status!=='pending','history_sync_pending_send');const a=normalized(old,g),b={...item};delete a.status;delete b.status;
-            need(JSON.stringify(a)===JSON.stringify(b),'history_sync_conflict');items[id]={...item,status:rank[old.status]>rank[item.status]?old.status:item.status};
+            const oldSequence=a.sequence,newSequence=b.sequence;
+            if(g.kind!=='shopping-room'){
+              need(!oldSequence||!newSequence||oldSequence===newSequence,'history_sync_conflict');
+              for(const key of ['sequence','conversationSequence']){delete a[key];delete b[key];}
+            }
+            need(JSON.stringify(a)===JSON.stringify(b),'history_sync_conflict');items[id]={...item,
+              ...(g.kind!=='shopping-room'&&oldSequence&&!newSequence?{sequence:oldSequence,conversationSequence:oldSequence}:{}),
+              status:rank[old.status]>rank[item.status]?old.status:item.status};
           }
           items[id].encrypted=true;
         }

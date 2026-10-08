@@ -3,9 +3,18 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "admin.conversationsOperations": "Exploitation des conversations",
+        "admin.conversationServerRate": "Mesure serveur {name} : acceptés {success} ; non confirmés {failure} ; taux d’acceptation {rate}%.",
+        "admin.conversationObservation": "Mesures {name} : {count} ; moyenne {average} ms ; maximum {max} ms.",
+        "admin.conversationReconnect": "Reconnexions client : {count} en {hours} heures ; {rate} par heure.",
         "admin.conversationHealthReady": "Conversations prêtes. Publishers {publishers}; enregistrements acceptés {records}; tentatives {attempts}; dispatch en attente {dispatch}; push en attente {push}.",
         "admin.conversationHealthDegraded": "Conversations à vérifier. Publishers {publishers}; enregistrements acceptés {records}; tentatives {attempts}; dispatch en attente {dispatch}; push en attente {push}.",
         "admin.conversationHealthUnavailable": "État des conversations indisponible.",
+        "admin.conversationRate": "Déclaration client {name} : confirmés {success} ; non confirmés {failure} ; taux de confirmation {rate}%.",
+        "admin.conversationExperience": "Observations client {name} : {count} ; moyenne {average} ms ; maximum {max} ms.",
+        "admin.conversationReliability": "Enregistrements chiffrés : livrés {delivered}/{accepted} ; délai {latency} ms ({samples} échantillons horodatés).",
+        "admin.conversationPool": "Pool backend : actifs {active} ; libres {idle} ; en attente {waiting} ; maximum {max}.",
+        "admin.conversationTransport": "Nœud Phoenix : connexions {connections} ; file {queued} ; mémoire BEAM {memory} octets ; ordonnanceur {scheduler}%.",
         "admin.conversationHealthAlert": "Alerte de conversation : {code}",
         "rooms.preferenceConflict": "Les paramètres ont changé sur un autre appareil. Réessayez.",
         "rooms.transferAdmin": "Transférer le rôle admin",
@@ -1622,5 +1631,12 @@
                      "chat.reportReviewReason": "Motif de consultation de ces éléments",
                      "chat.reportViewEvidence": "Voir les éléments partagés",
                      "chat.reportEvidenceFailed": "Éléments indisponibles. Réessayez."
+                     ,"chat.incomingAnnouncement": "{count} nouveaux messages",
+                     "chat.pay": "Payer",
+                     "chat.sharePhone": "Partager mon numéro",
+                     "chat.whatsapp": "Discuter sur WhatsApp",
+                     "chat.paymentSafety": "Utilisez les coordonnées de paiement du vendeur dans Winga. Signalez les demandes suspectes de paiement hors de Winga.",
+                     "chat.messageHistory": "Historique des messages"
+                     ,"chat.localSendWaiting": "Enregistré sur cet appareil ; en attente d'envoi"
                  }
 }

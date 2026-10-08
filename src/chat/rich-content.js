@@ -55,7 +55,16 @@
       &&Number.isFinite(created)&&time>=created&&time-created<=EDIT_WINDOW_MS;
   }
   function project(history,owner) {
-    const sorted=history.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||a.id.localeCompare(b.id));
+    const sequence=item=>/^[1-9][0-9]{0,18}$/.test(item.sequence||item.conversationSequence||'')?BigInt(item.sequence||item.conversationSequence):null;
+    const compare=(a,b)=>{
+      const conversation=String(a.conversationId||'').localeCompare(String(b.conversationId||''));
+      if(conversation)return conversation;
+      const x=sequence(a),y=sequence(b);
+      if(x!==null && y!==null && x!==y)return x<y?-1:1;
+      if((x===null)!==(y===null))return x===null?-1:1;
+      return (Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0)||a.id.localeCompare(b.id);
+    };
+    const sorted=history.slice().sort(compare);
     const rows=new Map(),events=[];
     for(const item of sorted) {
       const c=parse(item.message);
@@ -68,6 +77,7 @@
       const target=rows.get(c.data.targetId);
       if(!target||!Number.isFinite(Date.parse(item.timestamp))||Date.parse(item.timestamp)<Date.parse(target.timestamp)
         ||item.conversationId!==target.conversationId
+        ||sequence(item)!==null&&sequence(target)!==null&&sequence(item)<=sequence(target)
         ||![target.owner,target.peer].includes(item.owner)||item.owner===item.peer)continue;
       if(c.type==='hide') {if(item.owner===owner)hidden.add(target.id);continue;}
       if(c.type==='edit') {
@@ -78,7 +88,7 @@
       }else {
         const key=JSON.stringify([target.id,item.owner]);
         const prior=reactions.get(key);
-        if(!prior||Date.parse(item.timestamp)>=Date.parse(prior.item.timestamp))reactions.set(key,{item,emoji:c.data.emoji});
+        if(!prior||compare(item,prior.item)>0)reactions.set(key,{item,emoji:c.data.emoji});
       }
     }
     for(const {item,emoji} of reactions.values()) {

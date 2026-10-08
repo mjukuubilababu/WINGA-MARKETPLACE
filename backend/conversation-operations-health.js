@@ -14,7 +14,7 @@ function evaluateConversationOperations({state,privateStorage,policy,now=Date.no
   if(!state?.dispatch||state.dispatch.oldestPendingAgeSeconds>60)alerts.push('conversation_dispatch_delayed');
   if(!state?.push||state.push.oldestDueAgeSeconds>300||state.push.exhausted>0)alerts.push('conversation_push_delayed');
   if(!state?.media||state.media.oldestCleanupAgeSeconds>600)alerts.push('conversation_media_cleanup_delayed');
-  const operations=state?.metrics?.operations||[];
+  const operations=(state?.metrics?.operations||[]).filter(row=>!['direct-duplicate-send','send-commit','protocol-error'].includes(row.action));
   const samples=operations.reduce((total,row)=>total+row.count,0);
   const unavailable=operations.filter(row=>row.outcome==='unavailable').reduce((total,row)=>total+row.count,0);
   const rate=samples?unavailable/samples:0;
@@ -23,15 +23,23 @@ function evaluateConversationOperations({state,privateStorage,policy,now=Date.no
   if(samples&&(!Number.isFinite(sampledAt)||now-sampledAt>120000)&&!alerts.includes('conversation_metrics_publisher_stale'))alerts.push('conversation_metrics_publisher_stale');
   const sends=operations.filter(row=>['send','room-send'].includes(row.action));
   const sendAttempts=sends.reduce((total,row)=>total+row.count,0),sendUnavailable=sends.filter(row=>row.outcome==='unavailable').reduce((total,row)=>total+row.count,0);
+  const sendAccepted=sends.filter(row=>row.outcome==='success').reduce((total,row)=>total+row.count,0);
+  const clientCount=name=>(state?.experience?.metrics||[]).find(row=>row.name===name)?.count||0;
+  const clientRate=(ok,failed,pendingName)=>{const success=clientCount(ok),failure=clientCount(failed),pending=pendingName?clientCount(pendingName):0;
+    return {success,failure,pending,rate:success+failure+pending?success/(success+failure+pending):null};};
   if(sendAttempts>=20&&sendUnavailable/sendAttempts>0.1)alerts.push('conversation_send_unavailability_exceeded');
   return {ok:alerts.length===0,readiness:alerts.length?'degraded':'ready',mode:'conversation-operational-health',
     privacy:'aggregate-only',time:new Date(now).toISOString(),alerts,policy,privateStorage,...state,runtime,
-    observation:{samples,unavailable,unavailabilityRate:rate,sendAttempts,sendUnavailable,sufficientSamples:samples>=20,
+    observation:{samples,unavailable,unavailabilityRate:rate,sendAttempts,sendAccepted,sendUnavailable,sendAttemptAcceptanceRate:sendAttempts?sendAccepted/sendAttempts:null,sufficientSamples:samples>=20,
       accounting:'operation-attempts-including-retries',window:'current-and-previous-23-UTC-hours'},
+    clientReliability:{scope:'client-reported-instrumented-attempts',send:clientRate('send-confirmed','send-failed','send-pending'),
+      retry:clientRate('retry-confirmed','retry-failed'),sync:clientRate('sync-confirmed','sync-failed'),
+      offline:clientRate('offline-confirmed','offline-failed'),resume:clientRate('transport-resume-confirmed','transport-resume-failed','transport-resume-pending')},
     acceptance:{authenticatedDeviceFlowVerified:false,productionLoadVerified:false,cryptographicAuditApproved:false},
     databaseChanged:false,remoteWrites:false};
 }
 function createConversationOperationsHealth({getStore,env=process.env,now=Date.now,
+  transportCheck=require('./conversation-transport-health').readConversationTransportHealth,
   privacyCheck=require('./backup-legacy-private-media').assertPrivateBucket}={}) {
   let cached,inflight,expires=0;
   return async function read() {
@@ -47,7 +55,8 @@ function createConversationOperationsHealth({getStore,env=process.env,now=Date.n
         privateStorage.configurationValid=true;
         await privacyCheck(config);privateStorage.privacyVerified=true;
       }catch {privateStorage.errorCode=privateStorage.configurationValid?'PRIVATE_BUCKET_PRIVACY_CHECK_FAILED':'PRIVATE_BUCKET_CONFIGURATION_REQUIRED';}
-      const state=await store.readConversationOperationsHealth();
+      const [state,transport]=await Promise.all([store.readConversationOperationsHealth(),transportCheck({env})]);
+      state.transport=transport;
       cached=evaluateConversationOperations({state,privateStorage,policy,now:now()});
       expires=now()+(cached.ok?30000:5000);return cached;
     })();

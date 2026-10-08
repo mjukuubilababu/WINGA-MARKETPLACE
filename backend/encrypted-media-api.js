@@ -12,12 +12,14 @@ function collectCiphertext(req,expected) {
     const timer=setTimeout(error,30000);req.on('data',data);req.on('end',end);req.on('error',error);req.on('aborted',aborted);
   });
 }
-function createEncryptedMediaApi({sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,getStorage,enabled=false}) {
+function createEncryptedMediaApi({sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,getStorage,enabled=false,metrics=require('./conversation-metrics').conversationMetrics}) {
   async function handle(req,res,url) {
     if(!url.pathname.startsWith('/api/conversations/encrypted/media/'))return false;
     const headers={'Cache-Control':'private, no-store',Pragma:'no-cache','X-Content-Type-Options':'nosniff'};
     if(!enabled){sendJson(res,404,{code:'private_media_disabled'},headers);return true;}
     const session=findSession(readAuthToken(req)),user=ensureMarketplaceUser(session,res);if(!user)return true;
+    const started=performance.now(),action=req.method==='PUT'?'media-upload':req.method==='GET'?'media-download':null;
+    const record=status=>{try{metrics.record(action,status,performance.now()-started);}catch{}};
     try {
       if(!['GET','PUT'].includes(req.method))throw failure(405,'method_not_allowed');
       const encoded=req.headers['x-winga-crypto-proof'];
@@ -38,7 +40,8 @@ function createEncryptedMediaApi({sendJson,findSession,readAuthToken,ensureMarke
         res.writeHead(200,{...headers,'Content-Type':'application/octet-stream','Content-Length':bytes.length,'Content-Disposition':'attachment; filename="encrypted.bin"'});
         res.end(bytes,()=>bytes.fill(0));
       }
-    }catch(error){sendJson(res,error.status||503,{code:error.status?error.code:'private_media_unavailable'},headers);}
+      record(200);
+    }catch(error){record(error.status||503);sendJson(res,error.status||503,{code:error.status?error.code:'private_media_unavailable'},headers);}
     return true;
   }
   return {handle};

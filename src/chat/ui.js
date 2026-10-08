@@ -72,15 +72,18 @@
         return "";
       }
       const tone = String(status.tone || "info").trim() || "info";
-      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}">${deps.escapeHtml(status.message)}</p>`;
+      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}" role="status" aria-live="polite">${deps.escapeHtml(status.message)}</p>`;
     }
 
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
+      const connection=globalThis.navigator?.connection;
+      const reduced=connection?.saveData===true || ['slow-2g','2g'].includes(connection?.effectiveType);
       return (deps.createProgressiveImage || deps.createResponsiveImage)({
-        src,
+        src:reduced&&!/^inbox-avatar/.test(className)?deps.getImageFallbackDataUri(fallbackKey):src,
         alt,
         className,
-        ...(/^inbox-/.test(className) ? { sizes: "48px", loading: "lazy", width: 48, height: 48 } : {}),
+        loading:"lazy",decoding:"async",
+        ...(/^inbox-/.test(className) ? { sizes: "48px", width: 48, height: 48 } : {}),
         fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
         placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
@@ -516,13 +519,13 @@
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
             ${replyMessage||message.replyToMessageId ? `<div class="message-reply-preview"><strong>${deps.escapeHtml(t('chat.richReply','Reply'))}</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
-            ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${message.message ? `<p dir="auto">${safeMessageText}</p>` : ""}
             ${richMessageMarkup(message)}
             ${message.reactions?.length ? '<div class="chat-message-reactions">'+message.reactions.map(r=>'<button type="button" data-rich-react="'+deps.escapeHtml(message.id)+'" aria-label="'+deps.escapeHtml(t('chat.richReact','React'))+'">'+deps.escapeHtml(r.emoji)+' '+r.owners.length+'</button>').join('')+'</div>' : ''}
             ${message.edited ? '<small class="chat-edited">'+deps.escapeHtml(t('chat.richEdited','Edited'))+'</small>' : ''}
             ${message.encrypted && message.attachmentId ? `<div class="chat-encrypted-attachment"><button type="button" class="chat-encrypted-file" data-encrypted-media-preview="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaPreview','View encrypted attachment'))}"><img src="/icons/navigation/eye.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button><button type="button" class="chat-encrypted-download" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}" aria-label="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /></button></div>` : ''}
-            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
-            ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? message.waiting?t('chat.localSendWaiting','Saved on this device; waiting to send'):t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
+            ${message.encrypted && message.status === 'pending' && !message.waiting ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
             ${enableActions && (!message.encrypted||message.status!=='pending'&&!message.eventRecord) ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
@@ -700,24 +703,24 @@
                     <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
                     <p role="status" data-chat-archive-status hidden></p>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
-                    <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
-                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
-                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
-                    ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">Report seller</button>` : ""}
-                    ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
-                    ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
+                    <button class="action-btn edit-btn" type="button" data-refresh-messages="true">${deps.escapeHtml(t("inbox.refresh","Refresh conversations"))}</button>
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">${deps.escapeHtml(t("sellerAnalytics.openProduct","Open product"))}</button>` : ""}
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">${deps.escapeHtml(t("chat.pay","Pay"))}</button>` : ""}
+                    ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">${deps.escapeHtml(t("trust.reportSeller","Report seller"))}</button>` : ""}
+                    ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">${deps.escapeHtml(t("chat.sharePhone","Share my phone"))}</button>` : ""}
+                    ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(t("chat.whatsapp","Chat on WhatsApp"))}</a>` : ""}
                   </div></details>
                 </div>
                 ${renderInboxContext(activeChatContext, true)}
                 <details class="conversation-commerce-drawer"><summary>${icon("store")}<span>${deps.escapeHtml(t("chat.commerceActivity", "Commerce activity"))}</span></summary><div>
-                <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
+                <p class="thread-safety-note">${deps.escapeHtml(t("chat.paymentSafety","Use the seller payment details in Winga. Report suspicious requests to pay outside Winga."))}</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
                 </div></details>
-                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}" data-chat-context-key="${deps.escapeHtml(deps.getChatContextKey(activeChatContext))}">
+                <div class="messages-thread-body" role="log" aria-live="off" aria-label="${deps.escapeHtml(t("chat.messageHistory","Message history"))}" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}" data-chat-context-key="${deps.escapeHtml(deps.getChatContextKey(activeChatContext))}">
                   ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -884,7 +887,7 @@
               <p>${safeSellerName}</p>
             </div>
           </div>
-          <div class="context-chat-thread" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
+          <div class="context-chat-thread" role="log" aria-live="off" aria-label="${deps.escapeHtml(t("chat.messageHistory","Message history"))}" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
             ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
@@ -894,11 +897,11 @@
             <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
             <p role="status" data-chat-archive-status hidden></p>
             <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
-            ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">Report seller</button>` : ""}
-            ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
-            ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}
+            ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">${deps.escapeHtml(t("trust.reportSeller","Report seller"))}</button>` : ""}
+            ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">${deps.escapeHtml(t("chat.sharePhone","Share my phone"))}</button>` : ""}
+            ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(t("chat.whatsapp","Chat on WhatsApp"))}</a>` : ""}
           </div>
-          <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
+          <p class="thread-safety-note context-chat-note">${deps.escapeHtml(t("chat.paymentSafety","Use the seller payment details in Winga. Report suspicious requests to pay outside Winga."))}</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOrderCards(activeOrders)}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}

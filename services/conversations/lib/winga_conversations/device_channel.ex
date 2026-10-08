@@ -10,6 +10,7 @@ defmodule WingaConversations.DeviceChannel do
       {:ok, %{"deviceId" => device, "expiresAt" => expires} = principal}
       when is_binary(device) and byte_size(device) > 0 and is_integer(expires) and expires > now ->
         Process.flag(:max_heap_size, %{size: 2_000_000, kill: true, error_logger: false})
+        WingaConversations.Metrics.track(self())
         send(self(), :poll)
         Process.send_after(self(), :reauthorize, interval(:reauthorize_interval))
 
@@ -47,6 +48,7 @@ defmodule WingaConversations.DeviceChannel do
         {:stop, :normal, socket}
 
       not is_map(payload) or byte_size(Jason.encode!(payload)) > 24_000 ->
+        WingaConversations.Metrics.record(:protocol_error)
         {:reply, {:error, %{code: "invalid_request"}}, socket}
 
       true ->
@@ -55,7 +57,7 @@ defmodule WingaConversations.DeviceChannel do
   end
 
   defp dispatch("message.send", payload, socket) do
-    case adapter().request(socket.assigns.ticket, "send", payload) do
+    case measured_request(socket.assigns.ticket, "send", payload) do
       {:ok, %{"id" => id, "conversationSequence" => sequence} = message}
       when is_binary(id) and is_binary(sequence) ->
         {:reply, {:ok, %{accepted: true, message: message}}, socket}
@@ -74,7 +76,7 @@ defmodule WingaConversations.DeviceChannel do
   defp dispatch("events.ack", %{"eventIds" => ids} = payload, socket)
        when is_list(ids) and length(ids) in 1..50 and map_size(payload) == 1 do
     result =
-      adapter().request(socket.assigns.ticket, "ack", %{
+      measured_request(socket.assigns.ticket, "ack", %{
         "eventIds" => ids,
         "deviceId" => socket.assigns.device
       })
@@ -108,13 +110,16 @@ defmodule WingaConversations.DeviceChannel do
     end
   end
 
-  defp dispatch(_, _, socket), do: {:reply, {:error, %{code: "invalid_request"}}, socket}
+  defp dispatch(_, _, socket) do
+    WingaConversations.Metrics.record(:protocol_error)
+    {:reply, {:error, %{code: "invalid_request"}}, socket}
+  end
 
   def handle_info(:poll, socket) do
     if MapSet.size(socket.assigns.pending) > 0 do
       {:noreply, socket}
     else
-      case adapter().request(socket.assigns.ticket, "poll", %{}) do
+      case measured_request(socket.assigns.ticket, "poll", %{}, socket.assigns.device) do
         {:ok, %{"events" => events, "deviceId" => device} = batch}
         when is_list(events) and length(events) <= 50 and device == socket.assigns.device ->
           if events == [] do
@@ -150,5 +155,20 @@ defmodule WingaConversations.DeviceChannel do
   end
 
   defp adapter, do: Application.fetch_env!(:winga_conversations, :adapter)
+  defp measured_request(ticket, command, payload, expected_device \\ nil) do
+    started = System.monotonic_time(:millisecond)
+    result = adapter().request(ticket, command, payload)
+    event = case {command, result} do
+      {"send", {:ok, %{"id" => id, "conversationSequence" => sequence}}} when is_binary(id) and is_binary(sequence) -> :send_accepted
+      {"send", _} -> :send_unknown
+      {"poll", {:ok, %{"events" => events, "deviceId" => device}}}
+      when is_list(events) and length(events) <= 50 and device == expected_device -> :poll_success
+      {"poll", _} -> :poll_failed
+      {"ack", {:ok, _}} -> :ack_success
+      {"ack", _} -> :ack_failed
+    end
+    WingaConversations.Metrics.record(event, System.monotonic_time(:millisecond) - started)
+    result
+  end
   defp interval(key), do: Application.fetch_env!(:winga_conversations, key)
 end

@@ -1163,11 +1163,16 @@
 
     function buildOpsSignalLines(summary = {}) {
       const conversations=summary.conversations||{};
+      const operationRows=['send-commit','protocol-error','direct-duplicate-send','media-upload','media-download'].flatMap(action=>{
+        const rows=(conversations.metrics?.operations||[]).filter(row=>row.action===action);
+        return rows.length?rows:[{action,outcome:'unobserved',count:'-',averageDurationMs:null,maxDurationMs:null}];
+      });
+      const reconnect=(conversations.experience?.metrics||[]).find(row=>row.name==='transport-reconnect');
       const conversationLine=conversations.metrics?.available
         ? t(conversations.readiness==='ready'?'admin.conversationHealthReady':'admin.conversationHealthDegraded',
           conversations.readiness==='ready'?'Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.':'Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.',
           {publishers:conversations.metrics.activePublishers||0,records:conversations.durable?.ciphertextRecordsAccepted||0,
-            attempts:(conversations.metrics.operations||[]).reduce((sum,row)=>sum+row.count,0),
+            attempts:conversations.observation?.samples??'-',
             dispatch:conversations.dispatch?.pendingOwners||0,push:conversations.push?.pending||0})
         : t('admin.conversationHealthUnavailable','Conversations health unavailable.');
       const intelligence = summary.intelligence || {};
@@ -1184,6 +1189,33 @@
       const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
       return [
         {type:'conversation-health',value:conversationLine},
+        {type:'conversation-acceptance',value:t('admin.conversationServerRate','Server-observed {name}: accepted {success}; unconfirmed {failure}; acceptance rate {rate}%.',
+          {name:'durable-send-attempts /24h (server)',success:conversations.observation?.sendAccepted??'-',
+            failure:conversations.observation?conversations.observation.sendAttempts-conversations.observation.sendAccepted:'-',
+            rate:conversations.observation?.sendAttemptAcceptanceRate==null?'-':Math.round(conversations.observation.sendAttemptAcceptanceRate*10000)/100})},
+        ...operationRows.map(row=>({type:'conversation-operation',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+            {name:row.action+':'+row.outcome+' /24h (server)',count:row.count,average:row.averageDurationMs??'-',max:row.maxDurationMs??'-'})})),
+        {type:'conversation-sync-delay',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:'verified-native-sync-acks /24h',count:conversations.multiDevice?.samples??'-',average:conversations.multiDevice?.averageSyncDelayMs==null?'-':Math.round(conversations.multiDevice.averageSyncDelayMs),max:'-'})},
+        {type:'conversation-media-cleanup',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:'media-cleanup-overdue (current)',count:conversations.media?.cleanupOverdue??'-',average:'-',max:conversations.media?.oldestCleanupAgeSeconds==null?'-':Math.round(conversations.media.oldestCleanupAgeSeconds*1000)})},
+        {type:'conversation-reconnect-rate',value:t('admin.conversationReconnect','Client reconnects: {count} in {hours} hours; {rate} per hour.',
+          {count:reconnect?.count??'-',hours:24,rate:reconnect?Math.round(reconnect.count/24*100)/100:'-'})},
+        {type:'conversation-reliability',value:t('admin.conversationReliability',
+          'Ciphertext records: delivered {delivered}/{accepted}; delivery latency {latency} ms ({samples} timed samples).',
+          {delivered:conversations.reliability?.available?conversations.reliability.delivered:'-',accepted:conversations.reliability?.available?conversations.reliability.accepted:'-',
+            latency:conversations.reliability?.averageDeliveryMs==null?'-':Math.round(conversations.reliability.averageDeliveryMs),samples:conversations.reliability?.timedDeliverySamples??'-'})},
+        {type:'conversation-pool',value:t('admin.conversationPool','Backend pool: active {active}; idle {idle}; waiting {waiting}; maximum {max}.',
+          {active:conversations.pool?.available?conversations.pool.total-conversations.pool.idle:'-',idle:conversations.pool?.idle??'-',waiting:conversations.pool?.waiting??'-',max:conversations.pool?.max??'-'})},
+        {type:'conversation-transport',value:t('admin.conversationTransport','Phoenix node: connections {connections}; queued {queued}; BEAM memory {memory} bytes; scheduler {scheduler}%.',
+          {connections:conversations.transport?.connections??'-',queued:conversations.transport?.queuedMessages??'-',memory:conversations.transport?.beamMemoryBytes??'-',
+            scheduler:conversations.transport?.schedulerUtilization==null?'-':Math.round(conversations.transport.schedulerUtilization*100)})},
+        ...(conversations.experience?.metrics||[]).map(row=>({type:'conversation-experience',value:t('admin.conversationExperience',
+          'Client observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:row.name+' /24h',count:row.count,average:row.averageDurationMs??'-',max:row.maxDurationMs??'-'})})),
+        ...Object.entries(conversations.clientReliability||{}).filter(([,row])=>row&&typeof row==='object').map(([name,row])=>({type:'conversation-rate',
+          value:t('admin.conversationRate','Client-reported {name}: confirmed {success}; unconfirmed {failure}; confirmation rate {rate}%.',
+            {name:name+' /24h',success:row.success,failure:row.failure+(row.pending||0),rate:row.rate==null?'-':Math.round(row.rate*10000)/100})})),
         ...(conversations.alerts||[]).slice(0,4).map(code=>({type:'conversation-alert',
           value:t('admin.conversationHealthAlert','Conversation alert: {code}',{code})})),
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
@@ -1582,10 +1614,12 @@
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
         } else if (state.opsSummary) {
+          wrapper.appendChild(createSimpleListSection(t('admin.conversationsOperations','Conversations Operations'),'',
+            buildOpsSignalLines(state.opsSummary).filter(item=>item.type.startsWith('conversation-')),item=>item.value));
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            buildOpsSignalLines(state.opsSummary),
+            buildOpsSignalLines(state.opsSummary).filter(item=>!item.type.startsWith('conversation-')),
             (item) => item.value
           ));
         }
@@ -2403,10 +2437,12 @@
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
         } else if (state.opsSummary) {
+          wrapper.appendChild(createSimpleListSection(t('admin.conversationsOperations','Conversations Operations'),'',
+            buildOpsSignalLines(state.opsSummary).filter(item=>item.type.startsWith('conversation-')),item=>item.value));
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            buildOpsSignalLines(state.opsSummary),
+            buildOpsSignalLines(state.opsSummary).filter(item=>!item.type.startsWith('conversation-')),
             (item) => item.value
           ));
         }

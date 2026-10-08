@@ -138,4 +138,40 @@
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.monitoring = window.WingaModules.monitoring || {};
   window.WingaModules.monitoring.createPerformanceModule = createPerformanceModule;
+  const experienceNames=Object.freeze(['open-shell','open-recent','send-confirmed','send-failed','send-pending','retry-confirmed','retry-failed','sync-confirmed','sync-failed',
+    'offline-confirmed','offline-failed','transport-reconnect','transport-resume-confirmed','transport-resume-failed','transport-resume-pending']);
+  const experienceWindows={};
+  const experience=createPerformanceModule({}).createMetricWindowStore(experienceWindows,{limit:128});
+  const buckets=new Map();let connection=null,owner='',runId=null,timer=null,generation=0,inflight=null;
+  function resetExperience(){experience.reset();buckets.clear();runId=null;}
+  function currentOwner(){const session=connection?.getSession?.();return session?.username&&session?.sessionId?JSON.stringify([session.username,session.sessionId,session.token||'']):'';}
+  function syncOwner(){const next=currentOwner();if(next!==owner){resetExperience();owner=next;}return next;}
+  async function flushExperience(){
+    const session=syncOwner(),version=generation;
+    if(!session||!runId||!buckets.size||inflight)return;
+    const payload={version:1,runId,buckets:[...buckets.values()].map(row=>({...row}))};
+    inflight=Promise.resolve().then(()=>{if(version===generation&&session===currentOwner())return connection.request(payload);}).catch(()=>{});
+    try{await inflight;}finally{inflight=null;}
+  }
+  function scheduleExperience(){
+    clearTimeout(timer);
+    if(typeof window.setTimeout!=='function')return;
+    timer=window.setTimeout(async()=>{try{await flushExperience();}finally{scheduleExperience();}},30000);
+  }
+  window.WingaConversationExperience=Object.freeze({
+    record(name,value){
+      if(!experienceNames.includes(name)||!Number.isFinite(value)||value<0||value>300000)return;
+      if(connection)syncOwner();experience.record(name,value);
+      if(!owner)return;
+      runId ||= globalThis.crypto?.randomUUID?.();if(!runId)return;
+      const time=Date.now(),hour=new Date(Math.floor(time/3600000)*3600000).toISOString();
+      for(const [key,row] of buckets)if(Date.parse(row.hour)<time-24*3600000)buckets.delete(key);
+      const key=hour+'|'+name,row=buckets.get(key)||{hour,name,count:0,totalDurationMs:0,maxDurationMs:0};
+      if(row.count>=1e9)return;row.count++;row.totalDurationMs+=Math.round(value);row.maxDurationMs=Math.max(row.maxDurationMs,Math.round(value));buckets.set(key,row);
+    },
+    snapshot(){return {privacy:'aggregate-only',scope:'browser-process-local',metrics:experienceNames.map(name=>({name,...experience.summarize(name)}))};},
+    reset:resetExperience,
+    connect(options){generation++;connection=options;syncOwner();scheduleExperience();},
+    flush:flushExperience
+  });
 })();

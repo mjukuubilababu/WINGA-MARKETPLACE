@@ -250,3 +250,18 @@ test("SSE racing authoritative resync preserves instant message and refuses stal
   assert.equal(pager.history("other").items[0].id, "instant");
   assert.equal(pager.history("other").needsResync, true);
 });
+test('trusted local pending updates reconcile immediately without refresh or unread growth',async()=>{
+  const {pager}=setup({loadInboxPage:async()=>page([])});
+  await pager.refreshInbox();pager.history('other');
+  const pending={id:'local',senderId:'me',receiverId:'other',conversationId:'c',message:'immutable',encrypted:true,status:'pending',waiting:true,timestamp:'2026-10-08T12:00:00Z'};
+  pager.upsertLocal(pending);
+  pager.upsertLocal({...pending,waiting:false});
+  assert.equal(pager.history('other').items[0].waiting,false);
+  pager.upsertLocal({...pending,status:'sent',waiting:false,hash:'a'.repeat(64),conversationSequence:'2'});
+  assert.equal(pager.history('other').items[0].status,'sent');
+  pager.upsertLocal({...pending,message:'changed'});
+  pager.upsertLocal(pending);
+  assert.equal(pager.history('other').items[0].status,'sent');
+  assert.equal(pager.history('other').items[0].message,'immutable');
+  assert.equal(pager.snapshot().totalUnread,0);assert.equal(pager.history('other').items.length,1);
+});

@@ -901,7 +901,8 @@ test('HttpOnly cookie-only sessions support server membership, ciphertext-only H
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(acceptedCount);
     await a.clearCookies();
     await expect(alice.evaluate(()=>client.loadInboxPage())).rejects.toThrow('session_required');
-    await expect(alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'no cookie must not send',messageType:'text'})))).rejects.toThrow('session_required');
+    // A known local membership freeze can reject before the authenticated network check.
+    await expect(alice.evaluate(async()=>client.sendMessage(await client.prepareMessage({receiverId:'bob',message:'no cookie must not send',messageType:'text'})))).rejects.toThrow(/session_required|encrypted_membership_pending/);
     expect((await db.query('SELECT COUNT(*)::int AS n FROM encrypted_conversation_messages')).rows[0].n).toBe(acceptedCount);
   }finally{await a.close().catch(()=>{});await b.close().catch(()=>{});}
 });

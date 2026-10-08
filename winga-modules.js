@@ -1167,6 +1167,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let encryptionService = null;
     let encryptionChanged = () => {};
     let api;
+    if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
+      request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
     const networkFailure = error => error instanceof TypeError || error.status === 503;
     function ensureEncryption() {
       const s = deps.getSession?.();
@@ -1186,7 +1188,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           initialSync:false,
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
-          onChange:()=>encryptionChanged(),
+          onChange:change=>encryptionChanged(change),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
           roomLimits:capabilities.roomLimits,
@@ -1212,12 +1214,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const loaded = encryptedConversations ? await encryptedConversations.isEncrypted(peer) : false;
       unchanged();
       if(stored || loaded)return true;
-      if(globalThis.WingaEncryptionSession && validName(session?.username) && validName(peer) && peer!==session.username) {
+      if(validName(session?.username) && validName(peer) && peer!==session.username) {
         const mode=await fetchJson(`${baseUrl}/conversations/encrypted/mode?peer=${encodeURIComponent(peer)}`,{headers:authHeaders()});
         unchanged();if(mode?.version!==1 || !['encrypted','legacy-plaintext'].includes(mode.mode))runtimeRequired();
-        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy.markEncrypted(session.username,peer);unchanged();return true;}
+        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy?.markEncrypted(session.username,peer);unchanged();return true;}
+        return false;
       }
-      return false;
+      runtimeRequired();
     }
     const runtimeRequired = () => { throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' }); };
 
@@ -1480,7 +1483,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function openRealtimeChannel(handlers = {}) {
-      encryptionChanged = () => { if(!handlers.isCurrent || handlers.isCurrent()) Promise.resolve(handlers.onMessageRead?.()).catch(()=>{}); };
+      encryptionChanged = change => {
+        if(handlers.isCurrent && !handlers.isCurrent())return;
+        if(change?.localMessage)Promise.resolve(handlers.onLocalMessage?.(change.localMessage)).catch(()=>{});
+        else Promise.resolve(handlers.onMessageRead?.()).catch(()=>{});
+      };
       let encryptionPolling = false;
       const encryptionTimer = setInterval(async () => {
         if(encryptionPolling || (handlers.isCurrent && !handlers.isCurrent())) return;
@@ -1880,6 +1887,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let closed = false, epoch = 0, socket = null, channel = null, timer = null, deadline = null;
     let joined = false, receiving = false, attempts = 0, expiresAt = 0;
     let joinWhenOpen = null;
+    let reconnectStarted=null,everJoined=false,resumeAttempt=null,resumeTimer=null;
+    const metric=(name,value)=>{try{globalThis.WingaConversationExperience?.record(name,value);}catch{}};
     const pending = new Set();
     const report = (state, phase) => { try { deps.onState?.({transport: "phoenix", state, phase}); } catch {} };
     const failure = (code = "transport_unavailable", status = 503) => Object.assign(
@@ -1891,7 +1900,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       joined = false;
       expiresAt = 0;
       receiving = false;
-      cancel(timer); cancel(deadline);
+      cancel(timer); cancel(deadline);cancel(resumeTimer);resumeTimer=null;
       timer = deadline = null;
       for (const reject of [...pending]) reject(failure("outcome_unknown"));
       pending.clear();
@@ -1904,6 +1913,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function close() { closed = true; reset(); }
     function retry(generation, error) {
       if (!current(generation)) return;
+      if(resumeAttempt!==null){metric('transport-resume-failed',now()-resumeAttempt);resumeAttempt=null;}
+      if(everJoined && reconnectStarted===null){reconnectStarted=now();metric('transport-reconnect',0);}
       if ([401, 403, 404].includes(error?.status)) { close(); return; }
       reset();
       const delay = Math.min(30000, 1000 * 2 ** Math.min(attempts++, 5)) * (0.8 + random() * 0.4);
@@ -1936,6 +1947,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (closed || !deps.isCurrent()) { close(); return; }
       reset();
       const generation = epoch;
+      if(everJoined&&reconnectStarted!==null)resumeAttempt=now();
       deadline = later(() => retry(generation), 15000);
       let phase = "library";
       try {
@@ -1968,7 +1980,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           try {
             const persisted = await deps.onEvents(batch, ids => command("events.ack", { eventIds: ids }, generation));
             if (persisted !== true) throw failure();
-          } catch (error) { retry(generation, error); }
+            if(current(generation) && resumeAttempt!==null){
+              metric('transport-resume-confirmed',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;cancel(resumeTimer);resumeTimer=null;
+            }
+          } catch (error) {
+            retry(generation, error);
+          }
           finally { if (current(generation)) receiving = false; }
         });
         phase = "join";
@@ -1979,9 +1996,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           channel.join(8000).receive("ok", principal => {
             if (!current(generation)) return;
             if (principal?.deviceId !== deps.deviceId || principal?.securityMode !== "legacy-plaintext"
-              || principal?.expiresAt !== ticket.expiresAt) { close(); return; }
+              || principal?.expiresAt !== ticket.expiresAt) { retry(generation,{status:401}); return; }
             cancel(deadline); deadline = null;
             joined = true; attempts = 0; expiresAt = ticket.expiresAt;
+            everJoined=true;
+            if(resumeAttempt!==null)resumeTimer=later(()=>{
+              if(current(generation)&&resumeAttempt!==null){metric('transport-resume-pending',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;}
+            },15000);
             report("ready", "joined");
             const ttl = ticket.expiresAt - now();
             timer = later(start, Math.max(100, ttl - Math.min(30000, ttl / 2)));
@@ -3177,7 +3198,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
         return 0;
       }
-      const session = { username: String(readSession()?.username || "").trim() };
+      const initiatingSession=readSession();
+      const session = { username: String(initiatingSession?.username || "").trim() };
+      const identity=JSON.stringify([session.username,initiatingSession?.sessionId,initiatingSession?.token]);
+      // Stored sessions are parsed afresh; bind observations to values, not references.
+      const currentSession=()=>{
+        const value=readSession();
+        return identity===JSON.stringify([String(value?.username||'').trim(),value?.sessionId,value?.token]);
+      };
       if (!session?.username || getNavigator()?.onLine === false) {
         return 0;
       }
@@ -3187,7 +3215,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (active) {
         if (!retryId || active.retryId === retryId) return active.promise;
         await active.promise;
-        if (readSession()?.username !== owner || active.attemptedIds.has(retryId)) return 0;
+        if (!currentSession() || active.attemptedIds.has(retryId)) return 0;
         return flushOfflineActionQueue(activeAdapter, retryId);
       }
       const operation = { retryId, attemptedIds: new Set(), promise: null };
@@ -3197,19 +3225,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         let failedCount = 0;
         const updateItem = (id, change) => updateQueuedItem(session, id, change);
         for (const item of queue) {
-          if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
+          if (!currentSession() || getNavigator()?.onLine === false) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
           if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
           operation.attemptedIds.add(item.id);
+          const started=Date.now();
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             await updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
-            if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
+            if (!currentSession() || getNavigator()?.onLine === false) break;
             const result = await activeAdapter.sendMessage(payload);
             if (!result?.id || result.isQueued || result.skipped) {
               throw Object.assign(new Error("Message acceptance was not confirmed."), { retryable: true });
             }
           } catch (error) {
+            try{if(currentSession())globalThis.WingaConversationExperience?.record('offline-failed',Math.max(0,Date.now()-started));}catch{}
             const retryable = isLikelyOfflineActionError(error);
             await updateItem(item.id, current => [{
               ...current, attempts: Number(current.attempts || 0) + 1,
@@ -3217,10 +3247,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80)
             }]);
             if (!retryable) failedCount += 1;
-            if (retryable || readSession()?.username !== owner) break;
+            if (retryable || !currentSession()) break;
             continue;
           }
           // Cleanup failure cannot turn a confirmed acceptance into rejection.
+          try{if(currentSession())globalThis.WingaConversationExperience?.record('offline-confirmed',Math.max(0,Date.now()-started));}catch{}
           try { await updateItem(item.id, () => []); } catch (_error) { /* Retry retains the same logical ID. */ }
           flushedCount += 1;
         }
@@ -5391,6 +5422,42 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.monitoring = window.WingaModules.monitoring || {};
   window.WingaModules.monitoring.createPerformanceModule = createPerformanceModule;
+  const experienceNames=Object.freeze(['open-shell','open-recent','send-confirmed','send-failed','send-pending','retry-confirmed','retry-failed','sync-confirmed','sync-failed',
+    'offline-confirmed','offline-failed','transport-reconnect','transport-resume-confirmed','transport-resume-failed','transport-resume-pending']);
+  const experienceWindows={};
+  const experience=createPerformanceModule({}).createMetricWindowStore(experienceWindows,{limit:128});
+  const buckets=new Map();let connection=null,owner='',runId=null,timer=null,generation=0,inflight=null;
+  function resetExperience(){experience.reset();buckets.clear();runId=null;}
+  function currentOwner(){const session=connection?.getSession?.();return session?.username&&session?.sessionId?JSON.stringify([session.username,session.sessionId,session.token||'']):'';}
+  function syncOwner(){const next=currentOwner();if(next!==owner){resetExperience();owner=next;}return next;}
+  async function flushExperience(){
+    const session=syncOwner(),version=generation;
+    if(!session||!runId||!buckets.size||inflight)return;
+    const payload={version:1,runId,buckets:[...buckets.values()].map(row=>({...row}))};
+    inflight=Promise.resolve().then(()=>{if(version===generation&&session===currentOwner())return connection.request(payload);}).catch(()=>{});
+    try{await inflight;}finally{inflight=null;}
+  }
+  function scheduleExperience(){
+    clearTimeout(timer);
+    if(typeof window.setTimeout!=='function')return;
+    timer=window.setTimeout(async()=>{try{await flushExperience();}finally{scheduleExperience();}},30000);
+  }
+  window.WingaConversationExperience=Object.freeze({
+    record(name,value){
+      if(!experienceNames.includes(name)||!Number.isFinite(value)||value<0||value>300000)return;
+      if(connection)syncOwner();experience.record(name,value);
+      if(!owner)return;
+      runId ||= globalThis.crypto?.randomUUID?.();if(!runId)return;
+      const time=Date.now(),hour=new Date(Math.floor(time/3600000)*3600000).toISOString();
+      for(const [key,row] of buckets)if(Date.parse(row.hour)<time-24*3600000)buckets.delete(key);
+      const key=hour+'|'+name,row=buckets.get(key)||{hour,name,count:0,totalDurationMs:0,maxDurationMs:0};
+      if(row.count>=1e9)return;row.count++;row.totalDurationMs+=Math.round(value);row.maxDurationMs=Math.max(row.maxDurationMs,Math.round(value));buckets.set(key,row);
+    },
+    snapshot(){return {privacy:'aggregate-only',scope:'browser-process-local',metrics:experienceNames.map(name=>({name,...experience.summarize(name)}))};},
+    reset:resetExperience,
+    connect(options){generation++;connection=options;syncOwner();scheduleExperience();},
+    flush:flushExperience
+  });
 })();
 
 
@@ -17055,7 +17122,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       &&Number.isFinite(created)&&time>=created&&time-created<=EDIT_WINDOW_MS;
   }
   function project(history,owner) {
-    const sorted=history.slice().sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp)||a.id.localeCompare(b.id));
+    const sequence=item=>/^[1-9][0-9]{0,18}$/.test(item.sequence||item.conversationSequence||'')?BigInt(item.sequence||item.conversationSequence):null;
+    const compare=(a,b)=>{
+      const conversation=String(a.conversationId||'').localeCompare(String(b.conversationId||''));
+      if(conversation)return conversation;
+      const x=sequence(a),y=sequence(b);
+      if(x!==null && y!==null && x!==y)return x<y?-1:1;
+      if((x===null)!==(y===null))return x===null?-1:1;
+      return (Date.parse(a.timestamp)||0)-(Date.parse(b.timestamp)||0)||a.id.localeCompare(b.id);
+    };
+    const sorted=history.slice().sort(compare);
     const rows=new Map(),events=[];
     for(const item of sorted) {
       const c=parse(item.message);
@@ -17068,6 +17144,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const target=rows.get(c.data.targetId);
       if(!target||!Number.isFinite(Date.parse(item.timestamp))||Date.parse(item.timestamp)<Date.parse(target.timestamp)
         ||item.conversationId!==target.conversationId
+        ||sequence(item)!==null&&sequence(target)!==null&&sequence(item)<=sequence(target)
         ||![target.owner,target.peer].includes(item.owner)||item.owner===item.peer)continue;
       if(c.type==='hide') {if(item.owner===owner)hidden.add(target.id);continue;}
       if(c.type==='edit') {
@@ -17078,7 +17155,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }else {
         const key=JSON.stringify([target.id,item.owner]);
         const prior=reactions.get(key);
-        if(!prior||Date.parse(item.timestamp)>=Date.parse(prior.item.timestamp))reactions.set(key,{item,emoji:c.data.emoji});
+        if(!prior||compare(item,prior.item)>0)reactions.set(key,{item,emoji:c.data.emoji});
       }
     }
     for(const {item,emoji} of reactions.values()) {
@@ -17170,15 +17247,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return "";
       }
       const tone = String(status.tone || "info").trim() || "info";
-      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}">${deps.escapeHtml(status.message)}</p>`;
+      return `<p class="chat-compose-status is-${deps.escapeHtml(tone)}" role="status" aria-live="polite">${deps.escapeHtml(status.message)}</p>`;
     }
 
     function renderResponsiveImageMarkup({ src = "", alt = "", className = "", fallbackKey = "W" } = {}) {
+      const connection=globalThis.navigator?.connection;
+      const reduced=connection?.saveData===true || ['slow-2g','2g'].includes(connection?.effectiveType);
       return (deps.createProgressiveImage || deps.createResponsiveImage)({
-        src,
+        src:reduced&&!/^inbox-avatar/.test(className)?deps.getImageFallbackDataUri(fallbackKey):src,
         alt,
         className,
-        ...(/^inbox-/.test(className) ? { sizes: "48px", loading: "lazy", width: 48, height: 48 } : {}),
+        loading:"lazy",decoding:"async",
+        ...(/^inbox-/.test(className) ? { sizes: "48px", width: 48, height: 48 } : {}),
         fallbackSrc: deps.getImageFallbackDataUri(fallbackKey),
         placeholderSrc: deps.getImageFallbackDataUri(fallbackKey)
       }).outerHTML;
@@ -17614,13 +17694,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           <div class="message-bubble ${message.senderId === deps.getCurrentUser() ? "outgoing" : "incoming"}${productItems.length ? " message-bubble-product" : ""}" data-message-bubble-id="${message.id}">
             ${replyMessage||message.replyToMessageId ? `<div class="message-reply-preview"><strong>${deps.escapeHtml(t('chat.richReply','Reply'))}</strong><span>${safeReplyText}</span></div>` : ""}
             ${productItems.length ? renderChatProductPreviewItems(productItems) : ""}
-            ${message.message ? `<p>${safeMessageText}</p>` : ""}
+            ${message.message ? `<p dir="auto">${safeMessageText}</p>` : ""}
             ${richMessageMarkup(message)}
             ${message.reactions?.length ? '<div class="chat-message-reactions">'+message.reactions.map(r=>'<button type="button" data-rich-react="'+deps.escapeHtml(message.id)+'" aria-label="'+deps.escapeHtml(t('chat.richReact','React'))+'">'+deps.escapeHtml(r.emoji)+' '+r.owners.length+'</button>').join('')+'</div>' : ''}
             ${message.edited ? '<small class="chat-edited">'+deps.escapeHtml(t('chat.richEdited','Edited'))+'</small>' : ''}
             ${message.encrypted && message.attachmentId ? `<div class="chat-encrypted-attachment"><button type="button" class="chat-encrypted-file" data-encrypted-media-preview="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaPreview','View encrypted attachment'))}"><img src="/icons/navigation/eye.svg" width="18" height="18" alt="" /><span>${deps.escapeHtml(message.attachmentName||t('chat.mediaFile','Encrypted file'))}</span></button><button type="button" class="chat-encrypted-download" data-encrypted-media-download="${deps.escapeHtml(message.id)}" ${message.status==='pending'?'disabled':''} title="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}" aria-label="${deps.escapeHtml(t('chat.mediaDownload','Download encrypted file'))}"><img src="/icons/navigation/download.svg" width="18" height="18" alt="" /></button></div>` : ''}
-            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
-            ${message.encrypted && message.status === 'pending' ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
+            <small>${deps.escapeHtml(new Date(message.timestamp).toLocaleTimeString(document.documentElement.lang || "sw", { hour: "2-digit", minute: "2-digit" }))} ${message.senderId === deps.getCurrentUser() ? `| ${deps.escapeHtml(message.status === 'pending' && message.encrypted ? message.waiting?t('chat.localSendWaiting','Saved on this device; waiting to send'):t('chat.failedTitle','Message failed') : message.isRead ? t("inbox.read", "Read") : message.deviceDeliveredAt ? t("inbox.delivered", "Delivered") : t("inbox.sent", "Sent"))}` : ""}</small>
+            ${message.encrypted && message.status === 'pending' && !message.waiting ? `<button type="button" data-message-retry="${deps.escapeHtml(message.id)}">${deps.escapeHtml(t('inbox.retry','Try again'))}</button>` : ""}
             ${enableActions && (!message.encrypted||message.status!=='pending'&&!message.eventRecord) ? `
               <button class="message-menu-trigger" type="button" data-message-menu-toggle="${message.id}" title="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}" aria-label="${deps.escapeHtml(t("inbox.actions", "Conversation actions"))}">${icon("ellipsis")}</button>
               ${deps.getOpenChatMessageMenuId() === message.id ? `
@@ -17798,24 +17878,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                     <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
                     <p role="status" data-chat-archive-status hidden></p>
                     <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
-                    <button class="action-btn edit-btn" type="button" data-refresh-messages="true">Refresh</button>
-                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">Open product</button>` : ""}
-                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">Lipa</button>` : ""}
-                    ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">Report seller</button>` : ""}
-                    ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
-                    ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">Chat on WhatsApp</a>` : ""}
+                    <button class="action-btn edit-btn" type="button" data-refresh-messages="true">${deps.escapeHtml(t("inbox.refresh","Refresh conversations"))}</button>
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary" type="button" data-chat-open-product="${activeCommerce.productId}">${deps.escapeHtml(t("sellerAnalytics.openProduct","Open product"))}</button>` : ""}
+                    ${activeCommerce?.productId ? `<button class="action-btn action-btn-secondary chat-pay-pill" type="button" data-chat-buy-product="${activeCommerce.productId}">${deps.escapeHtml(t("chat.pay","Pay"))}</button>` : ""}
+                    ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeCommerce?.productId || activeChatContext.productId || ""}">${deps.escapeHtml(t("trust.reportSeller","Report seller"))}</button>` : ""}
+                    ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">${deps.escapeHtml(t("chat.sharePhone","Share my phone"))}</button>` : ""}
+                    ${activeWhatsApp ? `<a class="button" href="${deps.buildWhatsappHref(activeWhatsApp, activeChatContext.productName)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(t("chat.whatsapp","Chat on WhatsApp"))}</a>` : ""}
                   </div></details>
                 </div>
                 ${renderInboxContext(activeChatContext, true)}
                 <details class="conversation-commerce-drawer"><summary>${icon("store")}<span>${deps.escapeHtml(t("chat.commerceActivity", "Commerce activity"))}</span></summary><div>
-                <p class="thread-safety-note">Lipa tu kwa details za seller zilizo ndani ya Winga, kisha tuma reference hapa. Ukiona tabia ya kutia shaka, report seller moja kwa moja.</p>
+                <p class="thread-safety-note">${deps.escapeHtml(t("chat.paymentSafety","Use the seller payment details in Winga. Report suspicious requests to pay outside Winga."))}</p>
                 ${contactState.note ? `<p class="thread-contact-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
                 ${renderConversationOrderCards(activeOrders)}
                 ${renderConversationOfferCards(activeOffers, activeChatContext)}
                 ${renderConversationAvailabilityCards(activeAvailabilityRequests, activeChatContext)}
                 ${renderConversationCommerceGoal(activeCommerceGoal)}
                 </div></details>
-                <div class="messages-thread-body" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}" data-chat-context-key="${deps.escapeHtml(deps.getChatContextKey(activeChatContext))}">
+                <div class="messages-thread-body" role="log" aria-live="off" aria-label="${deps.escapeHtml(t("chat.messageHistory","Message history"))}" data-chat-read-user="${deps.escapeHtml(activeChatContext.withUser)}" data-chat-context-key="${deps.escapeHtml(deps.getChatContextKey(activeChatContext))}">
                   ${renderMessagePageControl("history")}
                   ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
                 </div>
@@ -17982,7 +18062,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               <p>${safeSellerName}</p>
             </div>
           </div>
-          <div class="context-chat-thread" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
+          <div class="context-chat-thread" role="log" aria-live="off" aria-label="${deps.escapeHtml(t("chat.messageHistory","Message history"))}" data-chat-read-user="${deps.escapeHtml(activeChatContext?.withUser || "")}">
             ${renderMessagePageControl("history")}
             ${renderConversationMessagesMarkup(activeMessages, { enableActions: true })}
           </div>
@@ -17992,11 +18072,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             <button class="action-btn action-btn-secondary" type="button" data-chat-archive="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("archive")}<span>${deps.escapeHtml(t("chat.archive","Archive"))}</span></button>
             <p role="status" data-chat-archive-status hidden></p>
             <button class="action-btn action-btn-secondary" type="button" data-chat-report="${deps.escapeHtml(activeChatContext.withUser)}" hidden>${icon("flag")}<span>${deps.escapeHtml(t("chat.reportMessages","Report messages"))}</span></button>
-            ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">Report seller</button>` : ""}
-            ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">Share my phone</button>` : ""}
-            ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : ""}
+            ${activeChatContext?.withUser ? `<button class="action-btn action-btn-secondary" type="button" data-report-seller="${activeChatContext.withUser}" data-report-product-context="${activeChatContext.productId || ""}">${deps.escapeHtml(t("trust.reportSeller","Report seller"))}</button>` : ""}
+            ${contactState.canSharePhone ? `<button class="action-btn action-btn-secondary" type="button" data-share-my-phone="true">${deps.escapeHtml(t("chat.sharePhone","Share my phone"))}</button>` : ""}
+            ${activeWhatsApp ? `<a class="button whatsapp-chat-btn" href="${deps.buildWhatsappHref(activeWhatsApp, productName)}" target="_blank" rel="noopener noreferrer">${deps.escapeHtml(t("chat.whatsapp","Chat on WhatsApp"))}</a>` : ""}
           </div>
-          <p class="thread-safety-note context-chat-note">Tumia Winga payment details na report seller kama kuna pressure ya kulipa nje ya flow hii.</p>
+          <p class="thread-safety-note context-chat-note">${deps.escapeHtml(t("chat.paymentSafety","Use the seller payment details in Winga. Report suspicious requests to pay outside Winga."))}</p>
           ${contactState.note ? `<p class="thread-contact-note context-chat-note">${deps.escapeHtml(contactState.note)}</p>` : ""}
           ${renderConversationOrderCards(activeOrders)}
           ${renderConversationOfferCards(activeOffers, activeChatContext)}
@@ -18218,7 +18298,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
-    return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest };
+    function upsertLocal(message) {
+      const s=current();
+      if(s.mode!=="paged"||!message?.encrypted||message.senderId!==s.user||!message.receiverId||!message.id)return;
+      const target=history(message.receiverId),prior=target.items.find(item=>item.id===message.id);
+      if(!prior){ingest(message);return;}
+      if(prior.senderId!==message.senderId||prior.receiverId!==message.receiverId||prior.conversationId!==message.conversationId
+        ||prior.message!==message.message||prior.hash&&message.hash&&prior.hash!==message.hash
+        ||prior.status!=='pending'&&message.status==='pending')return;
+      const next={...prior,...message,isRead:prior.isRead||message.isRead,isDelivered:prior.isDelivered||message.isDelivered};
+      if(prior.status==='read'||prior.status==='delivered'&&message.status==='sent')next.status=prior.status;
+      s.revision++;target.revision++;target.items=merge(target.items,[next],"id").sort(compareConversationMessages);
+      const summary=s.inbox.items.find(item=>item.withUser===message.receiverId&&item.lastMessageId===message.id);
+      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence});
+    }
+    return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest,upsertLocal };
   }
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.chat = window.WingaModules.chat || {};
@@ -19050,6 +19144,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    const localSends=new Set();
     const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
     const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
     const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
@@ -19066,7 +19161,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           senderId:item.owner,receiverId:item.peer,messageType:a?(a.attachment.kind||'file'):c?.type||'text',productId:'',productName:'',productItems:[],
         replyToMessageId:c?.reply?.id||'',replyQuote:c?.reply?.quote||'',encrypted:true,
         isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
-        sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
+        sendState:item.status==='pending'?(item.waiting?'pending':'failed'):item.status,isQueued:item.status==='pending'};
     }
     async function verifyPackage(p,expected) {
       if(p.fingerprint!==expected || await digest(decode(p.publicKey))!==expected || await digest(decode(p.keyPackage))!==p.hash)fail('mls_identity_verification_failed');
@@ -19522,7 +19617,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       async function requireActiveMembership(peer) {
         try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
-        const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
+        const saved=await intentSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
         if(!g)fail('encrypted_membership_required');
         if(g.status==='blocked')fail('encrypted_access_denied');
         if(g.status!=='active' || saved.values[`mls:replacement:${peer}`] || saved.values[`mls:device-admission:${peer}`])fail('encrypted_membership_pending');
@@ -19541,6 +19636,58 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(value&&reply)value={...value,reply};
         return {clientMessageId:payload.clientMessageId,receiverId:payload.receiverId,messageType:'text',
           message:value?rich.encode(value):payload.message};
+      }
+      async function intentWrite(id,change) {
+        for(let attempt=0;attempt<5;attempt++) {
+          try {
+          current();const saved=await vault.snapshot(),key='send:intent:'+id;
+          const value=await change(saved,saved.values[key]);if(!value)return;
+          await vault.write({expectedRevision:saved.revision,values:{[key]:value}});current();return value;}
+          catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+        }
+      }
+      async function intentSnapshot() {
+        for(let attempt=0;attempt<5;attempt++)try{current();return await vault.snapshot();}
+        catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+      }
+      async function stageMessage(payload) {
+        current();const wire=await wirePayload(structuredClone(payload));
+        const initial=await intentSnapshot(),route=initial.values['mls:route:'+wire.receiverId]?.conversationId;
+        if(!route)fail('encrypted_membership_required');
+        if(!initial.values['mls:group:'+route]?.confirmed)fail('encrypted_membership_pending');
+        if(initial.values['mls:replacement:'+wire.receiverId]||initial.values['mls:device-admission:'+wire.receiverId]
+          ||initial.values['mls:membership:'+route]||groups.some(g=>g.id===route&&g.status!=='active'))fail('encrypted_membership_pending');
+        if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(wire.clientMessageId||'')
+          ||!/^[A-Za-z0-9._:-]{1,128}$/.test(wire.receiverId||'')||wire.receiverId===owner
+          ||wire.messageType&&wire.messageType!=='text'||wire.productId||wire.productName||wire.productItems?.length||wire.replyToMessageId||wire.mediaId
+          ||typeof wire.message!=='string'||!wire.message.trim()
+          ||new TextEncoder().encode(wire.message).length>16384)fail('mls_content_unsupported');
+        const item=await intentWrite(wire.clientMessageId,async(saved,prior)=>{
+          const id=saved.values['mls:route:'+wire.receiverId]?.conversationId,g=saved.values['mls:group:'+id];
+          if(!id||!g?.confirmed||g.kind==='shopping-room')fail('mls_group_required');
+          if(saved.values['mls:replacement:'+wire.receiverId]||saved.values['mls:device-admission:'+wire.receiverId]
+            ||saved.values['mls:membership:'+id])fail('encrypted_membership_pending');
+          if(prior&&(prior.peer!==wire.receiverId||prior.message!==wire.message||prior.conversationId!==id||prior.deviceId!==own.id))fail('mls_send_retry_conflict');
+          if(saved.values['history:'+wire.clientMessageId]||saved.values['mls:outbox:'+wire.clientMessageId]
+            ||vault.lookup&&await vault.lookup('history:'+wire.clientMessageId))return;
+          return prior?{...prior,waiting:true}:{id:wire.clientMessageId,owner,peer:wire.receiverId,conversationId:id,deviceId:own.id,
+            message:wire.message,timestamp:new Date().toISOString(),status:'pending',waiting:true,localIntent:true};
+        });
+        if(item){localSends.add(item.id);onChange({localMessage:messageView(item)});}return wire;
+      }
+      async function transmitMessage(wire) {
+        try {
+          await requireActiveMembership(wire.receiverId);
+          const saved=await intentSnapshot(),intent=saved.values['send:intent:'+wire.clientMessageId];
+          if(intent&&(intent.conversationId!==await runtime.conversationId(wire.receiverId)||intent.deviceId!==own.id))fail('mls_send_retry_conflict');
+          const result=messageView(await runtime.sendMessage(wire));onChange({localMessage:result});return result;
+        }catch(error) {
+          const failed=await intentWrite(wire.clientMessageId,(_saved,prior)=>prior?{...prior,waiting:false}:null);
+          const item=(await runtime.history(wire.receiverId)).find(item=>item.id===wire.clientMessageId&&item.status==='pending')||failed;
+          if(item)onChange({localMessage:messageView(item)});
+          if(!item||(!(error instanceof TypeError)&&error.status!==503&&error.code!=='crypto_vault_revision_conflict'))throw error;
+          return messageView(item);
+        }
       }
       async function mutation(peer,type,targetId,value='') {
         await requireActiveMembership(peer);
@@ -19634,6 +19781,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         },
         history:async peer=>{
           const history=[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])];
+          const saved=await vault.snapshot(),ids=new Set(history.map(v=>v.id));
+          for(const [key,item] of Object.entries(saved.values))if(key.startsWith('send:intent:')&&(!peer||item.peer===peer)&&!ids.has(item.id))history.push({...item,waiting:localSends.has(item.id)});
           return (globalThis.WingaRichContent?WingaRichContent.project(history,owner):history).map(messageView);
         },
         mutateMessage:(peer,type,id,value)=>serialize(()=>mutation(peer,type,id,value)),
@@ -19643,17 +19792,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         discardMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.discardDraft(peer);}),
         sendMediaDraft:(peer,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.sendDraft(peer,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
-        sendMessage:payload=>serialize(async()=>{
-          await requireActiveMembership(payload.receiverId);
-          const wire=await wirePayload(payload);
-          try {const result=messageView(await runtime.sendMessage(wire));queueMicrotask(onChange);return result;}
-          catch(error) {
-            const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
-            if(!item || (!(error instanceof TypeError) && error.status!==503))throw error;
-            queueMicrotask(onChange);return messageView(item);
-          }
+        sendMessage:async payload=>{const wire=await stageMessage(payload);try{return await serialize(()=>transmitMessage(wire));}finally{localSends.delete(wire.clientMessageId);}},
+        retryMessage:id=>serialize(async()=>{
+          const saved=await vault.snapshot(),intent=saved.values['send:intent:'+id];
+          if(intent)return transmitMessage({clientMessageId:id,receiverId:intent.peer,message:intent.message,messageType:'text'});
+          const item=(media?await media.resume(id):null)||await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;
         }),
-        retryMessage:id=>serialize(async()=>{const item=(media?await media.resume(id):null)||await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;}),
         markRead:(peer,messageIds=[])=>serialize(async()=>{
           if(document.visibilityState!=='visible' || !document.hasFocus())return;
           const visible=[...document.querySelectorAll('[data-chat-read-user]')].some(el=>el.dataset.chatReadUser===peer && el.getClientRects().length);
@@ -20326,7 +20470,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         need(item.kind==='shopping-room'&&item.peer==='room:'+g.id&&typeof item.owner==='string'&&/^[A-Za-z0-9._:-]{1,128}$/.test(item.owner)
           &&typeof item.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(item.sequence));fields.push('kind','sequence');
         if(item.mediaId!==undefined){need(uuid(item.mediaId));fields.push('mediaId');}
-      }else need(item.kind!=='shopping-room'&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
+      }else {
+        need(item.kind!=='shopping-room'&&((item.owner===g.creator&&item.peer===g.recipient)||(item.owner===g.recipient&&item.peer===g.creator)));
+        if(item.sequence!==undefined||item.conversationSequence!==undefined){
+          for(const key of ['sequence','conversationSequence'])if(item[key]!==undefined)need(typeof item[key]==='string'&&/^[1-9][0-9]{0,18}$/.test(item[key]));
+          need(item.sequence===undefined||item.conversationSequence===undefined||item.sequence===item.conversationSequence);
+          const sequence=item.sequence||item.conversationSequence;item={...item,sequence,conversationSequence:sequence};
+          fields.push('sequence','conversationSequence');
+        }
+      }
       return Object.fromEntries(fields.map(k=>[k,item[k]]));
     }
     async function history(g){
@@ -20483,7 +20635,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         for(const [id,item] of Object.entries(items)){
           const old=local.values[id];if(old){
             need(old.status!=='pending','history_sync_pending_send');const a=normalized(old,g),b={...item};delete a.status;delete b.status;
-            need(JSON.stringify(a)===JSON.stringify(b),'history_sync_conflict');items[id]={...item,status:rank[old.status]>rank[item.status]?old.status:item.status};
+            const oldSequence=a.sequence,newSequence=b.sequence;
+            if(g.kind!=='shopping-room'){
+              need(!oldSequence||!newSequence||oldSequence===newSequence,'history_sync_conflict');
+              for(const key of ['sequence','conversationSequence']){delete a[key];delete b[key];}
+            }
+            need(JSON.stringify(a)===JSON.stringify(b),'history_sync_conflict');items[id]={...item,
+              ...(g.kind!=='shopping-room'&&oldSequence&&!newSequence?{sequence:oldSequence,conversationSequence:oldSequence}:{}),
+              status:rank[old.status]>rank[item.status]?old.status:item.status};
           }
           items[id].encrypted=true;
         }
@@ -21169,6 +21328,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         try {
           const info=await dataLayer.inspectEncryptedConversation(peer);
           dialog=document.createElement('dialog');dialog.className='chat-security-dialog';
+          dialog.setAttribute('aria-label',t('chat.security','Chat security'));
           const title=document.createElement('h3');title.textContent=t('chat.security','Chat security');dialog.append(title);
           const state=document.createElement('p');state.setAttribute('role','status');
           const label=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):
@@ -22459,6 +22619,36 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function createChatControllerModule(deps) {
     const recentSubmissionRegistry = new Map();
     let inboxSearchState = { user: "", query: "" };
+    let navigationVersion = 0;
+    let announcementContext=null;
+    function announceIncoming(scope) {
+      const thread=scope.querySelector('[data-chat-read-user]');
+      if(!thread)return;
+      const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.(),peer=thread.dataset.chatReadUser;
+      const items=deps.getActiveConversationMessages?.()||[];
+      const latest=items.reduce((n,item)=>Math.max(n,Date.parse(item.timestamp)||0),0);
+      const page=deps.getMessagePageState?.()?.history;
+      const ready=Boolean(items.length||page?.loaded||!deps.getMessagePageState);
+      if(!announcementContext || announcementContext.owner!==owner || announcementContext.session!==session || announcementContext.peer!==peer) {
+        announcementContext={owner,session,peer,ids:new Set(items.map(item=>item.id)),latest,ready};return;
+      }
+      const context=announcementContext;
+      const incoming=items.filter(item=>!context.ids.has(item.id) && item.senderId!==owner && item.senderId===peer
+        && context.ready && (Date.parse(item.timestamp)||0)>=context.latest);
+      context.ids=new Set(items.slice(-2000).map(item=>item.id));context.latest=Math.max(context.latest,latest);
+      context.ready ||= ready;
+      if(!incoming.length || document.visibilityState!=='visible' || !document.hasFocus())return;
+      let announcer=document.getElementById('conversation-announcer');
+      if(!announcer) {
+        announcer=document.createElement('p');announcer.id='conversation-announcer';announcer.className='conversation-sr-only';
+        announcer.setAttribute('role','status');announcer.setAttribute('aria-live','polite');announcer.setAttribute('aria-atomic','true');
+        document.body.append(announcer);
+      }
+      announcer.textContent=t('chat.incomingAnnouncement','{count} new messages',{count:incoming.length});
+    }
+    function recordExperience(name,duration) {
+      try{window.WingaConversationExperience?.record(name,duration);}catch{/* Observations cannot fail a chat action. */}
+    }
     const translate = typeof deps.translate === "function"
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
@@ -22488,13 +22678,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           getMemberProfile:deps.getMarketplaceUser,memberName:deps.getUserDisplayName,
           openContact:async username=>{
             const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.();
+            const version=++navigationVersion;
             const profile=await deps.dataLayer.readRichContact(username);
-            if(!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
+            if(version!==navigationVersion||!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
             if(profile.username===owner)return deps.openConversationProfile?.();
             const context={withUser:profile.username,displayName:profile.fullName||profile.username,productId:'',productName:''};
-            await deps.dataLayer.loadConversationHistoryPage?.(context);
             deps.setActiveChatContext(context);deps.setProfileMessagesMode('detail');deps.setProfileHasSelection?.(true);
             await refresh();
+            await deps.dataLayer.loadConversationHistoryPage?.(context);
+            if(version===navigationVersion && owner===deps.getCurrentUser() && session===deps.getCurrentSession?.()
+              && deps.getActiveChatContext()?.withUser===context.withUser)await refresh();
           }
         }
       };
@@ -22539,6 +22732,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     async function runRetrySafeMessageSend(sendKey, task, duplicateCopy) {
+      const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.();
+      const identity=JSON.stringify([sendOwner,sendSession?.sessionId,sendSession?.token]);
+      const currentObservation=()=>sendOwner===deps.getCurrentUser()&&sendSession===deps.getCurrentSession?.()
+        &&identity===JSON.stringify([deps.getCurrentUser(),deps.getCurrentSession?.()?.sessionId,deps.getCurrentSession?.()?.token]);
       pruneRecentSubmissionRegistry(20000);
       const existing = recentSubmissionRegistry.get(sendKey);
       if (existing?.status === "pending") {
@@ -22561,14 +22758,17 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         status: "pending",
         updatedAt: Date.now()
       });
+      const sendStarted=performance.now();
       try {
         const result = await task();
+        if(currentObservation()&&!result?.skipped)recordExperience(result?.id&&!result.isQueued?'send-confirmed':'send-pending',performance.now()-sendStarted);
         recentSubmissionRegistry.set(sendKey, {
           status: "completed",
           updatedAt: Date.now()
         });
         return result;
       } catch (error) {
+        if(currentObservation())recordExperience('send-failed',performance.now()-sendStarted);
         recentSubmissionRegistry.delete(sendKey);
         throw error;
       }
@@ -22799,6 +22999,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function closeContextChatModal() {
+      navigationVersion++;
       const modal = document.getElementById("context-chat-modal");
       if (!modal) {
         return;
@@ -23030,10 +23231,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.(),sendVersion=navigationVersion;
         const input = modal.querySelector("#context-chat-compose-input");
         const textMessage = input?.value.trim() || "";
         const productItems = deps.getSelectedChatProducts();
         const activeChatContext = deps.getActiveChatContext();
+        const currentSend=()=>sendOwner===deps.getCurrentUser()&&sendSession===deps.getCurrentSession?.()
+          &&sendVersion===navigationVersion&&deps.getIsContextOpen()&&document.getElementById('context-chat-modal')===modal
+          &&activeChatContext===deps.getActiveChatContext();
         const message = textMessage || (productItems.length ? "Bei ya hizi ni kiasi gani?" : "");
         if (!activeChatContext || (!message && !productItems.length)) {
           return;
@@ -23041,6 +23246,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
           const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("context", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
@@ -23057,6 +23263,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
             completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena.")
           });
+          if(!currentSend())return;
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("context", {
               tone: "info",
@@ -23075,7 +23282,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (sendResult?.id && !sendResult.isQueued) {
             deps.appendLocalMessage?.(sendResult);
           }
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          void Promise.all([deps.refreshMessagesState(),deps.refreshNotificationsState()]).then(()=>{
+            if(currentSend())replaceContextChatModal();
+          }).catch(()=>{});
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("context", {
               tone: "warning",
@@ -23095,6 +23304,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("context", {
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
@@ -23146,6 +23356,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     async function openContextChatModal() {
+      const openVersion=++navigationVersion;
       const modal = deps.ensureContextChatModal();
       const content = modal.querySelector("#context-chat-content");
       if (!content) {
@@ -23166,8 +23377,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       deps.syncBodyScrollLockState?.();
       deps.setIsContextOpen(true);
       deps.startMessagePolling?.();
+      const openedUser=deps.getCurrentUser(),openedSession=deps.getCurrentSession?.(),openedContext=deps.getActiveChatContext();
+      const stillOpen=()=>openVersion===navigationVersion&&modal.style.display!=='none'&&deps.getCurrentUser()===openedUser
+        &&deps.getCurrentSession?.()===openedSession&&deps.getActiveChatContext()===openedContext;
 
       window.requestAnimationFrame(() => {
+        if(!stillOpen())return;
         content.replaceChildren(deps.createElementFromMarkup(deps.renderContextChatModal()));
         bindContextChatModalActions();
 
@@ -23179,9 +23394,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
 
-      const openedUser = deps.getCurrentUser(), openedPartner = deps.getActiveChatContext()?.withUser;
-      const stillOpen = () => modal.style.display !== "none" && deps.getCurrentUser() === openedUser && deps.getActiveChatContext()?.withUser === openedPartner;
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
+      for(const refresh of [deps.refreshConversationOffersState,deps.refreshConversationAvailabilityState,deps.refreshCommerceGoalsState])
+        if(refresh)void Promise.resolve().then(()=>stillOpen()&&refresh()).catch(()=>{});
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()])
         .then(async () => {
           if (!stillOpen()) return;
           replaceContextChatModal();
@@ -23413,6 +23628,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         return;
       }
       syncChatViewport();
+      announceIncoming(scope);
       const scrollThread = scope.querySelector(".conversation-workspace .messages-thread-body");
       if (scrollThread && scrollThread.dataset.scrollInitialized !== "true") {
         scrollThread.dataset.scrollInitialized = "true";
@@ -23458,16 +23674,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
-          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const user = deps.getCurrentUser(), session=deps.getCurrentSession?.(), partner = deps.getActiveChatContext()?.withUser,started=performance.now();
+          const identity=JSON.stringify([user,session?.sessionId,session?.token]);
+          const currentSession=()=>user===deps.getCurrentUser()&&session===deps.getCurrentSession?.()
+            &&identity===JSON.stringify([deps.getCurrentUser(),deps.getCurrentSession?.()?.sessionId,deps.getCurrentSession?.()?.token]);
           button.disabled = true;
           try {
-            await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
-            if (user === deps.getCurrentUser()) await deps.refreshMessagesState();
+            const result=await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
+            const accepted=typeof result==='number'?result>0:Boolean(result?.id && !result.isQueued && !result.pending && result.status!=='pending');
+            if(currentSession())recordExperience(accepted?'retry-confirmed':'retry-failed',performance.now()-started);
           } catch (_error) {
+            if(currentSession())recordExperience('retry-failed',performance.now()-started);
             // The retained entry remains available for retry; history stays intact.
           } finally {
+            if (currentSession()) {
+              try { await deps.refreshMessagesState(); } catch {}
+            }
             button.disabled = false;
-            if (user === deps.getCurrentUser() && partner === deps.getActiveChatContext()?.withUser) {
+            if (currentSession() && partner === deps.getActiveChatContext()?.withUser) {
               if (scope.id === "context-chat-modal") replaceContextChatModal();
               else deps.replaceMessagesPanel(scope);
             }
@@ -23930,23 +24154,48 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       async function selectConversation(nextChatContext) {
           const owner = deps.getCurrentUser(), session = deps.getCurrentSession?.();
+          const version=++navigationVersion,started=performance.now();
+          let recentObserved=false;
+          const current=()=>version===navigationVersion && owner===deps.getCurrentUser() && session===deps.getCurrentSession?.()
+            && deps.getProfileMessagesMode?.()==='detail'
+            && nextChatContext.withUser===deps.getActiveChatContext()?.withUser
+            && nextChatContext.productId===deps.getActiveChatContext()?.productId;
+          const observeRecent=()=>{if(current()&&!recentObserved&&deps.getActiveConversationMessages?.()?.length){
+            recentObserved=true;recordExperience('open-recent',performance.now()-started);
+          }};
           deps.setActiveChatContext(nextChatContext);
           deps.setActiveChatReplyMessageId("");
           deps.setOpenChatMessageMenuId("");
           deps.setProfileMessagesMode?.("detail");
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
+          deps.replaceMessagesPanel(scope);
+          requestAnimationFrame(()=>{if(current()){
+            recordExperience('open-shell',performance.now()-started);
+            observeRecent();
+          }});
+          const optional=[deps.refreshConversationOffersState,deps.refreshConversationAvailabilityState,deps.refreshCommerceGoalsState];
+          for(const refresh of optional)if(refresh)Promise.resolve().then(()=>current()&&refresh()).then(()=>{
+            if(current())deps.replaceMessagesPanel(scope);
+          }).catch(()=>{});
           try {
             await deps.refreshActiveMessageHistory?.();
-            await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
+            if(current()){
+              recordExperience('sync-confirmed',performance.now()-started);
+              if(announcementContext?.peer===nextChatContext.withUser&&!announcementContext.ready){
+                const items=deps.getActiveConversationMessages?.()||[];
+                announcementContext.ids=new Set(items.map(item=>item.id));
+                announcementContext.latest=items.reduce((n,item)=>Math.max(n,Date.parse(item.timestamp)||0),0);
+                announcementContext.ready=true;
+              }
+            }
           } catch (error) {
+            if(current())recordExperience('sync-failed',performance.now()-started);
             // Ignore passive read sync failures on thread switch.
           }
-          const activeContext = deps.getActiveChatContext();
-          if (owner !== deps.getCurrentUser() || session !== deps.getCurrentSession?.()
-            || nextChatContext.withUser !== activeContext?.withUser
-            || nextChatContext.productId !== activeContext?.productId) return;
+          if(!current())return;
           deps.replaceMessagesPanel(scope);
+          requestAnimationFrame(observeRecent);
           try {
             await deps.markActiveConversationRead();
           } catch (_error) {
@@ -24106,15 +24355,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
       bindSubmitOnce("#message-compose-form", "MessageComposeForm", async (event) => {
         event.preventDefault();
+        const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.(),sendVersion=navigationVersion;
         const messageInput = document.getElementById("message-compose-input");
         const message = messageInput?.value.trim() || "";
         const activeChatContext = deps.getActiveChatContext();
+        const currentSend=()=>sendOwner===deps.getCurrentUser() && sendSession===deps.getCurrentSession?.()
+          && sendVersion===navigationVersion && activeChatContext?.withUser===deps.getActiveChatContext()?.withUser;
         if (!activeChatContext || !message) {
           return;
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
           const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("profile", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
@@ -24129,6 +24382,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
             completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena.")
           });
+          if(!currentSend())return;
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("profile", {
               tone: "info",
@@ -24149,7 +24403,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if (sendResult?.id && !sendResult.isQueued) {
             deps.appendLocalMessage?.(sendResult);
           }
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          void Promise.all([deps.refreshMessagesState(),deps.refreshNotificationsState()]).then(()=>{
+            if(currentSend())deps.replaceMessagesPanel(scope);
+          }).catch(()=>{});
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("profile", {
               tone: "warning",
@@ -24170,6 +24426,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("profile", {
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
@@ -26220,11 +26477,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     function buildOpsSignalLines(summary = {}) {
       const conversations=summary.conversations||{};
+      const operationRows=['send-commit','protocol-error','direct-duplicate-send','media-upload','media-download'].flatMap(action=>{
+        const rows=(conversations.metrics?.operations||[]).filter(row=>row.action===action);
+        return rows.length?rows:[{action,outcome:'unobserved',count:'-',averageDurationMs:null,maxDurationMs:null}];
+      });
+      const reconnect=(conversations.experience?.metrics||[]).find(row=>row.name==='transport-reconnect');
       const conversationLine=conversations.metrics?.available
         ? t(conversations.readiness==='ready'?'admin.conversationHealthReady':'admin.conversationHealthDegraded',
           conversations.readiness==='ready'?'Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.':'Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.',
           {publishers:conversations.metrics.activePublishers||0,records:conversations.durable?.ciphertextRecordsAccepted||0,
-            attempts:(conversations.metrics.operations||[]).reduce((sum,row)=>sum+row.count,0),
+            attempts:conversations.observation?.samples??'-',
             dispatch:conversations.dispatch?.pendingOwners||0,push:conversations.push?.pending||0})
         : t('admin.conversationHealthUnavailable','Conversations health unavailable.');
       const intelligence = summary.intelligence || {};
@@ -26241,6 +26503,33 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const trendSnapshots = Array.isArray(snapshot.trendSnapshots) ? snapshot.trendSnapshots : [];
       return [
         {type:'conversation-health',value:conversationLine},
+        {type:'conversation-acceptance',value:t('admin.conversationServerRate','Server-observed {name}: accepted {success}; unconfirmed {failure}; acceptance rate {rate}%.',
+          {name:'durable-send-attempts /24h (server)',success:conversations.observation?.sendAccepted??'-',
+            failure:conversations.observation?conversations.observation.sendAttempts-conversations.observation.sendAccepted:'-',
+            rate:conversations.observation?.sendAttemptAcceptanceRate==null?'-':Math.round(conversations.observation.sendAttemptAcceptanceRate*10000)/100})},
+        ...operationRows.map(row=>({type:'conversation-operation',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+            {name:row.action+':'+row.outcome+' /24h (server)',count:row.count,average:row.averageDurationMs??'-',max:row.maxDurationMs??'-'})})),
+        {type:'conversation-sync-delay',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:'verified-native-sync-acks /24h',count:conversations.multiDevice?.samples??'-',average:conversations.multiDevice?.averageSyncDelayMs==null?'-':Math.round(conversations.multiDevice.averageSyncDelayMs),max:'-'})},
+        {type:'conversation-media-cleanup',value:t('admin.conversationObservation','Observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:'media-cleanup-overdue (current)',count:conversations.media?.cleanupOverdue??'-',average:'-',max:conversations.media?.oldestCleanupAgeSeconds==null?'-':Math.round(conversations.media.oldestCleanupAgeSeconds*1000)})},
+        {type:'conversation-reconnect-rate',value:t('admin.conversationReconnect','Client reconnects: {count} in {hours} hours; {rate} per hour.',
+          {count:reconnect?.count??'-',hours:24,rate:reconnect?Math.round(reconnect.count/24*100)/100:'-'})},
+        {type:'conversation-reliability',value:t('admin.conversationReliability',
+          'Ciphertext records: delivered {delivered}/{accepted}; delivery latency {latency} ms ({samples} timed samples).',
+          {delivered:conversations.reliability?.available?conversations.reliability.delivered:'-',accepted:conversations.reliability?.available?conversations.reliability.accepted:'-',
+            latency:conversations.reliability?.averageDeliveryMs==null?'-':Math.round(conversations.reliability.averageDeliveryMs),samples:conversations.reliability?.timedDeliverySamples??'-'})},
+        {type:'conversation-pool',value:t('admin.conversationPool','Backend pool: active {active}; idle {idle}; waiting {waiting}; maximum {max}.',
+          {active:conversations.pool?.available?conversations.pool.total-conversations.pool.idle:'-',idle:conversations.pool?.idle??'-',waiting:conversations.pool?.waiting??'-',max:conversations.pool?.max??'-'})},
+        {type:'conversation-transport',value:t('admin.conversationTransport','Phoenix node: connections {connections}; queued {queued}; BEAM memory {memory} bytes; scheduler {scheduler}%.',
+          {connections:conversations.transport?.connections??'-',queued:conversations.transport?.queuedMessages??'-',memory:conversations.transport?.beamMemoryBytes??'-',
+            scheduler:conversations.transport?.schedulerUtilization==null?'-':Math.round(conversations.transport.schedulerUtilization*100)})},
+        ...(conversations.experience?.metrics||[]).map(row=>({type:'conversation-experience',value:t('admin.conversationExperience',
+          'Client observations {name}: {count}; average {average} ms; maximum {max} ms.',
+          {name:row.name+' /24h',count:row.count,average:row.averageDurationMs??'-',max:row.maxDurationMs??'-'})})),
+        ...Object.entries(conversations.clientReliability||{}).filter(([,row])=>row&&typeof row==='object').map(([name,row])=>({type:'conversation-rate',
+          value:t('admin.conversationRate','Client-reported {name}: confirmed {success}; unconfirmed {failure}; confirmation rate {rate}%.',
+            {name:name+' /24h',success:row.success,failure:row.failure+(row.pending||0),rate:row.rate==null?'-':Math.round(row.rate*10000)/100})})),
         ...(conversations.alerts||[]).slice(0,4).map(code=>({type:'conversation-alert',
           value:t('admin.conversationHealthAlert','Conversation alert: {code}',{code})})),
         ...(summary.backupStatus?.note ? [{ type: "backup", value: `Backup: ${summary.backupStatus.note}` }] : []),
@@ -26639,10 +26928,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
         } else if (state.opsSummary) {
+          wrapper.appendChild(createSimpleListSection(t('admin.conversationsOperations','Conversations Operations'),'',
+            buildOpsSignalLines(state.opsSummary).filter(item=>item.type.startsWith('conversation-')),item=>item.value));
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            buildOpsSignalLines(state.opsSummary),
+            buildOpsSignalLines(state.opsSummary).filter(item=>!item.type.startsWith('conversation-')),
             (item) => item.value
           ));
         }
@@ -27460,10 +27751,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if (state.loadErrors.opsSummary) {
           wrapper.appendChild(createSection("Ops Signals", "Runtime diagnostics za admin.", createLoadIssueState("Ops summary haikupatikana kwa sasa.")));
         } else if (state.opsSummary) {
+          wrapper.appendChild(createSimpleListSection(t('admin.conversationsOperations','Conversations Operations'),'',
+            buildOpsSignalLines(state.opsSummary).filter(item=>item.type.startsWith('conversation-')),item=>item.value));
           wrapper.appendChild(createSimpleListSection(
             "Ops Signals",
             `Storage: ${state.opsSummary.storageMode || "-"} | Backups: ${state.opsSummary.backupStatus?.fileCount ?? 0} | Warnings: ${(state.opsSummary.configWarnings || []).length} | Auth failures: ${state.opsSummary.counts?.authFailures24h ?? 0} | Alerts: ${state.opsSummary.counts?.alertCandidates24h ?? 0} | Denied: ${state.opsSummary.counts?.deniedActions24h ?? 0}`,
-            buildOpsSignalLines(state.opsSummary),
+            buildOpsSignalLines(state.opsSummary).filter(item=>!item.type.startsWith('conversation-')),
             (item) => item.value
           ));
         }

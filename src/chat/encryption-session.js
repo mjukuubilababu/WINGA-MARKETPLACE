@@ -17,6 +17,7 @@
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
+    const localSends=new Set();
     const current=()=>{const s=getSession();if(closed || s?.username!==owner || s?.token!==initial.token || s?.sessionId!==initial.sessionId)fail('mls_session_changed');};
     const identity=await WingaCryptoDevices.createCryptoDeviceClient({getSession,request:deviceRequest});
     const vault=await WingaEncryptedVault.createEncryptedVault({owner,getSession});
@@ -33,7 +34,7 @@
           senderId:item.owner,receiverId:item.peer,messageType:a?(a.attachment.kind||'file'):c?.type||'text',productId:'',productName:'',productItems:[],
         replyToMessageId:c?.reply?.id||'',replyQuote:c?.reply?.quote||'',encrypted:true,
         isDelivered:['delivered','read'].includes(item.status),isRead:item.status==='read',deviceDeliveredAt:['delivered','read'].includes(item.status)?item.timestamp:null,
-        sendState:item.status==='pending'?'failed':item.status,isQueued:item.status==='pending'};
+        sendState:item.status==='pending'?(item.waiting?'pending':'failed'):item.status,isQueued:item.status==='pending'};
     }
     async function verifyPackage(p,expected) {
       if(p.fingerprint!==expected || await digest(decode(p.publicKey))!==expected || await digest(decode(p.keyPackage))!==p.hash)fail('mls_identity_verification_failed');
@@ -489,7 +490,7 @@
       }
       async function requireActiveMembership(peer) {
         try {await syncInternal();}catch(error){if(!(error instanceof TypeError) && error.status!==503)throw error;}
-        const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
+        const saved=await intentSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,g=groups.find(g=>g.id===id);
         if(!g)fail('encrypted_membership_required');
         if(g.status==='blocked')fail('encrypted_access_denied');
         if(g.status!=='active' || saved.values[`mls:replacement:${peer}`] || saved.values[`mls:device-admission:${peer}`])fail('encrypted_membership_pending');
@@ -508,6 +509,58 @@
         if(value&&reply)value={...value,reply};
         return {clientMessageId:payload.clientMessageId,receiverId:payload.receiverId,messageType:'text',
           message:value?rich.encode(value):payload.message};
+      }
+      async function intentWrite(id,change) {
+        for(let attempt=0;attempt<5;attempt++) {
+          try {
+          current();const saved=await vault.snapshot(),key='send:intent:'+id;
+          const value=await change(saved,saved.values[key]);if(!value)return;
+          await vault.write({expectedRevision:saved.revision,values:{[key]:value}});current();return value;}
+          catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+        }
+      }
+      async function intentSnapshot() {
+        for(let attempt=0;attempt<5;attempt++)try{current();return await vault.snapshot();}
+        catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+      }
+      async function stageMessage(payload) {
+        current();const wire=await wirePayload(structuredClone(payload));
+        const initial=await intentSnapshot(),route=initial.values['mls:route:'+wire.receiverId]?.conversationId;
+        if(!route)fail('encrypted_membership_required');
+        if(!initial.values['mls:group:'+route]?.confirmed)fail('encrypted_membership_pending');
+        if(initial.values['mls:replacement:'+wire.receiverId]||initial.values['mls:device-admission:'+wire.receiverId]
+          ||initial.values['mls:membership:'+route]||groups.some(g=>g.id===route&&g.status!=='active'))fail('encrypted_membership_pending');
+        if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(wire.clientMessageId||'')
+          ||!/^[A-Za-z0-9._:-]{1,128}$/.test(wire.receiverId||'')||wire.receiverId===owner
+          ||wire.messageType&&wire.messageType!=='text'||wire.productId||wire.productName||wire.productItems?.length||wire.replyToMessageId||wire.mediaId
+          ||typeof wire.message!=='string'||!wire.message.trim()
+          ||new TextEncoder().encode(wire.message).length>16384)fail('mls_content_unsupported');
+        const item=await intentWrite(wire.clientMessageId,async(saved,prior)=>{
+          const id=saved.values['mls:route:'+wire.receiverId]?.conversationId,g=saved.values['mls:group:'+id];
+          if(!id||!g?.confirmed||g.kind==='shopping-room')fail('mls_group_required');
+          if(saved.values['mls:replacement:'+wire.receiverId]||saved.values['mls:device-admission:'+wire.receiverId]
+            ||saved.values['mls:membership:'+id])fail('encrypted_membership_pending');
+          if(prior&&(prior.peer!==wire.receiverId||prior.message!==wire.message||prior.conversationId!==id||prior.deviceId!==own.id))fail('mls_send_retry_conflict');
+          if(saved.values['history:'+wire.clientMessageId]||saved.values['mls:outbox:'+wire.clientMessageId]
+            ||vault.lookup&&await vault.lookup('history:'+wire.clientMessageId))return;
+          return prior?{...prior,waiting:true}:{id:wire.clientMessageId,owner,peer:wire.receiverId,conversationId:id,deviceId:own.id,
+            message:wire.message,timestamp:new Date().toISOString(),status:'pending',waiting:true,localIntent:true};
+        });
+        if(item){localSends.add(item.id);onChange({localMessage:messageView(item)});}return wire;
+      }
+      async function transmitMessage(wire) {
+        try {
+          await requireActiveMembership(wire.receiverId);
+          const saved=await intentSnapshot(),intent=saved.values['send:intent:'+wire.clientMessageId];
+          if(intent&&(intent.conversationId!==await runtime.conversationId(wire.receiverId)||intent.deviceId!==own.id))fail('mls_send_retry_conflict');
+          const result=messageView(await runtime.sendMessage(wire));onChange({localMessage:result});return result;
+        }catch(error) {
+          const failed=await intentWrite(wire.clientMessageId,(_saved,prior)=>prior?{...prior,waiting:false}:null);
+          const item=(await runtime.history(wire.receiverId)).find(item=>item.id===wire.clientMessageId&&item.status==='pending')||failed;
+          if(item)onChange({localMessage:messageView(item)});
+          if(!item||(!(error instanceof TypeError)&&error.status!==503&&error.code!=='crypto_vault_revision_conflict'))throw error;
+          return messageView(item);
+        }
       }
       async function mutation(peer,type,targetId,value='') {
         await requireActiveMembership(peer);
@@ -601,6 +654,8 @@
         },
         history:async peer=>{
           const history=[...(await runtime.history(peer)),...(media?(await media.pendingHistory()).filter(v=>!peer||v.peer===peer):[])];
+          const saved=await vault.snapshot(),ids=new Set(history.map(v=>v.id));
+          for(const [key,item] of Object.entries(saved.values))if(key.startsWith('send:intent:')&&(!peer||item.peer===peer)&&!ids.has(item.id))history.push({...item,waiting:localSends.has(item.id)});
           return (globalThis.WingaRichContent?WingaRichContent.project(history,owner):history).map(messageView);
         },
         mutateMessage:(peer,type,id,value)=>serialize(()=>mutation(peer,type,id,value)),
@@ -610,17 +665,12 @@
         discardMediaDraft:peer=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.discardDraft(peer);}),
         sendMediaDraft:(peer,text)=>serialize(async()=>{if(!media)fail('private_media_disabled');await requireActiveMembership(peer);return messageView(await media.sendDraft(peer,text));}),
         downloadEncryptedMedia:id=>serialize(async()=>{if(!media)fail('private_media_disabled');return media.download(id);}),
-        sendMessage:payload=>serialize(async()=>{
-          await requireActiveMembership(payload.receiverId);
-          const wire=await wirePayload(payload);
-          try {const result=messageView(await runtime.sendMessage(wire));queueMicrotask(onChange);return result;}
-          catch(error) {
-            const item=(await runtime.history(payload.receiverId)).find(item=>item.id===payload.clientMessageId && item.status==='pending');
-            if(!item || (!(error instanceof TypeError) && error.status!==503))throw error;
-            queueMicrotask(onChange);return messageView(item);
-          }
+        sendMessage:async payload=>{const wire=await stageMessage(payload);try{return await serialize(()=>transmitMessage(wire));}finally{localSends.delete(wire.clientMessageId);}},
+        retryMessage:id=>serialize(async()=>{
+          const saved=await vault.snapshot(),intent=saved.values['send:intent:'+id];
+          if(intent)return transmitMessage({clientMessageId:id,receiverId:intent.peer,message:intent.message,messageType:'text'});
+          const item=(media?await media.resume(id):null)||await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;
         }),
-        retryMessage:id=>serialize(async()=>{const item=(media?await media.resume(id):null)||await runtime.retryMessage(id);queueMicrotask(onChange);return item?messageView(item):null;}),
         markRead:(peer,messageIds=[])=>serialize(async()=>{
           if(document.visibilityState!=='visible' || !document.hasFocus())return;
           const visible=[...document.querySelectorAll('[data-chat-read-user]')].some(el=>el.dataset.chatReadUser===peer && el.getClientRects().length);

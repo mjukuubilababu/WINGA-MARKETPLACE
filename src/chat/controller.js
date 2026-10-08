@@ -2,6 +2,36 @@
   function createChatControllerModule(deps) {
     const recentSubmissionRegistry = new Map();
     let inboxSearchState = { user: "", query: "" };
+    let navigationVersion = 0;
+    let announcementContext=null;
+    function announceIncoming(scope) {
+      const thread=scope.querySelector('[data-chat-read-user]');
+      if(!thread)return;
+      const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.(),peer=thread.dataset.chatReadUser;
+      const items=deps.getActiveConversationMessages?.()||[];
+      const latest=items.reduce((n,item)=>Math.max(n,Date.parse(item.timestamp)||0),0);
+      const page=deps.getMessagePageState?.()?.history;
+      const ready=Boolean(items.length||page?.loaded||!deps.getMessagePageState);
+      if(!announcementContext || announcementContext.owner!==owner || announcementContext.session!==session || announcementContext.peer!==peer) {
+        announcementContext={owner,session,peer,ids:new Set(items.map(item=>item.id)),latest,ready};return;
+      }
+      const context=announcementContext;
+      const incoming=items.filter(item=>!context.ids.has(item.id) && item.senderId!==owner && item.senderId===peer
+        && context.ready && (Date.parse(item.timestamp)||0)>=context.latest);
+      context.ids=new Set(items.slice(-2000).map(item=>item.id));context.latest=Math.max(context.latest,latest);
+      context.ready ||= ready;
+      if(!incoming.length || document.visibilityState!=='visible' || !document.hasFocus())return;
+      let announcer=document.getElementById('conversation-announcer');
+      if(!announcer) {
+        announcer=document.createElement('p');announcer.id='conversation-announcer';announcer.className='conversation-sr-only';
+        announcer.setAttribute('role','status');announcer.setAttribute('aria-live','polite');announcer.setAttribute('aria-atomic','true');
+        document.body.append(announcer);
+      }
+      announcer.textContent=t('chat.incomingAnnouncement','{count} new messages',{count:incoming.length});
+    }
+    function recordExperience(name,duration) {
+      try{window.WingaConversationExperience?.record(name,duration);}catch{/* Observations cannot fail a chat action. */}
+    }
     const translate = typeof deps.translate === "function"
       ? deps.translate
       : (_key, _variables, fallbackText = "") => String(fallbackText || "");
@@ -31,13 +61,16 @@
           getMemberProfile:deps.getMarketplaceUser,memberName:deps.getUserDisplayName,
           openContact:async username=>{
             const owner=deps.getCurrentUser(),session=deps.getCurrentSession?.();
+            const version=++navigationVersion;
             const profile=await deps.dataLayer.readRichContact(username);
-            if(!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
+            if(version!==navigationVersion||!scope.isConnected||owner!==deps.getCurrentUser()||session!==deps.getCurrentSession?.())return;
             if(profile.username===owner)return deps.openConversationProfile?.();
             const context={withUser:profile.username,displayName:profile.fullName||profile.username,productId:'',productName:''};
-            await deps.dataLayer.loadConversationHistoryPage?.(context);
             deps.setActiveChatContext(context);deps.setProfileMessagesMode('detail');deps.setProfileHasSelection?.(true);
             await refresh();
+            await deps.dataLayer.loadConversationHistoryPage?.(context);
+            if(version===navigationVersion && owner===deps.getCurrentUser() && session===deps.getCurrentSession?.()
+              && deps.getActiveChatContext()?.withUser===context.withUser)await refresh();
           }
         }
       };
@@ -82,6 +115,10 @@
     }
 
     async function runRetrySafeMessageSend(sendKey, task, duplicateCopy) {
+      const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.();
+      const identity=JSON.stringify([sendOwner,sendSession?.sessionId,sendSession?.token]);
+      const currentObservation=()=>sendOwner===deps.getCurrentUser()&&sendSession===deps.getCurrentSession?.()
+        &&identity===JSON.stringify([deps.getCurrentUser(),deps.getCurrentSession?.()?.sessionId,deps.getCurrentSession?.()?.token]);
       pruneRecentSubmissionRegistry(20000);
       const existing = recentSubmissionRegistry.get(sendKey);
       if (existing?.status === "pending") {
@@ -104,14 +141,17 @@
         status: "pending",
         updatedAt: Date.now()
       });
+      const sendStarted=performance.now();
       try {
         const result = await task();
+        if(currentObservation()&&!result?.skipped)recordExperience(result?.id&&!result.isQueued?'send-confirmed':'send-pending',performance.now()-sendStarted);
         recentSubmissionRegistry.set(sendKey, {
           status: "completed",
           updatedAt: Date.now()
         });
         return result;
       } catch (error) {
+        if(currentObservation())recordExperience('send-failed',performance.now()-sendStarted);
         recentSubmissionRegistry.delete(sendKey);
         throw error;
       }
@@ -342,6 +382,7 @@
     }
 
     function closeContextChatModal() {
+      navigationVersion++;
       const modal = document.getElementById("context-chat-modal");
       if (!modal) {
         return;
@@ -573,10 +614,14 @@
 
       modal.querySelector("#context-chat-compose-form")?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.(),sendVersion=navigationVersion;
         const input = modal.querySelector("#context-chat-compose-input");
         const textMessage = input?.value.trim() || "";
         const productItems = deps.getSelectedChatProducts();
         const activeChatContext = deps.getActiveChatContext();
+        const currentSend=()=>sendOwner===deps.getCurrentUser()&&sendSession===deps.getCurrentSession?.()
+          &&sendVersion===navigationVersion&&deps.getIsContextOpen()&&document.getElementById('context-chat-modal')===modal
+          &&activeChatContext===deps.getActiveChatContext();
         const message = textMessage || (productItems.length ? "Bei ya hizi ni kiasi gani?" : "");
         if (!activeChatContext || (!message && !productItems.length)) {
           return;
@@ -584,6 +629,7 @@
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, productItems);
           const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("context", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
@@ -600,6 +646,7 @@
             pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
             completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia mazungumzo kabla ya kutuma tena.")
           });
+          if(!currentSend())return;
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("context", {
               tone: "info",
@@ -618,7 +665,9 @@
           if (sendResult?.id && !sendResult.isQueued) {
             deps.appendLocalMessage?.(sendResult);
           }
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          void Promise.all([deps.refreshMessagesState(),deps.refreshNotificationsState()]).then(()=>{
+            if(currentSend())replaceContextChatModal();
+          }).catch(()=>{});
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("context", {
               tone: "warning",
@@ -638,6 +687,7 @@
           deps.maybePromptNotificationPermission?.("message");
           replaceContextChatModal();
         } catch (error) {
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("context", {
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")
@@ -689,6 +739,7 @@
     }
 
     async function openContextChatModal() {
+      const openVersion=++navigationVersion;
       const modal = deps.ensureContextChatModal();
       const content = modal.querySelector("#context-chat-content");
       if (!content) {
@@ -709,8 +760,12 @@
       deps.syncBodyScrollLockState?.();
       deps.setIsContextOpen(true);
       deps.startMessagePolling?.();
+      const openedUser=deps.getCurrentUser(),openedSession=deps.getCurrentSession?.(),openedContext=deps.getActiveChatContext();
+      const stillOpen=()=>openVersion===navigationVersion&&modal.style.display!=='none'&&deps.getCurrentUser()===openedUser
+        &&deps.getCurrentSession?.()===openedSession&&deps.getActiveChatContext()===openedContext;
 
       window.requestAnimationFrame(() => {
+        if(!stillOpen())return;
         content.replaceChildren(deps.createElementFromMarkup(deps.renderContextChatModal()));
         bindContextChatModalActions();
 
@@ -722,9 +777,9 @@
         }
       });
 
-      const openedUser = deps.getCurrentUser(), openedPartner = deps.getActiveChatContext()?.withUser;
-      const stillOpen = () => modal.style.display !== "none" && deps.getCurrentUser() === openedUser && deps.getActiveChatContext()?.withUser === openedPartner;
-      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState(), deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()])
+      for(const refresh of [deps.refreshConversationOffersState,deps.refreshConversationAvailabilityState,deps.refreshCommerceGoalsState])
+        if(refresh)void Promise.resolve().then(()=>stillOpen()&&refresh()).catch(()=>{});
+      void Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()])
         .then(async () => {
           if (!stillOpen()) return;
           replaceContextChatModal();
@@ -956,6 +1011,7 @@
         return;
       }
       syncChatViewport();
+      announceIncoming(scope);
       const scrollThread = scope.querySelector(".conversation-workspace .messages-thread-body");
       if (scrollThread && scrollThread.dataset.scrollInitialized !== "true") {
         scrollThread.dataset.scrollInitialized = "true";
@@ -1001,16 +1057,24 @@
       scope.querySelectorAll("[data-message-retry]").forEach((button) => {
         button.onclick = async () => {
           if (button.disabled) return;
-          const user = deps.getCurrentUser(), partner = deps.getActiveChatContext()?.withUser;
+          const user = deps.getCurrentUser(), session=deps.getCurrentSession?.(), partner = deps.getActiveChatContext()?.withUser,started=performance.now();
+          const identity=JSON.stringify([user,session?.sessionId,session?.token]);
+          const currentSession=()=>user===deps.getCurrentUser()&&session===deps.getCurrentSession?.()
+            &&identity===JSON.stringify([deps.getCurrentUser(),deps.getCurrentSession?.()?.sessionId,deps.getCurrentSession?.()?.token]);
           button.disabled = true;
           try {
-            await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
-            if (user === deps.getCurrentUser()) await deps.refreshMessagesState();
+            const result=await deps.dataLayer.retryPendingMessage(button.dataset.messageRetry);
+            const accepted=typeof result==='number'?result>0:Boolean(result?.id && !result.isQueued && !result.pending && result.status!=='pending');
+            if(currentSession())recordExperience(accepted?'retry-confirmed':'retry-failed',performance.now()-started);
           } catch (_error) {
+            if(currentSession())recordExperience('retry-failed',performance.now()-started);
             // The retained entry remains available for retry; history stays intact.
           } finally {
+            if (currentSession()) {
+              try { await deps.refreshMessagesState(); } catch {}
+            }
             button.disabled = false;
-            if (user === deps.getCurrentUser() && partner === deps.getActiveChatContext()?.withUser) {
+            if (currentSession() && partner === deps.getActiveChatContext()?.withUser) {
               if (scope.id === "context-chat-modal") replaceContextChatModal();
               else deps.replaceMessagesPanel(scope);
             }
@@ -1473,23 +1537,48 @@
 
       async function selectConversation(nextChatContext) {
           const owner = deps.getCurrentUser(), session = deps.getCurrentSession?.();
+          const version=++navigationVersion,started=performance.now();
+          let recentObserved=false;
+          const current=()=>version===navigationVersion && owner===deps.getCurrentUser() && session===deps.getCurrentSession?.()
+            && deps.getProfileMessagesMode?.()==='detail'
+            && nextChatContext.withUser===deps.getActiveChatContext()?.withUser
+            && nextChatContext.productId===deps.getActiveChatContext()?.productId;
+          const observeRecent=()=>{if(current()&&!recentObserved&&deps.getActiveConversationMessages?.()?.length){
+            recentObserved=true;recordExperience('open-recent',performance.now()-started);
+          }};
           deps.setActiveChatContext(nextChatContext);
           deps.setActiveChatReplyMessageId("");
           deps.setOpenChatMessageMenuId("");
           deps.setProfileMessagesMode?.("detail");
           deps.setProfileHasSelection?.(true);
           deps.setCurrentMessageDraft(deps.loadStoredChatDraft?.(nextChatContext) || "");
+          deps.replaceMessagesPanel(scope);
+          requestAnimationFrame(()=>{if(current()){
+            recordExperience('open-shell',performance.now()-started);
+            observeRecent();
+          }});
+          const optional=[deps.refreshConversationOffersState,deps.refreshConversationAvailabilityState,deps.refreshCommerceGoalsState];
+          for(const refresh of optional)if(refresh)Promise.resolve().then(()=>current()&&refresh()).then(()=>{
+            if(current())deps.replaceMessagesPanel(scope);
+          }).catch(()=>{});
           try {
             await deps.refreshActiveMessageHistory?.();
-            await Promise.all([deps.refreshConversationOffersState?.(), deps.refreshConversationAvailabilityState?.(), deps.refreshCommerceGoalsState?.()]);
+            if(current()){
+              recordExperience('sync-confirmed',performance.now()-started);
+              if(announcementContext?.peer===nextChatContext.withUser&&!announcementContext.ready){
+                const items=deps.getActiveConversationMessages?.()||[];
+                announcementContext.ids=new Set(items.map(item=>item.id));
+                announcementContext.latest=items.reduce((n,item)=>Math.max(n,Date.parse(item.timestamp)||0),0);
+                announcementContext.ready=true;
+              }
+            }
           } catch (error) {
+            if(current())recordExperience('sync-failed',performance.now()-started);
             // Ignore passive read sync failures on thread switch.
           }
-          const activeContext = deps.getActiveChatContext();
-          if (owner !== deps.getCurrentUser() || session !== deps.getCurrentSession?.()
-            || nextChatContext.withUser !== activeContext?.withUser
-            || nextChatContext.productId !== activeContext?.productId) return;
+          if(!current())return;
           deps.replaceMessagesPanel(scope);
+          requestAnimationFrame(observeRecent);
           try {
             await deps.markActiveConversationRead();
           } catch (_error) {
@@ -1649,15 +1738,19 @@
 
       bindSubmitOnce("#message-compose-form", "MessageComposeForm", async (event) => {
         event.preventDefault();
+        const sendOwner=deps.getCurrentUser(),sendSession=deps.getCurrentSession?.(),sendVersion=navigationVersion;
         const messageInput = document.getElementById("message-compose-input");
         const message = messageInput?.value.trim() || "";
         const activeChatContext = deps.getActiveChatContext();
+        const currentSend=()=>sendOwner===deps.getCurrentUser() && sendSession===deps.getCurrentSession?.()
+          && sendVersion===navigationVersion && activeChatContext?.withUser===deps.getActiveChatContext()?.withUser;
         if (!activeChatContext || !message) {
           return;
         }
         try {
           const sendKey = createMessageSubmissionKey(activeChatContext, message, []);
           const encrypted = await deps.dataLayer.isEncryptedConversation?.(activeChatContext.withUser);
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("profile", {
             tone: "info",
             message: t("chat.sendingStatus", "Tunatuma ujumbe wako sasa.")
@@ -1672,6 +1765,7 @@
             pending: t("chat.duplicatePending", "Ujumbe huu bado unatoka. Subiri kidogo kabla ya kubonyeza tena."),
             completed: t("chat.duplicateCompleted", "Ujumbe huu tayari umetumwa. Angalia thread kabla ya kutuma tena.")
           });
+          if(!currentSend())return;
           if (sendResult?.skipped) {
             deps.setChatComposeStatus?.("profile", {
               tone: "info",
@@ -1692,7 +1786,9 @@
           if (sendResult?.id && !sendResult.isQueued) {
             deps.appendLocalMessage?.(sendResult);
           }
-          await Promise.all([deps.refreshMessagesState(), deps.refreshNotificationsState()]);
+          void Promise.all([deps.refreshMessagesState(),deps.refreshNotificationsState()]).then(()=>{
+            if(currentSend())deps.replaceMessagesPanel(scope);
+          }).catch(()=>{});
           if (sendResult?.isQueued) {
             deps.setChatComposeStatus?.("profile", {
               tone: "warning",
@@ -1713,6 +1809,7 @@
           deps.replaceMessagesPanel(scope);
           document.getElementById("profile-notifications-panel")?.replaceWith(deps.createNotificationsContainerFromState());
         } catch (error) {
+          if(!currentSend())return;
           deps.setChatComposeStatus?.("profile", {
             tone: "error",
             message: error.message || t("chat.failedBody", "Imeshindikana kutuma ujumbe.")

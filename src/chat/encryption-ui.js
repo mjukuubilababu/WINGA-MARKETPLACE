@@ -29,6 +29,7 @@
         try {
           const info=await dataLayer.inspectEncryptedConversation(peer);
           dialog=document.createElement('dialog');dialog.className='chat-security-dialog';
+          dialog.setAttribute('aria-label',t('chat.security','Chat security'));
           const title=document.createElement('h3');title.textContent=t('chat.security','Chat security');dialog.append(title);
           const state=document.createElement('p');state.setAttribute('role','status');
           const label=info.status==='active'?t('chat.encrypted','End-to-end encrypted'):

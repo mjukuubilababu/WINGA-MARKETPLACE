@@ -188,7 +188,14 @@
       if (!activeAdapter || typeof activeAdapter.sendMessage !== "function") {
         return 0;
       }
-      const session = { username: String(readSession()?.username || "").trim() };
+      const initiatingSession=readSession();
+      const session = { username: String(initiatingSession?.username || "").trim() };
+      const identity=JSON.stringify([session.username,initiatingSession?.sessionId,initiatingSession?.token]);
+      // Stored sessions are parsed afresh; bind observations to values, not references.
+      const currentSession=()=>{
+        const value=readSession();
+        return identity===JSON.stringify([String(value?.username||'').trim(),value?.sessionId,value?.token]);
+      };
       if (!session?.username || getNavigator()?.onLine === false) {
         return 0;
       }
@@ -198,7 +205,7 @@
       if (active) {
         if (!retryId || active.retryId === retryId) return active.promise;
         await active.promise;
-        if (readSession()?.username !== owner || active.attemptedIds.has(retryId)) return 0;
+        if (!currentSession() || active.attemptedIds.has(retryId)) return 0;
         return flushOfflineActionQueue(activeAdapter, retryId);
       }
       const operation = { retryId, attemptedIds: new Set(), promise: null };
@@ -208,19 +215,21 @@
         let failedCount = 0;
         const updateItem = (id, change) => updateQueuedItem(session, id, change);
         for (const item of queue) {
-          if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
+          if (!currentSession() || getNavigator()?.onLine === false) break;
           if (!item || item.type !== "sendMessage" || activeMessageSends.has(item.id)) continue;
           if (retryId ? item.id !== retryId : item.status === "FAILED") continue;
           operation.attemptedIds.add(item.id);
+          const started=Date.now();
           try {
             const payload = activeAdapter.prepareMessage ? await activeAdapter.prepareMessage(item.payload) : item.payload;
             await updateItem(item.id, current => [{ ...current, payload, status: "QUEUED" }]);
-            if (readSession()?.username !== owner || getNavigator()?.onLine === false) break;
+            if (!currentSession() || getNavigator()?.onLine === false) break;
             const result = await activeAdapter.sendMessage(payload);
             if (!result?.id || result.isQueued || result.skipped) {
               throw Object.assign(new Error("Message acceptance was not confirmed."), { retryable: true });
             }
           } catch (error) {
+            try{if(currentSession())globalThis.WingaConversationExperience?.record('offline-failed',Math.max(0,Date.now()-started));}catch{}
             const retryable = isLikelyOfflineActionError(error);
             await updateItem(item.id, current => [{
               ...current, attempts: Number(current.attempts || 0) + 1,
@@ -228,10 +237,11 @@
               lastErrorCode: String(error?.code || "message_send_failed").slice(0, 80)
             }]);
             if (!retryable) failedCount += 1;
-            if (retryable || readSession()?.username !== owner) break;
+            if (retryable || !currentSession()) break;
             continue;
           }
           // Cleanup failure cannot turn a confirmed acceptance into rejection.
+          try{if(currentSession())globalThis.WingaConversationExperience?.record('offline-confirmed',Math.max(0,Date.now()-started));}catch{}
           try { await updateItem(item.id, () => []); } catch (_error) { /* Retry retains the same logical ID. */ }
           flushedCount += 1;
         }

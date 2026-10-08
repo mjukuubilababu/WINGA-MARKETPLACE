@@ -3,9 +3,18 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "admin.conversationsOperations": "Uendeshaji wa Mazungumzo",
+        "admin.conversationServerRate": "Server imepima {name}: zilizokubaliwa {success}; zisizothibitishwa {failure}; kiwango cha kukubaliwa {rate}%.",
+        "admin.conversationObservation": "Vipimo {name}: {count}; wastani {average} ms; kiwango cha juu {max} ms.",
+        "admin.conversationReconnect": "Client imeunganisha tena mara {count} ndani ya saa {hours}; {rate} kwa saa.",
         "admin.conversationHealthReady": "Mazungumzo yako tayari. Publishers {publishers}; records zilizokubaliwa {records}; majaribio {attempts}; dispatch inayosubiri {dispatch}; push inayosubiri {push}.",
         "admin.conversationHealthDegraded": "Mazungumzo yanahitaji ukaguzi. Publishers {publishers}; records zilizokubaliwa {records}; majaribio {attempts}; dispatch inayosubiri {dispatch}; push inayosubiri {push}.",
         "admin.conversationHealthUnavailable": "Hali ya mazungumzo haipatikani.",
+        "admin.conversationRate": "Client imeripoti {name}: zimethibitishwa {success}; hazijathibitishwa {failure}; kiwango cha uthibitisho {rate}%.",
+        "admin.conversationExperience": "Observations za client {name}: {count}; wastani {average} ms; kiwango cha juu {max} ms.",
+        "admin.conversationReliability": "Rekodi za ciphertext: zimefika {delivered}/{accepted}; muda wa kufika {latency} ms (sampuli {samples} zenye muda).",
+        "admin.conversationPool": "Pool ya backend: zinazotumika {active}; huru {idle}; zinazongoja {waiting}; kiwango cha juu {max}.",
+        "admin.conversationTransport": "Node ya Phoenix: miunganisho {connections}; foleni {queued}; kumbukumbu ya BEAM {memory} bytes; scheduler {scheduler}%.",
         "admin.conversationHealthAlert": "Tahadhari ya mazungumzo: {code}",
         "rooms.preferenceConflict": "Mipangilio imebadilishwa kwenye kifaa kingine. Jaribu tena.",
         "rooms.transferAdmin": "Kabidhi usimamizi",
@@ -1622,5 +1631,12 @@
                      "chat.reportReviewReason": "Sababu ya kufungua ushahidi huu",
                      "chat.reportViewEvidence": "Fungua ushahidi",
                      "chat.reportEvidenceFailed": "Ushahidi haupatikani. Jaribu tena."
+                     ,"chat.incomingAnnouncement": "Ujumbe mpya {count}",
+                     "chat.pay": "Lipa",
+                     "chat.sharePhone": "Shiriki namba yangu",
+                     "chat.whatsapp": "Chat kupitia WhatsApp",
+                     "chat.paymentSafety": "Tumia maelezo ya malipo ya muuzaji ndani ya Winga. Ripoti maombi ya kulipa nje ya Winga yanayotia shaka.",
+                     "chat.messageHistory": "Historia ya ujumbe"
+                     ,"chat.localSendWaiting": "Umehifadhiwa kwenye kifaa; unasubiri kutumwa"
                  }
 }

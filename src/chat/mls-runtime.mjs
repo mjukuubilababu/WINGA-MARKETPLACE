@@ -620,12 +620,15 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       && payload.message.trim().length && encoder.encode(payload.message).length <= 16384
       && (!payload.messageType || payload.messageType === 'text') && !payload.productItems?.length
       && !payload.productId && !payload.productName && !payload.replyToMessageId, 'mls_content_unsupported');
-    return locked(async () => {
-      let saved = await vault.snapshot(); const id = saved.values[`mls:route:${payload.receiverId}`]?.conversationId;
+    async function sendAttempt(attempt=0) {
+      let saved = await readSnapshot(); const id = saved.values[`mls:route:${payload.receiverId}`]?.conversationId;
       need(uuid(id), 'mls_group_required'); const identity = saved.values['mls:identity'];
       need(!Object.entries(saved.values).some(([key, job]) => key.startsWith('mls:outbox:')
         && job.conversationId === id && job.id !== payload.clientMessageId), 'mls_pending_send_requires_retry');
       let job = saved.values[`mls:outbox:${payload.clientMessageId}`], history = await record(saved,`history:${payload.clientMessageId}`);
+      const intent=saved.values[`send:intent:${payload.clientMessageId}`];
+      if(intent)need(intent.owner===owner&&intent.peer===payload.receiverId&&intent.message===payload.message
+        &&intent.conversationId===id&&intent.deviceId===identity.id&&!payload.mediaId,'mls_send_retry_conflict');
       if (history) need(history.owner === owner && history.peer === payload.receiverId && history.message === payload.message
         && history.conversationId === id, 'mls_send_retry_conflict');
       if (history && !job) return { ...history, encrypted: true };
@@ -645,7 +648,10 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
           job = { id: content.id, conversationId: id, epoch: content.epoch, deviceId: identity.id, ciphertext, hash: await hash(ciphertext),...(payload.mediaId?{mediaId:payload.mediaId}:{}) };
           history = { ...content, hash: job.hash, timestamp: new Date(now()).toISOString(), status: 'pending' };
           await put(saved, { [`mls:group:${id}`]: { ...group.row, bytes: encodeGroupState(changed.newState) },
-            [`mls:outbox:${content.id}`]: job, [`history:${content.id}`]: history });
+            [`mls:outbox:${content.id}`]: job, [`history:${content.id}`]: history },intent?[`send:intent:${content.id}`]:[]);
+        } catch(error) {
+          if(error.code==='crypto_vault_revision_conflict'&&attempt<4)return sendAttempt(attempt+1);
+          throw error;
         } finally { wipe(changed); }
       }
       // A missing/rejected encrypted transport never falls back to legacy HTTP/Phoenix.
@@ -653,11 +659,20 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       const reply = await transport.send(structuredClone(job)); current();
       need(reply?.id === job.id && reply.hash === job.hash && reply.status === 'sent', 'mls_send_confirmation_rejected');
       need(reply.createdAt===undefined||typeof reply.createdAt==='string'&&Number.isFinite(Date.parse(reply.createdAt)), 'mls_send_confirmation_rejected');
-      saved = await vault.snapshot();
-      need(saved.values[`mls:outbox:${job.id}`]?.hash === job.hash, 'mls_send_retry_conflict');
-      const result = { ...history, timestamp:reply.createdAt||history.timestamp, status: 'sent' };
-      await put(saved, { [`history:${job.id}`]: result }, [`mls:outbox:${job.id}`]); return { ...result, encrypted: true };
-    });
+      need(reply.sequence===undefined||typeof reply.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(reply.sequence), 'mls_send_confirmation_rejected');
+      const result = { ...history, timestamp:reply.createdAt||history.timestamp, status: 'sent',
+        ...(reply.sequence?{sequence:reply.sequence,conversationSequence:reply.sequence}:{}) };
+      // Once acknowledged, retry only this local CAS commit, never the network send.
+      for(let attempt=0;attempt<5;attempt++) {
+        try {
+        saved=await readSnapshot();const pending=saved.values[`mls:outbox:${job.id}`],accepted=await record(saved,`history:${job.id}`);
+        need(pending?.hash===job.hash&&pending.conversationId===id&&accepted?.hash===job.hash
+          &&accepted.owner===owner&&accepted.peer===payload.receiverId&&accepted.message===payload.message,'mls_send_retry_conflict');
+        await put(saved,{[`history:${job.id}`]:result},[`mls:outbox:${job.id}`]);return {...result,encrypted:true};}
+        catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+      }
+    }
+    return locked(()=>sendAttempt());
   }
   async function receive(peer, envelope) {
     need(envelope?.ciphertext instanceof Uint8Array && envelope.ciphertext.length > 0
@@ -665,13 +680,19 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
     envelope = structuredClone(envelope);
     return locked(async () => {
       need(uuid(envelope?.id) && uuid(envelope.conversationId) && envelope.ciphertext instanceof Uint8Array, 'mls_wire_rejected');
+      need(envelope.sequence===undefined||typeof envelope.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(envelope.sequence), 'mls_wire_rejected');
       const saved = await vault.snapshot(), id = saved.values[`mls:route:${peer}`]?.conversationId;
       need(id === envelope.conversationId, 'mls_peer_invalid');
       const digest = await hash(envelope.ciphertext), prior = await record(saved,`mls:received:${envelope.id}`);
       if (prior) {
         need(prior === digest, 'mls_replay_conflict'); const item = await record(saved,`history:${envelope.id}`);
         need((!envelope.hash || envelope.hash === digest) && item?.epoch === envelope.epoch && (!envelope.deviceId || envelope.deviceId === item.deviceId)
-          && (!envelope.sender_device || envelope.sender_device === item.deviceId), 'mls_envelope_binding_rejected');
+          && (!envelope.sender_device || envelope.sender_device === item.deviceId)
+          && (!envelope.sequence || !item.sequence || envelope.sequence===item.sequence), 'mls_envelope_binding_rejected');
+        if(envelope.sequence && !item.sequence){
+          const ordered={...item,sequence:envelope.sequence,conversationSequence:envelope.sequence};
+          await put(saved,{[`history:${envelope.id}`]:ordered});return ordered;
+        }
         return item;
       }
       if(envelope.hash)need(envelope.hash===digest,'mls_envelope_binding_rejected');
@@ -702,7 +723,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
           && equal(leaf.leaf.credential.identity, credential(pin).identity) && equal(leaf.leaf.signaturePublicKey, pin.signaturePublicKey)
           && (!envelope.deviceId || envelope.deviceId === content.deviceId) && (!envelope.sender_device || envelope.sender_device === content.deviceId)
           && await suite.signature.verify(pin.signaturePublicKey, contentBytes(content), new Uint8Array(content.signature)), 'mls_sender_rejected');
-        const history = { ...content, hash: digest, timestamp: envelope.created_at || new Date(now()).toISOString(), status: content.owner === owner ? 'sent' : 'delivered', encrypted: true }; delete history.signature;
+        const history = { ...content, hash: digest, timestamp: envelope.created_at || new Date(now()).toISOString(), status: content.owner === owner ? 'sent' : 'delivered', encrypted: true,
+          ...(envelope.sequence?{sequence:envelope.sequence,conversationSequence:envelope.sequence}:{}) }; delete history.signature;
         await put(saved, { [`mls:group:${id}`]: { ...group.row, bytes: encodeGroupState(result.newState) },
           [`history:${envelope.id}`]: history, [`mls:received:${envelope.id}`]: digest }); return history;
       } finally { if (result?.message) result.message.fill(0); if (sender?.reuseGuard) sender.reuseGuard.fill(0); wipe(result); }
@@ -765,12 +787,16 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       await put(saved,{[`history:${p.id}`]:{...item,status:'read'}});
     });
   }
+  async function readSnapshot() {
+    for(let attempt=0;attempt<5;attempt++)try{current();const saved=await vault.snapshot();current();return saved;}
+    catch(error){if(error.code!=='crypto_vault_revision_conflict'||attempt===4)throw error;}
+  }
   async function conversationId(peer) {
-    current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
+    current();const saved=await readSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId;
     need(uuid(id) && saved.values[`mls:group:${id}`]?.confirmed,'mls_group_required');return id;
   }
   async function conversationEpoch(peer) {
-    current();const saved=await vault.snapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,row=saved.values[`mls:group:${id}`];
+    current();const saved=await readSnapshot(),id=saved.values[`mls:route:${peer}`]?.conversationId,row=saved.values[`mls:group:${id}`];
     need(uuid(id) && row?.confirmed,'mls_group_required');
     const parsed=decodeGroupState(row.bytes,0);need(parsed && parsed[1]===row.bytes.length && decoder.decode(parsed[0].groupContext.groupId)===id,'mls_state_invalid');
     current();return String(parsed[0].groupContext.epoch);

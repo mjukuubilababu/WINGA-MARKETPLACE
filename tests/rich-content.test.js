@@ -65,3 +65,14 @@ test('equal-time reactions converge deterministically regardless of transport or
   const values=[row(1),reaction(2,rich.REACTIONS[0]),reaction(3,rich.REACTIONS[1])];
   assert.deepEqual(rich.project(values,'alice'),rich.project(values.slice().reverse(),'alice'));
 });
+test('canonical sequence wins equal-time edits and reactions with reversed UUID order',()=>{
+  const target={...row(1),sequence:'1'};
+  const older={...row(9,'alice',rich.encode(rich.create('edit','Older',{targetId:id(1)})),5),sequence:'2'};
+  const newer={...row(2,'alice',rich.encode(rich.create('edit','Newest',{targetId:id(1)})),5),sequence:'3'};
+  const r1={...row(8,'bob',rich.encode(rich.create('reaction','',{targetId:id(1),emoji:rich.REACTIONS[0]})),6),sequence:'4'};
+  const r2={...row(3,'bob',rich.encode(rich.create('reaction','',{targetId:id(1),emoji:rich.REACTIONS[1]})),6),sequence:'5'};
+  const rows=[r2,newer,target,older,r1],projected=rich.project(rows,'alice');
+  assert.equal(projected[0].richContent.text,'Newest');
+  assert.deepEqual(projected[0].reactions,[{emoji:rich.REACTIONS[1],owners:['bob']}]);
+  assert.deepEqual(projected,rich.project(rows.slice().reverse(),'alice'));
+});

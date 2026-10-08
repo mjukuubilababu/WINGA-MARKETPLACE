@@ -13,6 +13,8 @@
     let encryptionService = null;
     let encryptionChanged = () => {};
     let api;
+    if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
+      request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
     const networkFailure = error => error instanceof TypeError || error.status === 503;
     function ensureEncryption() {
       const s = deps.getSession?.();
@@ -32,7 +34,7 @@
           initialSync:false,
           packageRequest:(payload,context)=>api.cryptoPackageRequest('POST',payload,context),
           operationRequest:payload=>fetchJson(`${baseUrl}/conversations/encrypted/operations`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)}),
-          onChange:()=>encryptionChanged(),
+          onChange:change=>encryptionChanged(change),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
           roomLimits:capabilities.roomLimits,
@@ -58,12 +60,13 @@
       const loaded = encryptedConversations ? await encryptedConversations.isEncrypted(peer) : false;
       unchanged();
       if(stored || loaded)return true;
-      if(globalThis.WingaEncryptionSession && validName(session?.username) && validName(peer) && peer!==session.username) {
+      if(validName(session?.username) && validName(peer) && peer!==session.username) {
         const mode=await fetchJson(`${baseUrl}/conversations/encrypted/mode?peer=${encodeURIComponent(peer)}`,{headers:authHeaders()});
         unchanged();if(mode?.version!==1 || !['encrypted','legacy-plaintext'].includes(mode.mode))runtimeRequired();
-        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy.markEncrypted(session.username,peer);unchanged();return true;}
+        if(mode.mode==='encrypted'){await globalThis.WingaEncryptedPolicy?.markEncrypted(session.username,peer);unchanged();return true;}
+        return false;
       }
-      return false;
+      runtimeRequired();
     }
     const runtimeRequired = () => { throw Object.assign(new Error('mls_runtime_required'), { code: 'mls_runtime_required' }); };
 
@@ -326,7 +329,11 @@
     }
 
     function openRealtimeChannel(handlers = {}) {
-      encryptionChanged = () => { if(!handlers.isCurrent || handlers.isCurrent()) Promise.resolve(handlers.onMessageRead?.()).catch(()=>{}); };
+      encryptionChanged = change => {
+        if(handlers.isCurrent && !handlers.isCurrent())return;
+        if(change?.localMessage)Promise.resolve(handlers.onLocalMessage?.(change.localMessage)).catch(()=>{});
+        else Promise.resolve(handlers.onMessageRead?.()).catch(()=>{});
+      };
       let encryptionPolling = false;
       const encryptionTimer = setInterval(async () => {
         if(encryptionPolling || (handlers.isCurrent && !handlers.isCurrent())) return;

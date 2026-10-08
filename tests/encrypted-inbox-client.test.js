@@ -4,6 +4,17 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,'../src/api/communications-client.js'),'utf8');
+test('missing encryption bootstrap cannot disclose plaintext for encrypted or unknown canonical modes',async()=>{
+  for(const mode of ['encrypted','unknown',null]){
+    const calls=[],context={window:{},URLSearchParams};vm.runInNewContext(source,context);
+    const client=context.window.WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',
+      getSession:()=>({username:'rey',sessionId:'fixture'}),fetchJson:async(url,options)=>{
+        calls.push({url,options});if(url.includes('/encrypted/mode?'))return {version:1,mode};throw Error('plaintext leak');
+      }});
+    await assert.rejects(client.sendMessage({receiverId:'wizad',message:'PRIVATE TEXT'}),{code:'mls_runtime_required'});
+    assert.equal(calls.length,1);assert.equal(calls[0].options.body,undefined);
+  }
+});
 const summary = {withUser:'seller',lastMessageId:'legacy',latestMessage:'Hello',timestamp:'2026-10-05T10:00:00Z',unreadCount:0};
 const saved = {id:'encrypted',senderId:'rey',receiverId:'me',message:'Verified saved message',timestamp:'2026-10-05T11:00:00Z',encrypted:true,isRead:false};
 const page = () => ({items:[summary],hasMore:false,nextCursor:'',totalUnread:0,totalConversations:1});

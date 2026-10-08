@@ -113,7 +113,11 @@ test('native history coordinator decrypts all paged prior-epoch history, resumes
   const f=await admittedFixture(t),source=historyVault(),target=historyVault();
   const rows={};for(let n=0;n<1200;n++){
     const id=crypto.randomUUID();rows['history:'+id]={id,conversationId:f.id,epoch:'1',owner:n%2?'bob':'alice',peer:n%2?'alice':'bob',deviceId:n%2?f.members.bob.id:f.members.alice.id,
-      message:'OLD PRIVATE '+n+' '+'.'.repeat(250),hash:hash('wire '+n),timestamp:new Date(Date.now()+n).toISOString(),status:n%2?'read':'sent'};
+      message:'OLD PRIVATE '+n+' '+'.'.repeat(250),hash:hash('wire '+n),timestamp:'2026-10-08T12:00:00.000Z',sequence:String(n+1),conversationSequence:String(n+1),status:n%2?'read':'sent'};
+  }
+  const first=Object.values(rows)[0],rich=require('../src/chat/rich-content');
+  for(const [id,sequence,text] of [['00000000-0000-4000-8000-000000000009','1201','Older edit'],['00000000-0000-4000-8000-000000000002','1202','Latest edit']]){
+    rows['history:'+id]={...first,id,sequence,conversationSequence:sequence,message:rich.encode(rich.create('edit',text,{targetId:first.id})),hash:hash(text)};
   }
   const live=crypto.randomUUID(),other=crypto.randomUUID();rows['history:'+live]={...Object.values(rows)[0],id:live,epoch:'2',message:'LIVE MUST USE MLS'};
   rows['history:'+other]={...Object.values(rows)[0],id:other,conversationId:crypto.randomUUID(),message:'UNRELATED PRIVATE CONVERSATION'};
@@ -127,7 +131,9 @@ test('native history coordinator decrypts all paged prior-epoch history, resumes
     await donor.client.sync(groups);
     if(attempt===4){receiver.client.close();receiver=await historyCoordinator(f,'next',target,{after:lose});}
   }
-  const restored=await target.historySnapshot();assert.equal(Object.keys(restored.values).length,1200);assert.equal(restored.values['history:'+live],undefined);assert.equal(restored.values['history:'+other],undefined);
+  const restored=await target.historySnapshot();assert.equal(Object.keys(restored.values).length,1202);assert.equal(restored.values['history:'+live],undefined);assert.equal(restored.values['history:'+other],undefined);
+  assert.equal(restored.values['history:'+first.id].conversationSequence,'1');
+  assert.equal(rich.project(Object.values(restored.values),'alice').find(item=>item.id===first.id).richContent.text,'Latest edit');
   assert.equal(Object.values(restored.values).filter(m=>m.status==='read').length,600);
   assert.equal(lost.size,0);
   assert.equal((await f.db.query(`SELECT COUNT(*)::int AS n FROM encrypted_conversation_history_pages`)).rows[0].n,0);
@@ -568,12 +574,16 @@ test('only the selected recipient can activate mode and membership acceptance pr
   await assert.rejects(f.db.query("INSERT INTO messages(id,sender_id,receiver_id,message) VALUES('bad','alice','bob','plaintext')"),/conversation_encryption_required/);
 });
 test('ciphertext exact retries do not duplicate and unauthorized metadata, bodies, epochs and ID reuse are rejected',async t=>{
-  const f=await fixture(t);await f.active();
+  const metrics=require('../backend/conversation-metrics').createConversationMetrics();
+  const f=await fixture(t,{metrics});await f.active();
   const sent=await f.call('alice','send',f.packet);assert.equal(sent.status,'sent');await f.call('alice','send',f.packet);
   await assert.rejects(f.call('alice','send',{...f.packet,message:'plaintext'}),{code:'encrypted_operation_invalid'});
   await assert.rejects(f.call('alice','send',{...f.packet,epoch:'2'}),{code:'encrypted_operation_invalid'});
   await assert.rejects(f.call('bob','send',{...f.packet,deviceId:f.members.bob.id}),{code:'encrypted_send_conflict'});
   const rows=(await f.db.query('SELECT * FROM encrypted_conversation_messages')).rows;assert.equal(rows.length,1);
+  assert.equal(metrics.snapshot().operations.find(row=>row.action==='direct-duplicate-send').count,1);
+  assert.equal(metrics.snapshot().operations.find(row=>row.action==='send-commit').count,2);
+  assert.equal((await f.call('bob','poll',{})).groups[0].messages[0].sequence,'1');
   assert.equal(JSON.stringify(rows).includes('server must not receive this'),false);
 });
 test('receipts require recipient proof, persist idempotently and sender ACK drains only verified evidence',async t=>{
@@ -747,7 +757,12 @@ test('expired orphan cleanup uses durable leases and blocks late upload or attac
   await assert.rejects(m.storage.put(m.context('alice','upload'),m.object,m.bytes),{code:'private_media_access_rejected'});
   await assert.rejects(f.call('alice','send',{...f.packet,mediaId:m.object.id}),{code:'private_media_not_uploaded'});
   await assert.rejects(m.storage.remove({lease:crypto.randomUUID()},m.object),{code:'private_media_access_rejected'});
-  await m.storage.remove({lease:jobs[0].lease},m.object);await m.storage.remove({lease:jobs[0].lease},m.object);await f.store.finishEncryptedMediaCleanup(jobs[0]);
+  const prior=process.env.WINGA_CONVERSATION_BLOCKED_PROTOCOLS;process.env.WINGA_CONVERSATION_BLOCKED_PROTOCOLS='1';
+  try {
+    await assert.rejects(m.storage.put(m.context('alice','upload'),m.object,m.bytes),{code:'conversation_upgrade_required'});
+    await assert.rejects(m.storage.remove({lease:crypto.randomUUID()},m.object),{code:'private_media_access_rejected'});
+    await m.storage.remove({lease:jobs[0].lease},m.object);await m.storage.remove({lease:jobs[0].lease},m.object);await f.store.finishEncryptedMediaCleanup(jobs[0]);
+  }finally{if(prior===undefined)delete process.env.WINGA_CONVERSATION_BLOCKED_PROTOCOLS;else process.env.WINGA_CONVERSATION_BLOCKED_PROTOCOLS=prior;}
   assert.equal(m.objects.size,0);assert.equal((await f.db.query('SELECT status FROM encrypted_conversation_media')).rows[0].status,'deleted');
   await assert.rejects(m.reserve(),{code:'private_media_conflict'});
 });

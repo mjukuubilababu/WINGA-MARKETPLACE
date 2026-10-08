@@ -3,9 +3,18 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "admin.conversationsOperations": "عمليات المحادثات",
+        "admin.conversationServerRate": "رصد الخادم {name}: مقبول {success}؛ غير مؤكد {failure}؛ نسبة القبول {rate}%.",
+        "admin.conversationObservation": "القياسات {name}: {count}؛ المتوسط {average} مللي ثانية؛ الحد الأقصى {max} مللي ثانية.",
+        "admin.conversationReconnect": "إعادة اتصال العميل: {count} خلال {hours} ساعة؛ {rate} لكل ساعة.",
         "admin.conversationHealthReady": "المحادثات جاهزة. الناشرون {publishers}؛ السجلات المقبولة {records}؛ المحاولات {attempts}؛ الإرسال المعلق {dispatch}؛ الإشعارات المعلقة {push}.",
         "admin.conversationHealthDegraded": "المحادثات تحتاج إلى مراجعة. الناشرون {publishers}؛ السجلات المقبولة {records}؛ المحاولات {attempts}؛ الإرسال المعلق {dispatch}؛ الإشعارات المعلقة {push}.",
         "admin.conversationHealthUnavailable": "حالة المحادثات غير متاحة.",
+        "admin.conversationRate": "تقارير العميل {name}: مؤكد {success}؛ غير مؤكد {failure}؛ نسبة التأكيد {rate}%.",
+        "admin.conversationExperience": "ملاحظات العميل {name}: {count}؛ المتوسط {average} مللي ثانية؛ الحد الأقصى {max} مللي ثانية.",
+        "admin.conversationReliability": "السجلات المشفرة: تم تسليم {delivered}/{accepted}؛ مدة التسليم {latency} مللي ثانية ({samples} عينة مؤرخة).",
+        "admin.conversationPool": "مجمع الخلفية: نشط {active}؛ متاح {idle}؛ انتظار {waiting}؛ الحد الأقصى {max}.",
+        "admin.conversationTransport": "عقدة Phoenix: الاتصالات {connections}؛ الانتظار {queued}؛ ذاكرة BEAM {memory} بايت؛ المجدول {scheduler}%.",
         "admin.conversationHealthAlert": "تنبيه المحادثة: {code}",
         "rooms.preferenceConflict": "تغيرت الإعدادات على جهاز آخر. حاول مرة أخرى.",
         "rooms.transferAdmin": "نقل دور المشرف",
@@ -1626,5 +1635,12 @@
                      "chat.reportReviewReason": "سبب فتح هذه الأدلة",
                      "chat.reportViewEvidence": "عرض الأدلة المشتركة",
                      "chat.reportEvidenceFailed": "الأدلة غير متاحة. حاول مرة أخرى."
+                     ,"chat.incomingAnnouncement": "{count} رسائل جديدة",
+                     "chat.pay": "ادفع",
+                     "chat.sharePhone": "مشاركة رقمي",
+                     "chat.whatsapp": "الدردشة عبر واتساب",
+                     "chat.paymentSafety": "استخدم بيانات دفع البائع داخل وينجا. أبلغ عن الطلبات المشبوهة للدفع خارج وينجا.",
+                     "chat.messageHistory": "سجل الرسائل"
+                     ,"chat.localSendWaiting": "محفوظة على هذا الجهاز؛ بانتظار الإرسال"
                  }
 }

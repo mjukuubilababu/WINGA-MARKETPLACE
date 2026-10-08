@@ -3,9 +3,18 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "admin.conversationsOperations": "Conversations Operations",
+        "admin.conversationServerRate": "Server-observed {name}: accepted {success}; unconfirmed {failure}; acceptance rate {rate}%.",
+        "admin.conversationObservation": "Observations {name}: {count}; average {average} ms; maximum {max} ms.",
+        "admin.conversationReconnect": "Client reconnects: {count} in {hours} hours; {rate} per hour.",
         "admin.conversationHealthReady": "Conversations ready. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.",
         "admin.conversationHealthDegraded": "Conversations need attention. Publishers {publishers}; accepted records {records}; attempts {attempts}; dispatch pending {dispatch}; push pending {push}.",
         "admin.conversationHealthUnavailable": "Conversations health unavailable.",
+        "admin.conversationRate": "Client-reported {name}: confirmed {success}; unconfirmed {failure}; confirmation rate {rate}%.",
+        "admin.conversationExperience": "Client observations {name}: {count}; average {average} ms; maximum {max} ms.",
+        "admin.conversationReliability": "Ciphertext records: delivered {delivered}/{accepted}; delivery latency {latency} ms ({samples} timed samples).",
+        "admin.conversationPool": "Backend pool: active {active}; idle {idle}; waiting {waiting}; maximum {max}.",
+        "admin.conversationTransport": "Phoenix node: connections {connections}; queued {queued}; BEAM memory {memory} bytes; scheduler {scheduler}%.",
         "admin.conversationHealthAlert": "Conversation alert: {code}",
         "rooms.preferenceConflict": "Settings changed on another device. Try again.",
         "rooms.transferAdmin": "Transfer admin",
@@ -1622,5 +1631,12 @@
                      "chat.reportReviewReason": "Reason for opening this evidence",
                      "chat.reportViewEvidence": "View shared evidence",
                      "chat.reportEvidenceFailed": "Shared evidence is unavailable. Try again."
+                     ,"chat.incomingAnnouncement": "{count} new messages",
+                     "chat.pay": "Pay",
+                     "chat.sharePhone": "Share my phone",
+                     "chat.whatsapp": "Chat on WhatsApp",
+                     "chat.paymentSafety": "Use the seller payment details in Winga. Report suspicious requests to pay outside Winga.",
+                     "chat.messageHistory": "Message history"
+                     ,"chat.localSendWaiting": "Saved on this device; waiting to send"
                  }
 }

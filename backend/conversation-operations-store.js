@@ -1,6 +1,6 @@
 const {ACTIONS}=require('./conversation-metrics');
 const OUTCOMES=['success','limited','rejected','unavailable'];
-function createConversationOperationsStore({withTransaction}) {
+function createConversationOperationsStore({withTransaction,getPoolHealth=()=>({available:false})}) {
   async function publishConversationMetrics(snapshot) {
     if(!snapshot||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(snapshot.runId)||!Array.isArray(snapshot.buckets)
       ||snapshot.buckets.length>24*ACTIONS.length*4||snapshot.buckets.some(row=>
@@ -67,7 +67,35 @@ function createConversationOperationsStore({withTransaction}) {
         FROM encrypted_conversation_media WHERE status IN ('reserved','uploaded','cleaning') AND expires_at<NOW()`)).rows[0];
       const durable=(await client.query(`SELECT COUNT(*)::int AS "ciphertextRecordsAccepted"
         FROM encrypted_conversation_messages WHERE created_at>=date_trunc('hour',NOW())-INTERVAL '23 hours'`)).rows[0];
-      return {schema:chat.schema,rooms:{ok:rooms.ok,schemaReady:rooms.schemaReady,health:rooms.health},metrics,dispatch,push,media,durable};
+      const experienceSchema=(await client.query(`SELECT to_regclass('conversation_experience_metrics') IS NOT NULL AS ready`)).rows[0];
+      let experience={available:false,scope:'client-reported-hour-buckets',windowHours:24,metrics:[]};
+      if(experienceSchema.ready)experience={...experience,available:true,metrics:(await client.query(`SELECT name,SUM(count)::float8 AS count,
+        ROUND(SUM(total_duration_ms)::numeric/NULLIF(SUM(count),0))::float8 AS "averageDurationMs",MAX(max_duration_ms) AS "maxDurationMs"
+        FROM conversation_experience_metrics WHERE hour>=date_trunc('hour',NOW())-INTERVAL '23 hours' GROUP BY name ORDER BY name`)).rows};
+      const receiptSchema=(await client.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema=current_schema() AND table_name='encrypted_conversation_receipts' AND column_name='recorded_at') AS ready`)).rows[0];
+      let reliability={available:false,scope:'ciphertext-records-not-human-messages',windowHours:24};
+      if(receiptSchema.ready){
+        const observed=(await client.query(`WITH records AS (
+          SELECT id,created_at FROM encrypted_conversation_messages WHERE created_at>=date_trunc('hour',NOW())-INTERVAL '23 hours'
+        ), receipts AS (
+          SELECT m.id,m.created_at,MIN(r.recorded_at) FILTER(WHERE r.kind='delivered') AS delivered,
+            BOOL_OR(r.kind='delivered') AS has_delivered,BOOL_OR(r.kind='read') AS has_read
+          FROM records m LEFT JOIN encrypted_conversation_receipts r ON r.message_id=m.id GROUP BY m.id,m.created_at
+        ) SELECT COUNT(*)::int AS accepted,
+          COUNT(*) FILTER(WHERE has_delivered)::int AS delivered,COUNT(*) FILTER(WHERE has_read)::int AS read,
+          COUNT(delivered)::int AS "timedDeliverySamples",
+          AVG(GREATEST(0,EXTRACT(EPOCH FROM(delivered-created_at))*1000)) FILTER(WHERE delivered IS NOT NULL)::float8 AS "averageDeliveryMs"
+          FROM receipts`)).rows[0];
+        reliability={...reliability,available:true,...observed,deliveredRecordRate:observed.accepted?observed.delivered/observed.accepted:null};
+      }
+      const multiDevice=(await client.query(`SELECT COUNT(*)::int AS samples,
+        AVG(GREATEST(0,EXTRACT(EPOCH FROM(a.acknowledged_at-m.created_at))*1000))::float8 AS "averageSyncDelayMs"
+        FROM encrypted_conversation_sync_acks a JOIN encrypted_conversation_messages m ON m.id=a.message_id
+        WHERE m.created_at>=date_trunc('hour',NOW())-INTERVAL '23 hours'`)).rows[0];
+      return {schema:chat.schema,rooms:{ok:rooms.ok,schemaReady:rooms.schemaReady,health:rooms.health},metrics,dispatch,push,media,durable,
+        multiDevice:{scope:'verified-native-sync-acks',...multiDevice},
+        reliability,experience,pool:getPoolHealth()};
     });
   }
   return {publishConversationMetrics,readConversationOperationsHealth};

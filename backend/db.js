@@ -10045,7 +10045,11 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createLegacyUploadCompatibilityStore({ query }),
     ...createMessageReplayStore({ query }),
     ...createMessageDispatchStore({ query, withTransaction }),
-    ...require('./conversation-operations-store').createConversationOperationsStore({withTransaction}),
+    ...require('./conversation-experience-store').createConversationExperienceStore({withTransaction}),
+    ...require('./conversation-operations-store').createConversationOperationsStore({withTransaction,getPoolHealth:()=>{
+      const available=[pool.totalCount,pool.idleCount,pool.waitingCount,pool.options?.max].every(Number.isSafeInteger);
+      return available?{available,scope:'backend-process',total:pool.totalCount,idle:pool.idleCount,waiting:pool.waitingCount,max:pool.options.max}:{available:false};
+    }}),
     ...createMessageDeviceReceiptsStore({ withTransaction }),
     ...createMessageWebPushStore({ query, withTransaction, encrypted: true,roomsEnabled:process.env.WINGA_ENCRYPTED_ROOMS_ENABLED==='true' }),
     ...createConversationReportStore({withTransaction}),

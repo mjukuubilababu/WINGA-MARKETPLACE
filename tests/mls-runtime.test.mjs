@@ -722,7 +722,8 @@ test('mode lookup failure and explicit encryption without runtime never fall bac
   const absent = communications(null);
   await assert.rejects(absent.client.sendMessage({ ...message('private'), securityMode: 'encrypted' }));
   assert.equal(absent.requests.length, 0);
-  assert.equal((await absent.client.sendMessage(message('legacy'))).plain, true); assert.equal(absent.requests.length, 1);
+  await assert.rejects(absent.client.sendMessage(message('unknown mode')), {code:'mls_runtime_required'});
+  assert.equal(absent.requests.length, 0);
 });
 
 test('durable encrypted policy blocks a fresh API client without a loaded runtime', async () => {
@@ -738,4 +739,64 @@ test('session switch during policy lookup rejects before either encrypted or leg
     policy: { async isEncrypted() { session.username = 'eve'; return false; } } });
   await assert.rejects(client.sendMessage(message('wrong account')), { code: 'mls_session_changed' });
   assert.equal(requests.length, 0);
+});
+test('local intent is atomically promoted, canonical sequences persist, and post-ACK CAS retries never retransmit',async()=>{
+  const {alice,bob,id}=await pair(),payload=message('locally saved');
+  let saved=await alice.vault.snapshot();
+  const intent={id:payload.clientMessageId,owner:'alice',peer:'bob',message:payload.message,conversationId:id,deviceId:alice.device.id,status:'pending'};
+  await alice.vault.write({expectedRevision:saved.revision,values:{['send:intent:'+intent.id]:intent}});
+  let transmissions=0,conflicts=2;
+  const write=alice.vault.write.bind(alice.vault);
+  alice.vault.write=async change=>{
+    if(change.deleted?.includes('mls:outbox:'+intent.id)&&conflicts-->0){
+      const s=await alice.vault.snapshot();await write({expectedRevision:s.revision,values:{['send:intent:unrelated'+conflicts]:{status:'pending'}}});
+      throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});
+    }return write(change);
+  };
+  alice.options.transport.send=async packet=>{transmissions++;alice.packets.push(structuredClone(packet));
+    assert.equal((await alice.vault.snapshot()).values['send:intent:'+intent.id],undefined);
+    return {id:packet.id,hash:packet.hash,status:'sent',sequence:'17'};};
+  const sent=await alice.runtime.sendMessage(payload);assert.equal(transmissions,1);assert.equal(sent.conversationSequence,'17');
+  saved=await alice.vault.snapshot();assert.equal(saved.values['mls:outbox:'+intent.id],undefined);
+  const packet={...alice.packets[0],sequence:'17'};
+  assert.equal((await bob.runtime.receive('alice',packet)).sequence,'17');
+  await assert.rejects(bob.runtime.receive('alice',{...packet,sequence:'18'}),{code:'mls_envelope_binding_rejected'});
+});
+
+test('changed local intent binding is rejected without ciphertext or ratchet advancement',async()=>{
+  const {alice,id}=await pair(),payload=message('original');
+  let saved=await alice.vault.snapshot();await alice.vault.write({expectedRevision:saved.revision,values:{
+    ['send:intent:'+payload.clientMessageId]:{owner:'alice',peer:'bob',message:'changed',conversationId:id,deviceId:alice.device.id}}});
+  const before=await alice.vault.snapshot();
+  await assert.rejects(alice.runtime.sendMessage(payload),{code:'mls_send_retry_conflict'});
+  assert.deepEqual(await alice.vault.snapshot(),before);assert.equal(alice.packets.length,0);
+});
+test('concurrent local intent CAS abort recomputes only pre-transmission MLS work from fresh state',async()=>{
+  const {alice,bob}=await pair(),payload=message('concurrent staging'),write=alice.vault.write.bind(alice.vault);
+  let conflicts=2;
+  alice.vault.write=async change=>{
+    if(change.values?.['mls:outbox:'+payload.clientMessageId]&&conflicts-->0){
+      const saved=await alice.vault.snapshot();await write({expectedRevision:saved.revision,values:{['send:intent:other'+conflicts]:{status:'pending'}}});
+      throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});
+    }return write(change);
+  };
+  const sent=await alice.runtime.sendMessage(payload);assert.equal(sent.status,'sent');assert.equal(alice.packets.length,1);
+  const received=await bob.runtime.receive('alice',alice.packets[0]);assert.equal(received.message,payload.message);
+  assert.equal((await alice.runtime.history('bob')).length,1);
+});
+
+test('pre-send and post-ACK snapshot conflicts remain bounded and never retransmit accepted ciphertext',async()=>{
+  const {alice}=await pair(),payload=message('snapshot conflicts'),snapshot=alice.vault.snapshot.bind(alice.vault);
+  let conflicts=2,transmissions=0;
+  alice.vault.snapshot=async()=>{if(conflicts-->0)throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});return snapshot();};
+  alice.options.transport.send=async packet=>{transmissions++;conflicts=2;return {id:packet.id,hash:packet.hash,status:'sent',sequence:'3'};};
+  const sent=await alice.runtime.sendMessage(payload);assert.equal(sent.status,'sent');assert.equal(transmissions,1);
+  assert.equal((await alice.runtime.history('bob')).length,1);
+});
+
+test('read-only membership route and epoch lookups retry snapshot conflicts without network or ratchet changes',async()=>{
+  const {alice,id}=await pair(),snapshot=alice.vault.snapshot.bind(alice.vault);let conflicts=2;
+  alice.vault.snapshot=async()=>{if(conflicts-->0)throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});return snapshot();};
+  assert.equal(await alice.runtime.conversationId('bob'),id);conflicts=2;
+  assert.equal(await alice.runtime.conversationEpoch('bob'),'1');assert.equal(alice.packets.length,0);
 });

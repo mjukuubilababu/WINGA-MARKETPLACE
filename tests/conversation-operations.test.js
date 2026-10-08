@@ -65,6 +65,14 @@ test('operational ready does not certify devices, external audit, or load; failu
   assert.ok(degraded.alerts.includes('conversation_metrics_publisher_stale'));
 });
 
+test('client confirmation denominators include pending attempts and auxiliary metrics never inflate server samples',()=>{
+  const state=healthy();state.experience={metrics:[{name:'send-confirmed',count:1},{name:'send-pending',count:1},{name:'transport-resume-confirmed',count:1},{name:'transport-resume-pending',count:1}]};
+  state.metrics.operations=[{action:'send',outcome:'success',count:1},{action:'send-commit',outcome:'success',count:1},{action:'direct-duplicate-send',outcome:'success',count:1},{action:'protocol-error',outcome:'rejected',count:1}];
+  const result=evaluateConversationOperations({state,policy:readConversationProductionPolicy(fullEnv),privateStorage:{privacyVerified:true}});
+  assert.equal(result.clientReliability.send.rate,0.5);assert.equal(result.clientReliability.send.pending,1);
+  assert.equal(result.clientReliability.resume.rate,0.5);assert.equal(result.observation.samples,1);
+});
+
 test('combined health reads the real migrated schema and detects disabled guards and backlog',async t=>{
   const db=await (await import('./helpers/shopping-room-database.mjs')).roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   await db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
@@ -72,7 +80,7 @@ test('combined health reads the real migrated schema and detects disabled guards
     'conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media',
     'encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions',
     'encrypted-device-lifecycle','encrypted-conversation-backups','encrypted-history-pages','encrypted-native-history',
-    'encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','conversation-operation-metrics']) {
+    'encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','conversation-operation-metrics','conversation-receipt-observation','conversation-experience-metrics']) {
     const migration=require('../backend/migrations/'+name);
     await db.transaction(async client=>{for(const sql of migration.statements)await client.exec(sql);});
     await db.query('INSERT INTO schema_migrations VALUES($1)',[migration.id]);
@@ -81,6 +89,8 @@ test('combined health reads the real migrated schema and detects disabled guards
   const state=await store.readConversationOperationsHealth();assert.equal(state.schema.ready,true);
   assert.equal(state.rooms.ok,true);assert.equal(state.rooms.schemaReady,true);assert.equal(state.metrics.available,true);
   assert.equal(state.push.pending,0);assert.equal(state.media.cleanupOverdue,0);
+  assert.equal(state.reliability.available,true);assert.equal(state.reliability.deliveredRecordRate,null);
+  assert.equal(state.reliability.averageDeliveryMs,null);assert.equal(state.pool.available,false);
   await db.exec('ALTER TABLE encrypted_room_departures DISABLE TRIGGER guard_room_departure');
   const guarded=await store.readConversationOperationsHealth();assert.equal(guarded.rooms.schemaReady,false);
   await db.exec('ALTER TABLE encrypted_room_departures ENABLE TRIGGER guard_room_departure');

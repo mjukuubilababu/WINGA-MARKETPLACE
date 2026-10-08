@@ -1,4 +1,5 @@
 const ACTIONS=Object.freeze(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll',
+  'direct-duplicate-send','send-commit','protocol-error','media-upload','media-download',
   'media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
   'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant',
   'history-reserve','history-tasks','history-page-put','history-publish','history-pages','history-accept','history-cancel','archive-read','archive-read-ack',

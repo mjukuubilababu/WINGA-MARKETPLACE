@@ -5,6 +5,7 @@ defmodule WingaConversations.Application do
     children = [
       {Phoenix.PubSub, name: WingaConversations.PubSub},
       {Finch, name: WingaConversations.HTTP, pools: %{default: [size: 16, count: 1]}},
+      WingaConversations.Metrics,
       WingaConversations.Endpoint
     ]
 

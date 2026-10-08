@@ -7,6 +7,13 @@ describe their dated checkpoints, not necessarily the current enabled runtime.
 
 ## Current Production Checkpoint: 2026-10-08
 
+The subsequent [193-209 implementation and acceptance matrix](conversations-spec-193-209-20261008.md)
+records globalization/accessibility, constrained-network/local-first behavior,
+canonical reconciliation, rollout/kill controls, non-destructive legacy migration
+and content-free Conversations Operations observations. It is a reviewed code
+candidate until its publication identity is recorded; production SLO targets,
+physical-device/authenticated load and independent crypto acceptance remain open.
+
 Release `f7e77d0559e5528884da3b2615685e0b5348f117` is live on the WINGA backend;
 frontend build at the soak checkpoint was `20261008153000`. The protected verifier
 reported ready with all seven conversation features enabled, dispatch/push

@@ -9,7 +9,7 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20 }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20, metrics=require('./conversation-metrics').conversationMetrics }) {
   if(typeof multiDeviceEnabled!=='boolean')throw new TypeError('Invalid encrypted device feature gate');
   if(typeof roomsEnabled!=='boolean')throw new TypeError('Invalid encrypted room feature gate');
   const newConversationLimit=Number(newConversationLimitPerHour);
@@ -26,6 +26,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,multiDeviceEnabled,roomLimits});
   const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
   async function consumeNewConversationQuota(client, owner) {
+    const release=require('./conversation-release-policy');
+    release.assertNewConversationAdmission(release.readConversationReleasePolicy(),owner);
     const timestamp=now(),windowMs=3600000,bucket=Math.floor(timestamp/windowMs),start=bucket*windowMs,end=start+windowMs;
     const key=digest(JSON.stringify(['winga-encrypted-new-conversations',1,owner]));
     // Charge only committed new groups; the same transaction rolls back failed reservations.
@@ -65,6 +67,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       keyPackage: p.package, mlsPublicKey: p.mls_public_key, identityProof: p.identity_proof }));
   }
   async function encryptedOperation(context, op) {
+    const release=require('./conversation-release-policy');
+    release.assertCompatibleProtocol(release.readConversationReleasePolicy());
     assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
       'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields),...Object.keys(require('./encrypted-room-sellers').fields)].includes(op?.action));
     if(op.action.startsWith('room-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
@@ -105,7 +109,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     assert(!Array.isArray(p) && Object.keys(p).sort().join(',')===fields[op.action].sort().join(','));
     assert(Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature');
     const scopes=operationScopes(context,op);
-    return withTransaction(async client => withTransportLocks(client,scopes,async()=>{
+    let duplicate=false;const started=performance.now();
+    const result=await withTransaction(async client => withTransportLocks(client,scopes,async()=>{
       // Scope before the actor lock; proof expiry is still checked after waiting.
       await authorize(client, context, op);
       if(op.action.startsWith('seller-'))return sellers.handle(client,context,op);
@@ -184,7 +189,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_receipts r WHERE r.message_id=m.id AND r.device_id=$2 AND r.kind='delivered')
             AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_rejections r WHERE r.message_id=m.id AND r.device_id=$2)
             ${multiDeviceEnabled?'AND NOT EXISTS(SELECT 1 FROM encrypted_conversation_sync_acks a WHERE a.message_id=m.id AND a.device_id=$2)':''}
-            ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId,g.epoch])).rows;
+            ORDER BY m.sequence LIMIT 100`,[g.id,op.actorId,g.epoch])).rows.map(m=>({...m,sequence:String(m.sequence)}));
           const receipts=(await client.query(`SELECT r.proof FROM encrypted_conversation_receipts r JOIN encrypted_conversation_messages m ON m.id=r.message_id
             WHERE m.conversation_id=$1 AND ${multiDeviceEnabled?`(EXISTS(SELECT 1 FROM encrypted_conversation_epoch_devices s
               JOIN encrypted_conversation_epoch_devices o ON o.conversation_id=s.conversation_id AND o.epoch=s.epoch AND o.owner_id=s.owner_id
@@ -255,19 +260,21 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
         assert(parsed && parsed[1]===bytes.length && parsed[0].wireformat==='mls_private_message'
           && Buffer.from(parsed[0].privateMessage.groupId).toString('utf8')===g.id && String(parsed[0].privateMessage.epoch)===g.epoch);
         const prior=(await client.query('SELECT * FROM encrypted_conversation_messages WHERE id=$1',[p.id])).rows[0];
-        let acceptedAt=prior?.created_at;
+        let acceptedAt=prior?.created_at,acceptedSequence=prior?.sequence;
         if(prior) assert(prior.conversation_id===g.id && prior.sender_device===op.actorId && prior.hash===p.hash && prior.ciphertext===p.ciphertext
           && (prior.media_id || null)===(p.mediaId || null),409,'encrypted_send_conflict');
+        if(prior)duplicate=true;
         else {
           const seq=(await client.query('UPDATE encrypted_conversations SET next_sequence=next_sequence+1 WHERE id=$1 RETURNING next_sequence',[g.id])).rows[0].next_sequence;
           const inserted=await client.query(`INSERT INTO encrypted_conversation_messages(id,conversation_id,sender_device,epoch,sequence,ciphertext,hash,proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at`,
             [p.id,g.id,op.actorId,p.epoch,seq,p.ciphertext,p.hash,JSON.stringify({owner:context.owner,sessionId:context.deviceId,...op})]);
           acceptedAt=inserted.rows[0].created_at;
+          acceptedSequence=seq;
           await media.attach(client,g,op,p);
           await enqueuePush(client,{id:p.id,senderId:context.owner,receiverId:g.creator===context.owner?g.recipient:g.creator});
           if(multiDeviceEnabled)await client.query(`SELECT winga_append_conversation_event($1,'message_created',$2,$3,0)`,[g.canonical_id,p.id,context.owner]);
         }
-        return {id:p.id,hash:p.hash,status:'sent',createdAt:new Date(acceptedAt).toISOString()};
+        return {id:p.id,hash:p.hash,status:'sent',createdAt:new Date(acceptedAt).toISOString(),sequence:String(acceptedSequence)};
       }
       assert(['receipt','receipt-ack','reject','sync-ack','archive-read','archive-read-ack'].includes(op.action) && uuid(p.id)
         && (op.action==='reject' ? p.reason==='invalid-ciphertext' : op.action==='sync-ack'||['delivered','read'].includes(p.kind)));
@@ -326,6 +333,11 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       if(multiDeviceEnabled && receipt.rowCount)await client.query(`SELECT winga_append_conversation_event($1,'message_state_changed',$2,$3,0)`,[g.canonical_id,p.id,context.owner]);
       return {version:1,ok:true};
     }));
+    if(op.action==='send')try{
+      metrics.record('send-commit',200,performance.now()-started);
+      if(duplicate)metrics.record('direct-duplicate-send',200,0);
+    }catch{/* Only committed observations; telemetry cannot reject an accepted send. */}
+    return result;
   }
   async function readEncryptedConversationMode(context,peer) {
     assert(typeof peer==='string' && /^[A-Za-z0-9._:-]{1,128}$/.test(peer) && peer!==context.owner);
@@ -339,7 +351,16 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     pruneEncryptedNativeHistory:({batchSize=100}={})=>multiDeviceEnabled?withTransaction(async client=>{
       await client.query("SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))");return nativeHistory.prune(client,batchSize);
     }):Promise.resolve({pruned:0}),
-    authorizeEncryptedMedia:(context,object,action)=>{assert(mediaEnabled,503,'private_media_disabled');return media.authorize(context,object,action);},
-    completeEncryptedMediaUpload:media.uploaded,claimEncryptedMediaCleanup:media.claim,finishEncryptedMediaCleanup:media.finish };
+    authorizeEncryptedMedia:(context,object,action)=>{
+      if(action==='cleanup')return media.authorize(context,object,action);
+      const release=require('./conversation-release-policy');
+      release.assertCompatibleProtocol(release.readConversationReleasePolicy());
+      assert(mediaEnabled,503,'private_media_disabled');return media.authorize(context,object,action);
+    },
+    completeEncryptedMediaUpload:(...args)=>{
+      const release=require('./conversation-release-policy');
+      release.assertCompatibleProtocol(release.readConversationReleasePolicy());
+      assert(mediaEnabled,503,'private_media_disabled');return media.uploaded(...args);
+    },claimEncryptedMediaCleanup:media.claim,finishEncryptedMediaCleanup:media.finish };
 }
 module.exports={createEncryptedConversationStore,operationBytes};

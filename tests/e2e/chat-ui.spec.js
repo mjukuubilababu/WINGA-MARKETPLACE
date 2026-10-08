@@ -29,7 +29,7 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
     deps.isPresentableDisplayName=isPresentableDisplayName;
     deps.getUserDisplayName=(username,options={})=>options.fallback || (username==='rey'?'Rey':username);
     const ui=window.WingaModules.chat.createChatUiModule(deps);
-    const translate=(key,fallback,variables)=>deps.translate(key,variables,fallback);
+    const translate=(key,variables,fallback)=>deps.translate(key,variables,fallback);
     const controller=window.WingaModules.chat.createChatControllerModule({
       ...deps,translate,getProfileDiv:()=>document.getElementById('profile-div'),getCurrentSession:()=>state.session,
       setConversationsView:value=>state.view=value,
@@ -38,9 +38,10 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
       setActiveChatContext:value=>state.context=value,setActiveChatReplyMessageId:()=>{},
       setOpenChatMessageMenuId:()=>{},setOpenEmojiScope:()=>{},
       setCurrentMessageDraft:value=>state.draft=value,loadStoredChatDraft:()=>state.draft,
-      refreshActiveMessageHistory:async()=>{},markActiveConversationRead:async()=>{state.reads++;},
+      refreshActiveMessageHistory:async()=>{if(state.holdHistory)await new Promise(resolve=>(state.historyWaits||(state.historyWaits=[])).push(resolve));},markActiveConversationRead:async()=>{state.reads++;},
+      refreshConversationOffersState:async()=>{if(state.holdOffers)await new Promise(resolve=>state.releaseOffers=resolve);},
       navigateConversationHome:()=>state.home++,openConversationAlerts:()=>state.alerts++,openConversationProfile:()=>state.profile++,
-      refreshMessagesState:async()=>{},refreshNotificationsState:async()=>{},
+      refreshMessagesState:async()=>{if(state.refreshFailure)throw Error('private refresh failure');},refreshNotificationsState:async()=>{},
       captureError:(event,error,context)=>{(state.captured||(state.captured=[])).push({event,message:error.message,name:error.name,context});},
       createNotificationsContainerFromState:()=>document.createElement('div'),
       dataLayer:{isEncryptedConversation:async()=>true,
@@ -49,12 +50,56 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
           return {profile:{username:username==='invalid'?'different':username,displayName:username,fullName:username==='named'?'Asha Mussa':''}};
         },
         sendMessage:async payload=>{if(state.sendFailure)throw Object.assign(new Error(state.sendFailure),{status:503});state.sends++;state.lastPayload=payload;return {id:'sent-'+state.sends};}
-      },setChatComposeStatus:()=>{},replaceMessagesPanel:()=>render()
+      },setChatComposeStatus:(_scope,value)=>{state.composeStatus=value;},replaceMessagesPanel:()=>render()
     });
     function render(){document.querySelector('.profile-shell').innerHTML=ui.renderMessagesSection();controller.bindMessageActions(document.getElementById('profile-messages-panel'));}
     window.chatUiFixture={state,messages,render,ui,deps};render();
   },{catalog,rtl});
 }
+
+test('cached chat shell does not wait for network history or optional commerce and late navigation cannot mark another chat read',async({page})=>{
+  await openChatUi(page);
+  await page.evaluate(()=>{chatUiFixture.state.holdHistory=true;chatUiFixture.state.holdOffers=true;});
+  await page.locator('[data-conversation-user="rey"]').click();
+  await expect(page.locator('.messages-thread-body')).toContainText('Habari! Picha imefika vizuri.');
+  expect(await page.evaluate(()=>chatUiFixture.state.reads)).toBe(0);
+  await page.evaluate(()=>document.querySelector('[data-conversation-user="wizad"]').click());
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.historyWaits.length)).toBe(2);
+  await page.evaluate(()=>chatUiFixture.state.historyWaits[0]());
+  expect(await page.evaluate(()=>chatUiFixture.state.reads)).toBe(0);
+  await page.evaluate(()=>chatUiFixture.state.historyWaits[1]());
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.reads)).toBe(1);
+  expect(await page.evaluate(()=>chatUiFixture.state.context.withUser)).toBe('wizad');
+});
+
+test('returning to the same peer does not let an older navigation complete the newer request',async({page})=>{
+  await openChatUi(page);await page.evaluate(()=>chatUiFixture.state.holdHistory=true);
+  for(const peer of ['rey','wizad','rey'])await page.evaluate(peer=>document.querySelector('[data-conversation-user="'+peer+'"]').click(),peer);
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.historyWaits.length)).toBe(3);
+  await page.evaluate(()=>{chatUiFixture.state.historyWaits[0]();chatUiFixture.state.historyWaits[1]();});
+  expect(await page.evaluate(()=>chatUiFixture.state.reads)).toBe(0);
+  await page.evaluate(()=>chatUiFixture.state.historyWaits[2]());
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.reads)).toBe(1);
+});
+
+test('message direction is automatic, compose status is semantic and reduced motion removes chat animations',async({page})=>{
+  await openChatUi(page,{rtl:true});await page.emulateMedia({reducedMotion:'reduce'});
+  await page.locator('[data-conversation-user="rey"]').click();
+  expect(await page.locator('.message-bubble p').evaluateAll(rows=>rows.every(row=>row.dir==='auto'))).toBe(true);
+  const menu=page.locator('.message-menu-trigger').first();
+  const box=await menu.boundingBox();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(await menu.evaluate(el=>getComputedStyle(el).animationName)).toBe('none');
+});
+
+test('a passive refresh failure cannot turn a durable accepted send into a failed message',async({page})=>{
+  await openChatUi(page);await page.locator('[data-conversation-user="rey"]').click();
+  await page.evaluate(()=>chatUiFixture.state.refreshFailure=true);
+  await page.locator('#message-compose-input').fill('Confirmed despite refresh outage');
+  await page.locator('#message-compose-form button[type=submit]').click();
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.sends)).toBe(1);
+  expect(await page.evaluate(()=>chatUiFixture.state.composeStatus.tone)).toBe('success');
+  expect(await page.evaluate(()=>chatUiFixture.state.captured||[])).toHaveLength(0);
+});
 
 test('real conversation menu opens local message search through the existing controller',async({page})=>{
   await openChatUi(page);
@@ -458,3 +503,83 @@ for(const viewport of [{width:1280,height:900},{width:390,height:844},{width:320
     await page.screenshot({path:path.join(root,'.tmp-chat-ui',filename)});
   });
 }
+test('incoming announcements survive rerenders without rereading old history or pagination',async({page})=>{
+  await openChatUi(page);await page.locator('[data-conversation-user="rey"]').click();
+  await page.evaluate(()=>{
+    chatUiFixture.messages.push({id:'new-incoming',senderId:'rey',message:'Private content never announced',timestamp:new Date(Date.now()+1000).toISOString()});
+    chatUiFixture.render();
+  });
+  const announcer=page.locator('#conversation-announcer');
+  await expect(announcer).toContainText('1');
+  expect(await announcer.textContent()).not.toContain('Private content');
+  const node=await announcer.evaluate(el=>{window.originalAnnouncer=el;return el.textContent;});
+  await page.evaluate(()=>{
+    chatUiFixture.messages.unshift({id:'old-page',senderId:'rey',message:'Old history',timestamp:'2020-01-01T00:00:00.000Z'});
+    chatUiFixture.render();chatUiFixture.render();
+  });
+  expect(await announcer.textContent()).toBe(node);
+  expect(await announcer.evaluate(el=>el===window.originalAnnouncer)).toBe(true);
+  await expect(page.locator('.messages-thread-body')).toHaveAttribute('aria-live','off');
+});
+
+test('durable local pending has no Sent label or failed retry while transmission is waiting',async({page})=>{
+  await openChatUi(page);await page.locator('[data-conversation-user="rey"]').click();
+  await page.evaluate(()=>{
+    chatUiFixture.messages.push({id:'local-intent',senderId:'alice',receiverId:'rey',message:'Waiting safely',encrypted:true,status:'pending',waiting:true,timestamp:new Date().toISOString()});
+    chatUiFixture.render();
+  });
+  const bubble=page.locator('[data-message-bubble-id="local-intent"]');
+  await expect(bubble).toContainText('unasubiri kutumwa');
+  await expect(bubble.locator('[data-message-retry]')).toHaveCount(0);
+});
+test('first incoming message is announced after an empty thread finishes its baseline load',async({page})=>{
+  await openChatUi(page);await page.evaluate(()=>chatUiFixture.messages.splice(0));
+  await page.locator('[data-conversation-user="rey"]').click();
+  await page.evaluate(()=>{
+    chatUiFixture.messages.push({id:'first-live',senderId:'rey',message:'First',timestamp:new Date().toISOString()});
+    chatUiFixture.render();
+  });
+  await expect(page.locator('#conversation-announcer')).toContainText('1');
+});
+
+test('context composer keeps durable acceptance after optional refresh failure and excludes stale session completion',async({page})=>{
+  await openChatUi(page);
+  await page.evaluate(()=>{
+    const f=chatUiFixture,s=f.state;s.context={withUser:'rey'};s.contextOpen=true;s.observations=[];
+    window.WingaConversationExperience={record:name=>s.observations.push(name)};
+    const modal=document.createElement('div');modal.id='context-chat-modal';modal.style.display='grid';modal.innerHTML='<form id="context-chat-compose-form"><input id="context-chat-compose-input"><button type="submit">Send</button></form>';document.body.append(modal);
+    const c=WingaModules.chat.createChatControllerModule({...f.deps,getCurrentSession:()=>s.session,getSelectedChatProducts:()=>[],getIsContextOpen:()=>s.contextOpen,
+      setCurrentMessageDraft:value=>s.draft=value,setSelectedChatProductIds:()=>{},setActiveChatReplyMessageId:()=>{},setOpenChatMessageMenuId:()=>{},setOpenEmojiScope:()=>{},
+      setChatComposeStatus:(_scope,value)=>s.composeStatus=value,refreshMessagesState:async()=>{throw Error('optional refresh unavailable');},refreshNotificationsState:async()=>{},
+      dataLayer:{isEncryptedConversation:async()=>true,sendMessage:async()=>s.holdSend?new Promise(resolve=>s.finishSend=()=>resolve({id:'late'})):{id:'accepted'}}});
+    window.contextController=c;c.bindContextChatModalActions();
+  });
+  await page.locator('#context-chat-compose-input').fill('durably accepted');await page.locator('#context-chat-compose-form button').click();
+  await expect.poll(()=>page.evaluate(()=>chatUiFixture.state.composeStatus.tone)).toBe('success');
+  expect(await page.evaluate(()=>chatUiFixture.state.observations)).toEqual(['send-confirmed']);
+  await page.evaluate(()=>chatUiFixture.state.holdSend=true);
+  await page.locator('#context-chat-compose-input').fill('delayed send');await page.locator('#context-chat-compose-form button').click();
+  await expect.poll(()=>page.evaluate(()=>typeof chatUiFixture.state.finishSend)).toBe('function');
+  await page.evaluate(()=>{const s=chatUiFixture.state;s.owner='eve';s.session={id:'other'};s.composeStatus={tone:'new-owner'};s.finishSend();});
+  await page.waitForTimeout(50);
+  expect(await page.evaluate(()=>chatUiFixture.state.composeStatus.tone)).toBe('new-owner');
+  expect(await page.evaluate(()=>chatUiFixture.state.observations)).toEqual(['send-confirmed']);
+});
+
+for(const action of ['same-seller-product','close-reopen'])test('late modal send cannot clear a new draft after '+action,async({page})=>{
+  await openChatUi(page);
+  await page.evaluate(()=>{
+    const f=chatUiFixture,s=f.state;s.context={withUser:'rey',productId:'A'};s.contextOpen=true;s.draft='first';
+    const modal=document.createElement('div');modal.id='context-chat-modal';modal.style.display='grid';modal.innerHTML='<form id="context-chat-compose-form"><input id="context-chat-compose-input" value="first"><button type="submit">Send</button></form>';document.body.append(modal);
+    const c=WingaModules.chat.createChatControllerModule({...f.deps,getCurrentSession:()=>s.session,getSelectedChatProducts:()=>[],getIsContextOpen:()=>s.contextOpen,setIsContextOpen:value=>s.contextOpen=value,
+      setCurrentMessageDraft:value=>s.draft=value,setSelectedChatProductIds:()=>{},setActiveChatReplyMessageId:()=>{},setOpenChatMessageMenuId:()=>{},setOpenEmojiScope:()=>{},
+      setChatComposeStatus:()=>{},refreshMessagesState:async()=>{},refreshNotificationsState:async()=>{},
+      dataLayer:{isEncryptedConversation:async()=>true,sendMessage:async()=>new Promise(resolve=>s.finishSend=()=>resolve({id:'accepted'}))}});
+    window.contextController=c;c.bindContextChatModalActions();
+  });
+  await page.locator('#context-chat-compose-form button').click();
+  await expect.poll(()=>page.evaluate(()=>typeof chatUiFixture.state.finishSend)).toBe('function');
+  await page.evaluate(action=>{const s=chatUiFixture.state;if(action==='close-reopen'){contextController.closeContextChatModal();s.contextOpen=true;document.getElementById('context-chat-modal').style.display='grid';}
+    s.context={withUser:'rey',productId:action==='same-seller-product'?'B':'A'};s.draft='new draft';s.finishSend();},action);
+  await page.waitForTimeout(50);expect(await page.evaluate(()=>chatUiFixture.state.draft)).toBe('new draft');
+});

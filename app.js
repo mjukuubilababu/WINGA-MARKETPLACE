@@ -9345,6 +9345,14 @@ function connectRealtimeChannel() {
   realtimeChannel = window.WingaDataLayer.openRealtimeChannel({
     replayState: messageReplayState,
     isCurrent: () => currentUser === replayUser && (currentSession?.sessionId || currentSession?.token || "") === replaySession,
+    onLocalMessage: message => {
+      if(currentUser!==replayUser||(currentSession?.sessionId||currentSession?.token||"")!==replaySession
+        ||!message?.encrypted||message.senderId!==replayUser)return;
+      getMessagePager().upsertLocal(message);
+      currentMessages=[...currentMessages.filter(item=>item.id!==message.id),message];
+      if(currentView==="profile"&&profileDiv)replaceMessagesPanel(profileDiv);
+      if(chatUiState.isContextOpen)replaceContextChatModal();
+    },
     onDeviceEvents: (batch, acknowledge) => {
       if (currentUser !== replayUser || (currentSession?.sessionId || currentSession?.token || "") !== replaySession) return false;
       return getMessageDeviceReceipts()?.acceptEvents(batch, acknowledge);
@@ -9682,11 +9690,11 @@ function getMessagePageState() {
 }
 
 async function refreshActiveMessageHistory() {
-  const user = currentUser, partner = chatUiState.activeContext?.withUser;
+  const user = currentUser, session=currentSession, partner = chatUiState.activeContext?.withUser;
   if (!partner) return;
   await getMessagePager().refreshHistory(partner);
-  if (currentUser === user && chatUiState.activeContext?.withUser === partner && getMessagePager().snapshot().mode === "paged") currentMessages = getMessagePager().history(partner).items;
-  if (currentUser === user) persistReceivedMessages();
+  if (currentUser === user && currentSession===session && chatUiState.activeContext?.withUser === partner && getMessagePager().snapshot().mode === "paged") currentMessages = getMessagePager().history(partner).items;
+  if (currentUser === user && currentSession===session) persistReceivedMessages();
 }
 
 async function loadMoreInboxMessages() {
@@ -9739,13 +9747,17 @@ async function refreshMessagesState() {
 }
 
 async function refreshOrdersState() {
+  const owner=currentUser,session=currentSession;
   if (!currentUser) {
     currentOrders = { purchases: [], sales: [] };
     return;
   }
   try {
-    currentOrders = await window.WingaDataLayer.loadMyOrders() || { purchases: [], sales: [] };
+    const orders=await window.WingaDataLayer.loadMyOrders();
+    if(owner!==currentUser || session!==currentSession)return;
+    currentOrders = orders || { purchases: [], sales: [] };
   } catch (error) {
+    if(owner!==currentUser || session!==currentSession)return;
     currentOrders = { purchases: [], sales: [] };
     captureClientError("orders_refresh_failed", error, {
       user: currentUser
@@ -9755,6 +9767,8 @@ async function refreshOrdersState() {
 
 async function refreshConversationOffersState() {
   const withUser = chatUiState.activeContext?.withUser || "";
+  const owner=currentUser,session=currentSession;
+  const current=()=>owner===currentUser && session===currentSession && chatUiState.activeContext?.withUser===withUser;
   if (!currentUser || !withUser) {
     chatUiState.conversationOffers = [];
     chatUiState.offersWithUser = "";
@@ -9762,12 +9776,13 @@ async function refreshConversationOffersState() {
   }
   try {
     const offers = await window.WingaDataLayer.loadConversationOffers(withUser);
-    if (chatUiState.activeContext?.withUser === withUser) {
+    if (current()) {
       chatUiState.conversationOffers = Array.isArray(offers) ? offers : [];
       chatUiState.offersWithUser = withUser;
     }
     return chatUiState.conversationOffers;
   } catch (error) {
+    if(!current())return [];
     captureClientError("conversation_offers_refresh_failed", error, { user: currentUser, withUser });
     return getConversationOffers({ withUser });
   }
@@ -9775,6 +9790,8 @@ async function refreshConversationOffersState() {
 
 async function refreshConversationAvailabilityState() {
   const withUser = chatUiState.activeContext?.withUser || "";
+  const owner=currentUser,session=currentSession;
+  const current=()=>owner===currentUser && session===currentSession && chatUiState.activeContext?.withUser===withUser;
   if (!currentUser || !withUser) {
     chatUiState.conversationAvailabilityRequests = [];
     chatUiState.availabilityWithUser = "";
@@ -9782,27 +9799,31 @@ async function refreshConversationAvailabilityState() {
   }
   try {
     const requests = await window.WingaDataLayer.loadConversationAvailabilityRequests(withUser);
-    if (chatUiState.activeContext?.withUser === withUser) {
+    if (current()) {
       chatUiState.conversationAvailabilityRequests = Array.isArray(requests) ? requests : [];
       chatUiState.availabilityWithUser = withUser;
     }
     return chatUiState.conversationAvailabilityRequests;
   } catch (error) {
+    if(!current())return [];
     captureClientError("conversation_availability_refresh_failed", error, { user: currentUser, withUser });
     return getConversationAvailabilityRequests({ withUser });
   }
 }
 
 async function refreshCommerceGoalsState() {
+  const owner=currentUser,session=currentSession;
   if (!currentUser) {
     chatUiState.commerceGoals = [];
     return [];
   }
   try {
     const goals = await window.WingaDataLayer.loadCommerceGoals(20);
+    if(owner!==currentUser || session!==currentSession)return [];
     chatUiState.commerceGoals = Array.isArray(goals) ? goals : [];
     return chatUiState.commerceGoals;
   } catch (error) {
+    if(owner!==currentUser || session!==currentSession)return [];
     captureClientError("commerce_goals_refresh_failed", error, { user: currentUser });
     return chatUiState.commerceGoals;
   }

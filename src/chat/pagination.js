@@ -150,7 +150,21 @@
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
-    return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest };
+    function upsertLocal(message) {
+      const s=current();
+      if(s.mode!=="paged"||!message?.encrypted||message.senderId!==s.user||!message.receiverId||!message.id)return;
+      const target=history(message.receiverId),prior=target.items.find(item=>item.id===message.id);
+      if(!prior){ingest(message);return;}
+      if(prior.senderId!==message.senderId||prior.receiverId!==message.receiverId||prior.conversationId!==message.conversationId
+        ||prior.message!==message.message||prior.hash&&message.hash&&prior.hash!==message.hash
+        ||prior.status!=='pending'&&message.status==='pending')return;
+      const next={...prior,...message,isRead:prior.isRead||message.isRead,isDelivered:prior.isDelivered||message.isDelivered};
+      if(prior.status==='read'||prior.status==='delivered'&&message.status==='sent')next.status=prior.status;
+      s.revision++;target.revision++;target.items=merge(target.items,[next],"id").sort(compareConversationMessages);
+      const summary=s.inbox.items.find(item=>item.withUser===message.receiverId&&item.lastMessageId===message.id);
+      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence});
+    }
+    return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest,upsertLocal };
   }
   window.WingaModules = window.WingaModules || {};
   window.WingaModules.chat = window.WingaModules.chat || {};

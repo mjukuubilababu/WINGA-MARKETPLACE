@@ -218,7 +218,10 @@ test('unconfirmed acknowledgement does not remove queue entry', async () => {
 test('capability contract prepares unique IDs and preserves retries', async () => {
   const f = fixture();
   let requests = 0;
-  const client = f.api.communications.createCommunicationsApiClient({ fetchJson: async () => { requests++; return { durableMessageRetries: true }; } });
+  const client = f.api.communications.createCommunicationsApiClient({getSession:()=>({username:'sender',sessionId:'fixture'}),fetchJson:async url=>{
+    if(url.includes('/encrypted/mode?'))return {version:1,mode:'legacy-plaintext'};
+    requests++;return {durableMessageRetries:true};
+  }});
   const prepared = await client.prepareMessage(payload);
   assert.match(prepared.clientMessageId, /^[a-z0-9-]{36}$/);
   assert.equal(await client.prepareMessage(prepared), prepared);
@@ -229,7 +232,10 @@ test('capability contract prepares unique IDs and preserves retries', async () =
 test('legacy capability preserves sending while server failure does not downgrade', async () => {
   const f = fixture();
   for (const status of [404, 503]) {
-    const client = f.api.communications.createCommunicationsApiClient({ fetchJson: async () => { throw Object.assign(new Error('Unavailable'), { status }); } });
+    const client = f.api.communications.createCommunicationsApiClient({getSession:()=>({username:'sender',sessionId:'fixture'}),fetchJson:async url=>{
+      if(url.includes('/encrypted/mode?'))return {version:1,mode:'legacy-plaintext'};
+      throw Object.assign(new Error('Unavailable'),{status});
+    }});
     if (status === 404) assert.equal(await client.prepareMessage(payload), payload);
     else await assert.rejects(client.prepareMessage(payload), /Unavailable/);
   }

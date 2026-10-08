@@ -138,6 +138,8 @@ const MIGRATIONS = Object.freeze([
   require("./encrypted-room-preferences"),
   require("./encrypted-room-departures"),
   require("./conversation-operation-metrics"),
+  require("./conversation-receipt-observation"),
+  require("./conversation-experience-metrics"),
   Object.freeze({
     id: "2026071901_product_row_version",
     statements: Object.freeze([
@@ -926,14 +928,22 @@ async function runSchemaMigrations({ pool, logger = console, beforeMigrations = 
 
       await client.query("BEGIN");
       try {
+        let legacyClassification;
+        const compatibility=require('../legacy-conversation-compatibility');
         for (const statement of migration.statements) {
-          await client.query(statement);
+          if(migration.id===compatibility.ledgerId && statement===compatibility.originalBackfill){
+            // The initial LOCK remains held. Preserve incompatible history outside the new direct ledger.
+            legacyClassification=await compatibility.classifyLegacyConversationHistory(client);
+            await client.query(compatibility.compatibilityBackfill);
+          }else await client.query(statement);
         }
+        if(legacyClassification)await compatibility.verifyLegacyConversationImport(client);
         await client.query(
           "INSERT INTO schema_migrations (migration_id) VALUES ($1)",
           [migration.id]
         );
         await client.query("COMMIT");
+        if(legacyClassification)logger.info?.('[WINGA] Legacy conversation compatibility classification.',legacyClassification);
         executed.push(migration.id);
       } catch (error) {
         await client.query("ROLLBACK");

@@ -203,6 +203,7 @@ test('communications canary keeps legacy events and falls back only before a soc
       requests.push({url,options});
       if(url.endsWith('/device'))return {supported:true,eventDelivery:true,username:'alice',deviceId:'a1'};
       if(url.endsWith('/transport-ticket'))return {version:1,ticket:'scoped',expiresAt:400000};
+      if(url.includes('/encrypted/mode?'))return {version:1,mode:'legacy-plaintext'};
       if(url.endsWith('/messages'))return {id:'rest'};
       throw new Error('Unexpected request');
     }
@@ -221,4 +222,27 @@ test('communications canary keeps legacy events and falls back only before a soc
   assert.equal(JSON.parse(requests.at(-1).options.body).clientMessageId,payload.clientMessageId);
   stream.close();assert.equal(legacyClosed,true);assert.equal(client.hasDeviceEventStream(),false);
   assert.equal(f.timers.size,0);
+});
+test('resume metrics require an actual reconnect and the first durably consumed batch, not ordinary live traffic',async()=>{
+  const f=fixture(),observed=[];f.context.WingaConversationExperience={record:(...v)=>observed.push(v)};
+  const t=f.make({onEvents:async()=>true});await f.join();const socket=f.sockets[0];
+  await socket.events({events:[{id:'live'}]});assert.deepEqual(observed,[]);
+  socket.error();await f.advance(1000);await f.join();
+  await socket.events({events:[{id:'replay'}]});await socket.events({events:[{id:'live-2'}]});
+  assert.deepEqual(observed.map(v=>v[0]),['transport-reconnect','transport-resume-confirmed']);
+  t.close();
+});
+
+test('resume attempts count ticket rejection, join timeout and a joined connection without replay honestly',async()=>{
+  let rejectTicket=false;const f=fixture(),observed=[];
+  f.context.WingaConversationExperience={record:(...v)=>observed.push(v)};
+  const client=f.make({fetchTicket:async()=>{if(rejectTicket)throw Object.assign(Error('denied'),{status:503});return {version:1,ticket:'scoped',expiresAt:400000};}});
+  const socket=await f.join();socket.error();rejectTicket=true;await f.advance(1000);
+  assert.equal(observed.filter(v=>v[0]==='transport-resume-failed').length,1);
+  rejectTicket=false;await f.advance(2000);socket.join.respond('timeout');
+  assert.equal(observed.filter(v=>v[0]==='transport-resume-failed').length,2);
+  await f.advance(4000);socket.join.respond('ok',{deviceId:'a1',securityMode:'legacy-plaintext',expiresAt:400000});
+  await f.advance(15001);
+  assert.equal(observed.filter(v=>v[0]==='transport-resume-pending').length,1);
+  assert.equal(observed.some(v=>v[0]==='transport-resume-confirmed'),false);client.close();
 });

@@ -47,6 +47,8 @@
     let closed = false, epoch = 0, socket = null, channel = null, timer = null, deadline = null;
     let joined = false, receiving = false, attempts = 0, expiresAt = 0;
     let joinWhenOpen = null;
+    let reconnectStarted=null,everJoined=false,resumeAttempt=null,resumeTimer=null;
+    const metric=(name,value)=>{try{globalThis.WingaConversationExperience?.record(name,value);}catch{}};
     const pending = new Set();
     const report = (state, phase) => { try { deps.onState?.({transport: "phoenix", state, phase}); } catch {} };
     const failure = (code = "transport_unavailable", status = 503) => Object.assign(
@@ -58,7 +60,7 @@
       joined = false;
       expiresAt = 0;
       receiving = false;
-      cancel(timer); cancel(deadline);
+      cancel(timer); cancel(deadline);cancel(resumeTimer);resumeTimer=null;
       timer = deadline = null;
       for (const reject of [...pending]) reject(failure("outcome_unknown"));
       pending.clear();
@@ -71,6 +73,8 @@
     function close() { closed = true; reset(); }
     function retry(generation, error) {
       if (!current(generation)) return;
+      if(resumeAttempt!==null){metric('transport-resume-failed',now()-resumeAttempt);resumeAttempt=null;}
+      if(everJoined && reconnectStarted===null){reconnectStarted=now();metric('transport-reconnect',0);}
       if ([401, 403, 404].includes(error?.status)) { close(); return; }
       reset();
       const delay = Math.min(30000, 1000 * 2 ** Math.min(attempts++, 5)) * (0.8 + random() * 0.4);
@@ -103,6 +107,7 @@
       if (closed || !deps.isCurrent()) { close(); return; }
       reset();
       const generation = epoch;
+      if(everJoined&&reconnectStarted!==null)resumeAttempt=now();
       deadline = later(() => retry(generation), 15000);
       let phase = "library";
       try {
@@ -135,7 +140,12 @@
           try {
             const persisted = await deps.onEvents(batch, ids => command("events.ack", { eventIds: ids }, generation));
             if (persisted !== true) throw failure();
-          } catch (error) { retry(generation, error); }
+            if(current(generation) && resumeAttempt!==null){
+              metric('transport-resume-confirmed',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;cancel(resumeTimer);resumeTimer=null;
+            }
+          } catch (error) {
+            retry(generation, error);
+          }
           finally { if (current(generation)) receiving = false; }
         });
         phase = "join";
@@ -146,9 +156,13 @@
           channel.join(8000).receive("ok", principal => {
             if (!current(generation)) return;
             if (principal?.deviceId !== deps.deviceId || principal?.securityMode !== "legacy-plaintext"
-              || principal?.expiresAt !== ticket.expiresAt) { close(); return; }
+              || principal?.expiresAt !== ticket.expiresAt) { retry(generation,{status:401}); return; }
             cancel(deadline); deadline = null;
             joined = true; attempts = 0; expiresAt = ticket.expiresAt;
+            everJoined=true;
+            if(resumeAttempt!==null)resumeTimer=later(()=>{
+              if(current(generation)&&resumeAttempt!==null){metric('transport-resume-pending',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;}
+            },15000);
             report("ready", "joined");
             const ttl = ticket.expiresAt - now();
             timer = later(start, Math.max(100, ttl - Math.min(30000, ttl / 2)));
