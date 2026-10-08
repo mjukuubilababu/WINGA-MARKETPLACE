@@ -110,3 +110,14 @@ test-gate risks. Their reviews are not external cryptographic certification.
 Remaining approval: new CodeQL/BEAM CI results, encrypted BEAM-loss acceptance,
 group-order reference support, deferred physical-device/production load and
 independent crypto/security audit. No pending item is reported as verified.
+
+## Integrated Publication
+
+Remote commit `fddf22d` arrived during acceptance tests and was preserved through
+normal merge `60cbff9`, without force-pushing. The merged tree passed direct
+messaging 165/165, security 46/46, genuine PostgreSQL 93/93, the actual encrypted
+recipient-offline/protocol browser regression and growth runtime/service tests
+6/6 plus 9/9. A scoped second reviewer found no P1/P2 integration issues.
+The existing build script regenerated frontend assets as `20261008193054`;
+95-module synchronization passed. This preserves growth changes but does not
+enable growth flags or certify their production acceptance.
