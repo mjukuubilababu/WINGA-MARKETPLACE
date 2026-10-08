@@ -110,7 +110,9 @@ test('validation diagnostics identify fixed stages, fields and exact numeric pos
     [v => { v.runs[0].results[0].ruleIndex = 99; },
       { stage: 'rule-reference', field: 'rule.resolution', report: 0, run: 0, result: 0 }],
     [v => { v.runs[0].results[0].message = {}; },
-      { stage: 'result-schema', field: 'message', report: 0, run: 0, result: 0 }],
+      { stage: 'result-schema', field: 'message', report: 0, run: 0, result: 0,
+        messageShape: { messageType: 'object', textType: 'undefined', textEmpty: false,
+          idType: 'undefined', markdownType: 'undefined' } }],
     [v => { v.runs[0].results[0].locations[0].physicalLocation.region.startLine = 0; },
       { stage: 'location', field: 'startLine', report: 0, run: 0, result: 0, location: 0 }],
     [v => { v.runs[0].invocations[0].exitCode = 1; },
@@ -141,7 +143,7 @@ test('CLI failure diagnostics are bounded and never reveal input keys, paths, va
     [v => { v.runs[0].tool.driver.name = privateMarker; }, 'tool-metadata', 'tool.driver.name'],
     [v => { v.runs[0].tool.driver.rules[0].properties['security-severity'] = privateMarker; }, 'rule-metadata', 'security-severity'],
     [v => { v.runs[0].results[0].rule = { toolComponent: { name: privateMarker } }; }, 'rule-reference', 'tool-component.resolution'],
-    [v => { v.runs[0].results[0].message = { text: '', privateMarker }; }, 'result-schema', 'message'],
+    [v => { v.runs[0].results[0].message = { text: null, privateMarker }; }, 'result-schema', 'message'],
     [v => { v.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri = null;
       v.runs[0].results[0].locations[0].physicalLocation.region.snippet = { text: privateMarker }; }, 'location', 'artifact.uri'],
     [v => { v.runs[0].properties = { ['resultsTruncated-' + privateMarker]: true }; }, 'completeness', 'truncation-marker'],
@@ -331,6 +333,87 @@ test('execution and configuration warning/error diagnostics fail; benign notes a
     assert.equal(audit(t, report(current)).ok, true);
     current.invocations[0][key] = {};
     failed(audit(t, report(current)));
+  }
+});
+
+test('schema-compatible empty notification text passes only for successful note or trace execution', t => {
+  // OASIS sarif-schema-2.1.0.json defines message.text as string, without minLength.
+  for (const key of ['toolExecutionNotifications', 'toolConfigurationNotifications']) {
+    for (const message of [{ text: '' }, { text: '', markdown: '' },
+      { text: '', id: 'synthetic-summary' }, { id: 'synthetic-summary' }]) {
+      for (const level of ['note', 'none', 'warning', 'error', undefined]) {
+        const current = run();
+        current.tool.driver.name = 'CodeQL command-line toolchain';
+        current.invocations[0][key] = [{ message, descriptor: { id: 'synthetic-summary' },
+          ...(level === undefined ? {} : { level }) }];
+        const value = audit(t, report(current));
+        if (level === 'note' || level === 'none') assert.equal(value.ok, true);
+        else failed(value, 'CODEQL_EXECUTION_DIAGNOSTIC');
+      }
+    }
+  }
+  const current = run();
+  current.invocations[0] = { executionSuccessful: false,
+    toolExecutionNotifications: [{ level: 'note', message: { text: '' } }] };
+  failed(audit(t, report(current)), 'CODEQL_EXECUTION_UNSUCCESSFUL');
+  current.invocations[0].executionSuccessful = true;
+  current.invocations[0].exitCode = 1;
+  failed(audit(t, report(current)), 'CODEQL_EXECUTION_UNSUCCESSFUL');
+});
+
+test('empty notification text never hides diagnostic failure markers in metadata or arguments', t => {
+  for (const notification of [
+    { message: { text: '' }, descriptor: { id: 'js/query-timeout' } },
+    { message: { text: '', markdown: 'Results truncated' } },
+    { message: { text: '', id: 'query-skipped' } },
+    { message: { id: 'synthetic-summary', arguments: ['Incomplete analysis'] } },
+    { message: { text: '', arguments: ['Query failed'] } }
+  ]) {
+    const current = run();
+    current.invocations[0].toolExecutionNotifications = [{ level: 'note', ...notification }];
+    failed(audit(t, report(current)), 'CODEQL_SARIF_INCOMPLETE');
+  }
+});
+
+test('empty security-result messages cannot hide warning, note, none or suppressed findings', t => {
+  for (const message of [{ text: '' }, { text: '', markdown: '' }, { id: 'synthetic-result' }]) {
+    for (const level of ['warning', 'error', 'note', 'none']) {
+      const current = run([finding({ message, level, baselineState: 'unchanged',
+        suppressions: [{ kind: 'external', status: 'accepted' }] })]);
+      current.invocations[0].toolExecutionNotifications = [{ level: 'note', message: { text: '' } }];
+      const value = audit(t, report(current));
+      failed(value, 'CODEQL_SECURITY_FINDINGS');
+      assert.equal(value.totals.securityFindings, 1);
+      assert.equal(value.findings[0].level, level);
+    }
+  }
+});
+
+test('malformed notification messages fail with bounded safe shape metadata', t => {
+  const dir = directory(t);
+  const privateMarker = 'SYNTHETIC_PRIVATE_NOTIFICATION_MUST_NOT_APPEAR';
+  for (const message of [undefined, null, '', privateMarker, [], {}, { text: null }, { text: 0 },
+    { markdown: '' }, { id: '' }, { text: '', markdown: null }, { text: '', id: 1 },
+    { text: '', arguments: [null] }, { text: '', arguments: privateMarker }]) {
+    const current = run();
+    current.invocations[0].toolExecutionNotifications = [{ level: 'note', message,
+      properties: { [privateMarker]: privateMarker } }];
+    writeReport(dir, report(current));
+    const value = auditDirectory(dir, 'success');
+    failed(value, 'CODEQL_SARIF_INVALID');
+    assert.equal(value.diagnostic.stage, 'execution');
+    assert.equal(value.diagnostic.field, 'message');
+    assert.deepEqual([value.diagnostic.report, value.diagnostic.run, value.diagnostic.invocation,
+      value.diagnostic.notification], [0, 0, 0, 0]);
+    assert.deepEqual(Object.keys(value.diagnostic.messageShape),
+      ['messageType', 'textType', 'textEmpty', 'idType', 'markdownType']);
+    const output = cli(dir);
+    assert.equal(output.status, 1);
+    assert.equal(output.stderr, '');
+    assert.equal(output.stdout.includes(privateMarker), false);
+    assert.equal(output.stdout.includes(dir), false);
+    assert.ok(output.stdout.length < 1000);
+    assert.equal(Object.hasOwn(JSON.parse(output.stdout), 'totals'), false);
   }
 });
 

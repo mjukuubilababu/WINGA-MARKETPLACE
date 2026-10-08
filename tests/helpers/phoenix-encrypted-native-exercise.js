@@ -9,19 +9,41 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
   async function pageFor(context, account) {
     onProgress('enroll ' + account);
     const page = await context.newPage();
-    await page.goto(fixture.origin);
     await page.context().grantPermissions(['local-network-access'], {origin: fixture.origin});
+    const handshake = [];
+    const record = value => {if (handshake.length < 80) handshake.push(value);};
+    const observedPaths = new Set(['/test-session', '/phoenix.js', '/communications.js', '/receipts.js',
+      '/vendor/phoenix.min.js', '/api/messages/device', '/api/messages/transport-ticket']);
+    page.on('response', response => {
+      const pathname = new URL(response.url()).pathname;
+      if (observedPaths.has(pathname)) record({stage: 'http', path: pathname, status: response.status()});
+    });
+    page.on('requestfailed', request => {
+      const pathname = new URL(request.url()).pathname;
+      if (observedPaths.has(pathname)) record({stage: 'http.failed', path: pathname});
+    });
+    page.on('pageerror', () => record({stage: 'page.error'}));
     const trace = [];
     const replies = [];
     const port = fixture.phoenixPorts?.[account] || fixture.phoenixPort;
     page.on('websocket', socket => {
       const operations = new Map();
+      record({stage: 'socket.created', port: Number(new URL(socket.url()).port)});
+      socket.on('socketerror', () => record({stage: 'socket.error'}));
+      socket.on('close', () => record({stage: 'socket.closed'}));
       socket.on('framesent', frame => {
         const value = JSON.parse(frame.payload);
+        if (value[3] === 'phx_join') record({stage: 'join.sent'});
         if (value[3] === 'encrypted.operation') {trace.push(value[4]); operations.set(value[1], value[4]);}
       });
       socket.on('framereceived', frame => {
         const value = JSON.parse(frame.payload), operation = operations.get(value[1]);
+        if (value[3] === 'phx_reply' && !operation) {
+          const reply = value[4], principal = reply?.response;
+          record({stage: 'channel.reply', ok: reply?.status === 'ok',
+            nativeOperations: principal?.nativeOperations === true,
+            legacyMode: principal?.securityMode === 'legacy-plaintext'});
+        }
         if (operation && value[3] === 'phx_reply' && value[4]?.status === 'ok')
           replies.push({operation, reply: value[4].response, port: Number(new URL(socket.url()).port)});
       });
@@ -29,11 +51,19 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
     page.nativeFrames = trace;
     page.nativeReplies = replies;
     page.nativePort = port;
+    await page.goto(fixture.origin);
     await page.evaluate(async ({account, port}) => {
       window.session = await (await fetch('/test-session?account=' + encodeURIComponent(account))).json();
+      window.handshakeStages = [];
+      const stage = value => {if (handshakeStages.length < 40) handshakeStages.push(value);};
       document.querySelector('[data-chat-read-user]').dataset.chatReadUser = session.username === 'alice' ? 'bob' : 'alice';
       const request = async (url, options = {}) => {
         const response = await fetch(url, {...options, signal: AbortSignal.timeout(15000)}), value = await response.json();
+        if (url === '/api/messages/device') stage({stage: 'device', status: response.status,
+          supported: value.supported === true, eventDelivery: value.eventDelivery === true,
+          ownerMatches: value.username === session.username, hasDeviceId: !!value.deviceId});
+        if (url === '/api/messages/transport-ticket') stage({stage: 'ticket', status: response.status,
+          version: value.version === 1, hasTicket: typeof value.ticket === 'string'});
         if (!response.ok) throw Object.assign(new Error(value.code), {code: value.code, status: response.status});
         return value;
       };
@@ -55,6 +85,7 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
         });
         const receipts = WingaModules.chat.createDeviceReceipts({owner: session.username, dataLayer: client, isCurrent: () => true});
         window.stream = client.openRealtimeChannel({isCurrent: () => true,
+          onTransportState: value => stage({stage: 'transport', state: value.state, phase: value.phase}),
           onDeviceEvents: (batch, ack) => receipts.acceptEvents(batch, ack)});
         window.native = {
           inspect: peer => client.inspectEncryptedConversation(peer),
@@ -68,7 +99,21 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
       } else window.native = await WingaEncryptionSession.createEncryptionSession(options);
       window.vault = await WingaEncryptedVault.createEncryptedVault({owner: session.username, getSession: () => session});
     }, {account, port});
-    if (port) await page.waitForFunction(() => client.hasDeviceEventStream(), {}, {timeout: 15000});
+    if (port) {
+      try {await page.waitForFunction(() => client.hasDeviceEventStream(), {}, {timeout: 15000});}
+      catch (error) {
+        const browserState = await page.evaluate(() => ({
+          sessionPresent: !!window.session?.username, hasSessionId: !!window.session?.sessionId,
+          hasTransportModule: !!window.WingaModules?.api?.phoenix,
+          hasSocketLibrary: !!window.Phoenix?.Socket, hasStream: !!window.stream,
+          stages: window.handshakeStages || []
+        })).catch(() => ({stage: 'page.unavailable'}));
+        error.message += '\nNative fixture handshake: ' + JSON.stringify({
+          account, origin: fixture.origin, port, handshake, browserState
+        });
+        throw error;
+      }
+    }
     return page;
   }
   const rows = async (table, id) => (await pool.query(`SELECT * FROM ${table} WHERE ${table === 'encrypted_conversation_messages' ? 'id' : 'message_id'}=$1`, [id])).rows;

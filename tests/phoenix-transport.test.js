@@ -55,6 +55,27 @@ async function connect(port,ticket) {
   return {ws,command,wait,pendingBatches:()=>frames.filter(frame=>frame[3]==='events').length};
 }
 
+async function rejectUntrustedOrigin(port) {
+  await new Promise((resolve,reject)=>{
+    const request=http.request({
+      host:'127.0.0.1',port,path:'/socket/websocket?vsn=2.0.0',
+      headers:{Connection:'Upgrade',Upgrade:'websocket','Sec-WebSocket-Version':'13',
+        'Sec-WebSocket-Key':randomBytes(16).toString('base64'),Origin:'http://127.0.0.1:4174'}
+    });
+    request.setTimeout(3000,()=>request.destroy(new Error('Origin probe timed out')));
+    request.once('error',reject);
+    request.once('response',response=>{
+      response.resume();
+      try{assert.equal(response.statusCode,403,'unlisted origins must fail before socket authentication');resolve();}
+      catch(error){reject(error);}
+    });
+    request.once('upgrade',(_response,socket)=>{
+      socket.destroy();reject(new Error('Phoenix accepted an unlisted origin'));
+    });
+    request.end();
+  });
+}
+
 test('real Phoenix nodes preserve canonical sends and device replay through lost replies and node loss', {timeout:240000}, async t=>{
   const database='winga_transport_test_'+randomBytes(8).toString('hex');
   const admin=new Client({connectionString:target.toString()});await admin.connect();
@@ -155,6 +176,7 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     ready(`http://127.0.0.1:${secondPort}/health`,second)
   ]);
   for (const result of readiness) if (result.status === 'rejected') throw result.reason;
+  await rejectUntrustedOrigin(firstPort);
   async function device(port,ticket){const socket=await connect(port,ticket);sockets.push(socket);return socket;}
   const sender=await device(firstPort,tickets.alice);
   const payload={clientMessageId:randomUUID(),receiverId:'bob',message:'synthetic durable Phoenix message'};
@@ -231,13 +253,14 @@ test('real Phoenix nodes preserve canonical sends and device replay through lost
     const firstDevice=await device(firstPort,await ticket('alice'));
     const secondDevice=await device(secondPort,await ticket('alice'));
     nativeFixture=await require('./helpers/phoenix-encrypted-native-fixture')({
-      root,output:tempRoot,store,backend,csrf,phoenixPort:firstPort,
+      root,output:tempRoot,store,backend,csrf,phoenixPort:firstPort,fixturePort:4173,
       phoenixPorts:{alice:firstPort,bob2:secondPort},sessions:{
         alice:{username:'alice',sessionId:'alice',token:tokens.alice},
         bob2:{username:'bob',sessionId:'bob2',token:tokens.bob2}
       }
     });
     nativeTest.after(()=>nativeFixture.close());
+    assert.equal(nativeFixture.origin,'http://127.0.0.1:4173','native browser must use the existing dev allowlist');
     const phases=[];
     const evidence=await require('./helpers/phoenix-encrypted-native-exercise')({
       fixture:nativeFixture,pool,accounts:{alice:'alice',bob:'bob2'},

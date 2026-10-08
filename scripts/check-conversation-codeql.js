@@ -16,10 +16,10 @@ function requireValid(condition, errorCode = 'CODEQL_SARIF_INVALID', diagnostic)
   if (!condition) throw Object.assign(new Error(errorCode), { errorCode, diagnostic });
 }
 
-// Only caller-defined enums and numeric indexes enter diagnostics, never SARIF values or keys.
+// Only fixed enums, numeric indexes and bounded shape flags enter diagnostics, never SARIF contents.
 function validator(stage, context = {}) {
-  return (condition, field, errorCode = 'CODEQL_SARIF_INVALID') =>
-    requireValid(condition, errorCode, { stage, field, ...context });
+  return (condition, field, errorCode = 'CODEQL_SARIF_INVALID', shape = {}) =>
+    requireValid(condition, errorCode, { stage, field, ...context, ...shape });
 }
 
 // Examine structure, never print untrusted diagnostics, snippets, or parser errors.
@@ -46,7 +46,15 @@ function requireComplete(report, context) {
 }
 
 function requireMessage(message, check) {
-  check(object(message) && (text(message.text) || text(message.markdown) || text(message.id)), 'message');
+  const type = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  const shape = { messageType: type(message), textType: type(message?.text),
+    textEmpty: message?.text === '', idType: type(message?.id), markdownType: type(message?.markdown) };
+  // The SARIF JSON schema permits empty text; it is never evidence of successful execution.
+  const valid = object(message) && (own(message, 'text') || text(message.id))
+    && ['text', 'markdown', 'id'].every(key => !own(message, key) || typeof message[key] === 'string')
+    && (!own(message, 'id') || text(message.id))
+    && (!own(message, 'arguments') || (Array.isArray(message.arguments) && message.arguments.every(value => typeof value === 'string')));
+  check(valid, 'message', 'CODEQL_SARIF_INVALID', { messageShape: shape });
 }
 
 function securitySeverity(properties, check) {
@@ -153,7 +161,8 @@ function requireInvocations(run, context) {
         const level = optional(notification.level, 'warning');
         check(LEVELS.has(level), 'notification.level');
         check(level === 'note' || level === 'none', 'notification.level', 'CODEQL_EXECUTION_DIAGNOSTIC');
-        const diagnostic = [notification.descriptor?.id, notification.message.text, notification.message.markdown]
+        const diagnostic = [notification.descriptor?.id, notification.message.text, notification.message.markdown,
+          notification.message.id, ...(notification.message.arguments ?? [])]
           .filter(value => typeof value === 'string').join(' ');
         check(!/truncat|incomplete|partial|timed[ -]?out|timeout|abort|fail(?:ed|ure)?|fatal|cancel(?:led|ed)|skipp/i
           .test(diagnostic), 'notification.completeness', 'CODEQL_SARIF_INCOMPLETE');

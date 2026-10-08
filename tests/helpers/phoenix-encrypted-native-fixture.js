@@ -7,7 +7,9 @@ const {createEncryptedConversationsApi} = require('../../backend/encrypted-conve
 const {createConversationCryptoDevicesApi} = require('../../backend/conversation-crypto-devices-api');
 
 // Serve real browser crypto and optionally proxy authenticated recovery to the real backend.
-module.exports = async function nativeFixture({root, output, store, sessions, backend, csrf, phoenixPort, phoenixPorts}) {
+module.exports = async function nativeFixture({root, output, store, sessions, backend, csrf, phoenixPort, phoenixPorts, fixturePort = 0}) {
+  if (!Number.isInteger(fixturePort) || fixturePort < 0 || fixturePort > 65535)
+    throw new TypeError('Invalid native fixture port');
   buildMlsBrowser(output);
   const requests = [], responses = [];
   const faults = {loseSendReply: false, withholdDelivered: false};
@@ -106,7 +108,8 @@ module.exports = async function nativeFixture({root, output, store, sessions, ba
       sendJson(res, 404, {code: 'not_found'});
     } catch (error) {sendJson(res, error.status || 500, {code: error.code || error.message});}
   });
-  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  // Match the existing Phoenix dev allowlist; never relax it for this fixture.
+  server.listen(fixturePort, '127.0.0.1'); await once(server, 'listening');
   return {
     origin: `http://127.0.0.1:${server.address().port}`, requests, responses, faults, phoenixPort, phoenixPorts,
     async close() {server.closeAllConnections(); await new Promise(resolve => server.close(resolve));}
