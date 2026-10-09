@@ -564,3 +564,32 @@ candidate source retain the newer harness during PR acceptance as well as future
 integration. The targeted six tests passed with no skips. The original handoff's
 runtime implementation and historical evidence are unchanged. Full CI must bind
 to this resulting candidate source, not just the older e2a0cc8 tree.
+
+
+### Full scan and own exact-binding review of ab3f2ca0
+
+Actual full CodeQL run `37966472821`, job `113942080212`, completed analysis
+with 50 findings (34 warnings, 16 errors). The unchanged gate rejected its prior
+ledger with `CODEQL_REVIEW_STALE`, `source-tree-fingerprint`; that attempt reports
+zero reviewed findings and is not a passing gate.
+
+All 50 baseline ledger fingerprints match the actual historical scanner job
+`113793149451`. Against this fresh candidate scan, 48 complete finding fingerprints
+and their source bindings are identical. The only changed findings are the two
+`js/http-to-file-access` build-helper locations, 717 -> 724 and 969 -> 976.
+Own review confirmed unchanged fixed output directories, bounded single-segment
+product IDs, revalidation at the write boundary, and metadata escaping. The seven
+build regressions passed, including remote hostile IDs and normalization bypass.
+For both findings, rule, tool component, message, partial fingerprints and selected
+artifact-closure hash are unchanged. Location, related-location and flow fields
+change with the seven-line insertion; their lengths remain 1, 2 and 4. The full
+artifact inventory grows from 511 to 512 entries; selected closure is unchanged.
+
+Only these two reviews receive updated coordinates/source/finding hashes and the
+honest reviewer label `Codex (self-review, not independent audit)`. The other 48
+reviews, all reasons and occurrence caps, SARIF parser, query suite and gates are
+preserved. The candidate's local exact-tree digest matches the actual scanner's
+`b8ac2b5cd6d135151aff65afd0e8787b62dd560908c48e2492d636229d315718`.
+This ledger correction is a proposed exact binding; the following fresh full CI
+must still prove that the gate accepts it. No scan results or historic evidence
+are fabricated, and no independent security/cryptographic audit is claimed.
