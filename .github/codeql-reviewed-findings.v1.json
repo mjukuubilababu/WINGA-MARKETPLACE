@@ -1,546 +1,557 @@
 {
   "version": 1,
   "digestAlgorithm": "sha256-lf",
-  "sourceTreeSha256": "fd1dc3d0a3ddc719143c884df073872253ec6d397231e014bf8452c7d9a5f26e",
+  "sourceTreeSha256": "7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43",
   "reviews": [
     {
       "ruleId": "js/request-forgery",
       "path": "tmp-bootstrap-integrity-check.mjs",
       "startLine": 37,
       "sourceSha256": "5ce717fdc147306f9f4276cdb8932a79ea704cdc3f2bec09c141eeb561795775",
-      "resultFingerprint": "d58a8db9ee57f7590056295e8fd87801be2ee81d76736e0461e0e776e5938db5",
+      "resultFingerprint": "cff7189c921c0a55d2e40367925130b106b867e3e6d997521742f5eeaf737bfc",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The proxy constructs a fixed loopback origin from only the incoming pathname/search and fetch uses redirect:error. Request-controlled absolute authorities and upstream redirects cannot change the target host. This applies only to the local synthetic test proxy.",
-      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/request-forgery",
       "path": "tmp-image-viewport-check.mjs",
       "startLine": 36,
       "sourceSha256": "9587b71cf8bd88dc216af15221b78bd16b8215d563e4accdfe15858adc3d1e84",
-      "resultFingerprint": "ff6c40c35b41afc865d87077d7422c9114c46332840930d39f2770bfbd11a74b",
+      "resultFingerprint": "b3cfa5a4185777d8aaf4303d4e060c826cf4cdf804ea1b7fa8ac3a9eef70cea2",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Fixed loopback origin and redirect:error constrain this synthetic screenshot proxy. A request pathname cannot supply another authority or follow an external redirect.",
-      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "app.js",
       "startLine": 2543,
       "sourceSha256": "2a1f5f5c466c341583e2db52625f2b18fe39a05e5ade9a823688608e94c4f250",
-      "resultFingerprint": "2a273bbac48a6998aaa6a9db0bf235fbbbb45646d79b1fe60a773f4ddae4f06f",
+      "resultFingerprint": "3532e6fe5437505daabdb4d1777d1e988803272d5274a496be0b64415227d705",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "A local file-preview blob URL is assigned only to the fixed image element src attribute. Filenames are not inserted as HTML, and this sink does not navigate an executable document.",
-      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "src/chat/voice-ui.js",
       "startLine": 42,
       "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
-      "resultFingerprint": "17a9ff65f0698bf253cc66d9c69ec9a11aea6310aca9a71d66c9e3def5bbaaa9",
+      "resultFingerprint": "485ca92a5a1e205b59c41371b278148cf6139afbc47665648c73508d14344ded",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The blob source is restricted to an audio/video or accepted bitmap element after MIME/magic-byte checks. No HTML/SVG document target is created; names use textContent or alt.",
-      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "src/chat/voice-ui.js",
       "startLine": 45,
       "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
-      "resultFingerprint": "6ff6766b3f41d75073eaf02e13fc21db0ea95f9e8f388a00a597d35e85f17f0b",
+      "resultFingerprint": "f55b3b9c74d878b20223c4a07e76c2548bec8402dbe3c3eb416b89f18fe2e8ba",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The blob source is restricted to an audio/video or accepted bitmap element after MIME/magic-byte checks. No executable document sink is used, and filenames are not rendered as HTML.",
-      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "winga-modules.js",
       "startLine": 21286,
       "sourceSha256": "3a5036c9cc855a6724d65a74deaac5340d2172de6ab05acfb25ad5e60e0ae88b",
-      "resultFingerprint": "115f44145572c871b3685c9a761b8ab9bced0e9a248b65d961a7e91d0ef4e76e",
+      "resultFingerprint": "7a17c4f35ae711d708e1808d9ade082af2b99d33355b0fd266e9d30e7741ce08",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed src/chat/voice-ui.js constrained blob-to-media sink. Source modules and bundle synchronization are verified; there is no blanket generated-file exemption.",
-      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "winga-modules.js",
       "startLine": 21289,
       "sourceSha256": "3a5036c9cc855a6724d65a74deaac5340d2172de6ab05acfb25ad5e60e0ae88b",
-      "resultFingerprint": "b08dd71f9449c702e7a3c99b0814e7dc0fbb7c0cc3154f4e365ef1bc7205fb74",
+      "resultFingerprint": "37c4bbed5032a44eeff01876f706831b8a04448c2d84e2589585fced0a69baa2",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed src/chat/voice-ui.js constrained blob-to-media sink, with accepted media types and text-only names.",
-      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/bad-tag-filter",
       "path": "tests/message-receipts.test.js",
       "startLine": 236,
       "sourceSha256": "c83c2f4dae7670cd78edf425e88ace5c1c23e4eff3fbfa6ba51ca75cdc9a47a5",
-      "resultFingerprint": "61ee4c68bf9fc033278bc571ed050a6689380e4c0f0178c4ec575ad825eb8029",
+      "resultFingerprint": "17da541f9df11becfd22c1670cd7e4974673e50d3a31bf1c8fd14389ce99147b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This regex is a negative test assertion against fixture markup, not a production HTML sanitization function or authority boundary.",
-      "evidence": "tests/message-receipts.test.js negative assertion source; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/message-receipts.test.js negative assertion source; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 5073,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "1163bd6b1eed4cb4225c203bd3156a58ff2ebc3d949bbab008e383942ea23785",
+      "resultFingerprint": "793ec3f276b857fafb8923de6ab7f19f264dd678f8b8cd56fc742eb0c58a330d",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not used to sanitize user-controlled content.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 5268,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "bb788f87d1bfe71358008c6174c579fd2ed5854dd15f5dd1225139b6e6135071",
+      "resultFingerprint": "a7f4f94454ab29f0e33880bdf3a5fceec296cb2f3887dd7d4f0a73dd0202178e",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not a user-input sanitizer.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/insecure-randomness",
       "path": "src/marketplace/video-playback.js",
       "startLine": 329,
       "sourceSha256": "2c2e186d9a9d9dbe44a1e4deeab2c16a4d83458d70faac9d42b051e3e966c436",
-      "resultFingerprint": "15e1dacfa016c2dfccc8ccf492c3dde4da7fcd4731a64e971ff613371bc14000",
+      "resultFingerprint": "91871e449c268db8018ac3070fcb3ca86e28f03567e035d6cb28c0dc684615a4",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Math.random is the fallback for a playback analytics correlation identifier, not a credential, signature, authorization token or trusted device identity. Server authorization derives identity from the authenticated session.",
-      "evidence": "src/marketplace/video-playback.js analytics source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "src/marketplace/video-playback.js analytics source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/insecure-randomness",
       "path": "winga-modules.js",
       "startLine": 13074,
       "sourceSha256": "3a5036c9cc855a6724d65a74deaac5340d2172de6ab05acfb25ad5e60e0ae88b",
-      "resultFingerprint": "a89f9c015178cfb3b8bbbd861d6349f28069e7189c49020dd040224fb6cdb501",
+      "resultFingerprint": "73748618de3e5fc00a95e8a44f09ec57f6b54eb87323804bd8b4ae99117892d2",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed analytics-only correlation identifier fallback. It is not an authorization or secrecy boundary.",
-      "evidence": "npm run verify:module-sync; src/marketplace/video-playback.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "npm run verify:module-sync; src/marketplace/video-playback.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/incomplete-url-substring-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 3270,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "d6271f071575d72bb8af94eb533da4d0fb44f3540ebce49530b385e26c18d4d3",
+      "resultFingerprint": "eb4f718c0a656a789f079cccef3a55c6132007d674ba07d1af9003037e427c68",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This is a positive assertion of a static CSP source string, not production URL validation; authorization does not depend on substring matching here.",
-      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/backup-legacy-private-media.js",
       "startLine": 122,
       "sourceSha256": "79ea79700b4af5c590cc447e06dfddd08d6ddf7945ef654d6492007a2c4ed9cc",
-      "resultFingerprint": "209ae1a3389b3b2594d4f0a02b98389ad078643ae9bf22ad0d1fbcd9c46af3dc",
+      "resultFingerprint": "380b37e9ed879aabf735ee3985f686c6df64927a850188e4c64647d8f5e42a61",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The bounded descriptor read rejects pathname substitution through lstat/open inode/device checks, O_NOFOLLOW and post-read identity checks. The private backup retains bytes privately. This is not a universal in-place immutability guarantee; the directory and initial snapshot are trusted.",
-      "evidence": "tests/backup-legacy-private-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/backup-legacy-private-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/legacy-public-media.js",
       "startLine": 113,
       "sourceSha256": "26703465cecf4b9f89055c300e2d7b8be0caaf9b980ac58f7f423e1371c6b3cf",
-      "resultFingerprint": "b0c71ea400b8d993ba8a5259b18fff99c8ca0b0e63d6625c317fdff3afff33dc",
+      "resultFingerprint": "5c5ba2b72afc87efbae7b0f4a681dbe37b7918f02afc1e714d5ec8d31ce2da8b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Descriptor-based bounded reads reject symlink/inode substitution and unexpected read-size/identity changes. Current authorization constrains local fallback access. R2 metadata checksum verification is separate; trusted directory ancestry is assumed, not universal filesystem immutability.",
-      "evidence": "tests/legacy-public-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/legacy-public-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/stable-local-file.js",
       "startLine": 14,
       "sourceSha256": "ebeb859c8fe20eb1cdf1e2b8d471c94329db445f0375fec43ea256999e1be7fb",
-      "resultFingerprint": "165cf352c2d5f109e378008edd2a4b7f2adb4cb8efd921aaab9fe69079389dc6",
+      "resultFingerprint": "0a7fa3482dd52a6817ee08f427bedcda9c0e033dcd0d3baa3fe01af1507497ab",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This open is followed by exact descriptor identity/size checks, bounded reads and post-read checks with guaranteed close. Public copying additionally binds bytes to an approved preflight SHA-256 before that file's first R2 call. Trusted directory/snapshot assumptions remain; copying is not transactional across the batch and this does not certify universal helper immutability.",
-      "evidence": "tests/stable-local-file.test.js; tests/copy-legacy-public-media.test.js; independent 20 natural +20 forced collision rejections; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/stable-local-file.test.js; tests/copy-legacy-public-media.test.js; independent 20 natural +20 forced collision rejections; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/server.js",
       "startLine": 619,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "71978b5b7558ec0ed469d36228455d104e2ea122dc55d04426ecdaa86992942c",
+      "resultFingerprint": "977cfbc09bb0420edb30d3cd901640b6cb2b6204ee31e19387b9026b88a866ec",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The local seed is created atomically with flag wx and mode0600; only EEXIST is handled. An existing writer's store is not overwritten.",
-      "evidence": "tests/local-security-guards.test.js exclusive seed regression; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/local-security-guards.test.js exclusive seed regression; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 981,
-      "sourceSha256": "464fce8e618590de4debe5a6f2acdad59432ea34302a5d79046180688a6c08dd",
-      "resultFingerprint": "aad13333c115f8bd12a4269ff3748be94010424fce9c63b63cfcce58a966f5e6",
+      "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
+      "resultFingerprint": "acb31a7520d48669fc3d6ba92c9c754c77e5cc96a858164e3b419c4e16a212e8",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "Synthetic fixture bytes are read before deliberately injecting a pre-open pathname swap. The test asserts CODEQL_REVIEW_UNSAFE and exactly one descriptor close; it is a negative regression, not a production reader.",
-      "evidence": "Independent 5/5 fixture review; pre-open inode swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "Independent 5/5 fixture review; pre-open inode swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 1021,
-      "sourceSha256": "464fce8e618590de4debe5a6f2acdad59432ea34302a5d79046180688a6c08dd",
-      "resultFingerprint": "86f50e641921dfd6d3c8beeda22785ef8ada2bc425eb3b8080b48555fe752335",
+      "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
+      "resultFingerprint": "5fc10e1730323a012342cec25413f300e331154bbafc44e52c988cbe3da3135f",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "Synthetic fixture bytes are read before intentionally swapping the pathname during the tested descriptor read. The regression asserts CODEQL_REVIEW_UNSAFE and exactly one descriptor close.",
-      "evidence": "Independent 5/5 fixture review; during-read pathname swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "Independent 5/5 fixture review; during-read pathname swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 1369,
-      "sourceSha256": "464fce8e618590de4debe5a6f2acdad59432ea34302a5d79046180688a6c08dd",
-      "resultFingerprint": "4c00c556e315d19f60a651c04b60bae64160e70c8fc277d19d4b76fd065fa130",
+      "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
+      "resultFingerprint": "aed81d0603c63835cff68f54035ac21d7b356f13eac4431a16cdcd0fbd54a6b0",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "This wrapper measures content-open byte budgets on isolated synthetic assets; it is not an authorization/read path or mutation injector. The test asserts bounded reads, limit rejection and zero opens for excessive file count.",
-      "evidence": "Independent 5/5 fixture review; tracked count and aggregate byte limit regressions; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "Independent 5/5 fixture review; tracked count and aggregate byte limit regressions; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/copy-legacy-public-media.test.js",
       "startLine": 176,
       "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
-      "resultFingerprint": "08c3101cd412795d0691b1f6181d627bdc7c59ea019aac42699128be2009183d",
+      "resultFingerprint": "dcd2a6d1e908b5000e1d87a03080dbd7affca11f48d528df9dfcc4975e7f080c",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "A deliberate same-size overwrite of an isolated synthetic file tests the production preflight rejection. The test asserts SOURCE_FILE_CHANGED and zero fake-R2 writes; it is not a production writer path.",
-      "evidence": "Independent 5/5 fixture review; same-size preflight rejection test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "Independent 5/5 fixture review; same-size preflight rejection test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/copy-legacy-public-media.test.js",
       "startLine": 210,
       "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
-      "resultFingerprint": "bad203da980e5cc91464b3c777b4ed5a96e5a0bd2947561f665c05fd5ecaad17",
+      "resultFingerprint": "076b3082d887bfcdf94b97eac3b69f3a9fd5257bb829a51b39ca1ee9072b9732",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "A deliberate synthetic overwrite with mocked unchanged stats tests SHA-256 preflight binding. The production copy is asserted to reject before writes, with zero fake-R2 objects; this fixture mutation is intentional.",
-      "evidence": "Independent 5/5 fixture review; same-stat cryptographic preflight test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "Independent 5/5 fixture review; same-stat cryptographic preflight test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 266,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "35421429d45e94d1ccbfe7daec8fe1105abba02535bfd8ddc5339cbfc1ff4738",
+      "resultFingerprint": "cda0c7d9ba8f9f84403bf4012b57b4f56db6f017e96b12d2cd272e7b43ec2f8a",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The computed field is validated as exactly muted or archived and the value must be boolean before assignment. Fixed SQL columns use authenticated owner identity; arbitrary/prototype fields are rejected before writes.",
-      "evidence": "encrypted Room preference rejection review and isolated tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "encrypted Room preference rejection review and isolated tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/intelligence-platform.js",
       "startLine": 313,
       "sourceSha256": "60fc5f028f51488e7051b8da107bebe3242826750e3a55e32058d4f8ac39055c",
-      "resultFingerprint": "e3f257ccd162e2677950efebf27820a59f895874de1d34b22621c7e0cfbc4bb9",
+      "resultFingerprint": "0d3d1f43842475c0633a938884242e3a6d02668ffc38298c300b4acd7077e85e",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The signal comes from a known-event allowlist and frozen numeric weights, with recomputed numeric quality/counter guards. Prototype names cannot enter this validated event path; this review does not claim an explicit own-property check at the assignment.",
-      "evidence": "tests/intelligence-score-store.test.js; tests/local-security-guards.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/intelligence-score-store.test.js; tests/local-security-guards.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/server.js",
       "startLine": 3841,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "1db51a9c7288e6656313ff98f96c188d7ec1ed46bf8b30ce60e3a162d7d36f79",
+      "resultFingerprint": "8c9980d14eb5a8901c59685923ef82b295078ef9b4a26bbdb3a2de1fc079c367",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Cookie parsing accumulates strings into a null-prototype object. Prototype names cannot mutate an object prototype or inject executable behavior; authenticated session checks still run.",
-      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/server.js",
       "startLine": 3843,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "b27069ba327a6b8582c15ca4483bccdd8546b6ef09fb7d447558376836af5a0b",
+      "resultFingerprint": "b2a3e4ebc3707484573124b5b6071059db1e21383329c4921742c1c38aa9ed42",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Cookie values populate the same null-prototype string dictionary; this branch does not reintroduce prototype inheritance and does not authorize a session by itself.",
-      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-native-history.js",
       "startLine": 37,
       "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
-      "resultFingerprint": "800684dbe239292f81b57e7553ef2a87e86c8d54b1498c05cf5777af843028dd",
+      "resultFingerprint": "002de2eae7e7e2350203d13ce9e43e3801c342448c4bbc9a1c631770b2c08d1d",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "history-tasks selects dispatch only. SQL binds owner, endpoint device, expiry and active matching epoch; each row then authorizes its actual conversation membership/freeze/roster before inclusion, excluding denied tasks.",
-      "evidence": "backend/encrypted-native-history.js task authorization review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "backend/encrypted-native-history.js task authorization review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-native-history.js",
       "startLine": 60,
       "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
-      "resultFingerprint": "94009cf9aafd91880c9a2c5b79157aae4929b29f10f6532b4ae7fd78fcfea164",
+      "resultFingerprint": "6bba561ffa8222158c9001f20dcf948dff03721930924070a1b918dfeaf3b707",
       "maxOccurrences": 1,
       "reviewer": "Godel (finding), Hubble (independent fix review)",
       "reason": "Selecting a stored transfer by ID does not authorize its use. The shared authorization now binds its stored conversation ID to the currently authorized group, same authenticated owner, active same-epoch roster, expiry and endpoint actor before every existing-transfer read or mutation. The real cross-conversation defect was fixed rather than waived.",
-      "evidence": "tests/encrypted-conversations.test.js signed two-conversation regression: all six actions reject403 without transfer/page mutation; valid history retries and block/removed-membership checks pass; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/encrypted-conversations.test.js signed two-conversation regression: all six actions reject403 without transfer/page mutation; valid history retries and block/removed-membership checks pass; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 108,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "108744608c22e70e5a01c3b548f4264940ca91ad2d7394c6db0b552c126a270b",
+      "resultFingerprint": "a07fbfa8f9fa2aa0cbbe04b97a5674c1ef6af3b8e86c0185378cfbc346eaf8af",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "room-reserve dispatch retains mandatory authenticated owner/signed actor binding. Existing changes require the stored prior admin role and current membership; creation validates active device/key-package ownership.",
-      "evidence": "isolated signed Room authorization tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "isolated signed Room authorization tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 261,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "93aa45552a0eb38b6b65e744cc3da5d112cccacc1a3a065e453deaca27e35075",
+      "resultFingerprint": "2e64989c1948228a7238094713d5407175481007700b3692ed28664ab963aba8",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Current roster membership authorization precedes preference dispatch. Writes bind c.owner and fixed columns; stale revisions or changed retries are rejected.",
-      "evidence": "isolated Room preference authorization/retry tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "isolated Room preference authorization/retry tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 290,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "ffa172169e2c461799ce44a85b50dc524d336ccdb8395e23f7d7e1b4aa1f22f9",
+      "resultFingerprint": "cbfdbd3ec0625c549894646715a8a1a5417e68d7abc6ca30bc1c608b15e4607e",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Current roster membership is checked before acceptance. Transition ID and transfer hash must match stored state, and the exact group/epoch/hash/owner/actor signature is verified before insertion.",
-      "evidence": "isolated Room acceptance rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "isolated Room acceptance rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 294,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "ecb97c2713bbbd52255714760d533ea7be93f39fba600e7057409b9cc1335745",
+      "resultFingerprint": "47e61d90db8cbd32615a4fdce52ea424c5baed5a7aae9ef0fd13d78ecde65a3e",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The signature verifies the exact group, epoch, stored transfer hash, authenticated owner and actor using that actor's roster MLS key. Malformed signatures or substituted acceptance fields are rejected before writes.",
-      "evidence": "isolated Room acceptance signature rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "isolated Room acceptance signature rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 7955,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "60c3e6fbb15944bd7252d58c650cfc0684fd52317a03b9727ac21456300f922e",
+      "resultFingerprint": "cbe85fcf0b121a523d2bd7e0ebfbccf67b30db8b051a320b0e72460e7e38e3f7",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The internal service credential check runs first. Content type only rejects unsupported bodies; accepted requests require bounded JSON, a live owner/session HMAC ticket and canonical native signature/device/membership authorization.",
-      "evidence": "internal service and ticket tests 4/4; canonical authority source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "internal service and ticket tests 4/4; canonical authority source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 10306,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "b46710220578420eb784d4fd8067ead1136c96358fcb9325e73f6c7d993ae45e",
+      "resultFingerprint": "bfa2057873fdf371affe729ed5f2abc6b3b6497c9ba484903b9970843d707387",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This branch rejects malformed login input. Subsequent password verification and identity lookup remain mandatory; bypassing the input validation cannot create a session.",
-      "evidence": "tests/integration-api.test.js authentication cases; server login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/integration-api.test.js authentication cases; server login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 10451,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "e41ca8abd49ddb2de54eb778a9946c11e0a373e4f1426ff1c2f1751d0d718175",
+      "resultFingerprint": "f6e2a2cc6b16bac9e3a44f6d3e6417a607cd1538c83965c0044e4e40dbb606e1",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This branch rejects malformed admin login input. Password verification and staff-role/session checks remain mandatory before admin access.",
-      "evidence": "tests/integration-api.test.js; server admin-login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/integration-api.test.js; server admin-login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 11244,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "f912ed242cd30053649191cc1d3945317bf923a91f46066c00d58c3875ea2bef",
+      "resultFingerprint": "0f8c85c9fc64265073008405a38b6fbcca03aea9c91bda17adc47efc8bef0993",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Missing/malformed password is rejected. The authenticated marketplace user is resolved first, and actual password verification remains mandatory before session elevation.",
-      "evidence": "server authenticated password-confirmation source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "server authenticated password-confirmation source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 19628,
       "sourceSha256": "2a1f5f5c466c341583e2db52625f2b18fe39a05e5ade9a823688608e94c4f250",
-      "resultFingerprint": "4616c63b13b7878a0c99f3aa7021fb207a66df53e29bad82497be270a9b808c1",
+      "resultFingerprint": "1efbccaf64f8b77fb6f36e4f90e7644d9f7d82d7820a422f44d24228297bcbc9",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This logout branch chooses the presentation of the admin login screen after local authentication state is cleared. It grants no backend authorization or staff session.",
-      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 14771,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "484b7b32671e923d93951391cffc71a23df3494290f1a5c961b4211f1003c7e6",
+      "resultFingerprint": "a8728f0fc5bff2800fa8d2def1bb93ff5fffacd0107bc31579975a3b2301863c",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The route resolves an authenticated seller first, then requires uploadedBy to equal that seller. Request-controlled ownership cannot override the authenticated seller or the later source-product ownership checks.",
-      "evidence": "server product-create owner source review; integration API tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "server product-create owner source review; integration API tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 24237,
       "sourceSha256": "2a1f5f5c466c341583e2db52625f2b18fe39a05e5ade9a823688608e94c4f250",
-      "resultFingerprint": "f3b9aa8691e20a0816fe02b907f268440e06c65735ef56aefd1e802fb5f9215a",
+      "resultFingerprint": "98829c5061a33d93c22e4bbdb5c23be8a8b2880832ea3f34cb1aef5211d1db2d",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This route check selects UI presentation only. Staff authentication and backend authorization are separate, and nonstaff access is not granted by choosing this route.",
-      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 25759,
       "sourceSha256": "2a1f5f5c466c341583e2db52625f2b18fe39a05e5ade9a823688608e94c4f250",
-      "resultFingerprint": "9fe1f09c50d56572d9a0c7167840b02259464b3cf0d97f4f744e4bdf00da59ab",
+      "resultFingerprint": "d6fadb91172fc0c3cc0b357d55ac5474daf583c99c5d8d8bfcd82de9bc385512",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This boot branch displays the admin login screen; it does not issue a privileged session or replace backend role checks.",
-      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "backend/server.js",
       "startLine": 1100,
       "sourceSha256": "e18ed7d93a9b15574a98112c019217d044d1cf146b74a7a7d7d628045a03324b",
-      "resultFingerprint": "0f0f0d0c0ebe4728143e82911804668430fce69a12ee34832c63d28a8359a1ed",
+      "resultFingerprint": "ce60ae67abe499ccbb11f8574a63314fc484d28d886df877b7a7fd5f210f08c6",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Audit events are intentionally serialized as JSON data to a fixed server-controlled log destination, not a caller-selected path or executable source. This sink itself is not claimed to enforce a byte-size bound.",
-      "evidence": "backend audit log source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "backend audit log source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
       "startLine": 717,
       "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "791e01279b04148156ace38f37f781834a5661c8c8db1c47630ac6978b596941",
+      "resultFingerprint": "7aaedf9cc37b726f20154a9b499e0bfe7db8665a9b6b66a33da1f80d4e0e5aab",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Generated share-page writes use a validated single-segment product ID in the predetermined output directory. Metadata is escaped; the request cannot select another filesystem path.",
-      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
       "startLine": 969,
       "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "37147e94923922c33188c0203ed610e0eb6a916e10426db1f2341334cfe25ee1",
+      "resultFingerprint": "686f4fb9a7202d3876ca429c0f0933f43e19c808e9a1468fa51dcc2ce38f69e7",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Generated share metadata uses the same bounded safe product ID and escaped fields in controlled destinations. Raw user-controlled file paths are not written.",
-      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "tests/e2e/start-servers.js",
       "startLine": 442,
       "sourceSha256": "fd1de267c8c1a59d7d028e49f0445830e991c7a38c3ab07b35b36544f4b4551d",
-      "resultFingerprint": "501a5370b5116de9ed8cbffaf104a0e58695939de9f52e7d9d83c4e166f04f76",
+      "resultFingerprint": "db1162416bf5b79404b57cd2a076b941083f9061adb86bf0a986880169f67711",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The synthetic E2E fixture intentionally persists bounded data to a fixed disposable repository test-store file. It is not a production HTTP-controlled path or arbitrary file write.",
-      "evidence": "tests/e2e/start-servers.js synthetic server fixture review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/e2e/start-servers.js synthetic server fixture review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "src/marketplace/gallery.js",
       "startLine": 223,
       "sourceSha256": "1ec1864ef295ebb822917bf8500308086eab980f08f7b7b3aab46597dc08dba2",
-      "resultFingerprint": "a311a04c55738e18fcad116b1fcc30ab236491a4c5aa7056baea1eb7978a6103",
+      "resultFingerprint": "1886208ae8325b14b791a8d529741974a1c741443fc826d1c0d6b332731a4ed3",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This expression suppresses provider-host poster candidates, not grants access to a trusted origin. Overmatching may affect candidate selection but cannot bypass an authorization boundary.",
-      "evidence": "src/marketplace/gallery.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "src/marketplace/gallery.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
       "startLine": 274,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "6a7826557584c69a1951868225e479d0f6692b9692f2d8753309e5645dc3f426",
+      "resultFingerprint": "d3c5f1f951009df2be36cbd9221df78b2d2241159b77e6f6cc6d9198e5880efa",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The unanchored expression is a negative assertion deliberately searching repository-owned source anywhere for a forbidden construct, not production hostname authorization.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
       "startLine": 3349,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "14bc18bfd9be17040b570decc6292105cc0a72df2e760f73f7539ff1a4d2492f",
+      "resultFingerprint": "62acdcb2675e9b115c85c2613028406bcfbee47dd0fb781e35b159219c676a6d",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The unanchored expression intentionally finds a forbidden construct anywhere in static fixture/source output; it does not validate a user-controlled URL or authorization field.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "worker.js",
       "startLine": 1171,
       "sourceSha256": "28fc4ccd17d03331b574d8536affe4206d0679a63d81ea15b63a509cb4b53d58",
-      "resultFingerprint": "6ff4098cf22013b2069d7c17f18d94a926f53c258eec1bc88eee1e29c14ee58d",
+      "resultFingerprint": "6d3da9f00ce162cecef11a4fa998c27eca54438496dc1c04514f5917cb2db6e6",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This provider-host pattern suppresses poster candidates; it is not used as an origin authorization allowlist. No trust decision becomes true through substring matching.",
-      "evidence": "worker.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "worker.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "winga-modules.js",
       "startLine": 8603,
       "sourceSha256": "3a5036c9cc855a6724d65a74deaac5340d2172de6ab05acfb25ad5e60e0ae88b",
-      "resultFingerprint": "29142d0a08c344d5390e5e6ac40fb45353fe0aa674032ed385c4a1043db8cc8d",
+      "resultFingerprint": "7997a17797327c3800bcb68344d75e9bf9db6397ac6ec836429d6adffa587fdb",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed gallery poster suppression expression. It is not a trusted-origin grant.",
-      "evidence": "npm run verify:module-sync; src/marketplace/gallery.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md"
+      "evidence": "npm run verify:module-sync; src/marketplace/gallery.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
+    },
+    {
+      "ruleId": "js/file-system-race",
+      "path": "tests/helpers/phoenix-fixture-startup.js",
+      "startLine": 24,
+      "sourceSha256": "916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8",
+      "resultFingerprint": "8f13dbbc5be5393156a611dc1e671a4df5a36bfd94a8c6a7fcad6de6fd94c77f",
+      "maxOccurrences": 1,
+      "reviewer": "Godel (independent of helper author Hubble)",
+      "reason": "Test-only caller supplies generated fixture-log paths under a trusted temporary directory. Regular-file and descriptor identity checks precede bounded reads, and descriptor/path checks follow them. Reads expose only allowlisted diagnostic categories, with no authorization decision or production write. This does not claim atomic pathname immutability or protection against attacker-controlled ancestors.",
+      "evidence": "Independent helper/caller inspection and tests/phoenix-fixture-startup.test.js, 5/5: substitution-before-read rejection, post-read changes, 16 KiB read bounds, descriptor cleanup and output privacy. Exact v2 result and tree provenance remain required. Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43."
     }
   ]
 }

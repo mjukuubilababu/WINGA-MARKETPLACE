@@ -276,6 +276,27 @@ Darwin passes 31/31 focused regressions. Neither review approves a new ledger.
 The three changed-test-file alert sites at lines 981, 1021 and 1369 are separately
 reconfirmed as isolated negative fixtures by Godel, with 3/3 focused tests.
 
+Actual compatibility candidate `3a48e60ebd1353b5978754a7803d3f27b238d6a3`
+passes 116/116 Linux gate/workflow regressions without skips. Paired jobs
+`113620696399` and `113621771520` (run `37868454559`) bind tree
+`7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43`.
+All 50 findings are eligible and have identical complete v2 fingerprints,
+referenced-record hashes and source hashes across the pair, despite different
+global artifact ordering. All 50 raw result/rule/tool hashes also match the
+earlier independently classified report; no new flow is silently approved.
+
+Godel independently fetches both job logs and verifies every pending ledger
+entry against them and the local tree. The 49 existing reasons and reviewers
+remain unchanged; only the three reviewed test-file source hashes change and
+the separately classified fixture helper at line 24 is added. Every occurrence
+cap is one. The exact 50-entry ledger is finalized only after this approval.
+Partial editing uses an invalid `pendingReviews` schema so it cannot approve
+any finding. New sites, changed flows, source/tree drift, multiplicity, invalid
+closures or unsuccessful scans continue to block. This supersedes the stale
+ledger status above, but does not approve production promotion: all four jobs
+must actually execute and pass for the finalized regular acceptance candidate.
+The local integration suite passes 114 tests with two Windows privilege skips.
+
 A bounded read-only production soak completes in 312111 ms: 99 public GETs,
 zero failures, HTTP 200 for all three services, maximum concurrency two.
 Backend identity remains `6e3277edd57229f751c5fe3609d95db8741405ae`;
