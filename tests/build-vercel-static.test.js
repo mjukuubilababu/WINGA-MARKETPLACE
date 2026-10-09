@@ -21,18 +21,19 @@ const validIds = [
   "550e8400-e29b-41d4-a716-446655440000", "123", "a".repeat(100)
 ];
 
-function loadBuildHelpers(payload = []) {
+function loadBuildHelpers(payload = [], wrangler = null) {
   const writes = [];
   const directories = [];
   const filesystem = {
     mkdirSync(target) { directories.push(target); },
     writeFileSync(target, contents, encoding) { writes.push({ target, contents, encoding }); },
-    existsSync() { return false; }
+    existsSync(target) { return wrangler !== null && path.basename(target) === "wrangler.toml"; },
+    readFileSync() { return wrangler; }
   };
   const context = vm.createContext({
     __dirname: path.dirname(scriptPath),
     require(name) { return name === "fs" ? filesystem : require(name); },
-    process: { env: {} },
+    process: { env: { WINGA_ASSET_VERSION: "20261009150025" } },
     console,
     URL,
     AbortController,
@@ -52,6 +53,29 @@ test("product normalization rejects unsafe path segments", () => {
     assert.equal(context.normalizeProductPathId(id), "", JSON.stringify(id));
     assert.equal(context.normalizeProductList([{ id }]).length, 0, JSON.stringify(id));
   }
+});
+
+test("worker version aliases advance together without changing other vars or environments", () => {
+  for (const bindings of ['', 'WINGA_BUILD_VERSION = "old"\n', 'BUILD_VERSION = "stale"\nWINGA_BUILD_VERSION = "old"\n']) {
+    const input = `[vars]\nORIGIN = "https://synthetic.invalid"\nCUSTOM = "preserve"\n${bindings}\n[env.preview.vars]\nBUILD_VERSION = "preview"\n`;
+    const { context, writes } = loadBuildHelpers([], input);
+    context.syncWorkerBuildVersionConfig();
+    assert.equal(writes.length, 1);
+    const expected = '[env.preview.vars]\nBUILD_VERSION = "preview"\n';
+    const [vars, preview] = writes[0].contents.split('[env.preview.vars]');
+    assert.match(vars, /^BUILD_VERSION = "20261009150025"$/m);
+    assert.match(vars, /^WINGA_BUILD_VERSION = "20261009150025"$/m);
+    assert.ok(vars.includes('CUSTOM = "preserve"'));
+    assert.ok(vars.includes('ORIGIN = "https://synthetic.invalid"'));
+    assert.equal('[env.preview.vars]' + preview, expected);
+  }
+});
+
+test("worker version synchronization also handles vars at end of file", () => {
+  const { context, writes } = loadBuildHelpers([], '[vars]\nBUILD_VERSION = "old"');
+  context.syncWorkerBuildVersionConfig();
+  assert.match(writes[0].contents, /^BUILD_VERSION = "20261009150025"$/m);
+  assert.match(writes[0].contents, /^WINGA_BUILD_VERSION = "20261009150025"$/m);
 });
 
 test("ordinary product IDs retain their identity and list deduplication", () => {

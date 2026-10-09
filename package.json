@@ -10,6 +10,8 @@
     "verify:production": "node scripts/verify-production-shell.js",
     "verify:conversation-soak": "node scripts/production-conversation-soak.js",
     "test:conversation-soak": "node --test tests/production-conversation-soak.test.js",
+    "verify:growth:production": "node scripts/verify-growth-production.js",
+    "test:production-verifiers": "node --test --test-concurrency=1 tests/production-conversation-soak.test.js tests/verify-growth-production.test.js tests/build-vercel-static.test.js",
     "verify:database-recovery": "node scripts/verify-database-recovery.js",
     "verify:worker-performance": "node scripts/verify-worker-performance.js",
     "verify:domain-routing": "node scripts/verify-domain-routing.js",

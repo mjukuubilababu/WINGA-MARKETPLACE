@@ -49,3 +49,31 @@ test('slow public probes never exceed two simultaneous requests',async()=>{
         url.includes('phoenix')?{ok:true,service:'conversations-transport'}:{ok:true,readiness:'ready'}),{headers:{'x-winga-commit':'a'.repeat(40)}});}});
   assert.equal(r.ok,true);assert.equal(r.loadRequests,6);assert.equal(active,0);assert.equal(peak,2);
 });
+
+test('a healthy short run fails an unmet sample coverage gate',async()=>{
+  const h=harness(),r=await run({...config(),minSamplesPerTarget:5},h.deps);
+  assert.equal(r.failures,0);assert.equal(r.ok,false);assert.equal(r.gates.minimumCoverage,false);
+});
+test('operator latency threshold fails a healthy but slow response without capacity claims',async()=>{
+  const h=harness();const fetchImpl=h.deps.fetchImpl;
+  h.deps.fetchImpl=async(...args)=>{await h.deps.sleep(750);return fetchImpl(...args);};
+  const r=await run({...config(),maxP95Ms:500},h.deps);
+  assert.equal(r.failures,0);assert.equal(r.ok,false);assert.equal(r.gates.latency,false);
+  assert.equal(r.productionCapacityProven,false);
+});
+test('intermittent timeout stays visible even after subsequent probes succeed',async()=>{
+  const h=harness();const fetchImpl=h.deps.fetchImpl;
+  h.deps.fetchImpl=async(...args)=>{
+    if(h.requests.length===1){h.requests.push({url:args[0],init:args[1]});throw new DOMException('private endpoint details','TimeoutError');}
+    return fetchImpl(...args);
+  };
+  const r=await run(config(),h.deps),frontend=r.targets.find(t=>t.name==='frontend');
+  assert.equal(r.ok,false);assert.equal(r.failures,1);assert.equal(r.stopCode,null);
+  assert.equal(frontend.errorCounts.REQUEST_TIMEOUT,1);assert.equal(frontend.firstFailureMs,0);
+  assert.equal(JSON.stringify(r).includes('private endpoint details'),false);
+});
+test('coverage and latency options remain bounded',()=>{
+  const args=['--confirm=read-only-production-soak'];
+  for(const arg of ['--min-samples-per-target=0','--min-samples-per-target=181','--max-p95-ms=99','--max-p95-ms=10001'])assert.throws(()=>options([...args,arg]),/INVALID_SOAK_OPTIONS/);
+  assert.equal(options([...args,'--max-p95-ms=1500']).maxP95Ms,1500);
+});

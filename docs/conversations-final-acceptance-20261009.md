@@ -506,3 +506,72 @@ pending entries to actual job `113793149451`. CLI changes from 2.27.1 to
 artifact URI multiset remains identical despite ordering changes. The prior
 31-field coordinate proof remains valid. Entries are activated without parser,
 matcher, reason, reviewer or cap changes. Fresh four-job acceptance is required.
+
+
+## Cloud reconstruction after the October 9 operator handoff
+
+Baseline: fresh `origin/master` and local HEAD both
+`3149198349e7274321cf923a5c09796ab0825a86`. Accessible remote refs and commit
+history did not contain the operator's unpushed computer changes. The operator
+requested reconstruction when they could not recover those files. This candidate
+is reconstructed from the handoff; it is not a byte-for-byte recovery of the
+manually deployed frontend.
+
+The operator-reported live identity remains build `20261009150025`, Worker
+`mkubwa`, version `ef3ae34f-5562-4910-bfcf-fa4cef49fc92`. No fresh production
+readback establishes that identity. The candidate build is `20261009163000`,
+with both `BUILD_VERSION` and `WINGA_BUILD_VERSION` synchronized. Wrangler's
+normal frontend deployment command was exercised with `--dry-run` and
+`--keep-vars`; no production deployment was performed. The generated 95-module
+bundle remains synchronized and unchanged. Frontend Growth defaults match the
+latest handoff's enabled intent; backend flags/cohort are neither changed nor
+verified by this work.
+
+Reconstructed operations:
+
+- `verify:growth:production` requires explicit expected backend commit, frontend
+  build and flag intent before four fixed-host, credential-free GETs. It checks
+  apex/www release manifests and parses bounded literal frontend defaults without
+  executing downloaded JavaScript. Its public success explicitly leaves backend
+  flags/cohort, authenticated canary and messaging acceptance unverified.
+- `verify:conversation-soak` retains hard traffic limits and reports timeout
+  counts and first/last failure offsets. Optional `--min-samples-per-target` and
+  `--max-p95-ms` gates fail incomplete or slow runs. A later healthy sample does
+  not erase an earlier failure. Coverage counts both soak and bounded-load
+  probes; an omitted latency gate does not establish a production latency SLO.
+- `test:production-verifiers` runs in functional CI without production traffic.
+
+Fresh isolated evidence (all fixtures synthetic, no production credentials):
+
+| Check | Result |
+| --- | --- |
+| PostgreSQL 18.6 canonical suite, pinned official image | 115 passed, 0 skipped; fixture schemas and owned container removed |
+| Direct messages, receipts, replay and transport clients | 166 passed, 0 skipped |
+| Secure content, devices, MLS, encrypted media/history | 160 passed, 0 skipped |
+| Security regression gates | 161 passed, 0 skipped |
+| Browser secure content/devices/recovery/encrypted Rooms | 49 passed under unchanged CSP |
+| Conversation operations | 64 passed, 0 skipped |
+| Rooms and rich content | 103 passed; 9 PostgreSQL-specific cases skipped in this separate no-database invocation, covered by canonical PostgreSQL suite |
+| Growth isolated contracts | 28 passed, 0 skipped |
+| Reconstructed verifier/soak/build regressions | 28 passed, 0 skipped |
+| Workflow trigger/gate regressions | 4 passed, 0 skipped |
+| Dependency scan | Frontend/backend: 0 reported vulnerabilities |
+| Frontend module synchronization and Worker dry-run | Passed; both Worker version bindings match |
+
+Detailed local logs are `/tmp/winga-messaging-{postgres,direct,secure,security,
+browser,operations,rooms}.log` and `/tmp/winga-handoff-{verifiers,dependencies,
+growth,workflow,build}.log`; screenshots are outside the repository in
+`/tmp/winga-messaging-browser-screenshots`. Generated logs/reports/screenshots,
+secrets and recovery files are not staged.
+
+Production blockers remain explicit: the current task's managed environment
+reported no ready secrets/runtime variables and no custom allowed hosts.
+A proxied request to `wingamarket.com` failed CONNECT with HTTP 403, so this
+candidate cannot independently verify the current production commit, Worker
+version, backend cohort or device statuses. Last operator-confirmed rey/wizad
+devices were Pending; no approval bypass or database trust change occurred.
+Phone/PC acceptance remains deferred. Native BEAM and fresh CodeQL acceptance
+must be established by the candidate's four-job CI; the prior exact-tree review
+ledger is preserved and must not be treated as a reviewed binding for this new
+source tree. No independent cryptographic audit or sustained authenticated
+production capacity certification is claimed. Keep Phoenix at one instance.

@@ -41,6 +41,8 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - run: npm run test:conversation-operations
+      - name: Test production readback and bounded public soak gates without production traffic
+        run: npm run test:production-verifiers
       - name: Test growth runtime, share and isolated SQL contracts
         env:
           WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'
