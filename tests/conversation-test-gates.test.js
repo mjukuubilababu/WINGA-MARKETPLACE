@@ -15,13 +15,13 @@ test('PostgreSQL acceptance gate refuses missing, remote or ambiguous targets in
 test('spec release profiles retain direct, E2EE, Room, security and genuine PostgreSQL gates',()=>{
   const scripts=require('../package.json').scripts;
   for(const key of ['test:conversation-direct','test:conversation-e2ee','test:conversation-rooms',
-    'test:conversation-security','test:conversation-postgres','verify:conversation-dependencies'])assert.ok(scripts[key],key);
-  for(const key of ['test:conversation-direct','test:conversation-security']) {
+    'test:conversation-security','test:conversation-operations','test:conversation-postgres','verify:conversation-dependencies'])assert.ok(scripts[key],key);
+  for(const key of ['test:conversation-direct','test:conversation-security','test:conversation-operations']) {
     for(const file of scripts[key].split(' ').filter(value=>value.startsWith('tests/')))assert.ok(fs.existsSync(path.join(root,file)),file);
   }
   const workflow=fs.readFileSync(path.join(root,'.github/workflows/conversation-tests.yml'),'utf8');
   for(const command of ['test:conversation-direct','test:conversation-e2ee','test:conversation-rooms',
-    'test:conversation-security','test:conversation-postgres','test:secure-content-browser',
+    'test:conversation-security','test:conversation-operations','test:conversation-postgres','test:secure-content-browser',
     'test:phoenix-transport','verify:conversation-dependencies'])assert.ok(workflow.includes(command),command);
   assert.ok(workflow.includes('mix test'));
   assert.ok(workflow.includes('github/codeql-action/analyze@v4'));

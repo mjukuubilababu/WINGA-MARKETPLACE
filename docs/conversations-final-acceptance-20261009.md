@@ -5,6 +5,116 @@ are separate from authenticated production load, physical-device acceptance and
 external cryptographic approval. The operator confirmed production accounts
 `rey` and `wizad` remain Pending; their approvals are not bypassed or changed.
 
+## Latest Verified Checkpoint
+
+The chronological checkpoints below describe earlier candidates; this section
+records the verified final release and supersedes their pending CI/deploy status.
+It does not supersede the remaining external acceptance gates.
+
+Release `2da2d93f74d0cf93c9eac4f054e17e3808cb54d3` is pushed to `master`.
+[Regular acceptance run 37869633494](https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/37869633494)
+actually executes and passes all four jobs: static-analysis (113624489521),
+dependencies (113624489708), functional (113624489724), and beam (113624489866).
+The functional job includes real PostgreSQL and browser execution; BEAM includes
+native transport acceptance. The independently reviewed ledger accepts exactly
+50 findings for tree
+`7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43`;
+unreviewed findings and changed runtime fingerprints still block acceptance.
+This ledger is not an external cryptographic audit.
+
+Backend public health returns HTTP 200 and identifies the exact release above.
+Frontend build `20261008220542` is published with Cloudflare version
+`1fe25437-4de3-47a5-ae80-e2613c279fd4`; production smoke checks pass 8/8.
+Public deployed module bundle, Phoenix browser transport, and Rooms UI bytes
+match their prepared local files after CRLF/LF normalization. Phoenix public
+health returns HTTP 200 but exposes no commit SHA; exact Phoenix deployment
+identity remains independently unverified.
+
+The final-release read-only public soak completes in 312148 ms: 87 GETs
+(75 soak and 12 paced load samples), zero failures, all HTTP 200, maximum
+concurrency two. Backend commit and frontend build remain stable. Per-service
+p95 latency is backend 4424 ms, frontend 3325 ms, Phoenix 3039 ms; these are
+client-observed public-request timings, not isolated server processing times or
+certified messaging SLOs. No application writes, authenticated encrypted-message
+flow, encrypted Room flow, or production capacity are proven by this soak.
+
+A fresh disposable localhost PostgreSQL run on this release passes 93/93 tests
+with zero failures, cancellations or skips. Its cluster is stopped afterward;
+production accounts, approvals, credentials and data are untouched. Bounded
+concurrency results include:
+
+- Direct encrypted pair: six connections, two stores, 64 unique messages,
+  74 attempts, 64 recipient decryptions, zero duplicate rows; terminated test
+  connection recovery succeeds. Store-attempt p95 is 337 ms.
+- Encrypted history pages: 64 unique pages, 384 accepted write attempts and
+  one published root revision across two stores. Store-write p95 is 97 ms.
+- Own-native archive: 64 unique pages, 256 write attempts, 12 publication and
+  12 acceptance attempts. Store-write p95 is 170 ms.
+- Shopping Room: three owners, six connections, two stores, 48 unique messages,
+  96 send attempts, 96 decryptions, 192 receipt rows and ACKs, zero duplicate
+  rows, and three converged boards. Store-attempt p95 is 189 ms.
+
+The same suite passes approval/admission, revoke/leave boundaries, admin handoff,
+media authorization/cleanup races, retry idempotency and history integrity cases.
+These bounded synthetic results do not certify production throughput, physical
+devices or external cryptographic approval. No runtime change or repeat deploy
+is required by this documentation update.
+
+## Local Telemetry Follow-Up: Not Deployed
+
+Code inspection confirms that process pool gauges, Phoenix connection/queue and
+BEAM memory/scheduler gauges, durable ciphertext delivery/read observations,
+verified native sync delays and client-reported offline/reconnect/resume outcomes
+already exist. The earlier spec index overstated these as unimplemented.
+
+The remaining projection defect discarded existing `native_confirmed` and
+`native_unknown` Phoenix counters. The local fix preserves these fixed outcomes
+and supported operation modes, clarifies the legacy-only security-mode scope,
+rejects duplicate/invalid count observations and impossible gauges, and keeps
+unknown values as null. Zero samples cannot fabricate an average duration.
+No new metrics publisher, migration, native protocol or feature flag is added.
+Reconnect/resume observations remain client-reported; node joins are not used to
+invent per-device reconnect rates, human-message counts or delivery guarantees.
+
+The operations profile passes 64/64 with no skips or failures, including actual
+localhost HTTP partial-response cancellation after the existing deadline.
+Independent review then finds and resolves a test-only cleanup defect: if the
+fetch deadline regressed, the stalled fixture could keep the test process open.
+Cleanup now also responds to test cancellation and an independent watchdog.
+The final focused profile passes 8/8; the reviewer independently removes the
+fetch signal in memory and observes expected failure with natural process exit
+after approximately 10.25 seconds, rather than forced termination. The reviewer
+reports no remaining actionable findings in the scoped reader/test diff.
+This changed reader and its tests are not deployed and are not certified by the
+Live release's previous CI or CodeQL tree binding. Independent scoped review and
+fresh candidate CI/ledger verification remain necessary before promotion; the
+existing review ledger is not silently rebound. Production devices, capacity,
+external cryptographic approval and retention policy remain separate gates.
+
+## Next Acceptance Session
+
+Use approved devices only; the last operator-confirmed account status is still
+Pending, and must be rechecked rather than assumed Active. Never self-approve a
+pending identity or weaken a membership guard to obtain a successful test.
+
+1. Confirm `rey` and `wizad` have Active devices through the existing authorized
+   approval or recovery flow. Passwords, operations tokens and recovery keys
+   stay inside their intended application or service, not this report or chat.
+2. With explicit operator consent, exercise direct messages and one Shopping
+   Room using real devices. Verify exact retries, offline return, receipts,
+   encrypted image/file delivery and history sync without plaintext fallback.
+3. Exercise user-held-key recovery and verified replacement on a fresh device;
+   check the documented historical-media access policy rather than assuming a
+   recovery key grants live membership or access to every old attachment.
+4. Agree production traffic bounds and measurable SLOs before a sustained load
+   run. Keep Phoenix at the agreed one instance; no paid fleet expansion or
+   deliberate production node termination is implied by local load acceptance.
+5. Obtain independent external cryptographic/security review. Local agents,
+   CodeQL, successful flags and synthetic tests cannot mark this gate approved.
+
+Sections 228-229 and 237-238 remain externally unaccepted until the applicable
+device, production capacity/SLO and independent review gates have evidence.
+
 ## Room Order References
 
 The encrypted Room protocol now accepts an ID-only `order-reference`. Projection

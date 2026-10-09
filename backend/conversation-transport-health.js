@@ -13,13 +13,26 @@ async function readConversationTransportHealth({env=process.env,fetchImpl=fetch}
     finally {await reader.cancel().catch(()=>{});}
     const data=JSON.parse(Buffer.concat(parts).toString('utf8'));
     if(data.ok!==true||data.privacy!=='aggregate-only'||data.scope!==unavailable.scope)return unavailable;
-    const number=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0?value:null;
-    const allowed=['send_accepted','send_unknown','poll_success','poll_failed','ack_success','ack_failed','protocol_error'];
+    const number=(value,max)=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=max?value:null;
+    const count=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+    const allowed=['send_accepted','send_unknown','poll_success','poll_failed','ack_success','ack_failed','protocol_error',
+      'native_confirmed','native_unknown'];
+    const counters=[];
+    const rows=Array.isArray(data.counters)?data.counters:[];
+    for(const event of allowed) {
+      const matches=rows.filter(row=>row&&typeof row==='object'&&!Array.isArray(row)&&row.event===event);
+      // An ambiguous or invalid observation must not become a fabricated healthy zero.
+      if(matches.length!==1||count(matches[0].count)===null)continue;
+      counters.push({event,count:matches[0].count,
+        averageDurationMs:matches[0].count>0?number(matches[0].averageDurationMs,300000):null});
+    }
+    const modes=Array.isArray(data.supportedOperationModes)?data.supportedOperationModes:[];
     return {available:true,scope:unavailable.scope,securityMode:'legacy-plaintext-transport',
-      connections:data.connectionGaugeComplete===true?number(data.connections):null,queuedMessages:number(data.queuedMessages),
-      beamMemoryBytes:number(data.beamMemoryBytes),schedulerUtilization:number(data.schedulerUtilization),
-      counters:Array.isArray(data.counters)?data.counters.filter(row=>allowed.includes(row.event)).slice(0,allowed.length)
-        .map(row=>({event:row.event,count:number(row.count),averageDurationMs:number(row.averageDurationMs)})):[],
+      securityModeScope:'legacy-message-command-only',
+      supportedOperationModes:['legacy-message','signed-native-operation'].filter(mode=>modes.includes(mode)),
+      connections:data.connectionGaugeComplete===true?count(data.connections):null,queuedMessages:count(data.queuedMessages),
+      beamMemoryBytes:count(data.beamMemoryBytes),schedulerUtilization:number(data.schedulerUtilization,1),
+      counters,
       reconnectRate:null,resumeSuccessRate:null,duplicateSuppression:null};
   }catch{return unavailable;}
 }

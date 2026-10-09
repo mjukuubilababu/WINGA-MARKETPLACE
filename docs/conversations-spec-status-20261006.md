@@ -5,25 +5,28 @@ This is the current grouped implementation index for the preserved 0-109 and
 or a replacement for the source specification. Historical audit/handoff files
 describe their dated checkpoints, not necessarily the current enabled runtime.
 
-## Current Candidate Checkpoint: 2026-10-09
+## Current Release and Local Follow-Up: 2026-10-09
 
 The [final acceptance record](conversations-final-acceptance-20261009.md) is the
-current candidate index. Room order references use canonical order IDs only;
-they do not create group orders, wallets or payment authority. Genuine signed
-encrypted native operations now pass between two BEAM nodes, including exact
-ciphertext recovery after node loss: QA run `37851516983` at `e2b853f` passed
-the functional, dependency and BEAM jobs, with all nine native acceptance tests
-passing and no skips. This is isolated acceptance, not production capacity.
+current evidence index. Release `2da2d93` passes all four regular acceptance
+jobs in run `37869633494`, including the independently reviewed exact CodeQL
+ledger, PostgreSQL/browser execution and genuine native BEAM transport tests.
+The backend identifies this Live commit and frontend build `20261008220542`
+is deployed. Public soak passes 87 requests with zero failures; a fresh local
+PostgreSQL concurrency/load run passes 93/93 without skips. These results are
+not authenticated production capacity or external cryptographic approval.
+Room order references remain canonical IDs, not group orders or wallet authority.
 
-Actual CodeQL analysis/upload succeeded but its fail-closed gate rejected 46
-unreviewed findings. Independent review is fixing real defects before recording
-narrow false-positive approvals bound to the complete tracked tree and exact
-finding flows. The candidate is published only to the QA branch, not deployed.
+The new local telemetry follow-up preserves the existing Phoenix native counters
+in the backend health projection and rejects invalid or ambiguous observations.
+It is not yet deployed. The Live release's passing CI/ledger does not certify
+this changed source tree; fresh candidate CI and applicable review are required
+before promotion. The review ledger is not automatically rebound.
 Designated production devices remain Pending; authenticated production load,
 physical-device media/recovery/replacement and independent cryptographic
 approval remain open. Sections 228, 229, 237 and 238 are not production accepted.
 
-## Last Verified Production Checkpoint: 2026-10-08
+## Earlier Production Checkpoint: 2026-10-08
 
 Release `6e3277edd57229f751c5fe3609d95db8741405ae` is verified ready on Render;
 frontend build `20261008193054` is deployed and public production smoke checks
@@ -204,7 +207,7 @@ Do not erase this distinction by calling the entire foundation complete.
 | 190-192 | Optional services do not receive private plaintext or control commerce. | Optional intelligence/privacy/provenance design and independently tested failure isolation. |
 | 193-201 | Four languages/RTL, bounded media, responsive/local-first draft and history behavior, scoped reconciliation and existing rollout flags. | Full accessibility/low-bandwidth acceptance and measured conversation-open/performance SLOs. |
 | 202-207 | Existing kill switches, fail-closed no-downgrade guards, legacy separation and versioned startup migrations. | Remaining applicable rollout/retention/security acceptance; encrypted routes disabled must never fall back to plaintext. |
-| 208-209 | Authenticated aggregate Conversations health combines schema/guards, Room invariants, full rollout flags, supported runtime, private bucket, active publishers and dispatch/push/media pressure. Existing administrator-only Operations now shows those aggregate gauges without a browser ops token; a safe scheduled monitor is included. | Complete dedicated telemetry still needs Phoenix connection/reconnect/resume, BEAM memory/scheduler, database-pool and protocol/media failure gauges plus true recipient delivery/read, offline retry and multi-device sync-delay measurements. Operational ready is not full product/crypto acceptance. |
+| 208-209 | Authenticated aggregate health combines schema/guards, Room invariants, rollout flags, private storage and dispatch/push/media pressure. Implemented observations include process-scoped pool counts; Phoenix connection/queue/BEAM-memory/scheduler gauges; fixed protocol/media outcomes; durable ciphertext delivery/read receipts; own-native sync-ACK delays; client-reported offline, reconnect and resume outcomes. Administrator-only Operations displays these without exposing an ops token. The local follow-up restores native Phoenix outcome counters and validates bounds/duplicates before projection. | The native projection follow-up still needs release CI/deploy acceptance. Phoenix gauges are node-local, client reports are sampled, and receipt observations count ciphertext records rather than human messages or every recipient. Sustained production measurement, SLO/capacity/failure acceptance and external crypto approval remain open; operational ready does not certify them. |
 | 210-221 | Existing tested message-ID, canonical ordering, auth, ciphertext/device and canonical commerce boundaries. | Fleet/failure/performance evidence and future room invariants are not proven by direct fixtures. |
 | 222-226 | Direct, crypto, store/browser suites and native room crypto/projection/concurrent-sender tests with recorded scope. Real PostgreSQL Room service coverage passed 21/21; final six-connection/two-store race/load cases passed 4/4, including three converged encrypted boards. Synthetic accounts/storage stay separate from production. | Production HTTP/fleet failure races, independent security review and realistic measured production load/soak acceptance. |
 | 227-238 | Source principles and Definition of Done are preserved. | Formal security/product/foundation acceptance and final handoff remain open. These are acceptance criteria, not 12 additional UI features. |
