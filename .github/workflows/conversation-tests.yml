@@ -118,6 +118,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -134,6 +135,12 @@ jobs:
         with:
           category: /language:javascript-typescript
           output: ${{ runner.temp }}/conversation-codeql-sarif
+      - name: Compare exact growth review coordinates
+        if: ${{ !cancelled() }}
+        env:
+          CODEQL_ANALYSIS_OUTCOME: ${{ steps.codeql-analysis.outcome }}
+          CODEQL_SARIF_DIRECTORY: ${{ runner.temp }}/conversation-codeql-sarif
+        run: node scripts/inspect-growth-codeql-coordinates.js
       - name: Gate actual CodeQL security findings
         if: ${{ !cancelled() }}
         env:
