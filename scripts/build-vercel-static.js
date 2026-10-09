@@ -666,12 +666,19 @@ function syncWorkerBuildVersionConfig() {
     return;
   }
   const source = fs.readFileSync(wranglerPath, "utf8");
-  const next = /WINGA_BUILD_VERSION\s*=/.test(source)
-    ? source.replace(/WINGA_BUILD_VERSION\s*=\s*"[^"]*"/, `WINGA_BUILD_VERSION = "${assetVersion}"`)
-    : source.replace(
-        /(\[vars\][\s\S]*?ORIGIN_BASE_URL\s*=\s*"[^"]*")/,
-        `$1\nWINGA_BUILD_VERSION = "${assetVersion}"`
-      );
+  // Worker prefers BUILD_VERSION; updating only its alias can advertise an old
+  // dashboard value while serving new assets. Change only this Worker's vars.
+  const next = source.replace(/(^\[vars\][ \t]*\r?\n)([\s\S]*?)(?=^\[|$(?![\s\S]))/m, (_, header, vars) => {
+    for (const name of ["BUILD_VERSION", "WINGA_BUILD_VERSION"]) {
+      const binding = new RegExp(`^${name}[ \\t]*=.*$`, "m");
+      const value = `${name} = "${assetVersion}"`;
+      vars = binding.test(vars) ? vars.replace(binding, () => value) : `${vars.trimEnd()}\n${value}\n\n`;
+    }
+    return header + vars;
+  });
+  if (!/^\[vars\][ \t]*\r?$/m.test(source)) {
+    throw new Error("Worker [vars] section is required for build version synchronization.");
+  }
   if (next !== source) {
     writeTextFileWithRetry(wranglerPath, next, "utf8");
   }
