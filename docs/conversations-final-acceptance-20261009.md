@@ -449,3 +449,43 @@ changed. Promotion to master requires passing candidate verification.
 Until these gates pass, sections 228-229 and 237-238 are not certified as
 PRODUCTION ACCEPTED. Separate coding agents and scanner results are useful
 review evidence, not external cryptographic certification.
+
+## Growth Phase 1 Hardening Candidate
+
+Candidate `989ece4b95963cc4f9794ff133bdbecaaaad20dd` adds server-side
+account cohort controls, truthful user-handoff share counting and bounded,
+optional client-observed deep-link timing. Source and recipient enrollment are
+rechecked before measurement; an excluded parent does not prevent enrolled
+child sharing or acquire a retroactive continuation metric on replay.
+Production growth flags remain unchanged. No private room history, messages,
+credentials, pending-device approvals or CSP settings are changed.
+
+Actual QA run `37905330406` passes functional, dependencies and BEAM jobs.
+Functional evidence includes 28 growth contract tests, 115 real PostgreSQL
+tests without skips, 49 secure-content browser cases and two guest-share/auth
+return browser cases. CodeQL completes with 50 findings, but the old ledger
+correctly fails closed on the new source-tree fingerprint
+`b4407c0325d65e821582b9f3cb3ef220c7921cf7ba4b07fd9bca531a6cef1daa`.
+
+Separate diagnostic run `37915881184`, job `113771811845`, compares all 50
+source/result/closure bindings to the actual candidate scan. It derives line
+mappings from exact baseline/candidate Git blobs, verifies unchanged segments,
+rejects changed/crossing spans and translates only recognized SARIF physical
+line coordinates. All 31 changed result fields hash exactly to the certified
+prior fields after translation. No raw source bodies are printed, and arbitrary
+metadata is retained verbatim. The diagnostic branch is not promoted.
+
+Independent exact rebinding approval and a fresh, regular four-job acceptance
+run remain mandatory. A pending ledger uses an invalid `pendingReviews` schema
+until approval, so it cannot silently approve any finding. No parser, matcher,
+review reason or occurrence cap is relaxed. Real PostgreSQL/browser acceptance
+does not certify a live growth canary, regional SLO, production load capacity
+or any later-phase loop in the separate Growth Loops specification.
+
+Planck independently verifies all 50 pending identities against the actual
+candidate and prior jobs, all 31 changed-field proofs, unchanged closures and
+non-coordinate metadata, the candidate source tree and affected-source
+classifications. All 25 focused diagnostic-helper guard probes pass. Narrow
+ledger activation is approved with reasons, original reviewers and caps of one
+preserved. This approval activates `reviews`; the regular four-job CI and
+deployment identity checks still remain required before promotion.
