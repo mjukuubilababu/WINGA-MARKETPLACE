@@ -113,6 +113,9 @@ jobs:
   static-analysis:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # The exact-tree gate requires every finding, including unchanged files.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'
     permissions:
       contents: read
       security-events: write

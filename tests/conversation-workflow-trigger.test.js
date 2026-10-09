@@ -55,6 +55,7 @@ test('pull requests and manual dispatch run all four jobs regardless of branch',
 
 test('unconditional actual scan gate and trigger regressions remain wired into CI', () => {
   const security = jobs.get('static-analysis');
+  assert.match(security, /^    env:\r?\n(?:      #[^\r\n]*\r?\n)*      CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'\s*$/m);
   assert.doesNotMatch(security, /^    (?:if|needs):/m);
   for (const body of jobs.values()) assert.doesNotMatch(body, /^    needs:/m);
   assert.match(workflow, /^permissions:\r?\n  contents: read\r?\nconcurrency:/m);

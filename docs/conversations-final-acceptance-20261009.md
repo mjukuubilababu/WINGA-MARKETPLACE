@@ -575,3 +575,30 @@ must be established by the candidate's four-job CI; the prior exact-tree review
 ledger is preserved and must not be treated as a reviewed binding for this new
 source tree. No independent cryptographic audit or sustained authenticated
 production capacity certification is claimed. Keep Phoenix at one instance.
+
+
+### Candidate PR scan completeness follow-up
+
+Draft PR #2 candidate `56d5bcaa2cfafff6fa0edb88c8da3ce8e7634e25` started
+four-job run `37959793838`. BEAM job `113919412487` passed, including 15
+native tests with zero failures and the actual Phoenix HTTP/browser transport
+suite; dependencies also passed. The initial static-analysis job
+`113919412352` was rejected by the unchanged gate with
+`CODEQL_SARIF_INCOMPLETE`, field `incremental-mode`. This rejection provides no
+current finding review count and is not security acceptance.
+
+The action's PR default enables diff-informed queries and excludes queries tagged
+`exclude-from-incremental`. The workflow now explicitly sets the supported
+`CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'` for the static-analysis job to
+request a complete scan. The SARIF gate, review ledger, query suite, occurrence
+caps and permissions are unchanged. Fresh gate/trigger regressions passed 116
+cases without skips. A complete candidate scan and exact-tree finding review
+remain required; prior reviewed counts must not be copied into new evidence.
+
+The operator subsequently identified the original reference archive on their
+computer as `C:\Users\user\Desktop\Winga-App\cloud-handoff-growth-20261009-reference.zip`.
+It is not available in this cloud checkout or its attachment directory. No
+`README.txt` or `tracked.patch` from that archive has been read or applied.
+Current differences against operator base `3e291ab2` retain the newer video
+recovery test fix. Archive reconciliation must read its README, check the patch
+with `git apply --check`, and preserve newer source before integrating anything.
