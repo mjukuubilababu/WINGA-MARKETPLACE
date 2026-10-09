@@ -326,14 +326,28 @@ function referencedArtifactClosure(result, description, run, cache) {
   const uriOnlyIdentity = value => object(value) && typeof value.uri === 'string'
     && /^[A-Za-z0-9_.\/-]+$/.test(value.uri) && safeRepositoryPath(value.uri)
     && (!own(value, 'uriBaseId') || value.uriBaseId === '%SRCROOT%');
+  const fileAliasPath = raw => {
+    if (typeof raw !== 'string' || raw.length > 1536 || /%(?:2f|5c)/i.test(raw)) return null;
+    try {
+      const decoded = decodeURIComponent(raw);
+      return !decoded.includes('%') && safeRepositoryPath(decoded) ? decoded.toLowerCase() : null;
+    } catch { return null; }
+  };
   let byUri = cache.byUri;
   if (!byUri) {
     byUri = new Map();
     cache.uriOnlySupported = true;
+    cache.fileAliasesSupported = true;
+    cache.fileAliasPaths = [];
     cache.uriOnlyBases = new Set();
     artifacts.forEach((artifact, i) => {
       work();
       cache.uriOnlySupported &&= uriOnlyIdentity(artifact?.location);
+      const decodedPath = fileAliasPath(artifact?.location?.uri);
+      cache.fileAliasPaths.push(decodedPath);
+      cache.fileAliasesSupported &&= object(artifact?.location) && decodedPath !== null
+        && (!own(artifact.location, 'uriBaseId') || artifact.location.uriBaseId === '%SRCROOT%')
+        && (!own(artifact.location, 'index') || artifact.location.index === i);
       cache.uriOnlyBases.add(artifact?.location?.uriBaseId ?? null);
       if (object(artifact?.location) && text(artifact.location.uri)) {
         const identity = key(artifact.location);
@@ -344,7 +358,7 @@ function referencedArtifactClosure(result, description, run, cache) {
     cache.byUri = byUri;
   }
   const selected = new Set(), active = new Set(), activeBases = new Set(), completedBases = new Set();
-  let unindexedReferences = 0, unmatchedUriReferences = 0;
+  let unindexedReferences = 0, unmatchedUriReferences = 0, absoluteFileReferences = 0, fileAliasMatches = 0;
   const base = name => {
     work();
     // Opaque base identifiers remain bound even when the report supplies no resolution table.
@@ -376,19 +390,40 @@ function referencedArtifactClosure(result, description, run, cache) {
       }
       if (self === undefined) select(value.index);
     } else if (self === undefined) {
-      // Raw URI/base pairs cannot establish alias identity through a supplied base-resolution table.
-      valid(baseDefinition || !own(run, 'originalUriBaseIds'), 'reference.unsupported-alias');
-      if (!baseDefinition) {
-        valid(uriOnlyIdentity(value), 'reference.unsupported-uri');
-        valid(cache.uriOnlySupported && [...cache.uriOnlyBases].every(name => name === (value.uriBaseId ?? null)),
-          'reference.unsupported-table-identity');
+      if (!baseDefinition && value.uri.startsWith('file:')) {
+        valid(!own(run, 'originalUriBaseIds'), 'reference.unsupported-alias');
+        valid(!own(value, 'uriBaseId'), 'reference.unsupported-base');
+        valid(value.uri.startsWith('file:///') && value.uri.length <= 1544
+          && !/%(?:2f|5c)/i.test(value.uri), 'reference.unsupported-uri');
+        const rawPath = value.uri.slice(8), decoded = fileAliasPath(rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath);
+        valid(decoded !== null, 'reference.unsupported-uri');
+        valid(cache.fileAliasesSupported, 'reference.unsupported-table-identity');
+        unindexedReferences++;
+        absoluteFileReferences++;
+        const absolutePath = '/' + decoded;
+        let matches = 0;
+        // The root is unknown: retain every possible segment-suffix alias, including Windows case aliases.
+        artifacts.forEach((artifact, i) => {
+          work();
+          if (absolutePath.endsWith('/' + cache.fileAliasPaths[i])) { matches++; select(i); }
+        });
+        fileAliasMatches += matches;
+        if (!matches) unmatchedUriReferences++;
+      } else {
+        // Raw URI/base pairs cannot establish alias identity through a supplied base-resolution table.
+        valid(baseDefinition || !own(run, 'originalUriBaseIds'), 'reference.unsupported-alias');
+        if (!baseDefinition) {
+          valid(uriOnlyIdentity(value), 'reference.unsupported-uri');
+          valid(cache.uriOnlySupported && [...cache.uriOnlyBases].every(name => name === (value.uriBaseId ?? null)),
+            'reference.unsupported-table-identity');
+        }
+        unindexedReferences++;
+        const matches = byUri.get(key(value)) ?? [];
+        valid(matches.length <= 1, 'reference.ambiguous');
+        valid(baseDefinition || artifacts.length === 0 || matches.length === 1, 'reference.unmatched-uri');
+        if (matches.length) select(matches[0]);
+        else unmatchedUriReferences++; // Complete URI-only references have no implicit table dependency.
       }
-      unindexedReferences++;
-      const matches = byUri.get(key(value)) ?? [];
-      valid(matches.length <= 1, 'reference.ambiguous');
-      valid(baseDefinition || artifacts.length === 0 || matches.length === 1, 'reference.unmatched-uri');
-      if (matches.length) select(matches[0]);
-      else unmatchedUriReferences++; // Complete URI-only references have no implicit table dependency.
     }
     walk(Object.fromEntries(Object.entries(value).filter(([name]) => !['uri', 'uriBaseId', 'index'].includes(name))));
   };
@@ -441,7 +476,7 @@ function referencedArtifactClosure(result, description, run, cache) {
   return { references: { ...references, artifacts: records }, diagnostics: {
     version: 2, eligible: true, sha256: canonicalFingerprint(records), selectedCount: records.length,
     unreferencedCount: artifacts.length - records.length, unindexedReferences, unmatchedUriReferences,
-    workCount, workLimit: LIMITS.nodes } };
+    absoluteFileReferences, fileAliasMatches, workCount, workLimit: LIMITS.nodes } };
 }
 
 function resultFingerprint(result, description, run, closure) {

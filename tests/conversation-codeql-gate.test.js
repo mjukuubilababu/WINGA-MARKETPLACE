@@ -1858,7 +1858,7 @@ test('v2 closure resolves URI-only references uniquely and preserves base depend
   current.artifacts[2].location.uri = 'src/unused.js';
   current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
   current.originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///synthetic/', uriBaseId: 'PARENT' },
-    PARENT: { uri: 'file:///' } };
+    PARENT: { uri: 'file:///synthetic-parent/' } };
   const before = closureFinding(current);
   assert.equal(before.artifactClosure.eligible, true);
   assert.equal(before.artifactClosure.selectedCount, 1);
@@ -1942,14 +1942,14 @@ test('v2 closure bounds graph depth and emits only safe hashes and fixed closure
 
 test('v2 closure memoizes completed bases in an acyclic branching diamond without exponential work', () => {
   const current = closureRun();
-  const bases = { B0: { uri: 'file:///synthetic/root/' } };
+  const bases = { B0: { uri: 'synthetic/root/' } };
   for (let i = 1; i < 15; i++) {
     const index = current.artifacts.length;
     current.artifacts.push({ location: { uri: `src/branch-${i}.js`, uriBaseId: `B${i - 1}`, index } });
-    bases[`B${i}`] = { uri: `file:///synthetic/${i}/`, uriBaseId: `B${i - 1}`,
+    bases[`B${i}`] = { uri: `synthetic/${i}/`, uriBaseId: `B${i - 1}`,
       properties: { artifactLocation: { index } } };
   }
-  bases['%SRCROOT%'] = { uri: 'file:///synthetic/source/', uriBaseId: 'B14' };
+  bases['%SRCROOT%'] = { uri: 'synthetic/source/', uriBaseId: 'B14' };
   current.originalUriBaseIds = bases;
   const before = closureFinding(current);
   assert.equal(before.artifactClosure.eligible, true);
@@ -2029,7 +2029,7 @@ test('v2 closure rejects URI-base aliases rather than omitting a semantically ma
 test('v2 closure rejects URI-only dot percent URL and unresolved identities through a closed supported subset', () => {
   for (const uri of ['src/./caller.js', 'src/nested/../caller.js', 'src/%63aller.js', 'src/caller%2Ejs',
     'https://EXAMPLE.invalid:443/src/caller.js', 'https://example.invalid/src/caller.js',
-    'file:///synthetic/src/caller.js', 'src/caller.js?query=1', 'src/caller.js#fragment',
+    'src/caller.js?query=1', 'src/caller.js#fragment',
     'src/caller name.js', 'src/[caller].js']) {
     const current = closureRun();
     current.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: {
@@ -2097,4 +2097,120 @@ test('tool location diagnostics bound array and URI scans without removing full 
   assert.equal(Object.values(large.fingerprintDiagnostics.toolLocations.schemes).reduce((a, b) => a + b), 0);
   current.tool.driver.locations[0].uri += 'changed';
   assert.notEqual(large.resultFingerprint, closureFinding(current).resultFingerprint);
+});
+
+test('v2 canonical file references bind all full short duplicate and case-folded segment suffix aliases', () => {
+  const current = closureRun();
+  current.artifacts[2].location.uri = 'caller.js';
+  for (const uri of ['a/src/caller.js', 'src/caller.js', 'SRC/Caller.JS', 'rc/caller.js', 'scaller.js', 'src/caller.js.extra']) {
+    const index = current.artifacts.length;
+    current.artifacts.push({ location: { uri, uriBaseId: '%SRCROOT%', index }, hashes: { 'sha-256': '0'.repeat(64) } });
+  }
+  current.tool.driver.locations = [{ uri: 'file:///root/a/src/caller.js' }];
+  const before = closureFinding(current);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.absoluteFileReferences, 1);
+  assert.equal(before.artifactClosure.fileAliasMatches, 5);
+  assert.equal(before.artifactClosure.selectedCount, 6);
+  for (const index of [1, 2, 3, 4, 5]) {
+    const changed = structuredClone(current);
+    changed.artifacts[index].hashes = { 'sha-256': '1'.repeat(64) };
+    assert.notEqual(before.resultFingerprint, closureFinding(changed).resultFingerprint);
+  }
+  for (const index of [6, 7, 8]) {
+    const changed = structuredClone(current);
+    changed.artifacts[index].hashes = { 'sha-256': '1'.repeat(64) };
+    assert.equal(before.resultFingerprint, closureFinding(changed).resultFingerprint);
+  }
+  const reversedFlow = structuredClone(current);
+  reversedFlow.results[0].codeFlows = [flowReference(1)];
+  assert.notEqual(before.resultFingerprint, closureFinding(reversedFlow).resultFingerprint);
+  const rawTool = structuredClone(current);
+  rawTool.tool.driver.locations[0].description = { text: 'Changed raw reference metadata' };
+  assert.notEqual(before.resultFingerprint, closureFinding(rawTool).resultFingerprint);
+});
+
+test('v2 canonical file references bind once-decoded spaces brackets and percent-letter aliases without rewriting raw values', () => {
+  for (const [reference, table] of [['src/caller.js', 'src/%63aller.js'],
+    ['src/a%20b.js', 'src/a b.js'], ['api/%5Bid%5D.js', 'api/[id].js'], ['api/[id].js', 'api/%5Bid%5D.js']]) {
+    const current = closureRun();
+    current.artifacts[1].location.uri = table;
+    current.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: {
+      physicalLocation: { artifactLocation: { uri: 'file:///synthetic/' + reference } }
+    } }] }] }];
+    const raw = JSON.stringify(current);
+    const before = closureFinding(current);
+    assert.equal(before.artifactClosure.eligible, true);
+    assert.equal(before.artifactClosure.selectedCount, 2);
+    assert.equal(before.artifactClosure.fileAliasMatches, 1);
+    assert.equal(JSON.stringify(current), raw);
+    current.artifacts[1].hashes = { 'sha-256': '1'.repeat(64) };
+    assert.notEqual(before.resultFingerprint, closureFinding(current).resultFingerprint);
+  }
+});
+
+test('v2 canonical file references permit no-match metadata only after validating every table identity', () => {
+  const current = closureRun();
+  current.tool.driver.locations = [{ uri: 'file:///opt/qlpacks/synthetic-pack/' }];
+  const before = closureFinding(current);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.fileAliasMatches, 0);
+  assert.equal(before.artifactClosure.selectedCount, 1);
+  current.artifacts[1].properties.changedUnused = true;
+  assert.equal(before.resultFingerprint, closureFinding(current).resultFingerprint);
+  for (const change of [
+    candidate => { candidate.artifacts[1].location.uri = 'src/caller%252Ejs'; },
+    candidate => { candidate.artifacts[1].location.uri = 'src/a%2fcaller.js'; },
+    candidate => { candidate.artifacts[1].location.uri = 'src/a%5ccaller.js'; },
+    candidate => { candidate.artifacts[1].location.uri = 'src/./caller.js'; },
+    candidate => { candidate.artifacts[1].location.uri = 'https://synthetic.invalid/caller.js'; },
+    candidate => { candidate.artifacts[1].location.uriBaseId = 'UNKNOWN'; },
+    candidate => { candidate.artifacts[1].location.index = 2; },
+    candidate => { candidate.artifacts[1] = {}; }
+  ]) {
+    const candidate = structuredClone(current);
+    change(candidate);
+    assert.deepEqual(closureFinding(candidate).artifactClosure,
+      { version: 2, eligible: false, failure: 'reference.unsupported-table-identity' });
+  }
+});
+
+test('v2 canonical file references reject hosted drive encoded separators residual escapes controls and dot segments', () => {
+  for (const uri of ['file://host/synthetic/src/caller.js', 'file:////server/src/caller.js',
+    'file:///C:/synthetic/src/caller.js', 'file:///src/%2fcaller.js', 'file:///src/%5Ccaller.js',
+    'file:///src/%252fcaller.js', 'file:///src/%00caller.js', 'file:///src/%0Acaller.js',
+    'file:///src/./caller.js', 'file:///src/%2e/caller.js', 'file:///src/../caller.js',
+    'file:///src/caller.js?query=1', 'file:///src/caller.js#fragment', 'file:///src/%ZZcaller.js',
+    'file:///src/%E2%98%83.js', 'http://synthetic.invalid/src/caller.js', 'unknown:src/caller.js']) {
+    const current = closureRun();
+    current.tool.driver.locations = [{ uri }];
+    assert.deepEqual(closureFinding(current).artifactClosure,
+      { version: 2, eligible: false, failure: 'reference.unsupported-uri' });
+  }
+  const unsupportedBase = closureRun();
+  unsupportedBase.tool.driver.locations = [{ uri: 'file:///src/caller.js', uriBaseId: '%SRCROOT%' }];
+  assert.equal(closureFinding(unsupportedBase).artifactClosure.failure, 'reference.unsupported-base');
+});
+
+test('v2 canonical file compatibility rejects every supplied base table and preserves existing indexed behavior', () => {
+  for (const bases of [
+    { '%SRCROOT%': { uri: 'file:///synthetic' } },
+    { '%SRCROOT%': { uri: 'file:///synthetic/', uriBaseId: 'OTHER' }, OTHER: { uri: 'file:///other/' } },
+    { '%SRCROOT%': { uri: 'file:///synthetic/' } }
+  ]) {
+    const current = closureRun();
+    current.originalUriBaseIds = bases;
+    const indexed = closureFinding(current);
+    assert.equal(indexed.artifactClosure.eligible, true);
+    assert.equal(indexed.artifactClosure.selectedCount, 1);
+    current.tool.driver.locations = [{ uri: 'file:///synthetic/src/caller.js' }];
+    assert.deepEqual(closureFinding(current).artifactClosure,
+      { version: 2, eligible: false, failure: 'reference.unsupported-alias' });
+    current.tool.driver.locations = [{ index: 1 }];
+    const before = closureFinding(current);
+    assert.equal(before.artifactClosure.eligible, true);
+    assert.equal(before.artifactClosure.selectedCount, 2);
+    current.artifacts[1].hashes = { 'sha-256': '1'.repeat(64) };
+    assert.notEqual(before.resultFingerprint, closureFinding(current).resultFingerprint);
+  }
 });

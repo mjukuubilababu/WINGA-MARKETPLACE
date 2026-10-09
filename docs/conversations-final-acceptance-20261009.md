@@ -252,6 +252,30 @@ symlink privilege skips. These fixes do not prove actual scanner compatibility
 or stability. Paired actual scans and independent final review remain required
 before a fresh ledger can be approved; the existing ledger remains stale.
 
+Actual v2 diagnostic candidate `9aeac3157dfc109e64234dfcda9058fec473e29c`
+(run `37866851735`, static job `113615504780`) passes the Linux gate regressions
+and completes CodeQL analysis. Its tree matches the local hash
+`d6e1ad2bd2794ebcada5d67285de31ea90e0f514d90e06925c0e69816196d66a`.
+All 50 findings remain blocked: the tool component has two absolute `file` URIs
+without base IDs, indices, percent escapes or dot segments; the closed subset
+rejects them as `reference.unsupported-uri`. This is compatibility evidence,
+not stability or review acceptance. No ledger is rebound and no production
+deployment is initiated. A sound resolver extension must retain raw tool fields
+and every potentially matching artifact dependency, or remain ineligible.
+
+The reviewed narrow compatibility extension accepts checked local absolute
+file URI shapes without a supplied base table. It decodes once, rejects encoded
+separators, residual escapes, dot segments, unsupported bases and identities,
+and validates every candidate table identity. Since the source root is unknown,
+it conservatively includes all complete segment-suffix matches, including case
+aliases; it never assumes tool paths are external. Raw tool URIs, complete
+selected records and original indices remain in the fingerprint. Supplied base
+tables are rejected before this branch; indexed behavior remains unchanged.
+Godel independently passes 17/17 focused tests and signs off the scoped source;
+Darwin passes 31/31 focused regressions. Neither review approves a new ledger.
+The three changed-test-file alert sites at lines 981, 1021 and 1369 are separately
+reconfirmed as isolated negative fixtures by Godel, with 3/3 focused tests.
+
 A bounded read-only production soak completes in 312111 ms: 99 public GETs,
 zero failures, HTTP 200 for all three services, maximum concurrency two.
 Backend identity remains `6e3277edd57229f751c5fe3609d95db8741405ae`;
