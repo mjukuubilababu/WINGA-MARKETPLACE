@@ -1,7 +1,7 @@
 {
   "version": 1,
   "digestAlgorithm": "sha256-lf",
-  "sourceTreeSha256": "7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43",
+  "sourceTreeSha256": "77bfe5a0d57951fed64ff02f0a3ad93171378582bcdea84b712c9323b806ca55",
   "reviews": [
     {
       "ruleId": "js/request-forgery",

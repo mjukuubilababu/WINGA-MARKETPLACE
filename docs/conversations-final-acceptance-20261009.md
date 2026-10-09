@@ -91,6 +91,24 @@ fresh candidate CI/ledger verification remain necessary before promotion; the
 existing review ledger is not silently rebound. Production devices, capacity,
 external cryptographic approval and retention policy remain separate gates.
 
+Telemetry QA commit `96de6b7f752aa5dace5e1b2bfa8c53d4d166f4f7`, regular run
+`37882832707`, adds the operations suite to the functional job and requires its
+presence in the release-profile regression. Actual static job `113666168564`
+completes CodeQL analysis and emits exactly 50 eligible findings; its gate fails
+only because the prior release tree binding is stale. Linux and local candidate
+tree both equal
+`77bfe5a0d57951fed64ff02f0a3ad93171378582bcdea84b712c9323b806ca55`.
+
+Godel independently fetches that fresh job and certified prior-release job
+`113624489521`. All 50 unique bindings retain identical result fingerprints,
+referenced-record hashes, source hashes and complete raw result/rule/tool hashes;
+every existing ledger entry matches with multiplicity one. Godel approves only
+the exact new tree binding after scoped patch review. All 50 reviews, reasons,
+fingerprints and occurrence caps remain unchanged; no new or changed finding is
+approved. The manifest's sole changed field is `sourceTreeSha256`. The final
+regular candidate must still execute and pass all four CI jobs before promotion.
+This binding approval is not deployment, crypto or capacity acceptance.
+
 ## Next Acceptance Session
 
 Use approved devices only; the last operator-confirmed account status is still
