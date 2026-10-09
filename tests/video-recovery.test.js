@@ -4,9 +4,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { createRequire } = require("node:module");
 const { Readable } = require("node:stream");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "backend", "server.js"), "utf8");
+const serverPath = path.join(__dirname, "..", "backend", "server.js");
+const source = fs.readFileSync(serverPath, "utf8");
+const serverRequire = createRequire(serverPath);
 
 function harness(options = {}) {
   const start = source.indexOf("const server = http.createServer(async (req, res) => {");
@@ -30,6 +33,7 @@ function harness(options = {}) {
     }
   };
   const context = vm.createContext({
+    require: serverRequire,
     URL, Buffer, MAX_REQUEST_BODY_BYTES: 1024,
     http: { createServer: handler => handler },
     createRequestId: () => "test-request-" + (++ids),

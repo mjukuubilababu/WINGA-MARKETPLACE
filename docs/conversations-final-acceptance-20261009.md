@@ -554,3 +554,13 @@ ready production secrets/custom allowed hosts; no production identity/cohort
 readback is claimed. Real rey/wizad device approval, authenticated canary/media/
 recovery, sustained production load and independent crypto audit remain separate
 external gates. Phoenix stays at one instance. No agents were used.
+
+
+### Preserve the newer master harness in the acceptance candidate
+
+The identical `31491983` video-recovery test fix was applied after a successful
+`git apply --check`, with no merge/rebase or other master changes. This makes the
+candidate source retain the newer harness during PR acceptance as well as future
+integration. The targeted six tests passed with no skips. The original handoff's
+runtime implementation and historical evidence are unchanged. Full CI must bind
+to this resulting candidate source, not just the older e2a0cc8 tree.
