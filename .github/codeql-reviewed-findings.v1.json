@@ -8,550 +8,550 @@
       "path": "tmp-bootstrap-integrity-check.mjs",
       "startLine": 37,
       "sourceSha256": "5ce717fdc147306f9f4276cdb8932a79ea704cdc3f2bec09c141eeb561795775",
-      "resultFingerprint": "cff7189c921c0a55d2e40367925130b106b867e3e6d997521742f5eeaf737bfc",
+      "resultFingerprint": "23a742379273178d99f139f9dd51a777a64f12f1eb930732587b3b058fd46196",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The proxy constructs a fixed loopback origin from only the incoming pathname/search and fetch uses redirect:error. Request-controlled absolute authorities and upstream redirects cannot change the target host. This applies only to the local synthetic test proxy.",
-      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/request-forgery",
       "path": "tmp-image-viewport-check.mjs",
       "startLine": 36,
       "sourceSha256": "9587b71cf8bd88dc216af15221b78bd16b8215d563e4accdfe15858adc3d1e84",
-      "resultFingerprint": "b3cfa5a4185777d8aaf4303d4e060c826cf4cdf804ea1b7fa8ac3a9eef70cea2",
+      "resultFingerprint": "235edc85201eabe51a00642b00bff605c9e222cb21d8f9a3627a0fcd6a540325",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Fixed loopback origin and redirect:error constrain this synthetic screenshot proxy. A request pathname cannot supply another authority or follow an external redirect.",
-      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/loopback-proxy-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "app.js",
       "startLine": 2543,
       "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "3532e6fe5437505daabdb4d1777d1e988803272d5274a496be0b64415227d705",
+      "resultFingerprint": "0cc7c389e9db7ab58467d5b304ba6717c3093ae5f6a4a1ba30fe2dd739dc752a",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "A local file-preview blob URL is assigned only to the fixed image element src attribute. Filenames are not inserted as HTML, and this sink does not navigate an executable document.",
-      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "src/chat/voice-ui.js",
       "startLine": 42,
       "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
-      "resultFingerprint": "485ca92a5a1e205b59c41371b278148cf6139afbc47665648c73508d14344ded",
+      "resultFingerprint": "00c92826fbf779ae3fa22ca54aee691e639e5e1f2deda6a26a442329e37bcd7a",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The blob source is restricted to an audio/video or accepted bitmap element after MIME/magic-byte checks. No HTML/SVG document target is created; names use textContent or alt.",
-      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "src/chat/voice-ui.js",
       "startLine": 45,
       "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
-      "resultFingerprint": "f55b3b9c74d878b20223c4a07e76c2548bec8402dbe3c3eb416b89f18fe2e8ba",
+      "resultFingerprint": "87dc817d29f45f6969b12f3b05c66e57ceb2bea2e8eb6d5e45da85c434bc8857",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The blob source is restricted to an audio/video or accepted bitmap element after MIME/magic-byte checks. No executable document sink is used, and filenames are not rendered as HTML.",
-      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "src/chat/voice-ui.js and encrypted media source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "winga-modules.js",
       "startLine": 21305,
       "sourceSha256": "af27f02a736dfe7ec0a2167b22f8576ffba47e8751299645a0d2ffbaf65ce8d2",
-      "resultFingerprint": "6ce1d6d8b5e104d080d3e41bc891d971c1ae0288b53afe12071ef0ca0e5f4b69",
+      "resultFingerprint": "e55e7caa43132dcd4837a16316e3476b93bcbe4764993d40c03e69f6fe866586",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed src/chat/voice-ui.js constrained blob-to-media sink. Source modules and bundle synchronization are verified; there is no blanket generated-file exemption.",
-      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/xss-through-dom",
       "path": "winga-modules.js",
       "startLine": 21308,
       "sourceSha256": "af27f02a736dfe7ec0a2167b22f8576ffba47e8751299645a0d2ffbaf65ce8d2",
-      "resultFingerprint": "24f52b8bba8421f9c19b8a83e0efd7232db1550419380e796a65b132ec1acf2e",
+      "resultFingerprint": "d20ba35f63ff42c2b5fe44da7e1cf1cb8a502a1c6b2a832bcc19825a9b7a407e",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed src/chat/voice-ui.js constrained blob-to-media sink, with accepted media types and text-only names.",
-      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "npm run verify:module-sync; src/chat/voice-ui.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/bad-tag-filter",
       "path": "tests/message-receipts.test.js",
       "startLine": 236,
       "sourceSha256": "c83c2f4dae7670cd78edf425e88ace5c1c23e4eff3fbfa6ba51ca75cdc9a47a5",
-      "resultFingerprint": "17da541f9df11becfd22c1670cd7e4974673e50d3a31bf1c8fd14389ce99147b",
+      "resultFingerprint": "6c7af2d7602d126e0c2eabde79d73614f8385a3dc507ee19c15728122b566e5b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This regex is a negative test assertion against fixture markup, not a production HTML sanitization function or authority boundary.",
-      "evidence": "tests/message-receipts.test.js negative assertion source; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/message-receipts.test.js negative assertion source; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 5073,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "793ec3f276b857fafb8923de6ab7f19f264dd678f8b8cd56fc742eb0c58a330d",
+      "resultFingerprint": "c833002a51ecef6418cd3673071dae74fa60cf5ada81c32e527b2b94bc8d6b78",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not used to sanitize user-controlled content.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 5268,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "a7f4f94454ab29f0e33880bdf3a5fceec296cb2f3887dd7d4f0a73dd0202178e",
+      "resultFingerprint": "6f68e84dfb6f3b448c02bd8f823b49bba9648a08377ed3dae6845603f51b5726",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not a user-input sanitizer.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/insecure-randomness",
       "path": "src/marketplace/video-playback.js",
       "startLine": 329,
       "sourceSha256": "2c2e186d9a9d9dbe44a1e4deeab2c16a4d83458d70faac9d42b051e3e966c436",
-      "resultFingerprint": "91871e449c268db8018ac3070fcb3ca86e28f03567e035d6cb28c0dc684615a4",
+      "resultFingerprint": "5b5a9296bebb53b59325f092e17c256cb79c4d60c851c2bbae1b9ffc925de20d",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Math.random is the fallback for a playback analytics correlation identifier, not a credential, signature, authorization token or trusted device identity. Server authorization derives identity from the authenticated session.",
-      "evidence": "src/marketplace/video-playback.js analytics source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "src/marketplace/video-playback.js analytics source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/insecure-randomness",
       "path": "winga-modules.js",
       "startLine": 13093,
       "sourceSha256": "af27f02a736dfe7ec0a2167b22f8576ffba47e8751299645a0d2ffbaf65ce8d2",
-      "resultFingerprint": "4c894f166a33aced63fce3e1ad8041e7e80fd0447c7e3b2f0e8c7b51d2b083bf",
+      "resultFingerprint": "1f251098eef617951be4f0fa55c7401e5bf17d87d3592ee4e4ee0f25d0adb392",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed analytics-only correlation identifier fallback. It is not an authorization or secrecy boundary.",
-      "evidence": "npm run verify:module-sync; src/marketplace/video-playback.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "npm run verify:module-sync; src/marketplace/video-playback.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/incomplete-url-substring-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 3270,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "eb4f718c0a656a789f079cccef3a55c6132007d674ba07d1af9003037e427c68",
+      "resultFingerprint": "77b80628fcda631b0153e256d8998e4e91a6ccd75a24c111337b2dc9c33bf97d",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This is a positive assertion of a static CSP source string, not production URL validation; authorization does not depend on substring matching here.",
-      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/backup-legacy-private-media.js",
       "startLine": 122,
       "sourceSha256": "79ea79700b4af5c590cc447e06dfddd08d6ddf7945ef654d6492007a2c4ed9cc",
-      "resultFingerprint": "380b37e9ed879aabf735ee3985f686c6df64927a850188e4c64647d8f5e42a61",
+      "resultFingerprint": "fa85a48f201b0da1c5967519f295ff63945721c1c811e3d3d2ace985254ace8b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The bounded descriptor read rejects pathname substitution through lstat/open inode/device checks, O_NOFOLLOW and post-read identity checks. The private backup retains bytes privately. This is not a universal in-place immutability guarantee; the directory and initial snapshot are trusted.",
-      "evidence": "tests/backup-legacy-private-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/backup-legacy-private-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/legacy-public-media.js",
       "startLine": 113,
       "sourceSha256": "26703465cecf4b9f89055c300e2d7b8be0caaf9b980ac58f7f423e1371c6b3cf",
-      "resultFingerprint": "5c5ba2b72afc87efbae7b0f4a681dbe37b7918f02afc1e714d5ec8d31ce2da8b",
+      "resultFingerprint": "f9358afbb805ce72bb76e7acd0a7f328b712bbba516a5edadf7bde959b6c5321",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Descriptor-based bounded reads reject symlink/inode substitution and unexpected read-size/identity changes. Current authorization constrains local fallback access. R2 metadata checksum verification is separate; trusted directory ancestry is assumed, not universal filesystem immutability.",
-      "evidence": "tests/legacy-public-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/legacy-public-media.test.js; descriptor identity review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/stable-local-file.js",
       "startLine": 14,
       "sourceSha256": "ebeb859c8fe20eb1cdf1e2b8d471c94329db445f0375fec43ea256999e1be7fb",
-      "resultFingerprint": "0a7fa3482dd52a6817ee08f427bedcda9c0e033dcd0d3baa3fe01af1507497ab",
+      "resultFingerprint": "093a09471aa64af20c8e3c591dbf1fb8ee6a8b67c098a41b8a88f63941a9299d",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This open is followed by exact descriptor identity/size checks, bounded reads and post-read checks with guaranteed close. Public copying additionally binds bytes to an approved preflight SHA-256 before that file's first R2 call. Trusted directory/snapshot assumptions remain; copying is not transactional across the batch and this does not certify universal helper immutability.",
-      "evidence": "tests/stable-local-file.test.js; tests/copy-legacy-public-media.test.js; independent 20 natural +20 forced collision rejections; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/stable-local-file.test.js; tests/copy-legacy-public-media.test.js; independent 20 natural +20 forced collision rejections; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "backend/server.js",
       "startLine": 619,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "977cfbc09bb0420edb30d3cd901640b6cb2b6204ee31e19387b9026b88a866ec",
+      "resultFingerprint": "39e37f8eb437850fbf28b859fc8c2762203d802764d346aefc3e4d4d4d2a866e",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The local seed is created atomically with flag wx and mode0600; only EEXIST is handled. An existing writer's store is not overwritten.",
-      "evidence": "tests/local-security-guards.test.js exclusive seed regression; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/local-security-guards.test.js exclusive seed regression; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 981,
       "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
-      "resultFingerprint": "acb31a7520d48669fc3d6ba92c9c754c77e5cc96a858164e3b419c4e16a212e8",
+      "resultFingerprint": "dd07c41c6a218d5740454a7ca3d295e6cb7491e0f49d086159b24b2b57527491",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "Synthetic fixture bytes are read before deliberately injecting a pre-open pathname swap. The test asserts CODEQL_REVIEW_UNSAFE and exactly one descriptor close; it is a negative regression, not a production reader.",
-      "evidence": "Independent 5/5 fixture review; pre-open inode swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent 5/5 fixture review; pre-open inode swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 1021,
       "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
-      "resultFingerprint": "5fc10e1730323a012342cec25413f300e331154bbafc44e52c988cbe3da3135f",
+      "resultFingerprint": "15696f16fce458d87ab6076b9b0d7c76c4248b6f31c6db39acb8cc6c9c6c63e7",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "Synthetic fixture bytes are read before intentionally swapping the pathname during the tested descriptor read. The regression asserts CODEQL_REVIEW_UNSAFE and exactly one descriptor close.",
-      "evidence": "Independent 5/5 fixture review; during-read pathname swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent 5/5 fixture review; during-read pathname swap rejection; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/conversation-codeql-gate.test.js",
       "startLine": 1369,
       "sourceSha256": "6f23ef73c72d97383080f1eedbc6b5d684e139ac929ec7bf6ae0714da2fe7717",
-      "resultFingerprint": "aed81d0603c63835cff68f54035ac21d7b356f13eac4431a16cdcd0fbd54a6b0",
+      "resultFingerprint": "e5a43d0a316cc1d63caf25845db8ebbe8d8015c2503de58bb28b4a66ef3fcbb1",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "This wrapper measures content-open byte budgets on isolated synthetic assets; it is not an authorization/read path or mutation injector. The test asserts bounded reads, limit rejection and zero opens for excessive file count.",
-      "evidence": "Independent 5/5 fixture review; tracked count and aggregate byte limit regressions; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent 5/5 fixture review; tracked count and aggregate byte limit regressions; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact test-only sites independently reconfirmed by Godel; 3/3 focused regressions. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/copy-legacy-public-media.test.js",
       "startLine": 176,
       "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
-      "resultFingerprint": "dcd2a6d1e908b5000e1d87a03080dbd7affca11f48d528df9dfcc4975e7f080c",
+      "resultFingerprint": "28baed089b02461f01de7424f04b3c0adbb7cf697f4dd9b118ccb41f9e7cc4ef",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "A deliberate same-size overwrite of an isolated synthetic file tests the production preflight rejection. The test asserts SOURCE_FILE_CHANGED and zero fake-R2 writes; it is not a production writer path.",
-      "evidence": "Independent 5/5 fixture review; same-size preflight rejection test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent 5/5 fixture review; same-size preflight rejection test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/copy-legacy-public-media.test.js",
       "startLine": 210,
       "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
-      "resultFingerprint": "076b3082d887bfcdf94b97eac3b69f3a9fd5257bb829a51b39ca1ee9072b9732",
+      "resultFingerprint": "2eb146035dee9c65543a4c29270e74de8dcc3a8d501cb50f3378b2e7e470be36",
       "maxOccurrences": 1,
       "reviewer": "Hubble (independent), main source review",
       "reason": "A deliberate synthetic overwrite with mocked unchanged stats tests SHA-256 preflight binding. The production copy is asserted to reject before writes, with zero fake-R2 objects; this fixture mutation is intentional.",
-      "evidence": "Independent 5/5 fixture review; same-stat cryptographic preflight test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent 5/5 fixture review; same-stat cryptographic preflight test; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 266,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "cda0c7d9ba8f9f84403bf4012b57b4f56db6f017e96b12d2cd272e7b43ec2f8a",
+      "resultFingerprint": "80ac28298aa29d2e57857e6b6ddd894a83b5fe4c0633a7b17710dfbcd4141c69",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The computed field is validated as exactly muted or archived and the value must be boolean before assignment. Fixed SQL columns use authenticated owner identity; arbitrary/prototype fields are rejected before writes.",
-      "evidence": "encrypted Room preference rejection review and isolated tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "encrypted Room preference rejection review and isolated tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/intelligence-platform.js",
       "startLine": 313,
       "sourceSha256": "60fc5f028f51488e7051b8da107bebe3242826750e3a55e32058d4f8ac39055c",
-      "resultFingerprint": "6f321f815f32a246308cb1b2377df371d0d9f56b5625e45419777a22554dfc44",
+      "resultFingerprint": "aa49da592977e467dd6723a7fc9ab4332d2493a065ec1cfc863b0d1c61990f0b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The signal comes from a known-event allowlist and frozen numeric weights, with recomputed numeric quality/counter guards. Prototype names cannot enter this validated event path; this review does not claim an explicit own-property check at the assignment.",
-      "evidence": "tests/intelligence-score-store.test.js; tests/local-security-guards.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/intelligence-score-store.test.js; tests/local-security-guards.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/server.js",
       "startLine": 3841,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "8c9980d14eb5a8901c59685923ef82b295078ef9b4a26bbdb3a2de1fc079c367",
+      "resultFingerprint": "0048e39165812bcf535bc31413d1e6c8ab84eb3588b3a4a858e42172ac069276",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Cookie parsing accumulates strings into a null-prototype object. Prototype names cannot mutate an object prototype or inject executable behavior; authenticated session checks still run.",
-      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/remote-property-injection",
       "path": "backend/server.js",
       "startLine": 3843,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "b2a3e4ebc3707484573124b5b6071059db1e21383329c4921742c1c38aa9ed42",
+      "resultFingerprint": "eca7a6b42bc81473144b5a6b223b0887cad7cc6c3de58fc234cf5afaa019e366",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Cookie values populate the same null-prototype string dictionary; this branch does not reintroduce prototype inheritance and does not authorize a session by itself.",
-      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/local-security-guards.test.js; cookie-only integration checks; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-native-history.js",
       "startLine": 37,
       "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
-      "resultFingerprint": "002de2eae7e7e2350203d13ce9e43e3801c342448c4bbc9a1c631770b2c08d1d",
+      "resultFingerprint": "6324f94351be4b1519317cf74c3494746f6569b212f302835f2efddb3541606b",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "history-tasks selects dispatch only. SQL binds owner, endpoint device, expiry and active matching epoch; each row then authorizes its actual conversation membership/freeze/roster before inclusion, excluding denied tasks.",
-      "evidence": "backend/encrypted-native-history.js task authorization review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "backend/encrypted-native-history.js task authorization review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-native-history.js",
       "startLine": 60,
       "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
-      "resultFingerprint": "6bba561ffa8222158c9001f20dcf948dff03721930924070a1b918dfeaf3b707",
+      "resultFingerprint": "7f5e9b83df0370efb5c0c1a1b74d4d3f94c76138a19972e013cb38d19055bcae",
       "maxOccurrences": 1,
       "reviewer": "Godel (finding), Hubble (independent fix review)",
       "reason": "Selecting a stored transfer by ID does not authorize its use. The shared authorization now binds its stored conversation ID to the currently authorized group, same authenticated owner, active same-epoch roster, expiry and endpoint actor before every existing-transfer read or mutation. The real cross-conversation defect was fixed rather than waived.",
-      "evidence": "tests/encrypted-conversations.test.js signed two-conversation regression: all six actions reject403 without transfer/page mutation; valid history retries and block/removed-membership checks pass; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/encrypted-conversations.test.js signed two-conversation regression: all six actions reject403 without transfer/page mutation; valid history retries and block/removed-membership checks pass; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 108,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "a07fbfa8f9fa2aa0cbbe04b97a5674c1ef6af3b8e86c0185378cfbc346eaf8af",
+      "resultFingerprint": "91b3c56f1ba12f9669e19042b2a0d3d6b2d1209b4e1355c8ae58438e082b1639",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "room-reserve dispatch retains mandatory authenticated owner/signed actor binding. Existing changes require the stored prior admin role and current membership; creation validates active device/key-package ownership.",
-      "evidence": "isolated signed Room authorization tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "isolated signed Room authorization tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 261,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "2e64989c1948228a7238094713d5407175481007700b3692ed28664ab963aba8",
+      "resultFingerprint": "5816d300917e5bc9ff33536d86d75b79a50c168c33a40c267c2f54218df51540",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Current roster membership authorization precedes preference dispatch. Writes bind c.owner and fixed columns; stale revisions or changed retries are rejected.",
-      "evidence": "isolated Room preference authorization/retry tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "isolated Room preference authorization/retry tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 290,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "cbfdbd3ec0625c549894646715a8a1a5417e68d7abc6ca30bc1c608b15e4607e",
+      "resultFingerprint": "5c738210470f7878386737933f4dfb4571fd92927e446491e0f2c5a19f5311a8",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Current roster membership is checked before acceptance. Transition ID and transfer hash must match stored state, and the exact group/epoch/hash/owner/actor signature is verified before insertion.",
-      "evidence": "isolated Room acceptance rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "isolated Room acceptance rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/encrypted-shopping-rooms.js",
       "startLine": 294,
       "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
-      "resultFingerprint": "47e61d90db8cbd32615a4fdce52ea424c5baed5a7aae9ef0fd13d78ecde65a3e",
+      "resultFingerprint": "ee1b288223b708f716568e22421a2f503d985cbd458b10114088585c53428986",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The signature verifies the exact group, epoch, stored transfer hash, authenticated owner and actor using that actor's roster MLS key. Malformed signatures or substituted acceptance fields are rejected before writes.",
-      "evidence": "isolated Room acceptance signature rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "isolated Room acceptance signature rejection tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 7955,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "cbe85fcf0b121a523d2bd7e0ebfbccf67b30db8b051a320b0e72460e7e38e3f7",
+      "resultFingerprint": "ffee96a61da07e12d0ba70e45d035df93d55406082d17b224a2ee8b70678db86",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "The internal service credential check runs first. Content type only rejects unsupported bodies; accepted requests require bounded JSON, a live owner/session HMAC ticket and canonical native signature/device/membership authorization.",
-      "evidence": "internal service and ticket tests 4/4; canonical authority source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "internal service and ticket tests 4/4; canonical authority source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 10307,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "0ce88b13d7f9a4487a30217b3273bb2a7f5b1e955d4ec67d585d11bb350d1ee7",
+      "resultFingerprint": "ab3b3068f65695cc1c1ba4f5150c414be5979a690e3a2207b00ec43a44bf2110",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This branch rejects malformed login input. Subsequent password verification and identity lookup remain mandatory; bypassing the input validation cannot create a session.",
-      "evidence": "tests/integration-api.test.js authentication cases; server login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/integration-api.test.js authentication cases; server login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 10452,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "76f5190ee6b940ab05058845028d804d93e41c0af9409d1f144a43fa6ea73a1d",
+      "resultFingerprint": "58edd2e576390ea582d239921a9cb07bf3feeb5bc0400e89464c1adc55fe5764",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "This branch rejects malformed admin login input. Password verification and staff-role/session checks remain mandatory before admin access.",
-      "evidence": "tests/integration-api.test.js; server admin-login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/integration-api.test.js; server admin-login source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 11245,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "8c2d5a8406c7b9668b8185d5aca3adb93435d742d44c2328586eae6d40c2d11f",
+      "resultFingerprint": "c6bddec5a6ea0df5d47d180b71a9eeebb1687bfd5c52ff36e6f838956e2fb7c8",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Missing/malformed password is rejected. The authenticated marketplace user is resolved first, and actual password verification remains mandatory before session elevation.",
-      "evidence": "server authenticated password-confirmation source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "server authenticated password-confirmation source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 19628,
       "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "1efbccaf64f8b77fb6f36e4f90e7644d9f7d82d7820a422f44d24228297bcbc9",
+      "resultFingerprint": "0adf4214a0008d1417c275b2ba62b59e036f3a0907425b45e8b62490e68c0a6f",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This logout branch chooses the presentation of the admin login screen after local authentication state is cleared. It grants no backend authorization or staff session.",
-      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "backend/server.js",
       "startLine": 14772,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "cbd5cd61a27f67a2d2109c15d9b8db15856acefe4a96589a620c2835a3588b53",
+      "resultFingerprint": "8e7c00b69c5ac91c2b46e804ebefb7c1100841b2bf986c2486ff029a620c063d",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The route resolves an authenticated seller first, then requires uploadedBy to equal that seller. Request-controlled ownership cannot override the authenticated seller or the later source-product ownership checks.",
-      "evidence": "server product-create owner source review; integration API tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "server product-create owner source review; integration API tests; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 24236,
       "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "ca13e767845a01e3015c5b5dd48fbd4824805d187b016ab413ea9b34cd824b81",
+      "resultFingerprint": "b0f49a249efde02231a52e9558bba5829d02292242da6a8a54281b094ec9f76c",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This route check selects UI presentation only. Staff authentication and backend authorization are separate, and nonstaff access is not granted by choosing this route.",
-      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
       "startLine": 25758,
       "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "8e7274cd8a8a25c74d5d361579b6c8203e29a79dbc3f32ecd2202f354f329dc0",
+      "resultFingerprint": "b72378453b4b128aacadf693d8e2e05db6dd0e5afb515a903ddf62cd1f1f124d",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This boot branch displays the admin login screen; it does not issue a privileged session or replace backend role checks.",
-      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "backend/server.js",
       "startLine": 1100,
       "sourceSha256": "37de4b3432d16d4cc874162ac08dc5420025b254eae2fdbd459099d46e04e6b4",
-      "resultFingerprint": "c1b907f8e05d0df508676ad21332d6953a905c530d96bd79e30c6da40d0a953c",
+      "resultFingerprint": "32cb8ab9a63e48df1351941df6411ad4d698b2e72ddb99d3ae0d9b604ab78a6b",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Audit events are intentionally serialized as JSON data to a fixed server-controlled log destination, not a caller-selected path or executable source. This sink itself is not claimed to enforce a byte-size bound.",
-      "evidence": "backend audit log source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "backend audit log source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
       "startLine": 717,
       "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "7aaedf9cc37b726f20154a9b499e0bfe7db8665a9b6b66a33da1f80d4e0e5aab",
+      "resultFingerprint": "35635c26b6a8fbbbe27bfcc0b46a287b09f52cbcca448e594ea0242a702ce7fe",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Generated share-page writes use a validated single-segment product ID in the predetermined output directory. Metadata is escaped; the request cannot select another filesystem path.",
-      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
       "startLine": 969,
       "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "686f4fb9a7202d3876ca429c0f0933f43e19c808e9a1468fa51dcc2ce38f69e7",
+      "resultFingerprint": "dbea77012bef93c025f6726b1290b34c3db412a21282ab002a53cb0d7e5cb7d3",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "Generated share metadata uses the same bounded safe product ID and escaped fields in controlled destinations. Raw user-controlled file paths are not written.",
-      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "tests/e2e/start-servers.js",
       "startLine": 442,
       "sourceSha256": "fd1de267c8c1a59d7d028e49f0445830e991c7a38c3ab07b35b36544f4b4551d",
-      "resultFingerprint": "db1162416bf5b79404b57cd2a076b941083f9061adb86bf0a986880169f67711",
+      "resultFingerprint": "457cf6b4b283e7ec7b47e18952cf9906ea88c39c9f584014ba68fb31577870e7",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The synthetic E2E fixture intentionally persists bounded data to a fixed disposable repository test-store file. It is not a production HTTP-controlled path or arbitrary file write.",
-      "evidence": "tests/e2e/start-servers.js synthetic server fixture review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/e2e/start-servers.js synthetic server fixture review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "src/marketplace/gallery.js",
       "startLine": 223,
       "sourceSha256": "1ec1864ef295ebb822917bf8500308086eab980f08f7b7b3aab46597dc08dba2",
-      "resultFingerprint": "1886208ae8325b14b791a8d529741974a1c741443fc826d1c0d6b332731a4ed3",
+      "resultFingerprint": "cda9500fd70e3f59c24c820d1c6118230d42b910b5ff04b1ed1cac98e22d7355",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This expression suppresses provider-host poster candidates, not grants access to a trusted origin. Overmatching may affect candidate selection but cannot bypass an authorization boundary.",
-      "evidence": "src/marketplace/gallery.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "src/marketplace/gallery.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
       "startLine": 274,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "d3c5f1f951009df2be36cbd9221df78b2d2241159b77e6f6cc6d9198e5880efa",
+      "resultFingerprint": "772586836450acce4480456cbd2d1af3330bd05e1a8364e1d842fdff8442c0b2",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The unanchored expression is a negative assertion deliberately searching repository-owned source anywhere for a forbidden construct, not production hostname authorization.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
       "startLine": 3349,
       "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "62acdcb2675e9b115c85c2613028406bcfbee47dd0fb781e35b159219c676a6d",
+      "resultFingerprint": "e526ec94e3a6bc7fe3d1b32912720727a3781db8e6dbb75139d9fb12dc861d21",
       "maxOccurrences": 1,
       "reviewer": "Hubble",
       "reason": "The unanchored expression intentionally finds a forbidden construct anywhere in static fixture/source output; it does not validate a user-controlled URL or authorization field.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "worker.js",
       "startLine": 1171,
       "sourceSha256": "28fc4ccd17d03331b574d8536affe4206d0679a63d81ea15b63a509cb4b53d58",
-      "resultFingerprint": "6d3da9f00ce162cecef11a4fa998c27eca54438496dc1c04514f5917cb2db6e6",
+      "resultFingerprint": "cd8b7d534cb23b884c2cc67fd21975bc1b96668f0d4528da45c0315cc764d79f",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "This provider-host pattern suppresses poster candidates; it is not used as an origin authorization allowlist. No trust decision becomes true through substring matching.",
-      "evidence": "worker.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "worker.js poster suppression source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "winga-modules.js",
       "startLine": 8622,
       "sourceSha256": "af27f02a736dfe7ec0a2167b22f8576ffba47e8751299645a0d2ffbaf65ce8d2",
-      "resultFingerprint": "d3916f883e272ced9895593949006ca2f5b15d2009fd30db6cacd4e339a2b6f6",
+      "resultFingerprint": "169709612c67f26d9340c2fe5be407fe47ed30b2a49cfa518a2e46e8de729f52",
       "maxOccurrences": 1,
       "reviewer": "Godel",
       "reason": "Generated duplicate of the reviewed gallery poster suppression expression. It is not a trusted-origin grant.",
-      "evidence": "npm run verify:module-sync; src/marketplace/gallery.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "npm run verify:module-sync; src/marketplace/gallery.js review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     },
     {
       "ruleId": "js/file-system-race",
       "path": "tests/helpers/phoenix-fixture-startup.js",
       "startLine": 24,
       "sourceSha256": "916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8",
-      "resultFingerprint": "8f13dbbc5be5393156a611dc1e671a4df5a36bfd94a8c6a7fcad6de6fd94c77f",
+      "resultFingerprint": "6a94f09b63ab59cf3ca583fd151915aa56aea6020eb8fa53f1be9aa1897a6ead",
       "maxOccurrences": 1,
       "reviewer": "Godel (independent of helper author Hubble)",
       "reason": "Test-only caller supplies generated fixture-log paths under a trusted temporary directory. Regular-file and descriptor identity checks precede bounded reads, and descriptor/path checks follow them. Reads expose only allowlisted diagnostic categories, with no authorization decision or production write. This does not claim atomic pathname immutability or protection against attacker-controlled ancestors.",
-      "evidence": "Independent helper/caller inspection and tests/phoenix-fixture-startup.test.js, 5/5: substitution-before-read rejection, post-read changes, 16 KiB read bounds, descriptor cleanup and output privacy. Exact v2 result and tree provenance remain required. Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation."
+      "evidence": "Independent helper/caller inspection and tests/phoenix-fixture-startup.test.js, 5/5: substitution-before-read rejection, post-read changes, 16 KiB read bounds, descriptor cleanup and output privacy. Exact v2 result and tree provenance remain required. Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
     }
   ]
 }

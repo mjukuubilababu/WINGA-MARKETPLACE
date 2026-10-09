@@ -489,3 +489,20 @@ classifications. All 25 focused diagnostic-helper guard probes pass. Narrow
 ledger activation is approved with reasons, original reviewers and caps of one
 preserved. This approval activates `reviews`; the regular four-job CI and
 deployment identity checks still remain required before promotion.
+
+Regular run `37922381635` at `7aaace1` again passes functional, dependencies
+and BEAM. Its CodeQL job `113793149451` uses CLI 2.27.2 and correctly rejects
+all old result fingerprints despite an identical source tree. All 50 raw
+result and rule component hashes, source identities and referenced closures
+remain identical to the independently reviewed candidate; only tool
+semanticVersion/locations and global unreferenced run-table metadata differ.
+Exact new fingerprints are prepared as inactive `pendingReviews` for another
+independent metadata-only check. No tool data is omitted from fingerprints,
+and no failed regular candidate is promoted.
+
+Planck independently approves the metadata-only refresh after matching all 50
+pending entries to actual job `113793149451`. CLI changes from 2.27.1 to
+2.27.2; result/rule/source/primary/closure bindings are unchanged, and the
+artifact URI multiset remains identical despite ordering changes. The prior
+31-field coordinate proof remains valid. Entries are activated without parser,
+matcher, reason, reviewer or cap changes. Fresh four-job acceptance is required.
