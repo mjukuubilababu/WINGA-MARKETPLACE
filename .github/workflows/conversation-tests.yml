@@ -136,7 +136,6 @@ jobs:
           category: /language:javascript-typescript
           output: ${{ runner.temp }}/conversation-codeql-sarif
       - name: Compare exact growth review coordinates
-        if: ${{ !cancelled() }}
         env:
           CODEQL_ANALYSIS_OUTCOME: ${{ steps.codeql-analysis.outcome }}
           CODEQL_SARIF_DIRECTORY: ${{ runner.temp }}/conversation-codeql-sarif
