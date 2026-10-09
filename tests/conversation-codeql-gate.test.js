@@ -608,7 +608,7 @@ test('CLI emits aggregate summary and complete safe metadata, never source or se
   assert.deepEqual(detail, { mode: 'codeql-finding-location', report: 0, run: 0, result: 0,
     ruleId: 'js/sql-injection', level: 'warning', securitySeverity: 8.8,
     locations: [{ path: 'backend/synthetic-gate.js', line: 12 }],
-    ...(({ resultFingerprint, fingerprintDiagnostics }) => ({ resultFingerprint, fingerprintDiagnostics }))(inspectReport(report(current), 0).findings[0]) });
+    ...(({ resultFingerprint, fingerprintDiagnostics, artifactClosure }) => ({ resultFingerprint, fingerprintDiagnostics, artifactClosure }))(inspectReport(report(current), 0).findings[0]) });
   writeReport(dir, report());
   assert.equal(cli(dir, 'success', []).status, 0);
   fs.writeFileSync(path.join(dir, 'javascript.sarif'), '{' + privateMarker);
@@ -1209,7 +1209,7 @@ test('complete result and resolved rule, tool and indexed-flow metadata bind the
     current => { current.tool.driver.rules[0].properties['security-severity'] = '9.0'; },
     current => { current.tool.driver.version = '2.25.0'; },
     current => { current.threadFlowLocations = [{ location: location('src/caller.js', 5) }]; },
-    current => { current.artifacts = [{ location: { uri: 'src/caller.js' } }]; }
+    current => { current.artifacts = [{ location: { uri: f.entry.path, uriBaseId: '%SRCROOT%' } }]; }
   ]) {
     const current = run([f.reviewedFinding()]);
     mutate(current);
@@ -1387,15 +1387,19 @@ test('literal bracket route paths and internal spaces are tracked, hashed and ex
     const target = trackedFile(f, filename, '// Synthetic route source\n');
     const sourceTreeSha256 = sourceTreeFingerprint(f.sourceRoot);
     const current = f.reviewedFinding({ locations: [location(filename, 1)] });
+    current.locations[0].physicalLocation.artifactLocation.index = 0;
+    const currentRun = run([current]);
+    currentRun.artifacts = [{ location: { uri: filename, uriBaseId: '%SRCROOT%', index: 0 } }];
+    const scan = report(currentRun);
     const entry = { ...f.entry, path: filename, startLine: 1,
-      sourceSha256: sourceFingerprint(fs.readFileSync(target)), resultFingerprint: fingerprintOf(current) };
+      sourceSha256: sourceFingerprint(fs.readFileSync(target)), resultFingerprint: inspectReport(scan, 0).findings[0].resultFingerprint };
     f.writeManifest({ ...f.manifest, sourceTreeSha256, reviews: [entry] });
-    const value = f.auditReview(report(run([current])));
+    const value = f.auditReview(scan);
     assert.equal(value.ok, true);
     assert.equal(value.findings[0].locations[0].path, filename);
     assert.equal(value.findings[0].sourceSha256, entry.sourceSha256);
     fs.appendFileSync(target, '// New route code\n');
-    failed(f.auditReview(report(run([current]))), 'CODEQL_REVIEW_STALE');
+    failed(f.auditReview(scan), 'CODEQL_REVIEW_STALE');
   }
 });
 
@@ -1461,9 +1465,10 @@ test('binary and unknown extensionless files remain byte-exact even when their b
   }
 });
 
-test('fingerprint diagnostics preserve the existing exact digest compatibility vector', () => {
+test('fingerprint diagnostics emit the explicit v2 digest and cannot reuse the v1 compatibility vector', () => {
   const value = inspectReport(report(run([finding()])), 0).findings[0];
-  assert.equal(value.resultFingerprint, '07b0828e79db6218cd990bfbbc5eb1527c53cf33a607699d4f77e8ee61798299');
+  assert.equal(value.resultFingerprint, 'a02af276860b9115f43e6c01312e7f49328d36289ab23a7647bdcaeddc9ac8c6');
+  assert.notEqual(value.resultFingerprint, '07b0828e79db6218cd990bfbbc5eb1527c53cf33a607699d4f77e8ee61798299');
   assert.equal(value.fingerprintDiagnostics.version, 1);
   assert.deepEqual(Object.keys(value.fingerprintDiagnostics.components), ['result', 'rule', 'toolComponent', 'runReferences']);
 });
@@ -1516,7 +1521,7 @@ test('fingerprint diagnostics localize component changes without ignoring GUIDs 
     ['rule', 'guid', r => { r.tool.driver.rules[0].guid = '00112233-4455-6677-8899-aabbccddeeff'; }],
     ['toolComponent', 'guid', r => { r.tool.driver.guid = '00112233-4455-6677-8899-aabbccddeeff'; }],
     ['runReferences', 'originalUriBaseIds', r => { r.originalUriBaseIds = { SYNTHETIC_ROOT: { uri: 'file:///synthetic/' } }; }],
-    ['runReferences', 'artifacts', r => { r.artifacts = [{ location: { uri: 'src/caller.js' } }]; }],
+    ['runReferences', 'artifacts', r => { r.artifacts = [{ location: { uri: 'backend/synthetic-gate.js', uriBaseId: '%SRCROOT%' } }]; }],
     ['result', 'codeFlows', r => { r.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: location('src/caller.js', 7) }] }] }]; }]
   ]) {
     const current = structuredClone(original);
@@ -1578,12 +1583,14 @@ test('diagnostics do not approve GUID drift, changed flows or excess multiplicit
 });
 
 function artifactDiagnosticFinding(artifacts) {
-  const current = run([finding()]);
+  const current = run([finding({ codeFlows: [{ threadFlows: [{ locations: artifacts.map((_, index) => ({
+    location: { physicalLocation: { artifactLocation: { index } } }
+  })) }] }] })]);
   current.artifacts = artifacts;
   return inspectReport(report(current), 0).findings[0];
 }
 
-test('artifact diagnostics distinguish reordering from record drift while old fingerprints still bind the full collection', () => {
+test('artifact diagnostics distinguish reordering from record drift while v2 binds every explicitly referenced record', () => {
   const artifacts = [{ location: { uri: 'src/a.js' }, roles: ['analysisTarget'], lastModifiedTimeUtc: '2026-01-01T00:00:00Z' },
     { location: { uri: 'src/b.js' }, roles: ['tracedFile'], lastModifiedTimeUtc: '2026-01-02T00:00:00Z' }];
   const before = artifactDiagnosticFinding(artifacts);
@@ -1681,7 +1688,7 @@ test('artifact diagnostics cache each run separately and cap refinement without 
 test('timestamp-only changes in a referenced artifact remain blocked pending actual evidence and semantic review', t => {
   const f = reviewFixture(t);
   const current = run([f.reviewedFinding()]);
-  current.artifacts = [{ location: { uri: f.entry.path }, lastModifiedTimeUtc: '2026-01-01T00:00:00Z' }];
+  current.artifacts = [{ location: { uri: f.entry.path, uriBaseId: '%SRCROOT%' }, lastModifiedTimeUtc: '2026-01-01T00:00:00Z' }];
   current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
   const original = inspectReport(report(current), 0).findings[0];
   f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, resultFingerprint: original.resultFingerprint }] });
@@ -1773,4 +1780,321 @@ test('nested artifact location diagnostics count recognized result rule and tool
   current.tool.driver.properties = { artifactLocation: { index: 3 }, index: 99 };
   const d = inspectReport(report(current), 0).findings[0].fingerprintDiagnostics;
   assert.deepEqual(d.artifactLocationIndexReferences, { result: 2, rule: 1, toolComponent: 2 });
+});
+
+function closureRun(result = finding()) {
+  const current = run([result]);
+  current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
+  current.artifacts = ['backend/synthetic-gate.js', 'src/caller.js', 'src/unused.js'].map((uri, index) => ({
+    location: { uri, uriBaseId: '%SRCROOT%', index }, properties: { synthetic: index }
+  }));
+  return current;
+}
+
+const closureFinding = current => inspectReport(report(current), 0).findings[0];
+const flowReference = index => ({ threadFlows: [{ locations: [{ location: {
+  physicalLocation: { artifactLocation: { index } }
+} }] }] });
+
+test('v2 closure ignores only unreferenced record churn and preserves selected original indices and every field', () => {
+  const current = closureRun();
+  const before = closureFinding(current);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.selectedCount, 1);
+  assert.equal(before.artifactClosure.unreferencedCount, 2);
+  [current.artifacts[1].location.uri, current.artifacts[2].location.uri] =
+    [current.artifacts[2].location.uri, current.artifacts[1].location.uri];
+  current.artifacts[2].properties.changed = true;
+  const unrelated = closureFinding(current);
+  assert.equal(before.resultFingerprint, unrelated.resultFingerprint);
+  assert.equal(before.artifactClosure.sha256, unrelated.artifactClosure.sha256);
+  for (const [field, value] of Object.entries({ contents: { text: 'Synthetic changed source' },
+    lastModifiedTimeUtc: '2026-01-01T00:00:00Z', description: { text: 'Changed description' },
+    hashes: { sha256: '1'.repeat(64) }, syntheticUnknown: { value: true } })) {
+    const changed = structuredClone(current);
+    changed.artifacts[0][field] = value;
+    assert.notEqual(before.resultFingerprint, closureFinding(changed).resultFingerprint);
+    assert.notEqual(before.artifactClosure.sha256, closureFinding(changed).artifactClosure.sha256);
+  }
+  current.results[0].codeFlows = [flowReference(1)];
+  const usedCaller = closureFinding(current);
+  current.artifacts[1].properties.changedCaller = true;
+  assert.notEqual(usedCaller.resultFingerprint, closureFinding(current).resultFingerprint);
+});
+
+test('v2 closure follows parent and nested artifact references from every retained root', () => {
+  for (const seed of [
+    current => { current.results[0].analysisTarget = { index: 1 }; },
+    current => { current.results[0].codeFlows = [flowReference(1)]; },
+    current => { current.tool.driver.rules[0].properties.artifactLocation = { index: 1 }; },
+    current => { current.tool.driver.locations = [{ index: 1 }]; },
+    current => { current.threadFlowLocations = [{ location: { physicalLocation: { artifactLocation: { index: 1 } } } }]; },
+    current => { current.logicalLocations = [{ properties: { artifactLocation: { index: 1 } } }]; },
+    current => { current.taxonomies = [{ properties: { artifactLocation: { index: 1 } } }]; }
+  ]) {
+    const current = closureRun();
+    seed(current);
+    current.artifacts[1].parentIndex = 2;
+    const before = closureFinding(current);
+    assert.equal(before.artifactClosure.eligible, true);
+    assert.equal(before.artifactClosure.selectedCount, 3);
+    current.artifacts[2].properties.parentChanged = true;
+    assert.notEqual(before.resultFingerprint, closureFinding(current).resultFingerprint);
+  }
+  const current = closureRun();
+  current.artifacts[0].properties.artifactLocation = { index: 2 };
+  assert.equal(closureFinding(current).artifactClosure.selectedCount, 2);
+});
+
+test('v2 closure resolves URI-only references uniquely and preserves base dependency records', () => {
+  const current = closureRun();
+  delete current.results[0].locations[0].physicalLocation.artifactLocation.index;
+  const uriOnly = closureFinding(current);
+  assert.equal(uriOnly.artifactClosure.eligible, true);
+  assert.equal(uriOnly.artifactClosure.selectedCount, 1);
+  current.artifacts[2].location.uri = current.artifacts[0].location.uri;
+  assert.deepEqual(closureFinding(current).artifactClosure,
+    { version: 2, eligible: false, failure: 'reference.ambiguous' });
+  current.artifacts[2].location.uri = 'src/unused.js';
+  current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
+  current.originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///synthetic/', uriBaseId: 'PARENT' },
+    PARENT: { uri: 'file:///' } };
+  const before = closureFinding(current);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.selectedCount, 1);
+  current.originalUriBaseIds.PARENT.description = { text: 'Changed base' };
+  assert.notEqual(before.resultFingerprint, closureFinding(current).resultFingerprint);
+});
+
+test('v2 closure rejects malformed dangling inconsistent cyclic and uncertain references without hiding findings', () => {
+  for (const [failure, mutate] of [
+    ['reference.index', current => { current.results[0].codeFlows = [flowReference(99)]; }],
+    ['reference.index', current => { current.results[0].analysisTarget = { index: -1 }; }],
+    ['reference.shape', current => { current.results[0].analysisTarget = null; }],
+    ['reference.identity', current => { current.results[0].analysisTarget = {}; }],
+    ['reference.consistency', current => { current.results[0].analysisTarget = { index: 1, uri: 'different.js' }; }],
+    ['reference.consistency', current => { current.results[0].analysisTarget = { index: 1, uriBaseId: 'DIFFERENT' }; }],
+    ['artifact.identity', current => { current.results[0].codeFlows = [flowReference(1)]; current.artifacts[1] = {}; }],
+    ['artifact.self-index', current => { current.results[0].codeFlows = [flowReference(1)]; current.artifacts[1].location.index = 2; }],
+    ['artifact.parent-index', current => { current.artifacts[0].parentIndex = 99; }],
+    ['artifact.cycle', current => { current.artifacts[0].parentIndex = 1; current.artifacts[1].parentIndex = 0; }],
+    ['artifact.cycle', current => { current.artifacts[0].properties.artifactLocation = { index: 0 }; }],
+    ['base.dangling', current => { current.originalUriBaseIds = {}; }],
+    ['base.cycle', current => { current.originalUriBaseIds = { '%SRCROOT%': { uri: 'root/', uriBaseId: '%SRCROOT%' } }; }],
+    ['reference.uncertain', current => { current.results[0].properties = { unknown: { uri: 'src/caller.js', index: 1 } }; }]
+  ]) {
+    const current = closureRun();
+    mutate(current);
+    const values = inspectReport(report(current), 0).findings;
+    assert.equal(values.length, 1);
+    assert.deepEqual(values[0].artifactClosure, { version: 2, eligible: false, failure });
+    assert.match(values[0].resultFingerprint, /^[a-f0-9]{64}$/);
+  }
+});
+
+test('v2 closure cache is scoped to each inspection of a reused mutable run', () => {
+  const current = run([finding()]);
+  current.artifacts = [{ location: { uri: 'src/not-matching.js', uriBaseId: '%SRCROOT%' } }];
+  const before = closureFinding(current);
+  assert.deepEqual(before.artifactClosure, { version: 2, eligible: false, failure: 'reference.unmatched-uri' });
+  current.artifacts[0].location.uri = 'backend/synthetic-gate.js';
+  const after = closureFinding(current);
+  assert.equal(after.artifactClosure.eligible, true);
+  assert.equal(after.artifactClosure.selectedCount, 1);
+  assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+});
+
+test('v2 closure cannot approve an exact fallback hash for an invalid reference or any v1 ledger entry', t => {
+  const f = reviewFixture(t);
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry,
+    resultFingerprint: '07b0828e79db6218cd990bfbbc5eb1527c53cf33a607699d4f77e8ee61798299' }] });
+  assert.equal(f.auditReview().totals.reviewedFindings, 0);
+  const current = run([f.reviewedFinding({ codeFlows: [flowReference(0)] })]);
+  current.artifacts = [{}];
+  const invalid = closureFinding(current);
+  assert.equal(invalid.artifactClosure.eligible, false);
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, resultFingerprint: invalid.resultFingerprint }] });
+  const blocked = f.auditReview(report(current));
+  failed(blocked, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(blocked.totals.reviewedFindings, 0);
+  assert.equal(blocked.totals.unreviewedFindings, 1);
+});
+
+test('v2 closure bounds graph depth and emits only safe hashes and fixed closure metadata', t => {
+  const current = closureRun();
+  current.artifacts = Array.from({ length: 101 }, (_, i) => ({ location: {
+    uri: i === 0 ? 'backend/synthetic-gate.js' : `src/synthetic-${i}.js`, uriBaseId: '%SRCROOT%', index: i },
+    ...(i < 100 ? { parentIndex: i + 1 } : {}) }));
+  assert.equal(closureFinding(current).artifactClosure.failure, 'closure.depth');
+  const marker = 'SYNTHETIC_CLOSURE_PRIVATE_DO_NOT_LOG';
+  const safe = closureRun();
+  safe.artifacts[0].contents = { text: marker };
+  safe.artifacts[0][marker] = marker;
+  const dir = directory(t);
+  writeReport(dir, report(safe));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stdout.includes(marker), false);
+  const detail = JSON.parse(output.stdout.trim().split('\n')[1]);
+  assert.equal(detail.artifactClosure.eligible, true);
+  assert.match(detail.artifactClosure.sha256, /^[a-f0-9]{64}$/);
+});
+
+test('v2 closure memoizes completed bases in an acyclic branching diamond without exponential work', () => {
+  const current = closureRun();
+  const bases = { B0: { uri: 'file:///synthetic/root/' } };
+  for (let i = 1; i < 15; i++) {
+    const index = current.artifacts.length;
+    current.artifacts.push({ location: { uri: `src/branch-${i}.js`, uriBaseId: `B${i - 1}`, index } });
+    bases[`B${i}`] = { uri: `file:///synthetic/${i}/`, uriBaseId: `B${i - 1}`,
+      properties: { artifactLocation: { index } } };
+  }
+  bases['%SRCROOT%'] = { uri: 'file:///synthetic/source/', uriBaseId: 'B14' };
+  current.originalUriBaseIds = bases;
+  const before = closureFinding(current);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.selectedCount, 15);
+  assert.ok(before.artifactClosure.workCount < 1000);
+  current.originalUriBaseIds.B0.properties = { artifactLocation: { uri: 'file:///synthetic/cycle/', uriBaseId: 'B14' } };
+  assert.deepEqual(closureFinding(current).artifactClosure,
+    { version: 2, eligible: false, failure: 'base.cycle' });
+});
+
+test('v2 closure re-adds completed base dependencies independently for each finding', () => {
+  const current = closureRun();
+  delete current.artifacts[1].location.uriBaseId;
+  current.originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///synthetic/source/',
+    properties: { artifactLocation: { index: 1 } } } };
+  current.results.push(structuredClone(current.results[0]));
+  const before = inspectReport(report(current), 0).findings;
+  assert.equal(before.length, 2);
+  for (const value of before) {
+    assert.equal(value.artifactClosure.eligible, true);
+    assert.equal(value.artifactClosure.selectedCount, 2);
+  }
+  assert.equal(before[0].resultFingerprint, before[1].resultFingerprint);
+  current.artifacts[1].properties.changedDependency = true;
+  const after = inspectReport(report(current), 0).findings;
+  for (let i = 0; i < 2; i++) assert.notEqual(before[i].resultFingerprint, after[i].resultFingerprint);
+});
+
+test('v2 closure rejects cumulative run workload exhaustion without hiding or approving later findings', () => {
+  const current = closureRun();
+  current.results = Array.from({ length: 50 }, () => structuredClone(current.results[0]));
+  current.threadFlowLocations = Array.from({ length: 8000 }, () => ({ properties: { synthetic: true } }));
+  const values = inspectReport(report(current), 0).findings;
+  assert.equal(values.length, 50);
+  const exhausted = values.findIndex(value => !value.artifactClosure.eligible);
+  assert.ok(exhausted > 0 && exhausted < values.length);
+  for (const value of values.slice(0, exhausted)) {
+    assert.equal(value.artifactClosure.workLimit, LIMITS.nodes);
+    assert.ok(value.artifactClosure.workCount <= LIMITS.nodes);
+  }
+  for (const value of values.slice(exhausted)) assert.deepEqual(value.artifactClosure,
+    { version: 2, eligible: false, failure: 'closure.work-limit' });
+  const fresh = closureFinding(closureRun());
+  assert.equal(fresh.artifactClosure.eligible, true);
+  assert.equal(closureFinding(current).artifactClosure.eligible, true);
+});
+
+test('v2 closure rejects URI-base aliases rather than omitting a semantically matching caller record', t => {
+  const f = reviewFixture(t);
+  const current = run([f.reviewedFinding({ codeFlows: [{ threadFlows: [{ locations: [{ location: {
+    physicalLocation: { artifactLocation: { uri: 'caller.js', uriBaseId: 'ALIAS' } }
+  } }] }] }] })]);
+  current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
+  current.artifacts = [{ location: { uri: f.entry.path, uriBaseId: '%SRCROOT%', index: 0 } },
+    { location: { uri: 'src/caller.js', uriBaseId: '%SRCROOT%', index: 1 }, hashes: { 'sha-256': '0'.repeat(64) } }];
+  current.originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///synthetic/' },
+    ALIAS: { uri: 'src/', uriBaseId: '%SRCROOT%' } };
+  const before = closureFinding(current);
+  assert.deepEqual(before.artifactClosure, { version: 2, eligible: false, failure: 'reference.unsupported-alias' });
+  current.artifacts[1].hashes['sha-256'] = '1'.repeat(64);
+  const after = closureFinding(current);
+  assert.equal(after.artifactClosure.eligible, false);
+  assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+  f.writeManifest({ ...f.manifest, reviews: [{ ...f.entry, resultFingerprint: after.resultFingerprint }] });
+  const blocked = f.auditReview(report(current));
+  failed(blocked, 'CODEQL_SECURITY_FINDINGS');
+  assert.equal(blocked.totals.reviewedFindings, 0);
+  const absoluteAlias = closureRun();
+  absoluteAlias.originalUriBaseIds = { '%SRCROOT%': { uri: 'file:///synthetic/' },
+    ALIAS: { uri: 'file:///synthetic/' } };
+  delete absoluteAlias.results[0].locations[0].physicalLocation.artifactLocation.index;
+  assert.equal(closureFinding(absoluteAlias).artifactClosure.failure, 'reference.unsupported-alias');
+  absoluteAlias.results[0].locations[0].physicalLocation.artifactLocation = { uri: 'file:///synthetic/backend/synthetic-gate.js' };
+  assert.equal(closureFinding(absoluteAlias).artifactClosure.failure, 'reference.unsupported-alias');
+});
+
+test('v2 closure rejects URI-only dot percent URL and unresolved identities through a closed supported subset', () => {
+  for (const uri of ['src/./caller.js', 'src/nested/../caller.js', 'src/%63aller.js', 'src/caller%2Ejs',
+    'https://EXAMPLE.invalid:443/src/caller.js', 'https://example.invalid/src/caller.js',
+    'file:///synthetic/src/caller.js', 'src/caller.js?query=1', 'src/caller.js#fragment',
+    'src/caller name.js', 'src/[caller].js']) {
+    const current = closureRun();
+    current.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: {
+      physicalLocation: { artifactLocation: { uri, uriBaseId: '%SRCROOT%' } }
+    } }] }] }];
+    const before = closureFinding(current);
+    assert.deepEqual(before.artifactClosure, { version: 2, eligible: false, failure: 'reference.unsupported-uri' });
+    current.artifacts[1].hashes = { 'sha-256': '1'.repeat(64) };
+    const after = closureFinding(current);
+    assert.equal(after.artifactClosure.eligible, false);
+    assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+  }
+  for (const change of [
+    current => { current.artifacts[2].location.uri = 'src/%63aller.js'; },
+    current => { current.artifacts[2].location.uriBaseId = 'OTHER'; },
+    current => { delete current.artifacts[2].location.uriBaseId; }
+  ]) {
+    const current = closureRun();
+    delete current.results[0].locations[0].physicalLocation.artifactLocation.index;
+    change(current);
+    assert.equal(closureFinding(current).artifactClosure.failure, 'reference.unsupported-table-identity');
+  }
+  const exact = closureRun();
+  exact.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: {
+    physicalLocation: { artifactLocation: { uri: 'src/caller.js', uriBaseId: '%SRCROOT%' } }
+  } }] }] }];
+  const before = closureFinding(exact);
+  assert.equal(before.artifactClosure.eligible, true);
+  assert.equal(before.artifactClosure.selectedCount, 2);
+  exact.artifacts[1].hashes = { 'sha-256': '1'.repeat(64) };
+  assert.notEqual(before.resultFingerprint, closureFinding(exact).resultFingerprint);
+});
+
+test('tool location diagnostics emit fixed scheme and URI shape counts without raw values', t => {
+  const marker = 'SYNTHETIC_TOOL_LOCATION_PRIVATE_DO_NOT_LOG';
+  const current = run([finding()]);
+  current.tool.driver.locations = [{ uri: 'FILE:///synthetic/' + marker },
+    { uri: 'http://synthetic.invalid/' + marker }, { uri: 'https://synthetic.invalid/' + marker },
+    { uri: 'src/../' + marker + '%20.js', uriBaseId: '%SRCROOT%', index: 0 },
+    { uri: 'urn:synthetic:' + marker }, { uri: '/synthetic/' + marker }, { uri: 123, uriBaseId: null }, null];
+  const d = closureFinding(current).fingerprintDiagnostics.toolLocations;
+  assert.deepEqual(d, { count: 8, limit: 2048, uriLengthLimit: 4096, objectCount: 7, uriCount: 6,
+    oversizedUriCount: 0, schemes: { file: 1, http: 1, https: 1, relative: 2, other: 1 },
+    basePresentCount: 2, indexedCount: 1, percentCount: 1, dotSegmentCount: 1, absoluteCount: 5 });
+  const dir = directory(t);
+  writeReport(dir, report(current));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stdout.includes(marker), false);
+  assert.equal(output.stdout.includes('synthetic.invalid'), false);
+  assert.deepEqual(JSON.parse(output.stdout.trim().split('\n')[1]).fingerprintDiagnostics.toolLocations, d);
+});
+
+test('tool location diagnostics bound array and URI scans without removing full tool metadata binding', () => {
+  const current = run([finding()]);
+  current.tool.driver.locations = Array.from({ length: 2049 }, () => ({ uri: 'src/tool.js' }));
+  const before = closureFinding(current);
+  assert.deepEqual(before.fingerprintDiagnostics.toolLocations, { count: 2049, limit: 2048, uriLengthLimit: 4096, limited: true });
+  current.tool.driver.locations[2048].uri = 'src/changed.js';
+  assert.notEqual(before.resultFingerprint, closureFinding(current).resultFingerprint);
+  current.tool.driver.locations = [{ uri: 'x'.repeat(4097) }];
+  const large = closureFinding(current);
+  assert.equal(large.fingerprintDiagnostics.toolLocations.oversizedUriCount, 1);
+  assert.equal(large.fingerprintDiagnostics.toolLocations.uriCount, 1);
+  assert.equal(Object.values(large.fingerprintDiagnostics.toolLocations.schemes).reduce((a, b) => a + b), 0);
+  current.tool.driver.locations[0].uri += 'changed';
+  assert.notEqual(large.resultFingerprint, closureFinding(current).resultFingerprint);
 });

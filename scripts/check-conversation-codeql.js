@@ -313,9 +313,140 @@ function referencedRunMetadata(run) {
     .filter(key => own(run, key)).map(key => [key, run[key]]));
 }
 
-function resultFingerprint(result, description, run) {
-  return canonicalFingerprint({ version: 1, result, rule: description.rule,
-    toolComponent: description.toolComponent, runReferences: referencedRunMetadata(run) });
+function referencedArtifactClosure(result, description, run, cache) {
+  const check = validator('artifact-closure');
+  const valid = (condition, field) => check(condition, field, 'CODEQL_ARTIFACT_CLOSURE_INVALID');
+  cache.remaining ??= LIMITS.nodes;
+  let workCount = 0;
+  const work = () => { workCount++; valid(cache.remaining-- > 0, 'closure.work-limit'); };
+  const references = referencedRunMetadata(run);
+  const artifacts = optional(run.artifacts, []);
+  check(Array.isArray(artifacts), 'artifacts', 'CODEQL_ARTIFACT_CLOSURE_INVALID');
+  const key = value => JSON.stringify([value.uri, own(value, 'uriBaseId') ? value.uriBaseId : null]);
+  const uriOnlyIdentity = value => object(value) && typeof value.uri === 'string'
+    && /^[A-Za-z0-9_.\/-]+$/.test(value.uri) && safeRepositoryPath(value.uri)
+    && (!own(value, 'uriBaseId') || value.uriBaseId === '%SRCROOT%');
+  let byUri = cache.byUri;
+  if (!byUri) {
+    byUri = new Map();
+    cache.uriOnlySupported = true;
+    cache.uriOnlyBases = new Set();
+    artifacts.forEach((artifact, i) => {
+      work();
+      cache.uriOnlySupported &&= uriOnlyIdentity(artifact?.location);
+      cache.uriOnlyBases.add(artifact?.location?.uriBaseId ?? null);
+      if (object(artifact?.location) && text(artifact.location.uri)) {
+        const identity = key(artifact.location);
+        if (!byUri.has(identity)) byUri.set(identity, []);
+        byUri.get(identity).push(i);
+      }
+    });
+    cache.byUri = byUri;
+  }
+  const selected = new Set(), active = new Set(), activeBases = new Set(), completedBases = new Set();
+  let unindexedReferences = 0, unmatchedUriReferences = 0;
+  const base = name => {
+    work();
+    // Opaque base identifiers remain bound even when the report supplies no resolution table.
+    if (!own(run, 'originalUriBaseIds')) return;
+    valid(object(run.originalUriBaseIds) && own(run.originalUriBaseIds, name), 'base.dangling');
+    valid(!activeBases.has(name), 'base.cycle');
+    if (completedBases.has(name)) return;
+    valid(activeBases.size + active.size < LIMITS.depth, 'closure.depth');
+    activeBases.add(name);
+    resolve(run.originalUriBaseIds[name], undefined, true);
+    activeBases.delete(name);
+    completedBases.add(name);
+  };
+  const resolve = (value, self, baseDefinition = false) => {
+    work();
+    valid(object(value), 'reference.shape');
+    valid(!own(value, 'uri') || text(value.uri), 'reference.uri');
+    valid(!own(value, 'uriBaseId') || text(value.uriBaseId), 'reference.base');
+    valid(own(value, 'index') || own(value, 'uri'), 'reference.identity');
+    if (own(value, 'uriBaseId')) base(value.uriBaseId);
+    if (own(value, 'index')) {
+      valid(index(value.index) && value.index < artifacts.length && object(artifacts[value.index]), 'reference.index');
+      if (self !== undefined) valid(value.index === self, 'artifact.self-index');
+      const target = artifacts[value.index].location;
+      if (own(value, 'uri') || own(value, 'uriBaseId')) {
+        valid(object(target) && (!own(value, 'uri') || value.uri === target.uri)
+          && (own(value, 'uri') ? key(value) === key(target)
+            : !own(value, 'uriBaseId') || value.uriBaseId === target.uriBaseId), 'reference.consistency');
+      }
+      if (self === undefined) select(value.index);
+    } else if (self === undefined) {
+      // Raw URI/base pairs cannot establish alias identity through a supplied base-resolution table.
+      valid(baseDefinition || !own(run, 'originalUriBaseIds'), 'reference.unsupported-alias');
+      if (!baseDefinition) {
+        valid(uriOnlyIdentity(value), 'reference.unsupported-uri');
+        valid(cache.uriOnlySupported && [...cache.uriOnlyBases].every(name => name === (value.uriBaseId ?? null)),
+          'reference.unsupported-table-identity');
+      }
+      unindexedReferences++;
+      const matches = byUri.get(key(value)) ?? [];
+      valid(matches.length <= 1, 'reference.ambiguous');
+      valid(baseDefinition || artifacts.length === 0 || matches.length === 1, 'reference.unmatched-uri');
+      if (matches.length) select(matches[0]);
+      else unmatchedUriReferences++; // Complete URI-only references have no implicit table dependency.
+    }
+    walk(Object.fromEntries(Object.entries(value).filter(([name]) => !['uri', 'uriBaseId', 'index'].includes(name))));
+  };
+  const walk = value => {
+    work();
+    if (!value || typeof value !== 'object') return;
+    for (const [name, child] of Object.entries(value)) {
+      if (name === 'artifactLocation' || name === 'analysisTarget') resolve(child);
+      else {
+        // URI-shaped objects outside known SARIF reference slots cannot be silently classified as data.
+        valid(!object(child) || (!own(child, 'uri') && !own(child, 'uriBaseId')), 'reference.uncertain');
+        walk(child);
+      }
+    }
+  };
+  const select = i => {
+    work();
+    valid(!active.has(i), 'artifact.cycle');
+    if (selected.has(i)) return;
+    valid(activeBases.size + active.size < LIMITS.depth, 'closure.depth');
+    active.add(i);
+    const artifact = artifacts[i];
+    valid(object(artifact), 'artifact.shape');
+    valid(object(artifact.location) && text(artifact.location.uri), 'artifact.identity');
+    resolve(artifact.location, i);
+    if (own(artifact, 'parentIndex')) {
+      valid(index(artifact.parentIndex) && artifact.parentIndex < artifacts.length, 'artifact.parent-index');
+      select(artifact.parentIndex);
+    }
+    walk(Object.fromEntries(Object.entries(artifact).filter(([name]) => !['location', 'parentIndex'].includes(name))));
+    active.delete(i);
+    selected.add(i);
+  };
+  walk(result);
+  walk(description.rule);
+  const tool = description.toolComponent;
+  if (own(tool, 'locations')) {
+    valid(Array.isArray(tool.locations), 'tool.locations');
+    tool.locations.forEach(value => resolve(value));
+  }
+  walk(Object.fromEntries(Object.entries(tool).filter(([name]) => name !== 'locations')));
+  for (const [name, value] of Object.entries(references)) {
+    if (name === 'artifacts') continue;
+    if (name === 'originalUriBaseIds') {
+      valid(object(value), 'bases.shape');
+      Object.keys(value).forEach(base);
+    } else walk(value);
+  }
+  const records = [...selected].sort((a, b) => a - b).map(i => [i, artifacts[i]]);
+  return { references: { ...references, artifacts: records }, diagnostics: {
+    version: 2, eligible: true, sha256: canonicalFingerprint(records), selectedCount: records.length,
+    unreferencedCount: artifacts.length - records.length, unindexedReferences, unmatchedUriReferences,
+    workCount, workLimit: LIMITS.nodes } };
+}
+
+function resultFingerprint(result, description, run, closure) {
+  return canonicalFingerprint({ version: 2, result, rule: description.rule,
+    toolComponent: description.toolComponent, runReferences: closure?.references ?? referencedRunMetadata(run) });
 }
 
 function artifactCollectionDiagnostics(artifacts) {
@@ -368,6 +499,31 @@ function artifactCollectionDiagnostics(artifacts) {
     otherFields: { recordCount, keyCount, ...hashes(other) } };
 }
 
+function toolLocationDiagnostics(locations) {
+  if (locations === undefined) return undefined;
+  if (!Array.isArray(locations)) return { nonArray: true };
+  const detail = { count: locations.length, limit: ARTIFACT_DIAGNOSTIC_LIMIT, uriLengthLimit: 4096 };
+  if (locations.length > ARTIFACT_DIAGNOSTIC_LIMIT) return { ...detail, limited: true };
+  Object.assign(detail, { objectCount: 0, uriCount: 0, oversizedUriCount: 0,
+    schemes: { file: 0, http: 0, https: 0, relative: 0, other: 0 },
+    basePresentCount: 0, indexedCount: 0, percentCount: 0, dotSegmentCount: 0, absoluteCount: 0 });
+  for (const location of locations) {
+    if (!object(location)) continue;
+    detail.objectCount++;
+    if (own(location, 'uriBaseId')) detail.basePresentCount++;
+    if (own(location, 'index')) detail.indexedCount++;
+    if (typeof location.uri !== 'string') continue;
+    detail.uriCount++;
+    if (location.uri.length > detail.uriLengthLimit) { detail.oversizedUriCount++; continue; }
+    const uri = location.uri, scheme = /^([a-z][a-z0-9+.-]*):/i.exec(uri)?.[1].toLowerCase();
+    detail.schemes[['file', 'http', 'https'].includes(scheme) ? scheme : scheme || !uri ? 'other' : 'relative']++;
+    if (uri.includes('%')) detail.percentCount++;
+    if (/(?:^|\/)\.{1,2}(?:\/|$)/.test(uri)) detail.dotSegmentCount++;
+    if (scheme || uri.startsWith('/')) detail.absoluteCount++;
+  }
+  return detail;
+}
+
 function fingerprintDiagnostics(result, description, run, artifactDiagnostics) {
   const shape = value => ({ sha256: canonicalFingerprint(value),
     type: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
@@ -402,6 +558,8 @@ function fingerprintDiagnostics(result, description, run, artifactDiagnostics) {
     diagnostics.components[component] = { ...shape(value), fields, otherFields: shape(other) };
   }
   if (artifactDiagnostics) diagnostics.artifactCollection = artifactDiagnostics;
+  const toolLocations = toolLocationDiagnostics(description.toolComponent.locations);
+  if (toolLocations) diagnostics.toolLocations = toolLocations;
   return diagnostics;
 }
 
@@ -585,6 +743,7 @@ function inspectReport(report, reportIndex, diagnosticBudget = { remaining: FING
     check(object(run), 'run');
     check(Array.isArray(run.results), 'results');
     const components = ruleComponents(run, context);
+    const artifactClosureCache = {};
     let artifactDiagnosticCache;
     requireInvocations(run, context);
     resultCount += run.results.length;
@@ -605,15 +764,22 @@ function inspectReport(report, reportIndex, diagnosticBudget = { remaining: FING
       if (!description.security) continue;
       // Baseline, suppression, level and kind never exempt an emitted security finding.
       levels[level]++;
+      let closure, closureFailure;
+      try { closure = referencedArtifactClosure(result, description, run, artifactClosureCache); }
+      catch (error) {
+        if (error.errorCode !== 'CODEQL_ARTIFACT_CLOSURE_INVALID') throw error;
+        closureFailure = error.diagnostic.field;
+      }
       const finding = { report: reportIndex, run: runIndex, result: resultIndex,
         ruleId: safeRuleId(description.rule.id), level, securitySeverity: description.severity,
-        locations: safeLocations, resultFingerprint: resultFingerprint(result, description, run) };
+        locations: safeLocations, resultFingerprint: resultFingerprint(result, description, run, closure),
+        artifactClosure: closure?.diagnostics ?? { version: 2, eligible: false, failure: closureFailure } };
       if (diagnosticBudget.remaining > 0) {
         diagnosticBudget.remaining--;
         artifactDiagnosticCache ??= artifactCollectionDiagnostics(run.artifacts);
         finding.fingerprintDiagnostics = fingerprintDiagnostics(result, description, run, artifactDiagnosticCache);
       }
-      Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: locations.length > 0 && locations.length === safeLocations.length
+      Object.defineProperty(finding, REVIEWABLE_LOCATIONS, { value: !!closure && locations.length > 0 && locations.length === safeLocations.length
         && safeLocations.every(location => location[SOURCE_LOCATION] && location.line !== null
           && safeSourcePath(location.path)) });
       findings.push(finding);

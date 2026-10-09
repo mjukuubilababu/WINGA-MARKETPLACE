@@ -227,6 +227,31 @@ dependencies, BEAM and static analysis actually executed and passing for the
 candidate SHA on the regular acceptance branch. Render backend/Phoenix remain
 configured for master On Commit; no production deployment is initiated here.
 
+Paired diagnostic scans of `660f4fa` (jobs `113604379123` and `113605582498`)
+bind the same tree `0ea6869acb8530b4c2568bfb173aa2a7caa2247d91b4d18c269b14b503aca3dc`.
+All 50 complete result hashes match. Artifact URIs have different ordered hashes
+but equal sorted hashes; URI bases and index arrays are identical. Every one of
+507 artifact indices equals its containing array position, with no other fields.
+This proves URI-to-table-position churn, not changed source URIs or timestamps.
+A strict v2 fingerprint must retain complete records actually referenced by
+the result/rule/tool/shared metadata, all parent/reference chains, every original
+index and URI/base dependency. No referenced record field is removed. Malformed,
+dangling, inconsistent, ambiguous or cyclic references must block. Independent
+code review and actual paired v2 stability remain required before a fresh exact
+ledger binding; this diagnostic evidence alone does not approve deployment.
+
+Independent v2 source review found additional closure defects before release:
+URI-index caches could outlive an inspection, URI aliases could omit referenced
+records, and branching base dependencies could consume exponential work.
+Regression fixes use fresh per-inspection caches, per-closure completed-base
+tracking with a shared bounded work budget, and a closed URI-only identity subset.
+Unsupported, unmatched, ambiguous and noncanonical identities remain ineligible;
+raw result, URI, index and selected-record fields are never rewritten or removed.
+The scoped local gate/workflow suite passes 107 tests with two Windows-only
+symlink privilege skips. These fixes do not prove actual scanner compatibility
+or stability. Paired actual scans and independent final review remain required
+before a fresh ledger can be approved; the existing ledger remains stale.
+
 A bounded read-only production soak completes in 312111 ms: 99 public GETs,
 zero failures, HTTP 200 for all three services, maximum concurrency two.
 Backend identity remains `6e3277edd57229f751c5fe3609d95db8741405ae`;
