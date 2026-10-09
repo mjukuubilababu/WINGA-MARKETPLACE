@@ -41,6 +41,10 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - run: npm run test:conversation-operations
+      - name: Test growth runtime, share and isolated SQL contracts
+        env:
+          WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'
+        run: npm run test:growth
       - name: Test file and untrusted-key security regressions
         run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js tests/loopback-proxy-security.test.js
       - run: npm run test:conversation-postgres
@@ -50,6 +54,8 @@ jobs:
           WINGA_DOM_BROWSER_TEST: 'true'
         run: node --test tests/dom-url-security.test.js
       - run: npm run test:secure-content-browser
+      - name: Test guest sharing and exact auth return in the browser
+        run: npx playwright test tests/e2e/growth-loops.spec.js --reporter=list
   dependencies:
     if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/codex/conversation-codeql-diagnostics') }}
     runs-on: ubuntu-24.04

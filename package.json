@@ -4,7 +4,7 @@
   "scripts": {
     "test:growth:postgres": "bash scripts/run-local-growth-db-tests.sh",
     "canary:growth:local": "bash scripts/run-local-growth-db-tests.sh canary",
-    "test:growth": "node tests/growth-runtime.test.js && node tests/growth-loops.test.mjs",
+    "test:growth": "node --test tests/growth-policy.test.js tests/growth-share.test.js && node tests/growth-runtime.test.js && node tests/growth-loops.test.mjs",
     "postinstall": "node scripts/patch-ts-mls.js",
     "build:vercel": "node scripts/build-vercel-static.js",
     "verify:production": "node scripts/verify-production-shell.js",

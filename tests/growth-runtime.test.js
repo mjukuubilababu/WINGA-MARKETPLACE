@@ -5,13 +5,14 @@ const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 const contract = require('../src/growth/contract');
 
-function fixture({storageDenied=false,online=true,request=async()=>({})}={}) {
+function fixture({storageDenied=false,online=true,request=async()=>({}),performance=false,href='https://winga.test/',initialTime=10000}={}) {
   const session = new Map(), local = new Map(), timers = new Map(), events = [];
-  let time = 10000, number = 0, account = '';
+  let time = initialTime, number = 0, account = '';
   const storage = map => ({getItem:k=>{if(storageDenied)throw Error('denied');return map.get(k)||null;},setItem:(k,v)=>{if(storageDenied)throw Error('denied');map.set(k,v);}});
   const listeners = new Map();
   const win = {WingaModules:{growth:{contract}},WINGA_CONFIG:{growthProductSharing:true,growthMeasurement:true},
-    crypto:{randomUUID},location:{origin:'https://winga.test',href:'https://winga.test/'},navigator:{onLine:online},
+    crypto:{randomUUID},location:{origin:'https://winga.test',href},navigator:{onLine:online},
+    performance:performance?{now:()=>time}:undefined,
     sessionStorage:storage(session),localStorage:storage(local),
     document:{visibilityState:'visible',body:{classList:{contains:()=>true}},addEventListener:()=>{},removeEventListener:()=>{}},
     addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k),dispatchEvent:e=>events.push(e),CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}},
@@ -93,4 +94,37 @@ test('login preserves attribution, while changing an authenticated account clear
   f.setAccount('second-person');f.runtime.prepareShare('p1');
   assert.equal(f.runtime.getJourney().firstTouch,null);
   f.runtime.close();
+});
+
+test('deep-link timing ends at visible content and excludes activation dwell',async()=>{
+  const sent=[],f=fixture({request:async(_k,p)=>sent.push(p)});
+  f.runtime.capture('https://winga.test/product/p1?share='+randomUUID());
+  await f.advance(450);f.runtime.productVisible('p1');await f.advance(2000);
+  const viewed=sent.find(p=>p.eventType==='shared_product_viewed');
+  assert.equal(viewed.durationMs,450);
+  assert.deepEqual(Object.keys(viewed).sort(),['durationMs','eventId','eventType','schemaVersion','sessionId','shareId']);
+  f.runtime.close();
+});
+
+test('initial document timing includes bootstrap and retry reuses the same latency observation',async()=>{
+  const sent=[],f=fixture({performance:true,initialTime:750,href:'https://winga.test/product/p1?share='+randomUUID(),request:async(_k,p)=>{
+    sent.push(p);if(p.durationMs!==undefined)throw Object.assign(Error('down'),{status:503});
+  }});
+  await f.advance(100);f.runtime.productVisible('p1');await f.advance(2000);await f.advance(30000);
+  const viewed=sent.filter(p=>p.eventType==='shared_product_viewed');
+  assert.equal(viewed.length,2);assert.equal(viewed[0].durationMs,850);
+  assert.equal(viewed[1].durationMs,850);assert.equal(viewed[1].eventId,viewed[0].eventId);
+  f.runtime.close();
+});
+
+test('hidden initial routes and excessive durations do not fabricate latency samples',async()=>{
+  for(const hidden of [true,false]) {
+    const sent=[],f=fixture({request:async(_k,p)=>sent.push(p)});
+    if(hidden)f.win.document.visibilityState='hidden';
+    f.runtime.capture('https://winga.test/product/p1?share='+randomUUID());
+    await f.advance(hidden?1000:300001);f.win.document.visibilityState='visible';
+    f.runtime.productVisible('p1');await f.advance(2000);
+    assert.equal(sent.find(p=>p.eventType==='shared_product_viewed').durationMs,undefined);
+    f.runtime.close();
+  }
 });

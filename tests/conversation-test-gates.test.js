@@ -15,17 +15,30 @@ test('PostgreSQL acceptance gate refuses missing, remote or ambiguous targets in
 test('spec release profiles retain direct, E2EE, Room, security and genuine PostgreSQL gates',()=>{
   const scripts=require('../package.json').scripts;
   for(const key of ['test:conversation-direct','test:conversation-e2ee','test:conversation-rooms',
-    'test:conversation-security','test:conversation-operations','test:conversation-postgres','verify:conversation-dependencies'])assert.ok(scripts[key],key);
+    'test:conversation-security','test:conversation-operations','test:conversation-postgres','test:growth','verify:conversation-dependencies'])assert.ok(scripts[key],key);
   for(const key of ['test:conversation-direct','test:conversation-security','test:conversation-operations']) {
     for(const file of scripts[key].split(' ').filter(value=>value.startsWith('tests/')))assert.ok(fs.existsSync(path.join(root,file)),file);
   }
   const workflow=fs.readFileSync(path.join(root,'.github/workflows/conversation-tests.yml'),'utf8');
   for(const command of ['test:conversation-direct','test:conversation-e2ee','test:conversation-rooms',
-    'test:conversation-security','test:conversation-operations','test:conversation-postgres','test:secure-content-browser',
+    'test:conversation-security','test:conversation-operations','test:conversation-postgres','test:growth','test:secure-content-browser',
     'test:phoenix-transport','verify:conversation-dependencies'])assert.ok(workflow.includes(command),command);
   assert.ok(workflow.includes('mix test'));
   assert.ok(workflow.includes('github/codeql-action/analyze@v4'));
   assert.equal(/secrets\.|https:\/\/winga(?:market|[-.])/.test(workflow),false);
+});
+
+test('growth release gate includes genuine PostgreSQL concurrency and browser auth-return cases',()=>{
+  const runner=fs.readFileSync(path.join(root,'scripts/run-conversation-postgres-tests.js'),'utf8');
+  for(const name of ['growth-loops.test.mjs','growth-postgres.test.mjs']) {
+    assert.ok(runner.includes("'"+name+"'"));assert.ok(fs.existsSync(path.join(root,'tests',name)));
+  }
+  const workflow=fs.readFileSync(path.join(root,'.github/workflows/conversation-tests.yml'),'utf8');
+  assert.match(workflow,/run: npx playwright test tests\/e2e\/growth-loops\.spec\.js --reporter=list/);
+  assert.match(workflow,/WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'\s+run: npm run test:growth/);
+  assert.match(workflow,/WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'true'/);
+  const config=fs.readFileSync(path.join(root,'playwright.config.js'),'utf8');
+  assert.match(config,/channel: process\.env\.WINGA_TEST_BROWSER_CHANNEL \|\| "msedge"/);
 });
 test('acceptance runner refuses inherited test filtering before attempting any database work',()=>{
   const result=spawnSync(process.execPath,[path.join(root,'scripts/run-conversation-postgres-tests.js')],{encoding:'utf8',

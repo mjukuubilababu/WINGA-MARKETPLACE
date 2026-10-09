@@ -1,18 +1,20 @@
 const { crawler, uuid } = require('../src/growth/contract');
+const { createGrowthPolicy } = require('./growth-policy');
 
 function createGrowthApi(deps) {
+  const cohort = deps.cohort || createGrowthPolicy();
   return { async handle(req, res, url) {
     const path = url.pathname;
     if (!path.startsWith('/api/growth/') && !path.startsWith('/api/admin/growth/')) return false;
     const send = (status, body, headers = {}) => deps.sendJson(res, status, body, { 'Cache-Control': 'private, no-store', ...headers });
     const session = deps.findSession(deps.readAuthToken(req));
-    const context = { username: session?.username || '', ip: deps.clientIp(req), bot: crawler(req.headers['user-agent']) };
+    const context = { username: session?.username || '', ip: deps.clientIp(req), bot: crawler(req.headers['user-agent']), growthCohort: cohort };
     const store = deps.getStore();
     try {
       if (path === '/api/admin/growth/health' && req.method === 'GET') {
         if (!session || !deps.isAdminSession(session)) { send(403, { code: 'growth_admin_required' }); return true; }
         if (!store?.readGrowthHealth) { send(503, { code: 'growth_unavailable' }); return true; }
-        send(200, await store.readGrowthHealth()); return true;
+        send(200, { ...await store.readGrowthHealth(), rollout: cohort.summary }); return true;
       }
       if (path === '/api/admin/growth/prune' && req.method === 'POST') {
         if (!session || !deps.isAdminSession(session)) { send(403, { code: 'growth_admin_required' }); return true; }
@@ -32,6 +34,7 @@ function createGrowthApi(deps) {
       }
       if (path === '/api/growth/shares' && req.method === 'POST') {
         if (!deps.productSharingEnabled) { send(404, { code: 'growth_sharing_disabled' }); return true; }
+        if (!cohort.allowsCreation(context.username)) { send(403, { code: 'growth_cohort_excluded' }); return true; }
         if (context.bot) { send(400, { code: 'growth_crawler_rejected' }); return true; }
         if (!store?.createGrowthShare) { send(503, { code: 'growth_unavailable' }); return true; }
         const payload = await deps.collectBody(req, { maxBytes: 4096 });

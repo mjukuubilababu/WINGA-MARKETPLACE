@@ -10,7 +10,7 @@ module.exports = defineConfig({
   },
   use: {
     baseURL: "http://127.0.0.1:4173/index.html",
-    channel: "msedge",
+    channel: process.env.WINGA_TEST_BROWSER_CHANNEL || "msedge",
     headless: true
   },
   webServer: undefined

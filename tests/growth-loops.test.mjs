@@ -6,6 +6,7 @@ import { growthFixture as fixture } from './helpers/growth-database.mjs';
 const require = createRequire(import.meta.url);
 const contract = require('../src/growth/contract');
 const { createGrowthApi } = require('../backend/growth-api');
+const { createGrowthPolicy } = require('../backend/growth-policy');
 
 
 test('canonical product links reject redirects, traversal, malformed encoding and gated private domains', () => {
@@ -155,4 +156,75 @@ test('guest to authenticated value preserves the same journey and reports a coho
   assert.equal(health.cohort.valueRate,1);
   assert.equal(health.cohort.continuationRate,1);
   assert.equal(health.cohort.viralCoefficient,null);
+});
+
+test('durable events enforce server cohorts, source enrollment and explicit guest scope',async t=>{
+  const f=await fixture(t);
+  const env={WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'sender,recipient'};
+  const cohort=createGrowthPolicy(env);
+  await assert.rejects(f.store.createGrowthShare(f.payload,{...f.source,username:'other',growthCohort:cohort}),{code:'growth_cohort_excluded'});
+  await f.store.createGrowthShare(f.payload,{...f.source,growthCohort:cohort});
+  const event=f.event('shared_product_viewed');
+  await assert.rejects(f.store.recordGrowthEvent(event,{...f.recipient,username:'other',growthCohort:cohort}),{code:'growth_cohort_excluded'});
+  await assert.rejects(f.store.recordGrowthEvent(event,{...f.recipient,username:'',growthCohort:cohort}),{code:'growth_cohort_excluded'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_events')).rows[0].count,1);
+  await f.store.recordGrowthEvent(event,{...f.recipient,growthCohort:cohort});
+  const noSource=createGrowthPolicy({...env,WINGA_GROWTH_COHORT_USERS:'recipient'});
+  await assert.rejects(f.store.recordGrowthEvent(f.event('product_share_opened'),{...f.recipient,growthCohort:noSource}),{code:'growth_cohort_excluded'});
+  await f.store.recordGrowthEvent(f.event('product_share_opened'),{...f.recipient,username:'',growthCohort:createGrowthPolicy({...env,WINGA_GROWTH_COHORT_GUEST_MEASUREMENT:'true'})});
+  assert.equal((await f.store.resolveGrowthShare(f.payload.shareId,{...f.recipient,username:'other',growthCohort:cohort})).destinationId,'p1');
+});
+
+test('timing observations are bounded, idempotent and separate from verified value',async t=>{
+  const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+  const event={...f.event('shared_product_viewed'),durationMs:450};
+  await f.store.recordGrowthEvent(event,f.recipient);
+  assert.equal((await f.store.recordGrowthEvent({...event,durationMs:5},f.recipient)).duplicate,true);
+  const health=await f.store.readGrowthHealth();
+  assert.deepEqual(health.timing,{metric:'deep_link_to_content_ms',verification:'client_observed',
+    basis:'navigation_or_route_capture_to_visible_detail_excluding_activation_dwell',samples:1,averageMs:450,p95Ms:450});
+  assert.equal(health.confirmedSaves,0);assert.equal(health.confirmedOrderStarts,0);
+  for(const durationMs of [-1,300001,1.5,'450',null])
+    await assert.rejects(f.store.recordGrowthEvent({...event,eventId:randomUUID(),durationMs},f.recipient),{code:'growth_event_invalid'});
+  await assert.rejects(f.store.recordGrowthEvent({...f.event('product_share_opened'),durationMs:450},f.recipient),{code:'growth_event_invalid'});
+  await assert.rejects(f.db.query("UPDATE growth_events SET client_duration_ms=-1 WHERE event_type='shared_product_viewed'"));
+});
+
+test('reshare continuation respects parent-source enrollment without denying enrolled sharing',async t=>{
+  const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+  const env={WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'recipient'};
+  const child={...f.payload,shareId:randomUUID(),sessionId:randomUUID(),parentShareId:f.payload.shareId};
+  const recipient={...f.recipient,growthCohort:createGrowthPolicy(env)};
+  await f.store.createGrowthShare(child,recipient);
+  let health=await f.store.readGrowthHealth();
+  assert.equal(health.counts.product_share_created,2);
+  assert.equal(health.counts.shared_product_reshared||0,0);
+  recipient.growthCohort=createGrowthPolicy({...env,WINGA_GROWTH_COHORT_USERS:'sender,recipient'});
+  assert.equal((await f.store.createGrowthShare(child,recipient)).duplicate,true);
+  assert.equal((await f.store.readGrowthHealth()).counts.shared_product_reshared||0,0);
+  await f.store.createGrowthShare({...child,shareId:randomUUID(),sessionId:randomUUID()},recipient);
+  health=await f.store.readGrowthHealth();
+  assert.equal(health.counts.shared_product_reshared,1);
+});
+
+test('timing migration preserves old events and rolls back a failed schema transaction',async t=>{
+  const f=await fixture(t,{migrate:false});
+  for(const sql of require('../backend/migrations/growth-loops').statements)await f.db.exec(sql);
+  await f.db.query(`INSERT INTO growth_shares(id,content_type,content_id,source_surface,owner_username,actor_key,expires_at)
+    VALUES($1,'PRODUCT','p1','feed','sender','old-actor',NOW()+INTERVAL '1 day')`,[f.payload.shareId]);
+  await f.db.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification)
+    VALUES('legacy-event',$1,'old-actor','product_share_created','server')`,[f.payload.shareId]);
+  const timing=require('../backend/migrations/growth-event-timing');
+  await assert.rejects(f.db.transaction(async client=>{
+    for(const sql of timing.statements)await client.query(sql);
+    await client.query('SELECT deliberately_missing_timing_column');
+  }));
+  const columns=await f.db.query(`SELECT column_name FROM information_schema.columns
+    WHERE table_schema=current_schema() AND table_name='growth_events' AND column_name='client_duration_ms'`);
+  assert.equal(columns.rows.length,0);
+  for(const sql of timing.statements)await f.db.exec(sql);
+  const old=(await f.db.query("SELECT client_duration_ms FROM growth_events WHERE event_id='legacy-event'")).rows[0];
+  assert.equal(old.client_duration_ms,null);
+  await f.store.recordGrowthEvent(f.event('shared_product_viewed'),f.recipient);
+  assert.equal((await f.store.readGrowthHealth()).timing.samples,0);
 });

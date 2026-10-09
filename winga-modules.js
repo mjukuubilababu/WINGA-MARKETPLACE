@@ -104,6 +104,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function createRuntime(deps = {}) {
     const win = deps.window || window, contract = win.WingaModules.growth.contract;
     const now = deps.now || Date.now;
+    const timingNow = () => win.performance?.now ? win.performance.now() : now();
     const randomId = () => win.crypto.randomUUID();
     const enabled = () => win.WINGA_CONFIG?.growthProductSharing === true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
@@ -126,11 +127,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     journey.lastTouch = journey.touches.at(-1) || null;
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
     let previousAccount = account();
+    let routeTiming = null, initialCapture = true;
     function syncIdentity() {
       const current = account();
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
+        routeTiming = null;
         storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
       previousAccount = current;
@@ -191,6 +194,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if (!touch) return;
       const payload = { eventId: randomId(), shareId: touch.shareId, sessionId, eventType, schemaVersion: 1 };
       if (contract.id(extra.orderId)) payload.orderId = extra.orderId;
+      if (eventType === 'shared_product_viewed' && Number.isInteger(extra.durationMs)
+        && extra.durationMs >= 0 && extra.durationMs <= 300000) payload.durationMs = extra.durationMs;
       enqueue('events',payload);
     }
     function capture(input = win.location.href) {
@@ -199,7 +204,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       try {
         const target = contract.parseDestination(input, win.location.origin), url = new URL(input, win.location.origin);
         const shareId = url.searchParams.get('share');
-        if (!target || !contract.uuid(shareId)) return;
+        if (!target || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
+        if (!routeTiming || routeTiming.shareId !== shareId || routeTiming.productId !== target.id) {
+          routeTiming = { productId: target.id, shareId,
+            startedAt: initialCapture && win.performance?.now && input === win.location.href ? 0 : timingNow(),
+            durationMs: null, eligible: win.document.visibilityState === 'visible' };
+        }
+        initialCapture = false;
         if (journey.lastTouch?.shareId !== shareId) {
           const touch = { shareId, productId: target.id, at: now() };
           // Preserve the original first touch when the bounded journal is full.
@@ -226,13 +237,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
       if (!touchFor(productId) || !measurement() || win.document.visibilityState !== 'visible') return;
+      if (routeTiming?.productId === productId && routeTiming.eligible && routeTiming.durationMs === null) {
+        const duration = Math.round(timingNow() - routeTiming.startedAt);
+        if (Number.isInteger(duration) && duration >= 0 && duration <= 300000) routeTiming.durationMs = duration;
+      }
+      const durationMs = routeTiming?.productId === productId ? routeTiming.durationMs : null;
       // A visible detail view for two seconds is activation; opening a URL alone is not.
       viewTimer = win.setTimeout(() => {
         if (activeProduct === productId && win.document.visibilityState === 'visible'
-          && win.document.body.classList.contains('product-detail-open')) event('shared_product_viewed',productId);
+          && win.document.body.classList.contains('product-detail-open')) event('shared_product_viewed',productId,{durationMs});
       },2000);
     }
-    function visibility() { if (win.document.visibilityState === 'visible') productVisible(activeProduct); else if (viewTimer) win.clearTimeout(viewTimer); }
+    function visibility() {
+      if (win.document.visibilityState === 'visible') productVisible(activeProduct);
+      else { if (viewTimer) win.clearTimeout(viewTimer); if (routeTiming && routeTiming.durationMs === null) routeTiming.eligible = false; }
+    }
     const online = () => void flush();
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);

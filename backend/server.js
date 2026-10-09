@@ -8085,6 +8085,7 @@ const server = http.createServer(async (req, res) => {
         findSession: token => findSession(store, token), readAuthToken,
         ensureUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
         isAdminSession, clientIp: getClientIp, getStore: () => postgresStore,
+        cohort: require('./growth-policy').createGrowthPolicy(process.env),
         productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
         measurementEnabled: process.env.WINGA_GROWTH_MEASUREMENT_ENABLED === 'true' });
       if (await growthApi.handle(req, res, url)) return;

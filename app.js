@@ -24222,7 +24222,6 @@ async function handleShareProduct(product, options = {}) {
   }
 
   alert(`${shareText} | Link: ${shareUrl}`);
-  commitShare();
 }
 
 function getGrowthRuntime() {

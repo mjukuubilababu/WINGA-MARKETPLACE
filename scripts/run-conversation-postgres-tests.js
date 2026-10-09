@@ -17,7 +17,8 @@ function main() {
   }
   const tests=['conversation-event-concurrency.test.js','encrypted-conversation-concurrency.test.js',
     'conversation-operations.test.js','conversation-invariants.test.js','legacy-conversation-compatibility.test.js',
-    'conversation-experience-store.test.js','shopping-rooms-service.test.mjs'].map(file=>'tests/'+file);
+    'conversation-experience-store.test.js','shopping-rooms-service.test.mjs',
+    'growth-loops.test.mjs','growth-postgres.test.mjs'].map(file=>'tests/'+file);
   const env={...process.env,WINGA_TEST_SHOPPING_ROOMS_POSTGRES:'true'};delete env.NODE_TEST_CONTEXT;
   const result=spawnSync(process.execPath,['--test','--test-concurrency=1',...tests],{
     cwd:path.resolve(__dirname,'..'),stdio:'inherit',windowsHide:true,timeout:30*60*1000,

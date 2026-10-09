@@ -58,11 +58,19 @@ the exact backend/frontend release, confirm staging migrations and a restore
 point, and provide deployment and admin-report access through configured
 credentials. Do not send secrets in chat.
 
-The current server growth flags are global booleans. Browser overrides bound
-the local rehearsal only; they are not a production enrollment control. A live
-canary must use an isolated staging deployment or add and validate server-side
-cohort enforcement before enabling these flags on shared production. Resolve
-that boundary with the selected target rather than enabling them globally.
+The original rehearsal used global server booleans and browser overrides;
+that was not production cohort enforcement. The Phase 1 hardening now adds
+server `WINGA_GROWTH_COHORT_MODE=allowlist` with exact enrolled usernames in
+`WINGA_GROWTH_COHORT_USERS`. Use it together with the existing independent
+creation/measurement flags, never browser overrides alone. Invalid/empty
+allowlists deny writes; old public links remain usable. New cohort/migration
+acceptance on real PostgreSQL and a live deployment are still required.
+
+Guest observation is off by default in allowlist mode. Enabling
+`WINGA_GROWTH_COHORT_GUEST_MEASUREMENT=true` admits anonymous observations for
+enrolled-source shares, not a fixed recipient-account cohort. Those public
+links can travel beyond test accounts. Prefer isolated staging for strict
+guest-canary isolation. See the current [rollout contract](growth-loops-rollout.md).
 
 Use one approved, public test listing. Record aggregate metrics before and after
 normal manual sharing, guest viewing, save and order-start actions by the
