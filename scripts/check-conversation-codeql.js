@@ -324,6 +324,29 @@ function artifactCollectionDiagnostics(artifacts) {
   if (artifacts.length > ARTIFACT_DIAGNOSTIC_LIMIT) return { ...diagnostic, limited: true };
   const hashes = values => ({ orderedSha256: canonicalFingerprint(values),
     sortedSha256: canonicalFingerprint(values.map(value => canonicalFingerprint(value)).sort()) });
+  const locationNames = ['uri', 'uriBaseId', 'index', 'description', 'properties'];
+  const locations = artifacts.map(artifact => object(artifact) && own(artifact, 'location') ? artifact.location : undefined);
+  const typeCounts = values => {
+    const counts = { missing: 0, null: 0, array: 0, object: 0, string: 0, number: 0, boolean: 0 };
+    for (const value of values) counts[value === undefined ? 'missing' : value === null ? 'null'
+      : Array.isArray(value) ? 'array' : typeof value]++;
+    return counts;
+  };
+  const locationFields = Object.fromEntries(locationNames.map(name => [name, {
+    presentCount: locations.filter(value => object(value) && own(value, name)).length,
+    typeCounts: typeCounts(locations.map(value => object(value) && own(value, name) ? value[name] : undefined)),
+    ...hashes(locations.map(value => object(value) ? own(value, name) ? [1, value[name]] : [0]
+      : value === undefined ? [2] : [3, value]))
+  }]));
+  let locationRecordCount = 0, locationKeyCount = 0, selfIndexMatches = 0, nonSelfIndex = 0;
+  const locationOther = locations.map((value, i) => {
+    if (!object(value)) return value === undefined ? [0] : [2, value];
+    if (own(value, 'index')) { if (value.index === i) selfIndexMatches++; else nonSelfIndex++; }
+    const entries = Object.entries(value).filter(([name]) => !locationNames.includes(name));
+    if (entries.length) locationRecordCount++;
+    locationKeyCount += entries.length;
+    return [1, Object.fromEntries(entries)];
+  });
   const fields = {};
   for (const name of ARTIFACT_DIAGNOSTIC_FIELDS) {
     const slots = artifacts.map(artifact => object(artifact)
@@ -340,6 +363,8 @@ function artifactCollectionDiagnostics(artifacts) {
   });
   return { ...diagnostic, ...hashes(artifacts),
     nonObjectCount: artifacts.filter(artifact => !object(artifact)).length, fields,
+    location: { typeCounts: typeCounts(locations), fields: locationFields, selfIndexMatches, nonSelfIndex,
+      otherFields: { recordCount: locationRecordCount, keyCount: locationKeyCount, ...hashes(locationOther) } },
     otherFields: { recordCount, keyCount, ...hashes(other) } };
 }
 
@@ -351,6 +376,16 @@ function fingerprintDiagnostics(result, description, run, artifactDiagnostics) {
   const components = { result, rule: description.rule, toolComponent: description.toolComponent,
     runReferences: referencedRunMetadata(run) };
   const diagnostics = { version: 1, components: {} };
+  const indexReferences = value => {
+    if (!value || typeof value !== 'object') return 0;
+    return Object.entries(value).reduce((count, [key, child]) => count
+      + (key === 'artifactLocation' && object(child) && own(child, 'index') ? 1 : 0)
+      + indexReferences(child), 0);
+  };
+  diagnostics.artifactLocationIndexReferences = { result: indexReferences(result), rule: indexReferences(description.rule),
+    toolComponent: indexReferences(description.toolComponent)
+      + (Array.isArray(description.toolComponent.locations)
+        ? description.toolComponent.locations.filter(value => object(value) && own(value, 'index')).length : 0) };
   for (const [component, value] of Object.entries(components)) {
     const names = FINGERPRINT_DIAGNOSTIC_FIELDS[component];
     const fields = {};

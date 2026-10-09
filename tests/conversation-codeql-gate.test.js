@@ -1695,3 +1695,82 @@ test('timestamp-only changes in a referenced artifact remain blocked pending act
   assert.notEqual(a.fields.lastModifiedTimeUtc.sortedSha256, b.fields.lastModifiedTimeUtc.sortedSha256);
   assert.deepEqual(a.fields.location, b.fields.location);
 });
+
+test('nested artifact location diagnostics isolate fixed fields without changing fingerprint semantics', () => {
+  const location = { uri: 'src/a.js', uriBaseId: '%SRCROOT%', index: 0,
+    description: { text: 'Synthetic description' }, properties: { synthetic: true } };
+  const before = artifactDiagnosticFinding([{ location }]);
+  const a = before.fingerprintDiagnostics.artifactCollection.location;
+  assert.deepEqual(Object.keys(a.fields), ['uri', 'uriBaseId', 'index', 'description', 'properties']);
+  assert.equal(a.selfIndexMatches, 1);
+  assert.equal(a.nonSelfIndex, 0);
+  assert.equal(a.typeCounts.object, 1);
+  for (const [name, value] of Object.entries({ uri: 'src/b.js', uriBaseId: '%OTHER%', index: 1,
+    description: { text: 'Changed description' }, properties: { synthetic: false } })) {
+    const after = artifactDiagnosticFinding([{ location: { ...location, [name]: value } }]);
+    const b = after.fingerprintDiagnostics.artifactCollection.location;
+    assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+    for (const key of Object.keys(a.fields)) {
+      assert.equal(a.fields[key].orderedSha256 === b.fields[key].orderedSha256, key !== name);
+      assert.equal(a.fields[key].sortedSha256 === b.fields[key].sortedSha256, key !== name);
+      assert.equal(b.fields[key].presentCount, 1);
+    }
+    assert.equal(b.selfIndexMatches, name === 'index' ? 0 : 1);
+    assert.equal(b.nonSelfIndex, name === 'index' ? 1 : 0);
+  }
+});
+
+test('nested artifact location diagnostics distinguish URI-index reassociation from individual multiset drift', () => {
+  const before = artifactDiagnosticFinding([{ location: { uri: 'src/a.js', index: 0 } },
+    { location: { uri: 'src/b.js', index: 1 } }]);
+  const after = artifactDiagnosticFinding([{ location: { uri: 'src/b.js', index: 0 } },
+    { location: { uri: 'src/a.js', index: 1 } }]);
+  const a = before.fingerprintDiagnostics.artifactCollection, b = after.fingerprintDiagnostics.artifactCollection;
+  assert.notEqual(a.sortedSha256, b.sortedSha256);
+  assert.equal(a.location.fields.uri.sortedSha256, b.location.fields.uri.sortedSha256);
+  assert.notEqual(a.location.fields.uri.orderedSha256, b.location.fields.uri.orderedSha256);
+  assert.deepEqual(a.location.fields.index, b.location.fields.index);
+  assert.notEqual(before.resultFingerprint, after.resultFingerprint);
+});
+
+test('nested artifact location diagnostics retain absent null and invalid types and anonymize unknown keys', t => {
+  const marker = 'SYNTHETIC_NESTED_LOCATION_PRIVATE_DO_NOT_LOG';
+  const artifacts = [{}, { location: null }, { location: [] }, { location: false },
+    { location: { uri: null, index: null } },
+    { location: { uri: marker, uriBaseId: marker, index: 5, description: { text: marker },
+      properties: { [marker]: marker }, [marker]: marker } }];
+  const d = artifactDiagnosticFinding(artifacts).fingerprintDiagnostics.artifactCollection.location;
+  assert.deepEqual(d.typeCounts, { missing: 1, null: 1, array: 1, object: 2, string: 0, number: 0, boolean: 1 });
+  assert.equal(d.fields.uri.presentCount, 2);
+  assert.deepEqual(d.fields.uri.typeCounts, { missing: 4, null: 1, array: 0, object: 0, string: 1, number: 0, boolean: 0 });
+  assert.equal(d.selfIndexMatches, 1);
+  assert.equal(d.nonSelfIndex, 1);
+  assert.equal(d.otherFields.keyCount, 1);
+  assert.equal(d.otherFields.recordCount, 1);
+  const absent = artifactDiagnosticFinding([{ location: {} }]).fingerprintDiagnostics.artifactCollection.location;
+  const present = artifactDiagnosticFinding([{ location: { uri: null } }]).fingerprintDiagnostics.artifactCollection.location;
+  assert.notEqual(absent.fields.uri.sortedSha256, present.fields.uri.sortedSha256);
+  const current = run([finding()]);
+  current.artifacts = artifacts;
+  const dir = directory(t);
+  writeReport(dir, report(current));
+  const output = cli(dir);
+  assert.equal(output.status, 1);
+  assert.equal(output.stdout.includes(marker), false);
+  assert.ok(output.stdout.length < 16000);
+});
+
+test('nested artifact location diagnostics count recognized result rule and tool index references only', () => {
+  const current = run([finding()]);
+  current.artifacts = [{ location: { uri: 'backend/synthetic-gate.js' } },
+    { location: { uri: 'src/flow.js' } }, { location: { uri: 'src/tool.js' } }, { location: { uri: 'src/metadata.js' } }];
+  current.results[0].locations[0].physicalLocation.artifactLocation.index = 0;
+  current.results[0].codeFlows = [{ threadFlows: [{ locations: [{ location: {
+    physicalLocation: { artifactLocation: { index: 1 } } } }] }] }];
+  current.results[0].properties = { index: 99 };
+  current.tool.driver.rules[0].properties.artifactLocation = { index: null };
+  current.tool.driver.locations = [{ uri: 'src/tool.js', index: 2 }, { uri: 'src/other.js' }];
+  current.tool.driver.properties = { artifactLocation: { index: 3 }, index: 99 };
+  const d = inspectReport(report(current), 0).findings[0].fingerprintDiagnostics;
+  assert.deepEqual(d.artifactLocationIndexReferences, { result: 2, rule: 1, toolComponent: 2 });
+});

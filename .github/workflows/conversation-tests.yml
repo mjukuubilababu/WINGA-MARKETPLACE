@@ -2,7 +2,7 @@ name: Winga Conversation Acceptance And Security
 on:
   workflow_dispatch:
   push:
-    branches: [master, 'codex/conversations-final-acceptance']
+    branches: [master, 'codex/conversations-final-acceptance', 'codex/conversation-codeql-diagnostics']
   pull_request:
 permissions:
   contents: read
@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   functional:
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/codex/conversation-codeql-diagnostics') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
@@ -49,6 +50,7 @@ jobs:
         run: node --test tests/dom-url-security.test.js
       - run: npm run test:secure-content-browser
   dependencies:
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/codex/conversation-codeql-diagnostics') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -63,6 +65,7 @@ jobs:
       - run: npm ci --prefix backend
       - run: npm run verify:conversation-dependencies
   beam:
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/codex/conversation-codeql-diagnostics') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:

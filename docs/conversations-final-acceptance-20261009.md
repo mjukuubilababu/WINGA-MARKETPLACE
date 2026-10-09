@@ -188,6 +188,45 @@ metadata. CI includes its helper tests. No retry, timeout or ciphertext delivery
 assertion is weakened; actual hosted startup and native acceptance remain
 required before claiming the previous startup failure is resolved.
 
+QA candidate `a875c6c`, run `37861448189`, passes dependencies and BEAM:
+15 Mix tests and 14 Node cases, zero skips, including signed MLS traffic through
+real node loss and exact ciphertext recovery. Startup failure does not recur
+in this run; the earlier root cause is still not claimed. The first successful
+static scan binds the same Linux/Windows tree
+`28b01183671d9e697a36de67f5662a304a6e3d183ed2951964154d70797ad44d`
+and emits 50 findings. Its 507 artifacts contain only `location`; timestamps,
+contents, hashes, properties and unknown artifact fields are absent. Ordering
+still requires paired sorted-hash proof before any canonicalization.
+
+The new exact `js/file-system-race` site at
+`tests/helpers/phoenix-fixture-startup.js:24`, source SHA-256
+`916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8`,
+is independently classified by Godel (not its author Hubble) as a mitigated
+test-only read. The generated fixture directory remains trusted; descriptor
+checks are not a claim of arbitrary ancestor safety or atomic immutability.
+Independent 5/5 tests verify read bounds, substitutions, cleanup and output
+privacy. This classification does not yet approve a result digest or new ledger.
+
+The same-commit rerun, static job `113600951689`, binds the same tree and
+emits the same 50 findings. Both ordered and sorted whole-artifact hashes differ;
+only artifact `location` differs, including its sorted hash. Therefore ordering
+alone is not the cause, and an artifact-sorting fix is explicitly not approved.
+Nested URI/base/index provenance must identify the actual location volatility
+without logging arbitrary URI values. No normalization or new ledger binding
+has been applied. Functional, dependencies and BEAM pass for `a875c6c`; the
+security gate correctly remains blocking until the provenance defect is fixed.
+
+To bound investigation time and cost, the additional non-deployment branch
+`codex/conversation-codeql-diagnostics` runs static analysis on push without
+repeating the three already-passing acceptance jobs. The condition is limited
+to that exact branch push; master/acceptance pushes, PRs and manual dispatch on
+every branch retain all four jobs. Static analysis and its failure-path gate
+remain unconditional, with unchanged permissions and no path filters. A green
+diagnostic run is not acceptance evidence: final promotion requires functional,
+dependencies, BEAM and static analysis actually executed and passing for the
+candidate SHA on the regular acceptance branch. Render backend/Phoenix remain
+configured for master On Commit; no production deployment is initiated here.
+
 A bounded read-only production soak completes in 312111 ms: 99 public GETs,
 zero failures, HTTP 200 for all three services, maximum concurrency two.
 Backend identity remains `6e3277edd57229f751c5fe3609d95db8741405ae`;
