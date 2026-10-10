@@ -506,3 +506,90 @@ pending entries to actual job `113793149451`. CLI changes from 2.27.1 to
 artifact URI multiset remains identical despite ordering changes. The prior
 31-field coordinate proof remains valid. Entries are activated without parser,
 matcher, reason, reviewer or cap changes. Fresh four-job acceptance is required.
+
+
+## Supplied cloud-handoff-growth branch review
+
+The supplied source is now available: branch `codex/cloud-handoff-growth`, commit
+`e2a0cc82c01984dad1a12cf0a8cf390ede848850`, base
+`3e291ab242838bdebeca08972e4633b86907cf29`. Its README-equivalent
+`docs/cloud-handoff-growth-20261009.md` was read before review. Fresh master is
+`3149198349e7274321cf923a5c09796ab0825a86`: one test-harness commit ahead of the
+base. None of that commit's files overlap the handoff changes. No master merge,
+rebase, force push, deployment or production application writes occurred.
+
+This actual handoff supersedes the earlier reconstructed candidate. Preserve its
+backend database verifier, production-only frontend defaults and baseline gate
+that blocks all load after even one baseline failure. The earlier reconstruction
+had no backend database verifier and enabled local/file defaults as well; its
+public-only verifier is not a substitute for this implementation. The supplied
+historical JSON evidence remains unchanged; it is not fresh production evidence.
+
+Own review fixes and fresh verification:
+
+- Applied the previously tested Worker build-alias correction only after
+  `git apply --check`; both aliases now retain the handoff's `20261009150025`.
+  The build helper updates both while preserving other vars and environments.
+  No frontend build or deployment was run to change that recorded identity.
+- Full CI explicitly tests the handoff's public-soak safety without production
+  traffic and disables diff-informed CodeQL queries. Exact-tree SARIF validation,
+  security-extended queries, review ledger and all existing gates remain intact.
+- Added an actual PostgreSQL regression proving a concurrent writer's commit does
+  not enter the verifier's established repeatable-read snapshot. PostgreSQL itself
+  rejects attempted writes in that transaction, and a failed verifier rolls back
+  so the same connection can be reused.
+- Supplied commit baseline: Growth 33 passed; soak 12 passed; frontend core 145
+  and regressions 80 passed; canonical PostgreSQL 118 passed without skips;
+  module sync 95 modules passed.
+- After review fixes: canonical PostgreSQL 119 passed without skips and all owned
+  fixture schemas/container removed; build, workflow and fail-closed SARIF gate
+  tests 123 passed without skips; whitespace checks passed.
+
+Fresh local logs: `/tmp/winga-reference-{growth,soak,frontend,modules,postgres}.log`,
+`/tmp/winga-reference-postgres-review.log` and
+`/tmp/winga-reference-review-gates.log`. Raw generated reports and screenshots
+are not committed. Complete current-candidate CI and exact-tree CodeQL finding
+review are still pending at this checkpoint. The current cloud runtime has no
+ready production secrets/custom allowed hosts; no production identity/cohort
+readback is claimed. Real rey/wizad device approval, authenticated canary/media/
+recovery, sustained production load and independent crypto audit remain separate
+external gates. Phoenix stays at one instance. No agents were used.
+
+
+### Preserve the newer master harness in the acceptance candidate
+
+The identical `31491983` video-recovery test fix was applied after a successful
+`git apply --check`, with no merge/rebase or other master changes. This makes the
+candidate source retain the newer harness during PR acceptance as well as future
+integration. The targeted six tests passed with no skips. The original handoff's
+runtime implementation and historical evidence are unchanged. Full CI must bind
+to this resulting candidate source, not just the older e2a0cc8 tree.
+
+
+### Full scan and own exact-binding review of ab3f2ca0
+
+Actual full CodeQL run `37966472821`, job `113942080212`, completed analysis
+with 50 findings (34 warnings, 16 errors). The unchanged gate rejected its prior
+ledger with `CODEQL_REVIEW_STALE`, `source-tree-fingerprint`; that attempt reports
+zero reviewed findings and is not a passing gate.
+
+All 50 baseline ledger fingerprints match the actual historical scanner job
+`113793149451`. Against this fresh candidate scan, 48 complete finding fingerprints
+and their source bindings are identical. The only changed findings are the two
+`js/http-to-file-access` build-helper locations, 717 -> 724 and 969 -> 976.
+Own review confirmed unchanged fixed output directories, bounded single-segment
+product IDs, revalidation at the write boundary, and metadata escaping. The seven
+build regressions passed, including remote hostile IDs and normalization bypass.
+For both findings, rule, tool component, message, partial fingerprints and selected
+artifact-closure hash are unchanged. Location, related-location and flow fields
+change with the seven-line insertion; their lengths remain 1, 2 and 4. The full
+artifact inventory grows from 511 to 512 entries; selected closure is unchanged.
+
+Only these two reviews receive updated coordinates/source/finding hashes and the
+honest reviewer label `Codex (self-review, not independent audit)`. The other 48
+reviews, all reasons and occurrence caps, SARIF parser, query suite and gates are
+preserved. The candidate's local exact-tree digest matches the actual scanner's
+`b8ac2b5cd6d135151aff65afd0e8787b62dd560908c48e2492d636229d315718`.
+This ledger correction is a proposed exact binding; the following fresh full CI
+must still prove that the gate accepts it. No scan results or historic evidence
+are fabricated, and no independent security/cryptographic audit is claimed.

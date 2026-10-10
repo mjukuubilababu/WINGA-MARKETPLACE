@@ -1,7 +1,7 @@
 {
   "version": 1,
   "digestAlgorithm": "sha256-lf",
-  "sourceTreeSha256": "b4407c0325d65e821582b9f3cb3ef220c7921cf7ba4b07fd9bca531a6cef1daa",
+  "sourceTreeSha256": "b8ac2b5cd6d135151aff65afd0e8787b62dd560908c48e2492d636229d315718",
   "reviews": [
     {
       "ruleId": "js/request-forgery",
@@ -457,24 +457,24 @@
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
-      "startLine": 717,
-      "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "35635c26b6a8fbbbe27bfcc0b46a287b09f52cbcca448e594ea0242a702ce7fe",
+      "startLine": 724,
+      "sourceSha256": "ca711df4ad2027de6dc0dfc0f10a0ab30716538e448af63be2f9a034514e6563",
+      "resultFingerprint": "e0037ab0af7affede5534df35525a3cef7444289316c713c4c05543325f06840",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "Generated share-page writes use a validated single-segment product ID in the predetermined output directory. Metadata is escaped; the request cannot select another filesystem path.",
-      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/build-vercel-static.test.js invalid/reserved ID path cases; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Current self-review of handoff candidate ab3f2ca0322ede9514ef2fcd45bce97559e37cad: actual full CodeQL run 37966472821 job 113942080212. Fixed build destinations and single-segment ID revalidation remain unchanged; tests/build-vercel-static.test.js passed. Rule, tool, message, partial fingerprints and selected artifact closure match the prior scan; location/dataflow coordinates shift by seven lines. No parser, reason or occurrence-cap relaxation. This re-review is not an independent audit."
     },
     {
       "ruleId": "js/http-to-file-access",
       "path": "scripts/build-vercel-static.js",
-      "startLine": 969,
-      "sourceSha256": "e31d19893f6653a15cc6f947a632c32674830760b8764ab9ce094b01f39a144a",
-      "resultFingerprint": "dbea77012bef93c025f6726b1290b34c3db412a21282ab002a53cb0d7e5cb7d3",
+      "startLine": 976,
+      "sourceSha256": "ca711df4ad2027de6dc0dfc0f10a0ab30716538e448af63be2f9a034514e6563",
+      "resultFingerprint": "1df8054d9c40b7c60881452c99f7918721afe79007407572d29225438be07561",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "Generated share metadata uses the same bounded safe product ID and escaped fields in controlled destinations. Raw user-controlled file paths are not written.",
-      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/build-vercel-static.test.js; generated share-page source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Current self-review of handoff candidate ab3f2ca0322ede9514ef2fcd45bce97559e37cad: actual full CodeQL run 37966472821 job 113942080212. Fixed build destinations and single-segment ID revalidation remain unchanged; tests/build-vercel-static.test.js passed. Rule, tool, message, partial fingerprints and selected artifact closure match the prior scan; location/dataflow coordinates shift by seven lines. No parser, reason or occurrence-cap relaxation. This re-review is not an independent audit."
     },
     {
       "ruleId": "js/http-to-file-access",

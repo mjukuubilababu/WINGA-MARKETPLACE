@@ -41,6 +41,8 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - run: npm run test:conversation-operations
+      - name: Test bounded public soak safety without production traffic
+        run: npm run test:conversation-soak
       - name: Test growth runtime, share and isolated SQL contracts
         env:
           WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'
@@ -111,6 +113,9 @@ jobs:
   static-analysis:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # Exact-tree acceptance requires findings from unchanged files as well.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'
     permissions:
       contents: read
       security-events: write
