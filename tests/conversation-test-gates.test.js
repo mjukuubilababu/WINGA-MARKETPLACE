@@ -34,7 +34,7 @@ test('growth release gate includes genuine PostgreSQL concurrency and browser au
     assert.ok(runner.includes("'"+name+"'"));assert.ok(fs.existsSync(path.join(root,'tests',name)));
   }
   const workflow=fs.readFileSync(path.join(root,'.github/workflows/conversation-tests.yml'),'utf8');
-  assert.match(workflow,/run: npx playwright test tests\/e2e\/growth-loops\.spec\.js --reporter=list/);
+  assert.match(workflow,/run: npx playwright test tests\/e2e\/growth-loops\.spec\.js tests\/e2e\/product-internal-share\.spec\.js --reporter=list/);
   assert.match(workflow,/WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'\s+run: npm run test:growth/);
   assert.match(workflow,/WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'true'/);
   const config=fs.readFileSync(path.join(root,'playwright.config.js'),'utf8');
