@@ -7643,9 +7643,9 @@ function ensureMediaActionSheetRoot() {
       return;
     }
 
-    if (['share','share-copy','share-whatsapp'].includes(action)) {
+    if (['share','share-copy','share-whatsapp','share-winga'].includes(action)) {
       closeMediaActionSheet();
-      handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
+      handleShareProduct(product,{ channel: action === 'share-winga' ? 'winga' : action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
         captureClientError("media_sheet_share_failed", error, {
           productId: product.id
         });
@@ -7945,6 +7945,7 @@ function openMediaActionSheet(product, options = {}) {
   [
     { action: "save", label: saved ? "Remove saved" : "Save" },
     { action: "share", label: translateUi("common.share", {}, "Share") },
+    ...(isAuthenticatedUser() ? [{ action: 'share-winga', label: translateUi('growth.shareToWinga', {}, 'Share to Winga') }] : []),
     { action: 'share-copy', label: translateUi('detail.copyDeepLink', {}, 'Copy Deep Link') },
     { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
     { action: "download", label: translateUi("common.download", {}, "Download") },
@@ -24180,6 +24181,13 @@ function getProductDownloadName(product) {
 
 async function handleShareProduct(product, options = {}) {
   if (!product) {
+    return;
+  }
+
+  if (options.channel === 'winga') {
+    if (!isAuthenticatedUser()) return;
+    window.WingaRichUi?.openProductShare({productId:product.id,dataLayer:window.WingaDataLayer,
+      getSession:()=>currentSession,translate:(key,fallback)=>translateUi(key,{},fallback)});
     return;
   }
 

@@ -4,6 +4,17 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,'../src/api/communications-client.js'),'utf8');
+test('rich product retries retain the supplied action ID on the canonical encrypted writer',async()=>{
+  const writes=[],context={window:{},URLSearchParams,crypto:require('node:crypto').webcrypto};
+  const service={close(){},isEncrypted:async()=>true,sendMessage:async payload=>{writes.push(payload);return {status:'pending'};}};
+  context.WingaEncryptionSession={createEncryptionSession:async()=>service};vm.runInNewContext(source,context);
+  const client=context.window.WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>({username:'alice',sessionId:'a',token:'synthetic'}),
+    fetchJson:async url=>{assert.equal(url,'/api/conversations/encrypted/capabilities');return {version:1,enabled:true};}});
+  const id='00000000-0000-4000-8000-000000000001',content={type:'product',data:{ids:['p1']}};
+  await client.sendRichMessage('bob',content,id);await client.sendRichMessage('bob',content,id);
+  assert.equal(writes.length,2);for(const w of writes){assert.equal(w.clientMessageId,id);assert.equal(w.encrypted,true);assert.equal(w.message,'');assert.equal(w.richContent,content);}
+  await client.sendRichMessage('bob',content);assert.match(writes[2].clientMessageId,/^[0-9a-f-]{36}$/);
+});
 test('missing encryption bootstrap cannot disclose plaintext for encrypted or unknown canonical modes',async()=>{
   for(const mode of ['encrypted','unknown',null]){
     const calls=[],context={window:{},URLSearchParams};vm.runInNewContext(source,context);

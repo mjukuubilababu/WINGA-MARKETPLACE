@@ -4,6 +4,15 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 const contract = require('../src/growth/contract');
+test('internal share app action uses the canonical picker without organic external attribution or guest writes',async()=>{
+  const source=fs.readFileSync('app.js','utf8'),start=source.indexOf('async function handleShareProduct('),end=source.indexOf('\nfunction getGrowthRuntime()',start);
+  let authenticated=true,calls=[];const currentSession={username:'alice',sessionId:'a',token:'synthetic'};
+  const context={isAuthenticatedUser:()=>authenticated,currentSession,translateUi:(k,_v,f)=>f,
+    window:{WingaDataLayer:{},WingaRichUi:{openProductShare:o=>calls.push(o)}},getGrowthRuntime:()=>{throw Error('internal sharing must not create external share attribution');}};
+  vm.runInNewContext(source.slice(start,end)+'\nglobalThis.share=handleShareProduct;',context);
+  await context.share({id:'p1'},{channel:'winga'});assert.equal(calls.length,1);assert.equal(calls[0].productId,'p1');assert.equal(calls[0].getSession(),currentSession);
+  authenticated=false;await context.share({id:'p1'},{channel:'winga'});assert.equal(calls.length,1);
+});
 
 function fixture({storageDenied=false,online=true,request=async()=>({}),performance=false,href='https://winga.test/',initialTime=10000,
   initialAccount='',storedJourney=null}={}) {
