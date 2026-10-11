@@ -1641,5 +1641,7 @@
                      "chat.paymentSafety": "Tumia maelezo ya malipo ya muuzaji ndani ya Winga. Ripoti maombi ya kulipa nje ya Winga yanayotia shaka.",
                      "chat.messageHistory": "Historia ya ujumbe"
                      ,"chat.localSendWaiting": "Umehifadhiwa kwenye kifaa; unasubiri kutumwa"
+                     ,"growth.shareToWinga": "Shiriki ndani ya Winga",
+                     "growth.destinationsUnavailable": "Baadhi ya sehemu za kushiriki hazikupatikana."
                  }
 }

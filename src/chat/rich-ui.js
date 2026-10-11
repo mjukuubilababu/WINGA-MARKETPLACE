@@ -232,5 +232,67 @@
       camera.classList.add('conversation-icon-button');footer.insertBefore(camera,menu.nextSibling);
     }
   }
-  globalThis.WingaRichUi={bind};
+  function openProductShare({productId,dataLayer,getSession=()=>null,translate=(k,f)=>f}) {
+    // Reuse canonical encrypted writers. Nothing is sent while choosing a destination.
+    const t=translate,key=()=>{const s=getSession();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+    const initial=key(),owner=getSession()?.username;
+    if(!owner||!getSession()?.sessionId||!getSession()?.token)return null;
+    const content=WingaRichContent.create('product','',{ids:[productId]});
+    const d=element('dialog','chat-security-dialog chat-rich-dialog');
+    d.append(element('h3','',t('growth.shareToWinga','Share to Winga')));
+    const list=element('div','chat-rich-picker'),status=element('p','chat-rich-status'),footer=element('div','chat-rich-actions');
+    status.setAttribute('role','status');status.textContent=t('inbox.loading','Loading...');d.append(list,status,footer);
+    const send=element('button','chat-rich-action',t('inbox.send','Send message')),close=element('button','chat-rich-action',t('common.close','Close'));
+    send.type=close.type='button';send.disabled=true;close.onclick=()=>d.close();footer.append(send,close);
+    let selected=null,actionId=null,busy=false,attempted=false,timer;
+    const current=()=>d.isConnected&&d.open&&key()===initial&&document.visibilityState==='visible';
+    const choices=[];
+    function add(kind,id,label) {
+      if(typeof id!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(id)||choices.some(b=>b.dataset.shareKind===kind&&b.dataset.shareTarget===id))return;
+      const b=element('button','chat-rich-action',label||id);b.type='button';b.dataset.shareKind=kind;b.dataset.shareTarget=id;
+      b.setAttribute('aria-pressed','false');
+      b.onclick=()=>{
+        if(!current()||busy||attempted)return;
+        selected={kind,id};actionId=crypto.randomUUID();
+        for(const choice of choices)choice.setAttribute('aria-pressed',String(choice===b));
+        send.disabled=false;
+      };
+      choices.push(b);list.append(b);
+    }
+    send.onclick=async()=>{
+      if(!current()||!selected||busy)return;
+      busy=true;attempted=true;send.disabled=true;for(const b of choices)b.disabled=true;
+      status.textContent=t('chat.secureWorking','Working...');
+      try {
+        if(selected.kind==='conversation')await dataLayer.sendRichMessage(selected.id,content,actionId);
+        else await dataLayer.shoppingRoom('command',[selected.id,'product-share',{productId,note:'',snapshot:null},actionId]);
+        if(current())d.close();
+      } catch {
+        // A response can be lost after acceptance. Retry this exact action ID.
+        if(current()){status.textContent=t('rooms.actionFailed','Unable to finish. Try again.');send.textContent=t('inbox.retry','Try again');}
+      } finally {busy=false;if(current())send.disabled=false;}
+    };
+    document.body.append(d);d.showModal();
+    timer=setInterval(()=>{if(!current())d.close();},250);
+    d.addEventListener('close',()=>{clearInterval(timer);d.remove();},{once:true});
+    const load=async(kind,read)=>{
+      try {
+        const result=await read();if(!current()||attempted)return;
+        const rows=kind==='conversation'?result?.items:result;
+        if(!Array.isArray(rows))throw new Error();
+        list.append(element('h4','',kind==='conversation'?t('inbox.chats','Chats'):t('inbox.rooms','Chatrooms')));
+        for(const row of rows.slice(0,20)) {
+          if(!row||typeof row!=='object')continue;
+          if(kind==='conversation'){if(row.withUser!==owner&&row.blocked!==true)add(kind,row.withUser,row.withUser);}
+          else if(row.status==='active'&&row.transition?.status==='accepted'&&!row.clientError&&!row.departures?.length&&!row.preferences?.archived)add(kind,row.id,row.name);
+        }
+      } catch {if(current()&&!attempted)status.textContent=t('growth.destinationsUnavailable','Some destinations could not be loaded.');}
+    };
+    void Promise.all([
+      load('conversation',()=>dataLayer.loadInboxPage({limit:20})),
+      load('room',()=>dataLayer.shoppingRoom('list'))
+    ]).then(()=>{if(current()&&status.textContent===t('inbox.loading','Loading...'))status.textContent=choices.length?'':t('chat.richNoItems','No items available.');});
+    return {close:()=>d.close()};
+  }
+  globalThis.WingaRichUi={bind,openProductShare};
 })();

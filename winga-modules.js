@@ -109,6 +109,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const enabled = () => win.WINGA_CONFIG?.growthProductSharing === true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
     const account = () => deps.getAccount?.() || '';
+    // Auth-session bindings stay in memory, never in the attribution journal/outbox.
+    const authContext = () => {
+      const session = deps.getSession?.();
+      return JSON.stringify([session?.username || '', session?.sessionId || '', session?.token || '']);
+    };
     const storage = (area, method, key, value) => { try { return win[area][method](key, value); } catch { return null; } };
     const read = (area, key, fallback) => {
       try { return JSON.parse(storage(area, 'getItem', key) || 'null') || fallback; } catch { return fallback; }
@@ -119,24 +124,37 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     let dead = read('localStorage', 'winga-growth-dead-v1', []);
     dead = Array.isArray(dead) ? dead.filter(x => x && now()-x.failedAt < 7*86400000).slice(-50) : [];
-    let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
-    if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
+    let previousAccount = account();
+    const storedJourney = read('sessionStorage', 'winga-growth-journey-v1', null);
+    // Unowned legacy journals cannot safely be assigned to the current account.
+    const restoreJourney = storedJourney && typeof storedJourney.owner === 'string'
+      && (!storedJourney.owner || storedJourney.owner === previousAccount);
+    let journey = restoreJourney && Array.isArray(storedJourney.touches)
+      ? { firstTouch: null, lastTouch: null, touches: storedJourney.touches }
+      : { firstTouch: null, lastTouch: null, touches: [] };
+    if (storedJourney && !restoreJourney) {
+      sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
+    }
     journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && contract.id(t?.productId)
       && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
+    const persistJourney = () => storage('sessionStorage','setItem','winga-growth-journey-v1',
+      JSON.stringify({ ...journey, owner: previousAccount }));
+    persistJourney();
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
-    let previousAccount = account();
     let routeTiming = null, initialCapture = true;
     function syncIdentity() {
+      if (closed) return;
       const current = account();
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
-        storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
+      const changed = previousAccount !== current;
       previousAccount = current;
+      if (changed) persistJourney();
     }
     const persist = () => storage('localStorage','setItem','winga-growth-outbox-v1',JSON.stringify(queue));
     function health(type, code = '') {
@@ -149,6 +167,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       health('dead_letter', reason);
     }
     function enqueue(kind, payload) {
+      if (closed) return;
       const item = { id: payload.eventId || payload.shareId, kind, payload, account: account(), attempts: 0, nextAt: now(), createdAt: now() };
       if (queue.some(x => x.id === item.id && x.kind === kind)) return;
       if (queue.length >= 100) deadLetter(queue.shift(), 'queue_capacity');
@@ -188,6 +207,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return [...journey.touches].reverse().find(t => t.productId === productId && now()-t.at < 30*86400000);
     }
     function event(eventType, productId, extra = {}) {
+      if (closed) return;
       syncIdentity();
       if (!measurement() || !contract.events.includes(eventType)) return;
       const touch = touchFor(productId);
@@ -199,6 +219,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       enqueue('events',payload);
     }
     function capture(input = win.location.href) {
+      if (closed) return;
       syncIdentity();
       if (!measurement()) return;
       try {
@@ -216,24 +237,34 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           // Preserve the original first touch when the bounded journal is full.
           journey.touches = journey.touches.length >= 20 ? [journey.touches[0],...journey.touches.slice(-18),touch] : [...journey.touches,touch];
           journey.firstTouch = journey.firstTouch || touch; journey.lastTouch = touch;
-          storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+          persistJourney();
         }
         event('product_share_opened',target.id);
       } catch { health('capture_failed'); }
     }
     function prepareShare(productId, sourceSurface = 'product_detail') {
       syncIdentity();
-      const shareId = enabled() ? randomId() : '';
+      const shareId = !closed && enabled() ? randomId() : '';
       const url = contract.shareUrl(win.location.origin,productId,shareId);
       const parent = touchFor(productId);
+      const sourceAccount = account(), sourceSession = sessionId, sourceAuth = authContext();
+      let committed = false;
       return { url, commit() {
-        if (!shareId) return;
+        if (committed) return false;
+        committed = true;
+        if (closed || !shareId || !enabled()) return false;
+        syncIdentity();
+        if (sourceAccount !== account() || sourceSession !== sessionId || sourceAuth !== authContext()) {
+          health('share_context_changed'); return false;
+        }
         enqueue('shares',{ shareId,sessionId,contentType:'PRODUCT',contentId:productId,
           sourceSurface:contract.surfaces.includes(sourceSurface) ? sourceSurface : 'product_detail',
           parentShareId:parent?.shareId || '',schemaVersion:1 });
+        return true;
       } };
     }
     function productVisible(productId) {
+      if (closed) return;
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
       if (!touchFor(productId) || !measurement() || win.document.visibilityState !== 'visible') return;
@@ -256,10 +287,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,
-      getJourney: () => JSON.parse(JSON.stringify(journey)),
+    return { prepareShare,event,capture,productVisible,flush,syncIdentity,
+      getJourney: () => { syncIdentity(); return JSON.parse(JSON.stringify(journey)); },
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
+        if (closed) return 0;
         const retryable = dead.filter(item => item.account === account() && now()-item.createdAt <= 86400000);
         dead = dead.filter(item => !retryable.includes(item));
         storage('localStorage','setItem','winga-growth-dead-v1',JSON.stringify(dead));
@@ -1924,7 +1956,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       readEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.readMediaDraft(peer);},
       discardEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.discardMediaDraft(peer);},
       sendEncryptedMediaDraft:async(peer,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendMediaDraft(peer,text);},
-      sendRichMessage:async(peer,content)=>sendMessage({clientMessageId:crypto.randomUUID(),receiverId:peer,message:'',richContent:content,encrypted:true}),
+      sendRichMessage:async(peer,content,clientMessageId=crypto.randomUUID())=>sendMessage({clientMessageId,receiverId:peer,message:'',richContent:content,encrypted:true}),
       mutateEncryptedMessage:async(peer,type,id,value)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.mutateMessage(peer,type,id,value);},
       readConversationReference:async(kind,id)=>{
         requireFetcher();return fetchJson(baseUrl+'/conversations/references?kind='+encodeURIComponent(kind)+'&id='+encodeURIComponent(id),{headers:authHeaders()});
@@ -21641,7 +21673,69 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       camera.classList.add('conversation-icon-button');footer.insertBefore(camera,menu.nextSibling);
     }
   }
-  globalThis.WingaRichUi={bind};
+  function openProductShare({productId,dataLayer,getSession=()=>null,translate=(k,f)=>f}) {
+    // Reuse canonical encrypted writers. Nothing is sent while choosing a destination.
+    const t=translate,key=()=>{const s=getSession();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+    const initial=key(),owner=getSession()?.username;
+    if(!owner||!getSession()?.sessionId||!getSession()?.token)return null;
+    const content=WingaRichContent.create('product','',{ids:[productId]});
+    const d=element('dialog','chat-security-dialog chat-rich-dialog');
+    d.append(element('h3','',t('growth.shareToWinga','Share to Winga')));
+    const list=element('div','chat-rich-picker'),status=element('p','chat-rich-status'),footer=element('div','chat-rich-actions');
+    status.setAttribute('role','status');status.textContent=t('inbox.loading','Loading...');d.append(list,status,footer);
+    const send=element('button','chat-rich-action',t('inbox.send','Send message')),close=element('button','chat-rich-action',t('common.close','Close'));
+    send.type=close.type='button';send.disabled=true;close.onclick=()=>d.close();footer.append(send,close);
+    let selected=null,actionId=null,busy=false,attempted=false,timer;
+    const current=()=>d.isConnected&&d.open&&key()===initial&&document.visibilityState==='visible';
+    const choices=[];
+    function add(kind,id,label) {
+      if(typeof id!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(id)||choices.some(b=>b.dataset.shareKind===kind&&b.dataset.shareTarget===id))return;
+      const b=element('button','chat-rich-action',label||id);b.type='button';b.dataset.shareKind=kind;b.dataset.shareTarget=id;
+      b.setAttribute('aria-pressed','false');
+      b.onclick=()=>{
+        if(!current()||busy||attempted)return;
+        selected={kind,id};actionId=crypto.randomUUID();
+        for(const choice of choices)choice.setAttribute('aria-pressed',String(choice===b));
+        send.disabled=false;
+      };
+      choices.push(b);list.append(b);
+    }
+    send.onclick=async()=>{
+      if(!current()||!selected||busy)return;
+      busy=true;attempted=true;send.disabled=true;for(const b of choices)b.disabled=true;
+      status.textContent=t('chat.secureWorking','Working...');
+      try {
+        if(selected.kind==='conversation')await dataLayer.sendRichMessage(selected.id,content,actionId);
+        else await dataLayer.shoppingRoom('command',[selected.id,'product-share',{productId,note:'',snapshot:null},actionId]);
+        if(current())d.close();
+      } catch {
+        // A response can be lost after acceptance. Retry this exact action ID.
+        if(current()){status.textContent=t('rooms.actionFailed','Unable to finish. Try again.');send.textContent=t('inbox.retry','Try again');}
+      } finally {busy=false;if(current())send.disabled=false;}
+    };
+    document.body.append(d);d.showModal();
+    timer=setInterval(()=>{if(!current())d.close();},250);
+    d.addEventListener('close',()=>{clearInterval(timer);d.remove();},{once:true});
+    const load=async(kind,read)=>{
+      try {
+        const result=await read();if(!current()||attempted)return;
+        const rows=kind==='conversation'?result?.items:result;
+        if(!Array.isArray(rows))throw new Error();
+        list.append(element('h4','',kind==='conversation'?t('inbox.chats','Chats'):t('inbox.rooms','Chatrooms')));
+        for(const row of rows.slice(0,20)) {
+          if(!row||typeof row!=='object')continue;
+          if(kind==='conversation'){if(row.withUser!==owner&&row.blocked!==true)add(kind,row.withUser,row.withUser);}
+          else if(row.status==='active'&&row.transition?.status==='accepted'&&!row.clientError&&!row.departures?.length&&!row.preferences?.archived)add(kind,row.id,row.name);
+        }
+      } catch {if(current()&&!attempted)status.textContent=t('growth.destinationsUnavailable','Some destinations could not be loaded.');}
+    };
+    void Promise.all([
+      load('conversation',()=>dataLayer.loadInboxPage({limit:20})),
+      load('room',()=>dataLayer.shoppingRoom('list'))
+    ]).then(()=>{if(current()&&status.textContent===t('inbox.loading','Loading...'))status.textContent=choices.length?'':t('chat.richNoItems','No items available.');});
+    return {close:()=>d.close()};
+  }
+  globalThis.WingaRichUi={bind,openProductShare};
 })();
 
 

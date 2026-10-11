@@ -3345,7 +3345,22 @@ test("production CSP is enforced from repo without inline script escape hatches"
   assert.match(workerSource, /const LCP_PRELOAD_CACHE_READ_BUDGET_MS = 25;/);
   assert.match(workerSource, /readCachedLcpImageUrl\(\{ timeoutMs: LCP_PRELOAD_CACHE_READ_BUDGET_MS \}\)/);
   assert.match(buildSource, /function syncWorkerBuildVersionConfig\(\)/);
-  assert.match(buildSource, /WINGA_BUILD_VERSION = "\$\{assetVersion\}"/);
+  const versionSyncSource = buildSource.slice(
+    buildSource.indexOf("function syncWorkerBuildVersionConfig()"),
+    buildSource.indexOf("function syncWorkerCreationShell()")
+  );
+  let synchronizedConfig = "";
+  vm.runInNewContext(`${versionSyncSource}\nsyncWorkerBuildVersionConfig();`, {
+    path, rootDir: root, assetVersion: "20261011150000",
+    fs: {
+      existsSync: () => true,
+      readFileSync: () => '[vars]\nBUILD_VERSION = "old"\nWINGA_BUILD_VERSION = "old"\nORIGIN = "https://synthetic.invalid"\n'
+    },
+    writeTextFileWithRetry: (_target, contents) => { synchronizedConfig = contents; }
+  });
+  assert.match(synchronizedConfig, /^BUILD_VERSION = "20261011150000"$/m);
+  assert.match(synchronizedConfig, /^WINGA_BUILD_VERSION = "20261011150000"$/m);
+  assert.match(synchronizedConfig, /^ORIGIN = "https:\/\/synthetic\.invalid"$/m);
   assert.doesNotMatch(redirectsSource, /https:\/\/winga-pflp\.onrender\.com\/api/);
   assert.match(redirectsSource, /worker\.js before static asset routing/);
   assert.doesNotMatch(appSource, /onclick="return window\.__wingaOpenPromotionFromTrigger/);

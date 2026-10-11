@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url);
 const contract = require('../src/growth/contract');
 const { createGrowthApi } = require('../backend/growth-api');
 const { createGrowthPolicy } = require('../backend/growth-policy');
+const { createGrowthStore } = require('../backend/growth-store');
+const { verifyGrowthProduction, readOnlyCheck, migrationIds } = require('../backend/verify-growth-production');
 
 
 test('canonical product links reject redirects, traversal, malformed encoding and gated private domains', () => {
@@ -227,4 +229,89 @@ test('timing migration preserves old events and rolls back a failed schema trans
   assert.equal(old.client_duration_ms,null);
   await f.store.recordGrowthEvent(f.event('shared_product_viewed'),f.recipient);
   assert.equal((await f.store.readGrowthHealth()).timing.samples,0);
+});
+
+test('production verifier fails closed on missing schema and never infers live acceptance from empty metrics',async t=>{
+  const f=await fixture(t);
+  let result=await verifyGrowthProduction(f.db,{});
+  assert.equal(result.ok,false);assert.equal(result.schema.ready,false);
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
+  for(const id of migrationIds)await f.db.query('INSERT INTO schema_migrations VALUES($1)',[id]);
+  result=await verifyGrowthProduction(f.db,{WINGA_GROWTH_PRODUCT_SHARING_ENABLED:'true',WINGA_GROWTH_MEASUREMENT_ENABLED:'true',
+    WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'sender,recipient'});
+  assert.equal(result.ok,true);assert.equal(result.canaryReady,true);
+  assert.equal(result.metrics.shares,0);assert.equal(result.authenticatedShareFlowVerified,false);
+  assert.equal(result.productionLoadVerified,false);assert.equal(result.guestAuthReturnVerified,false);
+  assert.equal(result.databaseChanged,false);assert.equal(result.remoteWrites,false);
+  assert.equal(JSON.stringify(result).includes('sender'),false);assert.equal(JSON.stringify(result).includes('recipient"'),false);
+  for(const env of [{},{WINGA_GROWTH_COHORT_MODE:'all'},
+    {WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'sender'},
+    {WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'invalid name,recipient'}])
+    assert.equal((await verifyGrowthProduction(f.db,env)).canaryReady,false);
+  await f.db.exec('ALTER TABLE growth_events DROP CONSTRAINT growth_events_share_id_actor_key_event_type_key');
+  result=await verifyGrowthProduction(f.db,{});
+  assert.equal(result.ok,false);assert.equal(result.schema.eventDedupePresent,false);
+});
+
+test('production verifier uses read-only repeatable snapshots and rolls back errors without masking them',async()=>{
+  const calls=[];
+  const client={query:async sql=>{calls.push(sql);if(sql.startsWith('SELECT'))return {rows:[{migrations:false}]};}};
+  assert.equal((await readOnlyCheck(client,{})).schema.ready,false);
+  assert.equal(calls[0],'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');assert.equal(calls.at(-1),'COMMIT');
+  calls.length=0;
+  client.query=async sql=>{calls.push(sql);if(sql.startsWith('SELECT'))throw new Error('synthetic-failure');};
+  await assert.rejects(readOnlyCheck(client,{}),/synthetic-failure/);
+  assert.equal(calls.at(-1),'ROLLBACK');assert.equal(calls.includes('COMMIT'),false);
+  client.query=async sql=>{if(sql.startsWith('SELECT'))throw new Error('original-failure');
+    if(sql==='ROLLBACK')throw new Error('connection-lost');};
+  await assert.rejects(readOnlyCheck(client,{}),/original-failure/);
+});
+
+test('bounded Growth journey load survives transactional failure and replay without inflating value', {timeout:120000},async t=>{
+  const f=await fixture(t);
+  const cohort=createGrowthPolicy({WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'sender,recipient'});
+  const source={...f.source,growthCohort:cohort},recipient={...f.recipient,growthCohort:cohort};
+  const journeys=Array.from({length:12},()=>({share:{...f.payload,shareId:randomUUID()},sessionId:randomUUID()}));
+  async function waves(work) {
+    for(let i=0;i<journeys.length;i+=4)await Promise.all(journeys.slice(i,i+4).map(work));
+  }
+  await waves(async j=>{
+    const rows=await Promise.all(Array.from({length:3},()=>f.store.createGrowthShare(j.share,source)));
+    assert.equal(rows.filter(row=>!row.duplicate).length,1);
+    assert.equal((await f.store.resolveGrowthShare(j.share.shareId,{username:'',bot:false})).destinationId,'p1');
+  });
+  await f.db.query("INSERT INTO product_likes(product_id,user_id) VALUES('p1','recipient')");
+  const failedEvent={...f.event('shared_product_viewed'),shareId:journeys[0].share.shareId,sessionId:journeys[0].sessionId,durationMs:500};
+  const failingStore=createGrowthStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(client=>work({
+    query:async(sql,params)=>{const result=await client.query(sql,params);
+      if(sql.startsWith('INSERT INTO growth_events'))throw new Error('synthetic-after-insert-failure');return result;}
+  }))});
+  await assert.rejects(failingStore.recordGrowthEvent(failedEvent,recipient),/synthetic-after-insert-failure/);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_events WHERE event_id=$1',[failedEvent.eventId])).rows[0].count,0);
+  await waves(async j=>{
+    for(const type of ['product_share_opened','shared_product_viewed','shared_product_saved']) {
+      const event=type==='shared_product_viewed'&&j===journeys[0]?failedEvent:
+        {...f.event(type),shareId:j.share.shareId,sessionId:j.sessionId,...(type==='shared_product_viewed'?{durationMs:500}:{})};
+      const rows=await Promise.all([f.store.recordGrowthEvent(event,recipient),f.store.recordGrowthEvent(event,recipient)]);
+      assert.equal(rows.filter(row=>!row.duplicate).length,1);
+    }
+    await f.store.createGrowthShare({...f.payload,shareId:randomUUID(),sessionId:j.sessionId,parentShareId:j.share.shareId},recipient);
+  });
+  await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
+  for(const id of migrationIds)await f.db.query('INSERT INTO schema_migrations VALUES($1)',[id]);
+  // Repeated reads exercise stable aggregates; this is not a wall-clock production soak.
+  for(let i=0;i<20;i++) {
+    const health=await verifyGrowthProduction(f.db,{});
+    assert.equal(health.ok,true);assert.equal(health.metrics.shares,24);
+    assert.equal(health.metrics.recipientOpens,12);assert.equal(health.metrics.meaningfulViews,12);
+    assert.equal(health.metrics.confirmedSaves,12);assert.equal(health.metrics.confirmedOrderStarts,0);
+    assert.equal(health.metrics.counts.shared_product_reshared,12);
+    assert.equal(health.metrics.cohort.continuationCount,12);assert.equal(health.metrics.timing.samples,12);
+    assert.equal(health.metrics.timing.p95Ms,500);
+  }
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_events')).rows[0].count,72);
+  await f.db.query("UPDATE growth_events SET verification='client_observed' WHERE event_type='shared_product_saved'");
+  const invalid=await verifyGrowthProduction(f.db,{});
+  assert.equal(invalid.ok,false);assert.equal(invalid.integrity.unverifiedValueEvents,12);
+  assert.deepEqual(invalid.alerts,['growth_integrity_failed']);
 });

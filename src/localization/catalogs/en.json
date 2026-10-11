@@ -1641,5 +1641,7 @@
                      "chat.paymentSafety": "Use the seller payment details in Winga. Report suspicious requests to pay outside Winga.",
                      "chat.messageHistory": "Message history"
                      ,"chat.localSendWaiting": "Saved on this device; waiting to send"
+                     ,"growth.shareToWinga": "Share to Winga",
+                     "growth.destinationsUnavailable": "Some destinations could not be loaded."
                  }
 }

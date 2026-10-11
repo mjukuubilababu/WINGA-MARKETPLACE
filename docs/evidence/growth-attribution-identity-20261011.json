@@ -1,0 +1,168 @@
+{
+  "recordedAtUtc": "2026-10-11T18:31:13.151677+00:00",
+  "baseCommit": "45552257c6c9acc702cb58e1a672abd77d1b629f",
+  "branch": "codex/cloud-handoff-growth",
+  "remoteRefsObserved": {
+    "handoff": "45552257c6c9acc702cb58e1a672abd77d1b629f",
+    "master": "e8296dd7c0701fb6f42de44e9a0381bb3ab45cda"
+  },
+  "environmentReadiness": {
+    "networkPolicy": "enforced",
+    "observationsCurrent": true,
+    "renderCredential": "ready",
+    "cloudflareCredential": "ready"
+  },
+  "scope": "Phase 1 client attribution identity isolation; no new loop rollout",
+  "baselineReproductions": {
+    "lateShareAfterAccountChange": {
+      "requestCount": 1,
+      "replacementAccountCredited": true,
+      "formerParentRetained": true
+    },
+    "reloadAfterAccountChange": {
+      "formerJourneyRetained": true
+    },
+    "initialRegressionRun": {
+      "tests": 18,
+      "pass": 10,
+      "fail": 8
+    }
+  },
+  "verification": {
+    "growth": {
+      "tests": 43,
+      "policy": {
+        "tests": 5,
+        "pass": 5,
+        "fail": 0,
+        "skipped": 0
+      },
+      "externalHandoff": {
+        "tests": 3,
+        "pass": 3,
+        "fail": 0,
+        "skipped": 0
+      },
+      "runtimeAndAppHandlers": {
+        "tests": 19,
+        "pass": 19,
+        "fail": 0,
+        "skipped": 0
+      },
+      "pgliteSqlApiAndVerifier": {
+        "tests": 16,
+        "pass": 16,
+        "fail": 0,
+        "skipped": 0
+      }
+    },
+    "frontend": {
+      "corePassed": 145,
+      "behaviorPassed": 80,
+      "behaviorFiles": {
+        "conversation-identity": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "conversation-links": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "decision-authority": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "message-receipts": {
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "offline-message-retry": {
+          "tests": 26,
+          "pass": 26,
+          "fail": 0,
+          "skipped": 0
+        },
+        "photo-reel": {
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "skipped": 0
+        },
+        "video-playback-lifecycle": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        }
+      }
+    },
+    "localhostChromium": {
+      "tests": 2,
+      "passed": 2,
+      "cases": [
+        "guest content/copy/activation during Growth 503 outage",
+        "guest purchase auth returns to exact product detail"
+      ],
+      "backendMode": "disposable file-store; existing canonical HTTP/content/auth APIs"
+    },
+    "publicSoakSafety": {
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "skipped": 0
+    },
+    "localization": {
+      "catalogs": 4,
+      "keysEach": 1635,
+      "newHardcodedDebt": 0
+    },
+    "moduleSynchronization": {
+      "modules": 95,
+      "passed": true
+    },
+    "diffWhitespacePassed": true,
+    "protectedConfigurationUnchanged": true,
+    "newerMasterFilesPreserved": true
+  },
+  "sourceSha256": {
+    "app.js": "4cb5b6cb0be08ecd9eaa99cf3c0313ce6a771e383defc6bc3869d9493a759450",
+    "src/growth/runtime.js": "88daa089a1bd5cd8bcddc4e43d74a7274e32ec6ac480da12c9a0da758a558008",
+    "tests/growth-runtime.test.js": "77275634002879f9f7f236e3767e66911eda220ed758d3ba8c232de31f34e9d1",
+    "winga-modules.js": "c38b8440adf52841fa0c572ab056c9a70472d6cfea1c30dd5b2ea5eb1270c36e"
+  },
+  "browserSetup": {
+    "firstAttempt": "stopped before tests: missing locked backend dependency ioredis",
+    "resolution": "installed local backend dependencies with npm ci; retry passed"
+  },
+  "review": {
+    "reviewer": "Codex self-review; no agents",
+    "independentAudit": false,
+    "currentCandidateCiRun": null,
+    "currentCandidateCodeqlBinding": null
+  },
+  "productionActions": {
+    "verifierRerun": false,
+    "applicationWrites": false,
+    "merge": false,
+    "deploy": false,
+    "growthConfigurationChanged": false,
+    "deviceApprovalChanged": false,
+    "cspChanged": false,
+    "phoenixScaled": false
+  },
+  "limitations": [
+    "Unowned legacy local journey is discarded; public product links remain valid.",
+    "Actual auth credentials are compared only in memory and are absent from Growth journal/outbox.",
+    "Prior CI and one-time production verifier certify base commit only.",
+    "Physical-device/authenticated canary, regional timing, sustained production load/chaos and independent crypto acceptance remain deferred/open.",
+    "Phases 2-4 and complete Growth Definition of Done remain unfinished."
+  ]
+}

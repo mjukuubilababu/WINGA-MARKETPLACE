@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {options,run,boundedJson}=require('../scripts/production-conversation-soak');
+const {options,run,boundedJson,requestError}=require('../scripts/production-conversation-soak');
 const config=()=>options(['--confirm=read-only-production-soak','--duration-seconds=30','--load-requests=3']);
 function harness(replace) {
   let time=0;const requests=[];
@@ -41,6 +41,34 @@ test('untrusted response fields never reach output',async()=>{
   assert.equal(r.ok,false);assert.equal(JSON.stringify(r).includes('never-output'),false);
 });
 test('response bytes are bounded',async()=>{await assert.rejects(boundedJson(new Response('x'.repeat(16385))),/RESPONSE_TOO_LARGE/);});
+
+test('network diagnostics expose only fixed codes, never URLs, credentials or raw errors',()=>{
+  assert.equal(requestError({name:'TimeoutError',message:'private-token'}),'REQUEST_TIMEOUT');
+  assert.equal(requestError({cause:{code:'ENOTFOUND',hostname:'private-host'}}),'DNS_FAILED');
+  assert.equal(requestError({cause:{code:'ECONNRESET',message:'private-token'}}),'CONNECTION_FAILED');
+  assert.equal(requestError({message:'https://private.invalid/?token=secret'}),'REQUEST_FAILED');
+  assert.equal(requestError(null),'REQUEST_FAILED');
+});
+
+test('DNS failures still open the existing circuit and prevent load traffic',async()=>{
+  const h=harness(()=>{throw Object.assign(new Error('private-host'),{cause:{code:'ENOTFOUND'}});});
+  const r=await run(config(),h.deps);
+  assert.equal(r.stopCode,'CONSECUTIVE_FAILURE_LIMIT');assert.equal(r.loadRequests,0);
+  assert.deepEqual(r.targets.map(t=>t.errorCodes),[['DNS_FAILED'],['DNS_FAILED'],['DNS_FAILED']]);
+  assert.equal(JSON.stringify(r).includes('private-host'),false);
+});
+
+test('even one intermittent baseline timeout prevents the load phase',async()=>{
+  const h=harness((url,n)=>{
+    if(n===2)throw Object.assign(new Error('private-endpoint'),{name:'TimeoutError'});
+    return new Response(JSON.stringify(url.includes('build-version')?{version:'20261007224751'}:
+      url.includes('phoenix')?{ok:true,service:'conversations-transport'}:{ok:true,readiness:'ready'}),
+      {headers:{'x-winga-commit':'a'.repeat(40)}});
+  });
+  const r=await run(config(),h.deps);
+  assert.equal(r.stopCode,'SOAK_BASELINE_FAILED');assert.equal(r.loadRequests,0);
+  assert.equal(r.failures,1);assert.equal(r.soakRequests,9);
+});
 test('slow public probes never exceed two simultaneous requests',async()=>{
   const {setTimeout:delay}=require('node:timers/promises');let time=0,active=0,peak=0;
   const r=await run({...config(),loadRequests:6},{now:()=>time,sleep:async ms=>{time+=ms;await delay(1);},

@@ -2,6 +2,38 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createGrowthPolicy } = require('../backend/growth-policy');
 const { createGrowthApi } = require('../backend/growth-api');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+
+function frontendConfig(hostname, protocol = 'https:', override = {}) {
+  const window = { location: { hostname, protocol }, __WINGA_CONFIG_OVERRIDE__: override };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../winga-config.js'), 'utf8'), { window });
+  return window.WINGA_CONFIG;
+}
+
+test('production frontend enables Growth while local and file defaults remain disabled', () => {
+  const production = frontendConfig('wingamarket.com');
+  assert.equal(production.growthProductSharing, true);
+  assert.equal(production.growthMeasurement, true);
+  for (const [host, protocol] of [['localhost','http:'],['127.0.0.1','http:'],['','file:']]) {
+    const config = frontendConfig(host, protocol);
+    assert.equal(config.growthProductSharing, false);
+    assert.equal(config.growthMeasurement, false);
+  }
+});
+
+test('frontend Growth kill switches remain independent and explicit overrides win', () => {
+  const sharingOff = frontendConfig('wingamarket.com', 'https:', { growthProductSharing: false });
+  assert.equal(sharingOff.growthProductSharing, false);
+  assert.equal(sharingOff.growthMeasurement, true);
+  const measurementOff = frontendConfig('wingamarket.com', 'https:', { growthMeasurement: false });
+  assert.equal(measurementOff.growthProductSharing, true);
+  assert.equal(measurementOff.growthMeasurement, false);
+  const localOptIn = frontendConfig('localhost', 'http:', { growthProductSharing: true, growthMeasurement: true });
+  assert.equal(localOptIn.growthProductSharing, true);
+  assert.equal(localOptIn.growthMeasurement, true);
+});
 
 test('cohort modes preserve existing rollout and fail closed for invalid/empty allowlists', () => {
   assert.equal(createGrowthPolicy().allowsCreation(''),true);

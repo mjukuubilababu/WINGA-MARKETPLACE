@@ -1645,5 +1645,7 @@
                      "chat.paymentSafety": "استخدم بيانات دفع البائع داخل وينجا. أبلغ عن الطلبات المشبوهة للدفع خارج وينجا.",
                      "chat.messageHistory": "سجل الرسائل"
                      ,"chat.localSendWaiting": "محفوظة على هذا الجهاز؛ بانتظار الإرسال"
+                     ,"growth.shareToWinga": "مشاركة في Winga",
+                     "growth.destinationsUnavailable": "تعذّر تحميل بعض وجهات المشاركة."
                  }
 }

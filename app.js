@@ -1766,6 +1766,7 @@ function applySessionState(session) {
   if (!session || typeof session !== "object" || Array.isArray(session)) {
     currentSession = null;
     currentUser = "";
+    try { window.WingaGrowth?.syncIdentity?.(); } catch {}
     return;
   }
 
@@ -1773,6 +1774,7 @@ function applySessionState(session) {
   if (!username) {
     currentSession = null;
     currentUser = "";
+    try { window.WingaGrowth?.syncIdentity?.(); } catch {}
     return;
   }
 
@@ -1796,6 +1798,7 @@ function applySessionState(session) {
     verifiedSeller: Boolean(session.verifiedSeller)
   };
   currentUser = username;
+  try { window.WingaGrowth?.syncIdentity?.(); } catch {}
   hydrateSharedCollectionIntentState(username);
 }
 
@@ -7640,9 +7643,9 @@ function ensureMediaActionSheetRoot() {
       return;
     }
 
-    if (['share','share-copy','share-whatsapp'].includes(action)) {
+    if (['share','share-copy','share-whatsapp','share-winga'].includes(action)) {
       closeMediaActionSheet();
-      handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
+      handleShareProduct(product,{ channel: action === 'share-winga' ? 'winga' : action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
         captureClientError("media_sheet_share_failed", error, {
           productId: product.id
         });
@@ -7942,6 +7945,7 @@ function openMediaActionSheet(product, options = {}) {
   [
     { action: "save", label: saved ? "Remove saved" : "Save" },
     { action: "share", label: translateUi("common.share", {}, "Share") },
+    ...(isAuthenticatedUser() ? [{ action: 'share-winga', label: translateUi('growth.shareToWinga', {}, 'Share to Winga') }] : []),
     { action: 'share-copy', label: translateUi('detail.copyDeepLink', {}, 'Copy Deep Link') },
     { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
     { action: "download", label: translateUi("common.download", {}, "Download") },
@@ -11292,7 +11296,7 @@ async function handleShareSellerShop(username) {
       body: translateUi("share.noApprovedProduct", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.`),
       variant: "warning"
     });
-    return;
+    return false;
   }
 
   const sellerName = getUserDisplayName(username, {
@@ -11308,10 +11312,10 @@ async function handleShareSellerShop(username) {
         text: shareText,
         url: shareUrl
       });
-      return;
+      return true;
     } catch (error) {
       if (error && error.name === "AbortError") {
-        return;
+        return false;
       }
     }
   }
@@ -11323,10 +11327,11 @@ async function handleShareSellerShop(username) {
       body: translateUi("share.linkCopied", { name: sellerName }, `${sellerName} link ime-copy tayari kwa sharing.`),
       variant: "success"
     });
-    return;
+    return true;
   }
 
   window.prompt("Copy seller link", `${shareText} | Link: ${shareUrl}`);
+  return false;
 }
 
 function buildCollectionShareUrl({ category = "all", topCategory = "" } = {}) {
@@ -12679,7 +12684,9 @@ function bindTrustReportEntryActions() {
     if (shareSellerButton) {
       event.preventDefault();
       event.stopPropagation();
-      handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").catch((error) => {
+      handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").then((shared) => {
+        if (shared) shareSellerButton.classList.add("is-active");
+      }).catch((error) => {
         captureClientError("share_seller_shop_failed", error, {
           sellerUsername: shareSellerButton.dataset.shareSellerShop || ""
         });
@@ -24177,6 +24184,13 @@ async function handleShareProduct(product, options = {}) {
     return;
   }
 
+  if (options.channel === 'winga') {
+    if (!isAuthenticatedUser()) return;
+    window.WingaRichUi?.openProductShare({productId:product.id,dataLayer:window.WingaDataLayer,
+      getSession:()=>currentSession,translate:(key,fallback)=>translateUi(key,{},fallback)});
+    return;
+  }
+
   const shareText = `${product.name} - ${formatProductPrice(product.price)} | ${product.shop}`;
   let preparedShare;
   try { preparedShare = getGrowthRuntime()?.prepareShare(product.id, options.sourceSurface
@@ -24227,7 +24241,8 @@ async function handleShareProduct(product, options = {}) {
 function getGrowthRuntime() {
   if (!window.WingaGrowth) {
     window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
-      getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
+      getAccount: () => currentUser || '', getSession: () => currentSession,
+      request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
   }
   return window.WingaGrowth;
 }

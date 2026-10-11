@@ -29,6 +29,15 @@ async function boundedJson(response) {
   } finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
 function percentile(values,p){const s=[...values].sort((a,b)=>a-b);return s.length?Math.round(s[Math.ceil(s.length*p)-1]):null;}
+function requestError(error) {
+  const known=['HTTP_NOT_READY','HEALTH_CONTRACT_FAILED','RELEASE_ID_UNAVAILABLE','RELEASE_CHANGED_DURING_SOAK','RESPONSE_TOO_LARGE'];
+  if(known.includes(error?.message))return error.message;
+  if(error?.name==='TimeoutError'||error?.name==='AbortError')return 'REQUEST_TIMEOUT';
+  const code=error?.cause?.code;
+  if(['ENOTFOUND','EAI_AGAIN'].includes(code))return 'DNS_FAILED';
+  if(['ECONNREFUSED','ECONNRESET','ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET'].includes(code))return 'CONNECTION_FAILED';
+  return 'REQUEST_FAILED';
+}
 async function run(config,{fetchImpl=fetch,now=()=>performance.now(),sleep=delay,progress=()=>{}}={}) {
   const start=now(),samples=[],identities=new Map(),targetFailures=new Map();let failures=0,stopCode=null;
   async function probe(target,phase) {
@@ -42,7 +51,7 @@ async function run(config,{fetchImpl=fetch,now=()=>performance.now(),sleep=delay
       if(target.name==='backend'&&!/^[a-f0-9]{40}$/.test(identity||''))throw new Error('RELEASE_ID_UNAVAILABLE');
       if(identity){if(identities.has(target.name)&&identities.get(target.name)!==identity){stopCode='RELEASE_CHANGED_DURING_SOAK';throw new Error(stopCode);}identities.set(target.name,identity);}
       ok=true;
-    } catch(e){errorCode=['HTTP_NOT_READY','HEALTH_CONTRACT_FAILED','RELEASE_ID_UNAVAILABLE','RELEASE_CHANGED_DURING_SOAK','RESPONSE_TOO_LARGE'].includes(e.message)?e.message:'REQUEST_FAILED';}
+    } catch(e){errorCode=requestError(e);}
     const s={target:target.name,phase,httpStatus,ok,errorCode,latencyMs:Math.round(now()-began)};
     samples.push(s);failures=ok?0:failures+1;targetFailures.set(target.name,ok?0:(targetFailures.get(target.name)||0)+1);
     if(failures>=3||targetFailures.get(target.name)>=3)stopCode||='CONSECUTIVE_FAILURE_LIMIT';progress(s);
@@ -52,6 +61,7 @@ async function run(config,{fetchImpl=fetch,now=()=>performance.now(),sleep=delay
     await sleep(Math.max(0,slot-now()));for(const target of targets){if(stopCode)break;await probe(target,'soak');}
   }
   if(!stopCode)await sleep(Math.max(0,start+config.durationMs-now()));
+  if(!stopCode&&samples.some(s=>!s.ok))stopCode='SOAK_BASELINE_FAILED';
   // Public liveness only: at most two in flight, at most one start each second.
   const inFlight=new Set();
   for(let i=0;i<config.loadRequests&&!stopCode;i++) {
@@ -75,4 +85,4 @@ if(require.main===module)(async()=>{
   const result=await run(config,{progress:s=>{if(++count%15===0||!s.ok)console.error(JSON.stringify({requests:count,target:s.target,ok:s.ok,httpStatus:s.httpStatus,errorCode:s.errorCode}));}});
   console.log(JSON.stringify(result,null,2));if(!result.ok)process.exitCode=1;
 })().catch(e=>{console.error(JSON.stringify({ok:false,errorCode:['INVALID_SOAK_OPTIONS','PRODUCTION_SOAK_CONFIRMATION_REQUIRED'].includes(e.message)?e.message:'SOAK_FAILED'}));process.exitCode=1;});
-module.exports={options,run,boundedJson};
+module.exports={options,run,boundedJson,requestError};

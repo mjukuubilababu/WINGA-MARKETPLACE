@@ -1,0 +1,69 @@
+{
+  "recordedAtUtc": "2026-10-11T19:05:59.595485+00:00",
+  "verifiedReleaseCommit": "c9011955c66fb6fbc7b6d0297ccdaf9d2ee0faa3",
+  "scope": "Authenticated canonical internal product picker; prepared locally only",
+  "verification": {
+    "pickerBrowser": 14,
+    "existingRichChatBrowser": 11,
+    "growth": 44,
+    "encryptedInboxClient": 10,
+    "frontendCore": 145,
+    "frontendBehavior": 80,
+    "workflowTrigger": 4,
+    "moduleSynchronization": 95,
+    "localizationKeysEach": 1637,
+    "newHardcodedDebt": 0
+  },
+  "sourceSha256": {
+    ".github/workflows/conversation-tests.yml": "00d5ee10976dd93af535edbd659926f36dab54923ec54177bbe8abd48ce6d34d",
+    "app.js": "55467689abb4d8bb83f6ba3dc30be4748d211d79ff967df73c8fe82293bf7e5c",
+    "src/api/communications-client.js": "e81fba8159cea3d24a6b38f41be3b3d42cd1c304042f2cdd8b5823ab19c50155",
+    "src/chat/rich-ui.js": "764b091a726bb179edbbef8f415dc8ee1e5e83e76306b5ac0a5a2488f7ee8c80",
+    "src/localization/catalogs/ar.json": "a045463fca46ee12ab8de7b519192e505e845d5985692d3d2efde33e4aa807b7",
+    "src/localization/catalogs/en.json": "375f01b1d2cf94439495587b1be58e7d18217f0c4d317794f5481dd60f9fcc33",
+    "src/localization/catalogs/fr.json": "86b8443512c7bc7bb58695d950c91935cde330e6b46c00d177aa5dd3ba8614ef",
+    "src/localization/catalogs/sw.json": "8bc35bec9bd94a6eb6d69ebfa513c2f7517b226648732363bd912852b5a59a71",
+    "tests/chat-ui.playwright.config.cjs": "76fb075e3bc5289e49596913a0e3ce66e072570d94b8d1372d249d8260445614",
+    "tests/encrypted-inbox-client.test.js": "836997df3363a4c45eccc608bac168124006b2d279a1110536c11f8894f6f170",
+    "tests/growth-runtime.test.js": "4388203099d4247f19656f358fb6c7be8cc29dd076ff00372020e3a13257fae7",
+    "winga-modules.js": "86e84af942bf72535a5d2910c8bf637f60e5de44232d78f668eef9ba3f8d1682",
+    "tests/e2e/product-internal-share.spec.js": "1186bcea1a46c575b8259cb2b104faae402940363a2bb1338cd4f78beb128d60",
+    "docs/growth-phase2-internal-sharing-20261011.md": "b28361eb1a018e8bb71780bba800619eefc8ef4a30a7f51a1a4396dc1d74611b"
+  },
+  "constraints": {
+    "phase2Committed": false,
+    "phase2Pushed": false,
+    "phase2Deployed": false,
+    "growthConfigurationChanged": false,
+    "deviceApprovalChanged": false,
+    "cspChanged": false,
+    "phoenixScaled": false,
+    "agentsUsed": false
+  },
+  "limitations": [
+    "Synthetic API/client picker tests, not production delivery",
+    "Release CI binds previous release source only; Phase 2 requires fresh full CI/CodeQL before promotion",
+    "Physical-phone tests deferred; legitimate device approval remains required",
+    "External Room invites and full Growth specification unfinished"
+  ],
+  "releasePreparation": {
+    "recordedAtUtc": "2026-10-11T19:41:31.366004+00:00",
+    "authorization": "Commit, push, fresh CI/CodeQL and frontend-only deployment",
+    "buildVersion": "20261011193842",
+    "baselineWorkerVersion": "3d9d6ddc-43d6-425f-8e06-c5eb3325a7fa",
+    "remoteHandoffObserved": "c9011955c66fb6fbc7b6d0297ccdaf9d2ee0faa3",
+    "remoteMasterObserved": "e8296dd7c0701fb6f42de44e9a0381bb3ab45cda",
+    "freshLocalChecks": {
+      "growth": 44,
+      "frontendCore": 145,
+      "frontendBehavior": 80,
+      "soakSafety": 12,
+      "encryptedInboxClient": 10,
+      "browserPickerAndRichChat": 25,
+      "modules": 95,
+      "localizationKeysEach": 1637,
+      "newHardcodedDebt": 0
+    },
+    "promotionGates": "Fresh full CI, real PostgreSQL and actual strict CodeQL acceptance remain required"
+  }
+}

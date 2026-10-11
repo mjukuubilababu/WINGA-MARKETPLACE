@@ -41,6 +41,8 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - run: npm run test:conversation-operations
+      - name: Test bounded public soak safety without production traffic
+        run: npm run test:conversation-soak
       - name: Test growth runtime, share and isolated SQL contracts
         env:
           WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'
@@ -55,7 +57,7 @@ jobs:
         run: node --test tests/dom-url-security.test.js
       - run: npm run test:secure-content-browser
       - name: Test guest sharing and exact auth return in the browser
-        run: npx playwright test tests/e2e/growth-loops.spec.js --reporter=list
+        run: npx playwright test tests/e2e/growth-loops.spec.js tests/e2e/product-internal-share.spec.js --reporter=list
   dependencies:
     if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/codex/conversation-codeql-diagnostics') }}
     runs-on: ubuntu-24.04
@@ -111,6 +113,9 @@ jobs:
   static-analysis:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # Exact-tree acceptance requires findings from unchanged files as well.
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'
     permissions:
       contents: read
       security-events: write
@@ -141,3 +146,11 @@ jobs:
           CODEQL_SARIF_DIRECTORY: ${{ runner.temp }}/conversation-codeql-sarif
           CODEQL_REVIEW_MANIFEST: .github/codeql-reviewed-findings.v1.json
         run: node scripts/check-conversation-codeql.js
+      - name: Preserve actual CodeQL SARIF for source-bound review
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-codeql-sarif-${{ github.sha }}
+          path: ${{ runner.temp }}/conversation-codeql-sarif/**/*.sarif
+          if-no-files-found: error
+          retention-days: 7

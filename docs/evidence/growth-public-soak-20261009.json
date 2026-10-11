@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-09",
+  "privacy": "aggregate-only",
+  "backendCommit": "3e291ab242838bdebeca08972e4633b86907cf29",
+  "frontendBuild": "20261009050946",
+  "agentsUsed": false,
+  "applicationWrites": false,
+  "growthFlagsChanged": false,
+  "authenticatedGrowthCanaryVerified": false,
+  "productionCapacityProven": false,
+  "runs": [
+    {
+      "routing": "default",
+      "durationMs": 130495,
+      "requests": 24,
+      "soakRequests": 24,
+      "loadRequests": 0,
+      "failures": 4,
+      "ok": false,
+      "stopCode": "CONSECUTIVE_FAILURE_LIMIT",
+      "targets": [
+        { "name": "backend", "requests": 8, "failures": 1, "p50Ms": 418, "p95Ms": 888, "errorCodes": ["REQUEST_FAILED"] },
+        { "name": "frontend", "requests": 8, "failures": 2, "p50Ms": 554, "p95Ms": 10003, "errorCodes": ["REQUEST_FAILED"] },
+        { "name": "phoenix", "requests": 8, "failures": 1, "p50Ms": 616, "p95Ms": 858, "errorCodes": ["REQUEST_FAILED"] }
+      ]
+    },
+    {
+      "routing": "default",
+      "durationMs": 325073,
+      "requests": 75,
+      "soakRequests": 51,
+      "loadRequests": 24,
+      "failures": 3,
+      "ok": false,
+      "stopCode": null,
+      "baselineGate": "consecutive-failures-only-before-review-fix",
+      "targets": [
+        { "name": "backend", "requests": 25, "failures": 0, "p50Ms": 440, "p95Ms": 963, "errorCodes": [] },
+        { "name": "frontend", "requests": 25, "failures": 3, "p50Ms": 485, "p95Ms": 10008, "errorCodes": ["REQUEST_TIMEOUT"] },
+        { "name": "phoenix", "requests": 25, "failures": 0, "p50Ms": 392, "p95Ms": 833, "errorCodes": [] }
+      ]
+    },
+    {
+      "routing": "node-dns-result-order-ipv4first-diagnostic",
+      "durationMs": 300003,
+      "requests": 51,
+      "soakRequests": 51,
+      "loadRequests": 0,
+      "failures": 2,
+      "ok": false,
+      "stopCode": "SOAK_BASELINE_FAILED",
+      "baselineGate": "any-failure-prevents-load",
+      "targets": [
+        { "name": "backend", "requests": 17, "failures": 0, "p50Ms": 556, "p95Ms": 970, "errorCodes": [] },
+        { "name": "frontend", "requests": 17, "failures": 2, "p50Ms": 820, "p95Ms": 10005, "errorCodes": ["REQUEST_TIMEOUT"] },
+        { "name": "phoenix", "requests": 17, "failures": 0, "p50Ms": 435, "p95Ms": 881, "errorCodes": [] }
+      ]
+    }
+  ],
+  "isolatedGrowthLoad": {
+    "engine": "PGlite",
+    "journeys": 12,
+    "shares": 24,
+    "events": 72,
+    "opens": 12,
+    "views": 12,
+    "confirmedSaves": 12,
+    "continuations": 12,
+    "timingSamples": 12,
+    "orders": 0,
+    "repeatedAggregateReads": 20,
+    "transactionalFailureRecoveryPassed": true,
+    "duplicateProtectionPassed": true,
+    "realPostgresRerunForThisPatch": false
+  },
+  "tests": { "growthPassed": 31, "realtimePassedIncludingSoakSafety": 75, "soakSafetyPassed": 12, "growthSkipped": 0 },
+  "moduleSync": { "strictCheckPassed": false, "lineEndingNormalizedMatch": true, "modules": 95 },
+  "patchDeployed": false,
+  "limitations": [
+    "Public endpoint liveness is not authenticated Growth, messaging or cryptographic acceptance.",
+    "Latency percentiles include failed requests and describe this client's observed path only.",
+    "Repeated frontend timeouts remain unresolved; IPv4-first did not eliminate them.",
+    "No production rollout flags, credentials, devices, orders or message history were modified."
+  ]
+}

@@ -8,6 +8,7 @@ import { growthFixture } from './helpers/growth-database.mjs';
 const require = createRequire(import.meta.url);
 const { createGrowthStore } = require('../backend/growth-store');
 const { createGrowthApi } = require('../backend/growth-api');
+const { readOnlyCheck, migrationIds } = require('../backend/verify-growth-production');
 const { MIGRATIONS, runSchemaMigrations } = require('../backend/migrations');
 const migration = require('../backend/migrations/growth-loops');
 const pgTest = (name, fn) => test('PostgreSQL Growth: ' + name, { skip: !realPostgres, timeout: 60000 }, fn);
@@ -20,6 +21,43 @@ const outcomes = results => {
   for (const r of rejected) assert.equal(r.reason.code, 'growth_rate_limited');
   return { accepted, rejected };
 };
+
+pgTest('production verifier enforces a read-only repeatable snapshot across concurrent commits', async t => {
+  const f = await growthFixture(t);
+  await f.db.query('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY)');
+  for (const id of migrationIds) await f.db.query('INSERT INTO schema_migrations VALUES($1)', [id]);
+  const client = await f.db.pool.connect();
+  let concurrentWrite = false;
+  try {
+    const checked = { query: async (sql, params) => {
+      const result = await client.query(sql, params);
+      if (sql.startsWith('BEGIN')) {
+        assert.equal((await client.query('SHOW transaction_isolation')).rows[0].transaction_isolation, 'repeatable read');
+        assert.equal((await client.query('SHOW transaction_read_only')).rows[0].transaction_read_only, 'on');
+        await client.query('SAVEPOINT readonly_probe');
+        await assert.rejects(client.query('UPDATE growth_shares SET revoked_at=NOW()'), { code: '25006' });
+        await client.query('ROLLBACK TO SAVEPOINT readonly_probe');
+        await client.query('RELEASE SAVEPOINT readonly_probe');
+      }
+      if (sql.includes("to_regclass('schema_migrations')") && !concurrentWrite) {
+        concurrentWrite = true;
+        await f.store.createGrowthShare(f.payload, f.source);
+      }
+      return result;
+    }};
+    const before = await readOnlyCheck(checked, {});
+    assert.equal(before.ok, true);
+    assert.equal(before.metrics.shares, 0, 'later queries must retain the initial snapshot');
+    assert.equal(await rows(f.db, 'growth_shares'), 1);
+    const after = await readOnlyCheck(checked, {});
+    assert.equal(after.ok, true);
+    assert.equal(after.metrics.shares, 1);
+    assert.equal(after.authenticatedShareFlowVerified, false);
+    assert.equal(after.productionLoadVerified, false);
+    await assert.rejects(readOnlyCheck({ query: sql => client.query(sql.startsWith('SELECT') ? 'SELECT 1/0' : sql) }, {}), { code: '22012' });
+    assert.equal((await client.query('SELECT 1 AS ready')).rows[0].ready, 1, 'failed verifier must roll back its transaction');
+  } finally { client.release(); }
+});
 
 async function waitForBlocked(db, blockerPid) {
   const deadline = Date.now() + 4000;

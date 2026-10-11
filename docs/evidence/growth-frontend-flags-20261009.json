@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-09",
+  "privacy": "aggregate-only",
+  "scope": "frontend-growth-flags-only",
+  "frontendBuild": "20261009150025",
+  "workerVersion": "ef3ae34f-5562-4910-bfcf-fa4cef49fc92",
+  "previousWorkerVersion": "199977f3-13c9-41b8-9e38-cf602c95d378",
+  "defaultProductionFlags": { "growthProductSharing": true, "growthMeasurement": true },
+  "localAndFileDefaultsEnabled": false,
+  "configMatchesBuiltAsset": true,
+  "browserOverridesVerified": false,
+  "backendCohortIndependentlyVerified": false,
+  "serverCohortPolicyChangedByThisDeployment": false,
+  "dashboardVariablesPreserved": true,
+  "secretsChanged": false,
+  "securityHeadersChanged": false,
+  "agentsUsed": false,
+  "sourceCommitted": false,
+  "tests": {
+    "growthPassed": 33,
+    "frontendCorePassed": 145,
+    "frontendRegressionPassed": 80,
+    "moduleSyncPassed": true,
+    "moduleCount": 95,
+    "workerDryRunPassed": true,
+    "productionSmokeChecksPassed": 8
+  },
+  "preDeploymentPublicSoak": {
+    "frontendBuild": "20261009050946",
+    "durationMs": 120015,
+    "requests": 18,
+    "loadRequests": 0,
+    "failures": 0,
+    "ok": true,
+    "productionCapacityProven": false
+  },
+  "authenticatedGrowthCanaryVerified": false,
+  "productionLoadVerified": false,
+  "backendVerifierPatchDeployed": false,
+  "limitations": [
+    "Frontend flags are not authorization; the existing server cohort remains authoritative.",
+    "The backend allowlist update was confirmed by the user, not independently read by this check.",
+    "Public smoke and a short zero-load soak do not establish regional capacity or resolve all earlier timeouts.",
+    "Full CI and strict CodeQL source-tree acceptance have not been refreshed for the pending local patch."
+  ]
+}
