@@ -1,7 +1,7 @@
 {
   "version": 1,
   "digestAlgorithm": "sha256-lf",
-  "sourceTreeSha256": "b8ac2b5cd6d135151aff65afd0e8787b62dd560908c48e2492d636229d315718",
+  "sourceTreeSha256": "dcef106994c59eb79876539e54d699d177b3725dc29aef44d47fd04e80686948",
   "reviews": [
     {
       "ruleId": "js/request-forgery",
@@ -29,12 +29,12 @@
       "ruleId": "js/xss-through-dom",
       "path": "app.js",
       "startLine": 2543,
-      "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "0cc7c389e9db7ab58467d5b304ba6717c3093ae5f6a4a1ba30fe2dd739dc752a",
+      "sourceSha256": "6c622d47f59e29c934d9477acab93ccb3011736c0f32adc1097fb67c132bbb75",
+      "resultFingerprint": "caba1ee9a3227024893d4b28791ddf2bb823ba1a08c11e597c19f0f15c132146",
       "maxOccurrences": 1,
-      "reviewer": "Godel",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "A local file-preview blob URL is assigned only to the fixed image element src attribute. Filenames are not inserted as HTML, and this sink does not navigate an executable document.",
-      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "local file-preview source review; tests/dom-url-security.test.js; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/xss-through-dom",
@@ -94,24 +94,24 @@
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
-      "startLine": 5073,
-      "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "c833002a51ecef6418cd3673071dae74fa60cf5ada81c32e527b2b94bc8d6b78",
+      "startLine": 5088,
+      "sourceSha256": "504425c9f38a08d4198113d4717a137dc857d047d530f060cd8e68c9de125b98",
+      "resultFingerprint": "e1da6278ced9bdbd36ea46523cf3e82d993710664138e584a7bfacff22f5bdb1",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not used to sanitize user-controlled content.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/incomplete-sanitization",
       "path": "tests/frontend-core.test.js",
-      "startLine": 5268,
-      "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "6f68e84dfb6f3b448c02bd8f823b49bba9648a08377ed3dae6845603f51b5726",
+      "startLine": 5283,
+      "sourceSha256": "504425c9f38a08d4198113d4717a137dc857d047d530f060cd8e68c9de125b98",
+      "resultFingerprint": "7cb5dab3aac27faad92ed67822c5df16e463a9d4e74137716f8b6fda9c495b3c",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "Static locale-key extraction/assertion from repository-owned source is not a user-input sanitizer.",
-      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/frontend-core.test.js static locale-key assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/insecure-randomness",
@@ -139,12 +139,12 @@
       "ruleId": "js/incomplete-url-substring-sanitization",
       "path": "tests/frontend-core.test.js",
       "startLine": 3270,
-      "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
+      "sourceSha256": "504425c9f38a08d4198113d4717a137dc857d047d530f060cd8e68c9de125b98",
       "resultFingerprint": "77b80628fcda631b0153e256d8998e4e91a6ccd75a24c111337b2dc9c33bf97d",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "This is a positive assertion of a static CSP source string, not production URL validation; authorization does not depend on substring matching here.",
-      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/frontend-core.test.js CSP assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/file-system-race",
@@ -402,13 +402,13 @@
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
-      "startLine": 19628,
-      "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "0adf4214a0008d1417c275b2ba62b59e036f3a0907425b45e8b62490e68c0a6f",
+      "startLine": 19631,
+      "sourceSha256": "6c622d47f59e29c934d9477acab93ccb3011736c0f32adc1097fb67c132bbb75",
+      "resultFingerprint": "45a01ef5f1f0faa1e9a2483821ffdc2050f5dec2b946be0f53c3a199eab3b551",
       "maxOccurrences": 1,
-      "reviewer": "Godel",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "This logout branch chooses the presentation of the admin login screen after local authentication state is cleared. It grants no backend authorization or staff session.",
-      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "app.js logout UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/user-controlled-bypass",
@@ -424,24 +424,24 @@
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
-      "startLine": 24236,
-      "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "b0f49a249efde02231a52e9558bba5829d02292242da6a8a54281b094ec9f76c",
+      "startLine": 24239,
+      "sourceSha256": "6c622d47f59e29c934d9477acab93ccb3011736c0f32adc1097fb67c132bbb75",
+      "resultFingerprint": "cc33416d188aa9e7bee65d39f3979399bb6a85b0f09caf80ff804c1199629ea1",
       "maxOccurrences": 1,
-      "reviewer": "Godel",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "This route check selects UI presentation only. Staff authentication and backend authorization are separate, and nonstaff access is not granted by choosing this route.",
-      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "app.js access-route UI source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/user-controlled-bypass",
       "path": "app.js",
-      "startLine": 25758,
-      "sourceSha256": "c5d726e5c207fbf72a1645963fc0d127d5fa73b7c4f6ed1ed885ef71155906da",
-      "resultFingerprint": "b72378453b4b128aacadf693d8e2e05db6dd0e5afb515a903ddf62cd1f1f124d",
+      "startLine": 25761,
+      "sourceSha256": "6c622d47f59e29c934d9477acab93ccb3011736c0f32adc1097fb67c132bbb75",
+      "resultFingerprint": "d79cd297503e5ec5eb32cd1680cdcf5d263f6837b2c27b372602f3eb0272594f",
       "maxOccurrences": 1,
-      "reviewer": "Godel",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "This boot branch displays the admin login screen; it does not issue a privileged session or replace backend role checks.",
-      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "app.js boot source review; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/http-to-file-access",
@@ -502,23 +502,23 @@
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
       "startLine": 274,
-      "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
+      "sourceSha256": "504425c9f38a08d4198113d4717a137dc857d047d530f060cd8e68c9de125b98",
       "resultFingerprint": "772586836450acce4480456cbd2d1af3330bd05e1a8364e1d842fdff8442c0b2",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "The unanchored expression is a negative assertion deliberately searching repository-owned source anywhere for a forbidden construct, not production hostname authorization.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",
       "path": "tests/frontend-core.test.js",
-      "startLine": 3349,
-      "sourceSha256": "09089a331477b2dc43b2203bc9de0a07768f39ef5cc7389d6398caeef8d1457e",
-      "resultFingerprint": "e526ec94e3a6bc7fe3d1b32912720727a3781db8e6dbb75139d9fb12dc861d21",
+      "startLine": 3364,
+      "sourceSha256": "504425c9f38a08d4198113d4717a137dc857d047d530f060cd8e68c9de125b98",
+      "resultFingerprint": "8e6d7bbac0bb278eb377cffcaf8b0e61d9f79c506f3cea2a538bb929c7b0c051",
       "maxOccurrences": 1,
-      "reviewer": "Hubble",
+      "reviewer": "Codex (self-review, not independent audit)",
       "reason": "The unanchored expression intentionally finds a forbidden construct anywhere in static fixture/source output; it does not validate a user-controlled URL or authorization field.",
-      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation."
+      "evidence": "tests/frontend-core.test.js negative source assertion; actual QA run 37855535222 at cba9313e461683814a53e1bcf85c2cc2e0f05988; independent classifications recorded in docs/conversations-final-acceptance-20261009.md Exact v2 source and referenced-artifact binding independently checked against paired actual CodeQL jobs 113620696399 and 113621771520 at 3a48e60ebd1353b5978754a7803d3f27b238d6a3; source tree 7c6f6404a0fedf9e49b92862e81ee08102a5179040b114c247d0106233971c43. Exact growth binding evidence: candidate 989ece4b95963cc4f9794ff133bdbecaaaad20dd, actual QA run 37905330406 job 113737308613; coordinate proof run 37915881184 job 113771811845, 50 findings and 31 compared fields. No parser, reason or occurrence-cap relaxation. Metadata-only scanner refresh: actual run 37922381635 job 113793149451 (CodeQL CLI 2.27.2); result/rule/source/closure fields unchanged from reviewed candidate, tool semanticVersion/locations changed. Independent review required before activation. Button-feedback scoped self-review: actual full CodeQL run 38142187837 job 114478203280 at d46607e046b5b90b5562fb3c1167bd0ee28a1152; 50 findings, 41 complete source/result bindings unchanged. Nine app/frontend-test sites re-reviewed against the patch; fixed image-blob sink, admin UI-only branches and static test assertions retain their original reasons. Rule/tool/message/partial-fingerprint/selected-artifact closure hashes unchanged; only result coordinates/flows and source hashes change. Frontend 145+80 and isolated actual-browser button checks 8 passed. Strict gate, classifications and one-occurrence limits unchanged."
     },
     {
       "ruleId": "js/regex/missing-regexp-anchor",

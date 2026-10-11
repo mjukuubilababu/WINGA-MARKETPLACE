@@ -593,3 +593,42 @@ preserved. The candidate's local exact-tree digest matches the actual scanner's
 This ledger correction is a proposed exact binding; the following fresh full CI
 must still prove that the gate accepts it. No scan results or historic evidence
 are fabricated, and no independent security/cryptographic audit is claimed.
+
+### Button feedback candidate and own binding review, 2026-10-11
+
+The operator authorized deploying frontend button feedback after required checks
+pass. Like and Follow use their existing active state with a red background; Share
+seller becomes red only after native sharing or clipboard copying succeeds.
+Cancellation, denied clipboard access and the manual-copy prompt do not mark a
+successful share. Growth configuration, device trust, CSP, backend and Phoenix
+capacity remain unchanged. Production build candidate is `20261011130445`; both
+Worker build aliases agree. Wrangler dry-run succeeds and preserves vars with
+`--keep-vars`. No production deployment has occurred at this checkpoint.
+
+Focused frontend checks pass 145 core and 80 behavior cases, Growth 33, bounded
+soak safety 12, canonical module synchronization 95, and eight isolated actual
+browser button checks. The obsolete source-literal build-version assertion now
+executes the actual build-version synchronizer and checks both aliases and an
+unrelated variable. Existing CSP assertions remain unchanged.
+
+Full actual CodeQL run `38142187837`, job `114478203280`, completes with 50
+findings (34 warnings, 16 errors). The gate correctly rejects the old tree binding.
+Forty-one complete source/result bindings match prior successful job
+`113944573892`; nine existing app/frontend-test sites were re-reviewed against
+the narrow patch. Their fixed image-blob sink, admin UI-only branches and static
+test assertions retain their existing reasons. Rule, tool component, message,
+partial fingerprint and selected artifact-closure hashes match the prior scan;
+only coordinates/related flows and source hashes change. No new site is accepted.
+Only those nine ledger entries receive current coordinates/hashes and the honest
+`Codex (self-review, not independent audit)` label. Reasons, one-occurrence caps,
+queries, parser and strict gates are preserved. Current tree digest is
+`dcef106994c59eb79876539e54d699d177b3725dc29aef44d47fd04e80686948`.
+
+The candidate preserves newer master's production workflow and accompanying
+deployment documentation exactly, without merging master or enabling branch
+deployment. A fresh regular four-job run must prove the revised ledger passes
+before deployment. Cloudflare token verification succeeds, but `mkubwa` settings
+and deployments return HTTP 403, "No access to the specified resource." Public
+frontend endpoints also return 403 from this environment. Render service identity
+and backend/Phoenix health checks succeed. Credential readiness and token activity
+alone do not prove Worker deployment access or public frontend acceptance.
