@@ -2127,6 +2127,15 @@ img[data-zoom-src]{
   background:#dbeafe;
 }
 
+button[data-like-product].is-active,
+button[data-follow-person].is-active,
+button[data-follow-seller].is-active,
+button[data-share-seller-shop].is-active{
+  background:#dc2626;
+  color:#fff;
+  border-color:#dc2626;
+}
+
 .showcase-card .product-seller-name,
 .intelligent-feed-card .product-seller-name,
 .seller-product-card .product-seller-name,

@@ -11292,7 +11292,7 @@ async function handleShareSellerShop(username) {
       body: translateUi("share.noApprovedProduct", { seller: getUserDisplayName(username) }, `${getUserDisplayName(username)} bado hana bidhaa approved ya kushare kwa sasa.`),
       variant: "warning"
     });
-    return;
+    return false;
   }
 
   const sellerName = getUserDisplayName(username, {
@@ -11308,10 +11308,10 @@ async function handleShareSellerShop(username) {
         text: shareText,
         url: shareUrl
       });
-      return;
+      return true;
     } catch (error) {
       if (error && error.name === "AbortError") {
-        return;
+        return false;
       }
     }
   }
@@ -11323,10 +11323,11 @@ async function handleShareSellerShop(username) {
       body: translateUi("share.linkCopied", { name: sellerName }, `${sellerName} link ime-copy tayari kwa sharing.`),
       variant: "success"
     });
-    return;
+    return true;
   }
 
   window.prompt("Copy seller link", `${shareText} | Link: ${shareUrl}`);
+  return false;
 }
 
 function buildCollectionShareUrl({ category = "all", topCategory = "" } = {}) {
@@ -12679,7 +12680,9 @@ function bindTrustReportEntryActions() {
     if (shareSellerButton) {
       event.preventDefault();
       event.stopPropagation();
-      handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").catch((error) => {
+      handleShareSellerShop(shareSellerButton.dataset.shareSellerShop || "").then((shared) => {
+        if (shared) shareSellerButton.classList.add("is-active");
+      }).catch((error) => {
         captureClientError("share_seller_shop_failed", error, {
           sellerUsername: shareSellerButton.dataset.shareSellerShop || ""
         });
