@@ -633,7 +633,10 @@ test('workflow wires Node 24 and the actual analyze output into an unconditional
   assert.match(job, /CODEQL_REVIEW_MANIFEST: \.github\/codeql-reviewed-findings\.v1\.json/);
   assert.match(job, /run: node scripts\/check-conversation-codeql\.js/);
   assert.match(job, /queries: security-extended/);
-  assert.doesNotMatch(job, /continue-on-error|upload-artifact|secrets\.|actions: write|contents: write|upload: never/);
+  assert.doesNotMatch(job, /continue-on-error|secrets\.|actions: write|contents: write|upload: never/);
+  // Preserve the scanner output for review even when the gate rejects stale bindings.
+  assert.match(job, /run: node scripts\/check-conversation-codeql\.js\s+- name: Preserve actual CodeQL SARIF/);
+  assert.match(job, /uses: actions\/upload-artifact@v4\s+with:\s+name: conversation-codeql-sarif-\$\{\{ github.sha \}\}\s+path: \$\{\{ runner.temp \}\}\/conversation-codeql-sarif\/\*\*\/\*.sarif\s+if-no-files-found: error\s+retention-days: 7/);
 });
 
 function fixtureGit(root, args) {

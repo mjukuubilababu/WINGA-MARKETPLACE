@@ -61,7 +61,8 @@ test('unconditional actual scan gate and trigger regressions remain wired into C
   for (const body of jobs.values()) assert.doesNotMatch(body, /^    needs:/m);
   assert.match(workflow, /^permissions:\r?\n  contents: read\r?\nconcurrency:/m);
   assert.match(security, /^    permissions:\r?\n      contents: read\r?\n      security-events: write\r?\n    steps:/m);
-  assert.deepEqual(security.match(/^        if: .+$/gm)?.map(line => line.trim()), ['if: ${{ !cancelled() }}']);
+  assert.deepEqual(security.match(/^        if: .+$/gm)?.map(line => line.trim()),
+    ['if: ${{ !cancelled() }}', 'if: ${{ !cancelled() }}']);
   assert.match(security, /^      - name: Gate actual CodeQL security findings\r?\n        if: \$\{\{ !cancelled\(\) \}\}\r?\n        env:/m);
   assert.match(security, /^      - uses: github\/codeql-action\/init@v4\s*$/m);
   assert.match(workflow, /^        run: node --test tests\/conversation-codeql-gate\.test\.js tests\/conversation-workflow-trigger\.test\.js\s*$/m);
@@ -69,4 +70,9 @@ test('unconditional actual scan gate and trigger regressions remain wired into C
   assert.match(workflow, /^        if: \$\{\{ !cancelled\(\) \}\}\s*$/m);
   assert.match(workflow, /^          CODEQL_REVIEW_MANIFEST: \.github\/codeql-reviewed-findings\.v1\.json\s*$/m);
   assert.match(workflow, /^        run: node scripts\/check-conversation-codeql\.js\s*$/m);
+  assert.match(security, /- name: Preserve actual CodeQL SARIF for source-bound review\r?\n        if: \$\{\{ !cancelled\(\) \}\}\r?\n        uses: actions\/upload-artifact@v4/);
+  assert.match(security, /^          name: conversation-codeql-sarif-\$\{\{ github.sha \}\}\s*$/m);
+  assert.match(security, /^          path: \$\{\{ runner.temp \}\}\/conversation-codeql-sarif\/\*\*\/\*.sarif\s*$/m);
+  assert.match(security, /^          if-no-files-found: error\s*$/m);
+  assert.match(security, /^          retention-days: 7\s*$/m);
 });
