@@ -1766,6 +1766,7 @@ function applySessionState(session) {
   if (!session || typeof session !== "object" || Array.isArray(session)) {
     currentSession = null;
     currentUser = "";
+    try { window.WingaGrowth?.syncIdentity?.(); } catch {}
     return;
   }
 
@@ -1773,6 +1774,7 @@ function applySessionState(session) {
   if (!username) {
     currentSession = null;
     currentUser = "";
+    try { window.WingaGrowth?.syncIdentity?.(); } catch {}
     return;
   }
 
@@ -1796,6 +1798,7 @@ function applySessionState(session) {
     verifiedSeller: Boolean(session.verifiedSeller)
   };
   currentUser = username;
+  try { window.WingaGrowth?.syncIdentity?.(); } catch {}
   hydrateSharedCollectionIntentState(username);
 }
 
@@ -24230,7 +24233,8 @@ async function handleShareProduct(product, options = {}) {
 function getGrowthRuntime() {
   if (!window.WingaGrowth) {
     window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
-      getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
+      getAccount: () => currentUser || '', getSession: () => currentSession,
+      request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
   }
   return window.WingaGrowth;
 }

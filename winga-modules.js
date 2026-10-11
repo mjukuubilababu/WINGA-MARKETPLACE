@@ -109,6 +109,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const enabled = () => win.WINGA_CONFIG?.growthProductSharing === true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
     const account = () => deps.getAccount?.() || '';
+    // Auth-session bindings stay in memory, never in the attribution journal/outbox.
+    const authContext = () => {
+      const session = deps.getSession?.();
+      return JSON.stringify([session?.username || '', session?.sessionId || '', session?.token || '']);
+    };
     const storage = (area, method, key, value) => { try { return win[area][method](key, value); } catch { return null; } };
     const read = (area, key, fallback) => {
       try { return JSON.parse(storage(area, 'getItem', key) || 'null') || fallback; } catch { return fallback; }
@@ -119,24 +124,37 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     let dead = read('localStorage', 'winga-growth-dead-v1', []);
     dead = Array.isArray(dead) ? dead.filter(x => x && now()-x.failedAt < 7*86400000).slice(-50) : [];
-    let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
-    if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
+    let previousAccount = account();
+    const storedJourney = read('sessionStorage', 'winga-growth-journey-v1', null);
+    // Unowned legacy journals cannot safely be assigned to the current account.
+    const restoreJourney = storedJourney && typeof storedJourney.owner === 'string'
+      && (!storedJourney.owner || storedJourney.owner === previousAccount);
+    let journey = restoreJourney && Array.isArray(storedJourney.touches)
+      ? { firstTouch: null, lastTouch: null, touches: storedJourney.touches }
+      : { firstTouch: null, lastTouch: null, touches: [] };
+    if (storedJourney && !restoreJourney) {
+      sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
+    }
     journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && contract.id(t?.productId)
       && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
+    const persistJourney = () => storage('sessionStorage','setItem','winga-growth-journey-v1',
+      JSON.stringify({ ...journey, owner: previousAccount }));
+    persistJourney();
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
-    let previousAccount = account();
     let routeTiming = null, initialCapture = true;
     function syncIdentity() {
+      if (closed) return;
       const current = account();
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
-        storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
+      const changed = previousAccount !== current;
       previousAccount = current;
+      if (changed) persistJourney();
     }
     const persist = () => storage('localStorage','setItem','winga-growth-outbox-v1',JSON.stringify(queue));
     function health(type, code = '') {
@@ -149,6 +167,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       health('dead_letter', reason);
     }
     function enqueue(kind, payload) {
+      if (closed) return;
       const item = { id: payload.eventId || payload.shareId, kind, payload, account: account(), attempts: 0, nextAt: now(), createdAt: now() };
       if (queue.some(x => x.id === item.id && x.kind === kind)) return;
       if (queue.length >= 100) deadLetter(queue.shift(), 'queue_capacity');
@@ -188,6 +207,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return [...journey.touches].reverse().find(t => t.productId === productId && now()-t.at < 30*86400000);
     }
     function event(eventType, productId, extra = {}) {
+      if (closed) return;
       syncIdentity();
       if (!measurement() || !contract.events.includes(eventType)) return;
       const touch = touchFor(productId);
@@ -199,6 +219,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       enqueue('events',payload);
     }
     function capture(input = win.location.href) {
+      if (closed) return;
       syncIdentity();
       if (!measurement()) return;
       try {
@@ -216,24 +237,34 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           // Preserve the original first touch when the bounded journal is full.
           journey.touches = journey.touches.length >= 20 ? [journey.touches[0],...journey.touches.slice(-18),touch] : [...journey.touches,touch];
           journey.firstTouch = journey.firstTouch || touch; journey.lastTouch = touch;
-          storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+          persistJourney();
         }
         event('product_share_opened',target.id);
       } catch { health('capture_failed'); }
     }
     function prepareShare(productId, sourceSurface = 'product_detail') {
       syncIdentity();
-      const shareId = enabled() ? randomId() : '';
+      const shareId = !closed && enabled() ? randomId() : '';
       const url = contract.shareUrl(win.location.origin,productId,shareId);
       const parent = touchFor(productId);
+      const sourceAccount = account(), sourceSession = sessionId, sourceAuth = authContext();
+      let committed = false;
       return { url, commit() {
-        if (!shareId) return;
+        if (committed) return false;
+        committed = true;
+        if (closed || !shareId || !enabled()) return false;
+        syncIdentity();
+        if (sourceAccount !== account() || sourceSession !== sessionId || sourceAuth !== authContext()) {
+          health('share_context_changed'); return false;
+        }
         enqueue('shares',{ shareId,sessionId,contentType:'PRODUCT',contentId:productId,
           sourceSurface:contract.surfaces.includes(sourceSurface) ? sourceSurface : 'product_detail',
           parentShareId:parent?.shareId || '',schemaVersion:1 });
+        return true;
       } };
     }
     function productVisible(productId) {
+      if (closed) return;
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
       if (!touchFor(productId) || !measurement() || win.document.visibilityState !== 'visible') return;
@@ -256,10 +287,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,
-      getJourney: () => JSON.parse(JSON.stringify(journey)),
+    return { prepareShare,event,capture,productVisible,flush,syncIdentity,
+      getJourney: () => { syncIdentity(); return JSON.parse(JSON.stringify(journey)); },
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
+        if (closed) return 0;
         const retryable = dead.filter(item => item.account === account() && now()-item.createdAt <= 86400000);
         dead = dead.filter(item => !retryable.includes(item));
         storage('localStorage','setItem','winga-growth-dead-v1',JSON.stringify(dead));
