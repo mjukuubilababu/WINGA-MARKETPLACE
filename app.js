@@ -5512,6 +5512,7 @@ async function resumePendingGuestIntent() {
     }
   }
 
+  if (intent.type === 'share-to-winga') { await openInternalProductShare(intent.productId); return; }
   if (intent.type === 'save-product' && intent.productId && getProductById(intent.productId)) {
     if (!isProductSaved(intent.productId)) { toggleSavedProduct(intent.productId); syncSavedProductLike(intent.productId,true); }
     return;
@@ -7644,6 +7645,7 @@ function ensureMediaActionSheetRoot() {
       return;
     }
 
+    if(action==='share-winga'){closeMediaActionSheet();openInternalProductShare(product.id);return;}
     if (['share','share-copy','share-whatsapp'].includes(action)) {
       closeMediaActionSheet();
       handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
@@ -7946,6 +7948,7 @@ function openMediaActionSheet(product, options = {}) {
   [
     { action: "save", label: saved ? "Remove saved" : "Save" },
     { action: "share", label: translateUi("common.share", {}, "Share") },
+    { action: 'share-winga', label: translateUi('growth.shareToWinga', {}, 'Share to Winga') },
     { action: 'share-copy', label: translateUi('detail.copyDeepLink', {}, 'Copy Deep Link') },
     { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
     { action: "download", label: translateUi("common.download", {}, "Download") },
@@ -25883,3 +25886,9 @@ bootApp().catch((error) => {
   });
   showFatalStartupState(error);
 });
+
+let internalProductShareUi;
+function openInternalProductShare(productId) {
+  internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent})});
+  return internalProductShareUi.open(productId);
+}

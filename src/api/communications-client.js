@@ -535,7 +535,7 @@
       readEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.readMediaDraft(peer);},
       discardEncryptedMediaDraft:async peer=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.discardMediaDraft(peer);},
       sendEncryptedMediaDraft:async(peer,text)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.sendMediaDraft(peer,text);},
-      sendRichMessage:async(peer,content)=>sendMessage({clientMessageId:crypto.randomUUID(),receiverId:peer,message:'',richContent:content,encrypted:true}),
+      sendRichMessage:async(peer,content,options={})=>sendMessage({clientMessageId:options.clientMessageId||crypto.randomUUID(),receiverId:peer,message:'',richContent:content,encrypted:true}),
       mutateEncryptedMessage:async(peer,type,id,value)=>{const s=await ensureEncryption();if(!s)runtimeRequired();return s.mutateMessage(peer,type,id,value);},
       readConversationReference:async(kind,id)=>{
         requireFetcher();return fetchJson(baseUrl+'/conversations/references?kind='+encodeURIComponent(kind)+'&id='+encodeURIComponent(id),{headers:authHeaders()});

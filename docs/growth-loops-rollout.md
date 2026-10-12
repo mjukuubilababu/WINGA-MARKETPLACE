@@ -174,3 +174,25 @@ full specification production-ready or enable a broad rollout from these tests.
 Rollback: disable room invitation creation and measurement; leave additive
 schema and existing MLS rooms intact. Do not drop tables or invalidate legacy
 public product links to roll back UI code.
+
+### Internal product sharing
+
+The product media action sheet now offers Share to Winga. Guests authenticate
+and return to the same product's destination picker. Recent encrypted inbox
+peers and active, accepted, unarchived MLS rooms come from existing canonical
+readers. Selecting one destination sends an existing rich product card or
+`product-share` room command; plaintext legacy chats are excluded. This action
+does not read contacts, automatically select recipients or send notifications
+independently of canonical message delivery. Product eligibility is rechecked
+before send, and the transport continues to enforce recipient blocks and room
+membership. No private message bodies or destination IDs are sent to growth.
+
+Each choice retains one canonical client message ID for retry after failure.
+The UI claims success only after canonical transport acceptance. A Chromium
+scenario verifies guest auth return, no automatic send, rich-card payload,
+excluded legacy peers, stable IDs across a failed send/retry and Room commands.
+Existing rich-content/reference and frontend regression checks also pass.
+Reel/Short/Collection sharing remains available in the existing conversation
+attachment picker; their external destinations and growth attribution belong
+to Phase 4. This completes the product destination picker, not all Phase 2
+production readiness gates.

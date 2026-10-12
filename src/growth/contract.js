@@ -41,7 +41,7 @@
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
+    'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;

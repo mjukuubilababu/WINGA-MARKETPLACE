@@ -116,3 +116,45 @@ test('expired room invitation offers a useful fallback before signup',async({bro
   await expect(page.locator('#auth-container')).toBeHidden();
   await context.close();
 });
+
+test('internal product sharing uses rich canonical transports and stable retry IDs',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request);
+  await page.goto('/product/'+product.id);
+  await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+  await page.evaluate(id=>openMediaActionSheet(getProductById(id)),product.id);
+  await page.locator('[data-media-action="share-winga"]').click();
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();
+  await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');
+  await page.locator('#auth-button').click();
+  await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  // Verify explicit selection and retry wiring; real transport authorization is tested separately.
+  await page.evaluate(()=>{
+    window.__internalShares=[];window.__roomShares=[];
+    WingaDataLayer.loadInboxPage=async()=>({items:[{withUser:'market_seller',encrypted:true},{withUser:'legacy_peer',encrypted:false}]});
+    WingaDataLayer.shoppingRoom=async(action,args)=>{
+      if(action==='list')return [{id:'11111111-1111-4111-8111-111111111111',name:'Choose a gift',status:'active',transition:{status:'accepted'}}];
+      window.__roomShares.push({action,args});return {id:args[3]};
+    };
+    WingaDataLayer.sendRichMessage=async(peer,content,options)=>{
+      window.__internalShares.push({peer,content,options});if(window.__internalShares.length===1)throw Error('network unavailable');return {id:options.clientMessageId};
+    };
+  });
+  await page.evaluate(id=>openInternalProductShare(id),product.id);
+  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:'Share to Winga'})});
+  await expect(dialog.getByRole('button',{name:'market_seller',exact:true})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'legacy_peer',exact:true})).toHaveCount(0);
+  expect(await page.evaluate(()=>window.__internalShares.length)).toBe(0);
+  await dialog.getByRole('button',{name:'market_seller',exact:true}).click();
+  await expect(dialog.locator('[role=status]')).toContainText('Unable to share');
+  await dialog.getByRole('button',{name:'market_seller',exact:true}).click();
+  await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
+  const messages=await page.evaluate(()=>window.__internalShares);
+  expect(messages).toHaveLength(2);expect(messages[0].options.clientMessageId).toBe(messages[1].options.clientMessageId);
+  expect(messages[1].content.type).toBe('product');expect(messages[1].content.data.ids).toEqual([product.id]);
+  await dialog.getByRole('button',{name:'Choose a gift',exact:true}).click();
+  const rooms=await page.evaluate(()=>window.__roomShares);
+  expect(rooms).toHaveLength(1);expect(rooms[0].action).toBe('command');expect(rooms[0].args[1]).toBe('product-share');
+  expect(rooms[0].args[2]).toEqual({productId:product.id,note:'',snapshot:null});
+  await context.close();
+});
