@@ -10,7 +10,7 @@ const REQUIRED_ROUTES = [
 
 function fetchUrl(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { "User-Agent": "WingaProductionVerifier/1.0" } }, (response) => {
+    const request = https.get(url, { headers: { "User-Agent": "WingaProductionVerifier/1.0", "Cache-Control": "no-cache" } }, (response) => {
       const statusCode = response.statusCode || 0;
       const headers = response.headers || {};
       if ([301, 302, 307, 308].includes(statusCode) && headers.location) {
@@ -231,6 +231,10 @@ async function verifyRoute(route) {
 }
 
 async function main() {
+  const expectedVersion = String(process.env.WINGA_EXPECTED_BUILD_VERSION || "").trim();
+  if (expectedVersion && !/^\d{14}$/.test(expectedVersion)) {
+    throw new Error("WINGA_EXPECTED_BUILD_VERSION must contain a 14-digit build version.");
+  }
   console.log(`Verifying production shell at ${PRODUCTION_ORIGIN}`);
   let homeHtml = "";
   let serviceWorkerSource = "";
@@ -258,14 +262,22 @@ async function main() {
   if (versions.size !== 1) {
     throw new Error(`Production build versions do not match: ${JSON.stringify({ htmlVersion, appVersion, styleVersion, swVersion, jsonVersion })}`);
   }
+  if (expectedVersion && jsonVersion !== expectedVersion) {
+    throw new Error(`Production build ${jsonVersion} does not match expected deployment ${expectedVersion}.`);
+  }
   await verifyRoute({ path: appPath, kind: "javascript" });
   await verifyRoute({ path: stylePath, kind: "css" });
   await verifyRoute({ path: "/api/products?limit=1&page=1", kind: "products-api" });
   await verifyRoute({ path: "/api/auth/csrf-token", kind: "csrf-api" });
+  if (expectedVersion) {
+    console.log(`Verified production build ${expectedVersion}`);
+  }
   console.log("Production shell verification passed.");
 }
 
-main().catch((error) => {
+module.exports = { main };
+
+if (require.main === module) main().catch((error) => {
   const message = error?.message || String(error || "") || "Unknown production verification error";
   console.error(`Production shell verification failed: ${message}`);
   if (error?.stack) {

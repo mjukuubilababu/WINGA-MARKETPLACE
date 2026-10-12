@@ -20,6 +20,9 @@ The workflow updates the five existing Workers: `mkubwa`,
 remote variables and secrets and explicitly updates both frontend build version
 bindings (`BUILD_VERSION` and `WINGA_BUILD_VERSION`) to the same asset version.
 It checks the production shell and confirms the published build version.
+The same HTTPS verifier checks both shell consistency and the expected deployment
+version. Verification retries up to five times, with 15 seconds between attempts,
+to allow the new deployment to propagate; an older or inconsistent build fails.
 Worker updates are sequential; a failure can leave some Workers updated. Review
 the failed run before retrying with a new push.
 
