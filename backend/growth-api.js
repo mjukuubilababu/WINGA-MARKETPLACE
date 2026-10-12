@@ -50,6 +50,11 @@ function createGrowthApi(deps) {
         if(!store?.readSellerReferralHealth){send(503,{code:'growth_unavailable'});return true;}
         send(200,await store.readSellerReferralHealth());return true;
       }
+      if(path==='/api/admin/growth/network'&&req.method==='GET'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.readNetworkLoopHealth){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.readNetworkLoopHealth());return true;
+      }
       if(path === '/api/admin/growth/marketplace' && req.method === 'GET'){
         if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
         if(!store?.readMarketplaceLoopHealth){send(503,{code:'growth_unavailable'});return true;}

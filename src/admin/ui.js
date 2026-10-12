@@ -674,7 +674,7 @@
       Promise.resolve().then(()=>deps.loadGrowthLoopReports()).then(reports=>{
         if(sequence!==growthSequence||!section.isConnected||deps.getCurrentUser?.()!==owner||!deps.isAdminUser()||deps.isAdminAnalyticsContext?.()===false)return;
         section.replaceChildren(el('h3','',t('growth.dashboard.title','Growth loop health')));
-        const labels={referral:t('growth.dashboard.referral','Utility seller referrals'),product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
+        const labels={conversation:t('growth.dashboard.conversation','Conversation response'),trust:t('growth.dashboard.trust','Review and trust'),follow:t('growth.dashboard.follow','Person follow graph'),referral:t('growth.dashboard.referral','Utility seller referrals'),product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
         for(const report of Array.isArray(reports)?reports:[]){
           if(!Object.hasOwn(labels,report.loop))continue;
           const card=el('article','analytics-list-item',undefined,{'data-growth-loop':report.loop});
@@ -698,6 +698,23 @@
           }else if(report.loop==='cohorts'){
             for(const row of (data.cohorts||[]).slice(0,60))card.append(createAnalyticsListItem(`${String(row.loop)} · ${String(row.week).slice(0,10)}`,
               `${t('growth.dashboard.accounts','Accounts')}: ${count(row.accounts)} · D1: ${rate(row.retention?.D1?.rate)} · D7: ${rate(row.retention?.D7?.rate)} · D30: ${rate(row.retention?.D30?.rate)}`));
+          }else if(report.loop==='conversation'){
+            metric(t('growth.dashboard.entries','Entries'),data.entryCount);
+            metric(t('growth.dashboard.acceptedMessages','Accepted encrypted messages'),data.acceptedMessages);
+            metric(t('growth.dashboard.responseRate','Distinct-account reply rate'),data.responseRate,true);
+            metric(t('growth.dashboard.replyTime','Time to reply (seconds)'),data.timeToReplySeconds);
+            metric(t('growth.dashboard.readMessages','Recipient-read messages'),data.recipientReadCount);
+          }else if(report.loop==='trust'){
+            metric(t('growth.dashboard.verifiedReviews','Verified public reviews'),data.verifiedPublicReviews);
+            metric(t('growth.dashboard.reviewedProducts','Reviewed products'),data.reviewedProducts);
+            metric(t('growth.dashboard.reviewedSellers','Reviewed sellers'),data.reviewedSellers);
+            metric(t('growth.dashboard.rating','Average eligible rating'),data.averageRating);
+          }else if(report.loop==='follow'){
+            metric(t('growth.dashboard.entries','Entries'),data.entryCount);
+            metric(t('growth.dashboard.followers','Active followers'),data.activeFollowers);
+            metric(t('growth.dashboard.followedPeople','Followed people'),data.followedPeople);
+            metric(t('growth.dashboard.followDiscovery','Pairs with new public content'),data.pairsWithNewPublicSupply);
+            metric(t('growth.dashboard.followSaves','Pairs with confirmed saves'),data.pairsWithCanonicalSave);
           }else{
             metric(t('growth.dashboard.linked','Demand responses linked'),data.demandResolution?.linked);
             metric(t('growth.dashboard.orders','Attributed order starts'),data.demandResolution?.ordered);

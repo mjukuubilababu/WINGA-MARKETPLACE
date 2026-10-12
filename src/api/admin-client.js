@@ -45,11 +45,14 @@
 
     async function loadGrowthLoopReports() {
       requireFetcher();
-      const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],['referral','referrals'],
+      const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],['referral','referrals'],['network','network'],
         ...['PROFILE','COLLECTION','REEL','SHORT'].map(type=>[type.toLowerCase(),'content?type='+type])];
       const settled=await Promise.allSettled(sources.map(([,path])=>fetchJson(`${baseUrl}/admin/growth/${path}`,{headers:authHeaders()})));
-      return sources.map(([loop],index)=>({loop,available:settled[index].status==='fulfilled',
-        data:settled[index].status==='fulfilled'?settled[index].value:null}));
+      return sources.flatMap(([loop],index)=>{
+        const available=settled[index].status==='fulfilled',data=available?settled[index].value:null;
+        if(loop==='network')return ['conversation','trust','follow'].map(key=>({loop:key,available:available&&Boolean(data?.[key]),data:data?.[key]?{...data[key],limitations:data.limitations||[]}:null}));
+        return [{loop,available,data}];
+      });
     }
 
     async function loadAdminUsers() {

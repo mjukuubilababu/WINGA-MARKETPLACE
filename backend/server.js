@@ -12143,11 +12143,12 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 404, { error: "Bidhaa ya review haijapatikana." });
           return;
         }
-
+        if(product.uploadedBy===reviewer.username){sendJson(res,403,{code:'self_review_forbidden',error:'Review inaruhusiwa kwa buyer aliyekamilisha order tu.'});return;}
         const deliveredOrder = (store.orders || []).some((order) =>
           order.productId === product.id
           && order.buyerUsername === reviewer.username
           && order.status === "delivered"
+          && order.sellerUsername!==reviewer.username
         );
         if (!deliveredOrder) {
           sendJson(res, 403, { error: "Review inaruhusiwa kwa buyer aliyekamilisha order tu." });
@@ -12166,7 +12167,7 @@ const server = http.createServer(async (req, res) => {
           ...payload,
           userId: reviewer.username,
           sellerId: product.uploadedBy,
-          verifiedBuyer: true
+          verifiedBuyer: true,date:new Date().toISOString()
         });
 
         const reviews = [review, ...((store.reviews || []).map(normalizeReviewRecord))];
@@ -12181,6 +12182,7 @@ const server = http.createServer(async (req, res) => {
             });
             return;
           }
+          if(reviewResult.review){review.sellerId=reviewResult.review.sellerId;review.date=reviewResult.review.date;review.verifiedBuyer=true;}
         } else {
           await writeStore({ ...store, reviews });
         }

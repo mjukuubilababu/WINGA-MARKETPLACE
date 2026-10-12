@@ -7,7 +7,7 @@ function createMarketplaceGrowth({readQuery}) {
         COUNT(*) FILTER(WHERE p.availability='available')::int AS available,
         COUNT(DISTINCT p.uploaded_by) FILTER(WHERE p.availability='available')::int AS sellers
       FROM products p JOIN users u ON u.username=p.uploaded_by AND u.status='active'
-      WHERE p.status='approved' AND NOT EXISTS(SELECT 1 FROM public_content_visibility v
+      WHERE p.status='approved' AND p.price>0 AND NOT EXISTS(SELECT 1 FROM public_content_visibility v
         WHERE v.content_type='product' AND v.content_id=p.id AND v.visibility<>'public') GROUP BY p.category
     ), demand AS (
       SELECT detected_category AS category,COUNT(*)::int AS searches,
@@ -27,14 +27,17 @@ function createMarketplaceGrowth({readQuery}) {
       COALESCE(t.orders,0)::int AS orders,COALESCE(t.delivered,0)::int AS delivered,COALESCE(t.failed,0)::int AS failed
       FROM supply s FULL JOIN demand d USING(category) FULL JOIN transactions t USING(category)
       ORDER BY COALESCE(d.searches,0) DESC,COALESCE(s.available,0) DESC LIMIT 50`);
-    const regions=await readQuery(`SELECT region,detected_category AS category,
+    const regions=await readQuery(`SELECT country,region,detected_category AS category,
       COUNT(*)::int AS searches,COUNT(*) FILTER(WHERE result_count>0 AND zero_result IS NOT TRUE)::int AS matches,
       COUNT(DISTINCT audience_type||':'||audience_key)::int AS audiences
       FROM search_demand_events WHERE happened_at>=NOW()-INTERVAL '30 days' AND region<>'' AND audience_key<>''
-      GROUP BY region,detected_category ORDER BY COUNT(*) DESC LIMIT 50`);
+      GROUP BY country,region,detected_category ORDER BY COUNT(*) DESC LIMIT 50`);
     const cohorts=await readQuery(`WITH publication AS (
-      SELECT uploaded_by AS seller,MIN(created_at) AS published_at FROM products
-      WHERE status='approved' GROUP BY uploaded_by
+      SELECT p.uploaded_by AS seller,MIN(p.first_approved_at) AS published_at FROM products p JOIN users u ON u.username=p.uploaded_by AND u.status='active'
+      WHERE p.status='approved' AND p.price>0 AND p.first_approved_at IS NOT NULL
+        AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='product' AND content_id=p.id),'public')='public'
+        AND NOT EXISTS(SELECT 1 FROM products older WHERE older.uploaded_by=p.uploaded_by AND older.status='approved' AND older.first_approved_at IS NULL)
+      GROUP BY p.uploaded_by
     ), first_value AS (
       SELECT p.uploaded_by AS seller,MIN(l.created_at) AS value_at FROM product_likes l JOIN products p ON p.id=l.product_id JOIN publication published ON published.seller=p.uploaded_by
       WHERE l.user_id<>p.uploaded_by AND l.created_at>=published.published_at GROUP BY p.uploaded_by
@@ -55,11 +58,12 @@ function createMarketplaceGrowth({readQuery}) {
     return {schemaVersion:1,windowDays:30,privacy:'aggregate-only',
       categories:result.rows.map(r=>({...r,searchSuccessRate:ratio(r.matches,r.searches),deliveryRate:ratio(r.delivered,r.orders)})),
       regions:regions.rows.map(r=>({...r,searchSuccessRate:ratio(r.matches,r.searches)})),
-      sellerActivation:{definition:'first_nonself_save_or_non_cancelled_order_after_first_approved_publication',windowDays:90,
+      sellerActivation:{definition:'first_nonself_save_or_non_cancelled_order_after_first_known_currently_eligible_product_approval',windowDays:90,
         cohorts:cohorts.rows.map(r=>({week:new Date(r.week).toISOString(),published:Number(r.published),activated:Number(r.activated),activationRate:ratio(r.activated,r.published),timeToValueSeconds:r.seconds===null?null:Number(r.seconds)}))},
       demandResolution:lineage.rows[0]||{},limitations:[
         'Search success means at least one returned result, not verified relevance or satisfaction.',
-        'Seller publication cohorts use currently approved products, not a historical moderation snapshot.',
+        'Seller cohorts require protected first-approval timestamps and current public eligible paid inventory; legacy approvals remain unknown rather than guessed from creation dates.',
+        'Supply excludes content-only items without a positive price; availability is canonical state, not an independently audited inventory or fulfillment guarantee.',
         'Seller saves and orders are marketplace signals, not guaranteed revenue; private messages are not inspected.',
         'Regions show demand only; attributed regional supply is reported by the canonical commerce report.',
         'Order starts are not purchases. Delivered uses canonical order status, not independent fulfillment verification.',

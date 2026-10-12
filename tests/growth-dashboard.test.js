@@ -3,7 +3,7 @@ function moduleAt(path,namespace){const context={window:{WingaModules:{admin:{},
 test('admin loop reports isolate failed analytics and retain authenticated canonical routes',async()=>{
  const factory=moduleAt('src/api/admin-client.js',m=>m.api.admin.createAdminApiClient),calls=[];
  const client=factory({baseUrl:'/api',createAuthHeaders:()=>({'X-Test-Auth':'fixture'}),fetchJson:async(url,options)=>{calls.push({url,options});if(url.endsWith('/rooms'))throw new Error('outage');return {entryCount:4};}});
- const reports=await client.loadGrowthLoopReports();assert.equal(reports.length,10);
+ const reports=await client.loadGrowthLoopReports();assert.equal(reports.length,13);
  assert.equal(reports.find(r=>r.loop==='room').available,false);assert.equal(reports.find(r=>r.loop==='room').data,null);
  assert.equal(reports.find(r=>r.loop==='collection').data.entryCount,4);
  assert.ok(calls.every(c=>c.options.headers['X-Test-Auth']==='fixture'));

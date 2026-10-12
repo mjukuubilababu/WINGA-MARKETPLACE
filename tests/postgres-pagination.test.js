@@ -2025,8 +2025,9 @@ test("PostgreSQL review creation verifies delivery and claims one review per buy
     async query(text, params = []) {
       const sql = String(text);
       calls.push({ text: sql, params });
-      if (sql.includes("FROM orders")) return { rows: [{}], rowCount: 1 };
+      if (sql.includes("FROM orders")) return { rows: [{seller_username:'seller'}], rowCount: 1 };
       if (sql.includes("INSERT INTO review_claims")) return { rows: [{ review_id: "r1" }], rowCount: 1 };
+      if (sql.includes('INSERT INTO reviews'))return {rows:[{seller_id:'seller',date:'2026-10-12T00:00:00Z'}],rowCount:1};
       return { rows: [], rowCount: 1 };
     },
     release() {}
@@ -2036,7 +2037,7 @@ test("PostgreSQL review creation verifies delivery and claims one review per buy
     id: "r1", userId: "buyer", productId: "p1", sellerId: "seller",
     rating: 5, comment: "Great", verifiedBuyer: true, date: "2026-07-19T00:00:00Z"
   });
-  assert.deepEqual(result, { created: true, code: "" });
+  assert.deepEqual(result, { created: true, code: "",review:{sellerId:'seller',date:'2026-10-12T00:00:00.000Z',verifiedBuyer:true} });
   assert.match(calls[1].text, /status='delivered'/);
   assert.match(calls[2].text, /review_claims/);
   assert.match(calls[3].text, /INSERT INTO reviews/);
@@ -4611,7 +4612,9 @@ test("review reads enforce public follower owner staff and block visibility in S
   assert.match(calls[1].text, /FROM user_blocks product_block/);
   assert.match(calls[1].text, /product_follow\.status = 'active'/);
   assert.deepEqual(calls[2].params, ["product-1"]);
-  assert.match(calls[2].text, /WHERE review\.product_id = \$1 AND TRUE AND TRUE/);
+  assert.match(calls[2].text, /WHERE review\.product_id = \$1/);
+  assert.match(calls[2].text, /review\.user_id<>review\.seller_id/);
+  assert.match(calls[2].text, /AND TRUE AND TRUE/);
 });
 
 test("person social graph cursor page is bounded and excludes blocked relationships", async () => {

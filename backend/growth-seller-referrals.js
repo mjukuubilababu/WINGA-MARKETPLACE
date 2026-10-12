@@ -113,7 +113,7 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
         WHERE r.measurement_enabled AND s.revoked_at IS NULL AND s.expires_at>NOW()
         AND NOT EXISTS(SELECT 1 FROM products older WHERE older.uploaded_by=r.recipient_username AND older.status='approved' AND (older.first_approved_at IS NULL OR older.first_approved_at<r.created_at))
         AND EXISTS(SELECT 1 FROM products p JOIN users seller ON seller.username=p.uploaded_by AND seller.status='active'
-          WHERE p.uploaded_by=r.recipient_username AND p.first_approved_at>=r.created_at AND p.status='approved'
+          WHERE p.uploaded_by=r.recipient_username AND p.first_approved_at>=r.created_at AND p.status='approved' AND p.price>0
             AND (o.category='' OR p.category=o.category OR p.category LIKE o.category||'-%')
             AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='product' AND content_id=p.id),'public')='public'
             AND (NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='referral-product:'||r.share_id||':'||encode(sha256(convert_to('user:'||r.recipient_username,'UTF8')),'hex'))
@@ -126,7 +126,7 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
           await client.query('UPDATE growth_referral_receipts SET measurement_enabled=FALSE WHERE share_id=$1 AND recipient_username=$2',[receipt.share_id,receipt.recipient_username]);continue;}
         let info;try{info=await load(client,receipt.share_id,{username:receipt.recipient_username});}catch(error){if(error.code==='growth_referral_unavailable'){
           await client.query('UPDATE growth_referral_receipts SET measurement_enabled=FALSE WHERE share_id=$1 AND recipient_username=$2',[receipt.share_id,receipt.recipient_username]);continue;}throw error;}
-        const products=(await client.query(`SELECT id,first_approved_at::text AS first_approved_at FROM products WHERE uploaded_by=$1 AND status='approved'
+        const products=(await client.query(`SELECT id,first_approved_at::text AS first_approved_at FROM products WHERE uploaded_by=$1 AND status='approved' AND price>0
           AND first_approved_at>=$2::timestamptz AND ($3='' OR category=$3 OR category LIKE $3||'-%')
           AND NOT EXISTS(SELECT 1 FROM products older WHERE older.uploaded_by=$1 AND older.status='approved' AND (older.first_approved_at IS NULL OR older.first_approved_at<$2::timestamptz))
           ORDER BY products.first_approved_at,id LIMIT 20`,[receipt.recipient_username,receipt.received_at,info.opportunity.category])).rows;
@@ -169,7 +169,7 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
       cohort:{basis:'measurement_eligible_authenticated_referral_receipts',recipientJourneys:Number(summary.recipients||0),activationCount:Number(summary.activations||0),valueCount:Number(summary.values||0),continuationCount:Number(summary.continuations||0),
         activationRate:ratio(summary.activations,summary.recipients),valueRate:ratio(summary.values,summary.activations),continuationRate:ratio(summary.continuations,summary.values),timeToValueSeconds:summary.seconds===null?null:Number(summary.seconds),viralCoefficient:null},
       limitations:['Signup is recorded only after an observed same-tab pre-signup guest open; signup alone is not seller activation.',
-        'Activation requires a first currently public approved product in the referred category after authenticated intake; legacy approvals remain unknown and are not backfilled.',
+        'Activation requires a first currently public approved product with a positive price in the referred category after authenticated intake; legacy approvals remain unknown and are not backfilled.',
         'Value is a canonical nonself save or noncancelled order start, not revenue or independently verified fulfillment.',
         'Anonymous opens are client observed and are not joined to account cohorts without authenticated evidence.',
         'Funnel units are referral/account pairs; multi-touch associations are not additive unique acquisitions or causal revenue.',

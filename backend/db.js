@@ -4884,7 +4884,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   async function createReview(review = {}) {
     return withTransaction(async (client) => {
       const delivered = await client.query(
-        `SELECT 1 FROM orders WHERE product_id=$1 AND buyer_username=$2 AND status='delivered' LIMIT 1`,
+        `SELECT o.seller_username FROM orders o JOIN products p ON p.id=o.product_id
+         WHERE o.product_id=$1 AND o.buyer_username=$2 AND o.status='delivered'
+           AND o.seller_username<>$2 AND p.uploaded_by<>$2
+         ORDER BY o.created_at DESC,o.id LIMIT 1 FOR SHARE OF o,p`,
         [review.productId, review.userId]
       );
       if (!delivered.rowCount) return { created: false, code: "not_delivered" };
@@ -4894,13 +4897,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [review.userId, review.productId, review.id]
       );
       if (!claim.rowCount) return { created: false, code: "duplicate_review" };
-      await client.query(
+      const inserted=await client.query(
         `INSERT INTO reviews (id,user_id,product_id,seller_id,rating,comment,verified_buyer,date,row_version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1)`,
-        [review.id, review.userId, review.productId, review.sellerId || "", Number(review.rating), review.comment, Boolean(review.verifiedBuyer), review.date]
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,clock_timestamp(),1) RETURNING seller_id,date`,
+        [review.id, review.userId, review.productId, delivered.rows[0].seller_username, Number(review.rating), review.comment]
       );
       await upsertContentVisibility(client, "review", review.id, review.userId, review.visibility);
-      return { created: true, code: "" };
+      return { created: true, code: "",review:{sellerId:inserted.rows[0]?.seller_id||delivered.rows[0].seller_username,date:toISOString(inserted.rows[0]?.date),verifiedBuyer:true} };
     });
   }
 
@@ -4988,7 +4991,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              AND stored_visibility.content_id = review.id
          ), 'public') AS visibility
        ) visibility ON TRUE
-       WHERE review.product_id = $1 AND ${productAccessSql} AND ${accessSql}
+       WHERE review.product_id = $1 AND review.user_id<>review.seller_id AND review.user_id<>product.uploaded_by AND ${productAccessSql} AND ${accessSql}
        ORDER BY review.date DESC, review.id DESC
        LIMIT 100`,
       params
@@ -5990,7 +5993,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          ), seller_reviews AS (
            SELECT p.uploaded_by AS seller_id, COUNT(r.id)::int AS review_count,
              COALESCE(AVG(r.rating),0)::numeric AS average_rating
-           FROM products p LEFT JOIN reviews r ON r.product_id=p.id GROUP BY p.uploaded_by
+           FROM products p LEFT JOIN reviews r ON r.product_id=p.id AND r.user_id<>r.seller_id AND r.user_id<>p.uploaded_by
+             AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='review' AND content_id=r.id),'public')='public'
+           GROUP BY p.uploaded_by
          ), components AS (
            SELECT sp.seller_id,
              LEAST(20,COALESCE(sis.score,0)*0.4)::numeric AS trust,
@@ -7380,9 +7385,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `WITH search_gaps AS (
          SELECT
            CASE WHEN BOOL_AND(zero_result) THEN 'zero_result' ELSE 'low_supply' END AS type,
-           query_key, MAX(detected_category) AS category,
-           COALESCE(NULLIF(MAX(region), ''), NULLIF(MAX(location), ''), '') AS region,
-           MAX(detected_color) AS color,
+           query_key, detected_category AS category,
+           COALESCE(NULLIF(region, ''), NULLIF(location, ''), '') AS region,
+           detected_color AS color,
            COUNT(DISTINCT audience_type || ':' || audience_key)::int AS evidence_count,
            (COUNT(DISTINCT audience_type || ':' || audience_key)
              + COUNT(DISTINCT audience_type || ':' || audience_key)
@@ -7392,7 +7397,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE happened_at >= NOW() - INTERVAL '30 days'
            AND (zero_result IS TRUE OR result_count BETWEEN 1 AND 3)
            AND NULLIF(audience_key, '') IS NOT NULL
-         GROUP BY query_key
+         GROUP BY query_key,detected_category,COALESCE(NULLIF(region, ''), NULLIF(location, ''), ''),detected_color
          HAVING COUNT(DISTINCT audience_type || ':' || audience_key) >= $2
        ), sold_out_gaps AS (
          SELECT 'sold_out_restock'::text AS type, ''::text AS query_key, p.category,
@@ -7630,6 +7635,8 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              AND de.action IN ('notify_when_available','want_back') AND de.buyer_id<>de.seller_id
              AND (de.product_id=NULLIF($1,'') OR (NULLIF($2,'') IS NOT NULL AND dp.category=$2))
              AND (NULLIF($3,'') IS NULL OR de.region='' OR de.region=$3)
+             AND (NULLIF($5,'') IS NULL OR de.color='' OR de.color=$5)
+             AND (NULLIF($6,'') IS NULL OR de.size='' OR de.size=$6)
            ORDER BY de.audience_type,de.audience_key,de.created_at,de.demand_id
          ) product_requesters
          UNION ALL SELECT * FROM (
@@ -7642,9 +7649,10 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
                OR (NULLIF($4,'') IS NULL AND NULLIF($2,'') IS NOT NULL AND se.detected_category=$2))
              AND (NULLIF($3,'') IS NULL OR COALESCE(NULLIF(se.region,''),se.location,'')=''
                OR COALESCE(NULLIF(se.region,''),se.location)=$3)
+             AND (NULLIF($5,'') IS NULL OR se.detected_color='' OR se.detected_color=$5)
            ORDER BY se.audience_type,se.audience_key,se.happened_at,se.event_id
          ) search_requesters LIMIT 5000`,
-        [opportunity.product_id || productId, opportunity.category || category, opportunity.region || "", opportunity.query_key || ""]
+        [opportunity.product_id || productId, opportunity.category || category, opportunity.region || "", opportunity.query_key || "",opportunity.color||'',opportunity.size||'']
       );
       let eligible = 0;
       for (const audience of audienceResult.rows || []) {
@@ -9878,6 +9886,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...require('./growth-store').createGrowthStore({ query, withTransaction }),
     ...require('./growth-cohorts').createGrowthCohorts({query}),
     ...require('./growth-marketplace').createMarketplaceGrowth({readQuery}),
+    ...require('./growth-network-health').createNetworkGrowth({readQuery}),
     ...require('./demand-resolution').createDemandResolution({withTransaction,transitionGoal:transitionCommerceGoalsWithClient,insertNotification:insertNotificationRow,enabled:demandResolutionEnabled}),
     ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),
     readStore,

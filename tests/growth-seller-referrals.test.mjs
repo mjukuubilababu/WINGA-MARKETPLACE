@@ -10,7 +10,7 @@ const {MIGRATIONS}=require('../backend/migrations');
 async function fixture(t){
  const f=await growthFixture(t);
  await f.db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'buyer';ALTER TABLE users ADD COLUMN primary_category TEXT DEFAULT 'dress';ALTER TABLE users ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();
-   ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();
+   ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();ALTER TABLE products ADD COLUMN price NUMERIC DEFAULT 100;
    CREATE TABLE conversation_crypto_devices(id TEXT PRIMARY KEY);
    CREATE TABLE supply_responses(response_id TEXT,opportunity_id TEXT,seller_id TEXT,action_type TEXT,status TEXT);
    ALTER TABLE orders ADD COLUMN seller_username TEXT;ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'placed';`);

@@ -63,6 +63,12 @@ test('N=1 search gaps reach canonical opportunities without becoming corroborate
   const updated = (await store.readSellerCommerceOpportunities('seller-one')).find(row => row.queryKey === 'white-dress');
   assert.equal(updated.evidenceCount, 2);
   assert.equal(updated.metadata.evidenceLevel, 'corroborated');
+  for(const [region,color,actor]of [['mwanza','white','local-one'],['dar','white','local-two'],['mwanza','blue','local-three']])await db.query(`INSERT INTO search_demand_events
+    VALUES('regional-dress','regional-dress','dress',$1,$1,$2,'user',$3,NOW(),true,0)`,[region,color,actor]);
+  const local=(await store.readCommerceOpportunityCandidates()).filter(row=>row.queryKey==='regional-dress');
+  assert.equal(local.length,3);assert.ok(local.every(row=>row.evidenceCount===1));
+  assert.equal(buildCommerceOpportunities(local).length,3);
+  assert.equal((await gated.readCommerceOpportunityCandidates()).some(row=>row.queryKey==='regional-dress'),false);
   assert.equal((await store.readSearchDemandSummary()).trendingSearches[0].queryKey, 'white-dress');
 });
 
@@ -111,6 +117,7 @@ test('canonical supply response keeps exact search/demand lineage and excludes u
     ('search-success','white-dress','dress','mwanza','mwanza','user','discovery-key',NOW(),false,20);
     INSERT INTO demand_events VALUES('demand-first','new-dress','mwanza','user','restock-key',NOW(),'notify_when_available','buyer','seller'),
       ('demand-similar','new-dress','mwanza','user','similar-key',NOW(),'show_similar','buyer','seller');`);
+  await db.exec("ALTER TABLE demand_events ADD COLUMN color TEXT DEFAULT '';ALTER TABLE demand_events ADD COLUMN size TEXT DEFAULT '';ALTER TABLE search_demand_events ADD COLUMN detected_color TEXT DEFAULT '';");
   const input={sellerId:'seller',productId:'new-dress',actionType:'create_product',opportunityId:opportunity.opportunityId};
   const response=await store.recordSupplyResponse(input);assert.equal(response.linked,true);assert.equal(response.eligibleAudienceCount,2);
   const rows=(await db.query('SELECT metadata,audience_key,eligibility_id FROM rediscovery_eligibility ORDER BY audience_key')).rows;
@@ -141,6 +148,7 @@ test('marketplace loop report measures eligible supply and value without raw use
     INSERT INTO product_likes VALUES('one','seller',NOW());
     INSERT INTO rediscovery_eligibility VALUES('resolved','{"sourceEventId":"search"}',NOW()),('legacy','{}',NOW());
     INSERT INTO commerce_order_outcomes VALUES('resolved','created'),('resolved','paid'),('resolved','delivered');`);
+  await db.exec("ALTER TABLE products ADD COLUMN price NUMERIC DEFAULT 100;ALTER TABLE products ADD COLUMN first_approved_at TIMESTAMPTZ;UPDATE products SET first_approved_at=created_at;ALTER TABLE search_demand_events ADD COLUMN country TEXT DEFAULT 'tz';INSERT INTO products(id,category,uploaded_by,status,availability,created_at,price,first_approved_at) VALUES('content-only','dress','seller','approved','available',NOW(),0,NOW());");
   const {createMarketplaceGrowth}=require('../backend/growth-marketplace');
   const report=await createMarketplaceGrowth({readQuery:(...args)=>db.query(...args)}).readMarketplaceLoopHealth();
   assert.deepEqual(report.categories[0],{category:'dress',listings:2,available:1,sellers:1,searches:2,matches:1,audiences:1,orders:1,delivered:1,failed:0,searchSuccessRate:0.5,deliveryRate:1});
