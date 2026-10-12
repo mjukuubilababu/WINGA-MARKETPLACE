@@ -64,6 +64,10 @@ async function runMaintenance() {
   state.recovered += Number(recovery?.recovered || 0);
 
   const now = Date.now();
+  if(store.processDemandResolutions && now-(state.lastDemandResolutionAt||0)>=30000){
+    state.lastDemandResolutionAt=now;
+    try{await store.processDemandResolutions({batchSize:50});}catch{console.warn('[WINGA] Demand resolution processing deferred.');}
+  }
   if (!state.lastMaintenanceAt || now - state.lastMaintenanceAt > 60 * 60 * 1000) {
     const prune = await store.pruneCompletedIntelligenceQueueJobs({
       retentionHours: COMPLETED_RETENTION_HOURS

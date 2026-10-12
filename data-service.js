@@ -2419,6 +2419,7 @@ async loadAdminPayments(filters = {}) {
       async logClientEvent(event) {
         return getIntelligenceApiClient().logClientEvent(event);
       },
+      async subscribeSearchDemand(query) { return fetchJson(`${baseUrl}/search-demand/subscriptions`,{method:'POST',headers:{...createAuthHeaders(),'Content-Type':'application/json'},body:JSON.stringify({query})}); },
       async submitSearchDemandEvents(events = []) {
         return getIntelligenceApiClient().submitSearchDemandEvents(events);
       },
@@ -4649,6 +4650,7 @@ async loadAdminPayments(filters) {
     async logClientEvent(event) {
       return state.adapter.logClientEvent ? state.adapter.logClientEvent(event) : null;
     },
+    async subscribeSearchDemand(query) { ensureAdapter();if(!state.adapter.subscribeSearchDemand)throw Object.assign(new Error('demand_resolution_unavailable'),{code:'demand_resolution_unavailable'});return state.adapter.subscribeSearchDemand(query); },
     async submitSearchDemandEvents(events = []) {
       ensureAdapter();
       return state.adapter.submitSearchDemandEvents

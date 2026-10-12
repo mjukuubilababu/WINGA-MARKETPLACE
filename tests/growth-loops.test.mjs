@@ -260,3 +260,10 @@ test('invite safety delegates to canonical block/report owners without disclosin
   assert.deepEqual(response,{status:200,body:{reported:true,duplicate:true}});assert.deepEqual(calls.at(-1),['report','recipient','sender','harassment']);
   await new Promise(resolve=>setImmediate(resolve));
 });
+
+test('search notification auth intent stores only explicitly requested local context and expires',()=>{
+  const now=Date.now();
+  assert.deepEqual(contract.authIntent({type:'notify-search',query:' white dress ',createdAt:now,redirect:'https://evil.test',searchHistory:['private']},now),{type:'notify-search',query:'white dress',createdAt:now});
+  for(const query of ['', 'x','a'.repeat(161),'private\nquery'])assert.equal(contract.authIntent({type:'notify-search',query,createdAt:now},now),null);
+  assert.equal(contract.authIntent({type:'notify-search',query:'white dress',createdAt:now-1800001},now),null);
+});

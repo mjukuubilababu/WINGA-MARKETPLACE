@@ -206,7 +206,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "ref
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "offer", "follow", "content"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "offer", "follow", "content", "demand"];
 const ALLOWED_CONTENT_VISIBILITY = ["public", "followers", "private"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
@@ -1431,6 +1431,10 @@ async function processIntelligenceQueueOnce(options = {}) {
         intelligenceQueueWorkerState.rawPruned.searchDemandEvents += Number(rawPrune?.searchDemandEvents || 0);
       }
       intelligenceQueueWorkerState.lastMaintenanceAt = new Date().toISOString();
+    }
+    if(postgresStore.processDemandResolutions && Date.now()-(intelligenceQueueWorkerState.lastDemandResolutionAt||0)>=30000){
+      intelligenceQueueWorkerState.lastDemandResolutionAt=Date.now();
+      try{await postgresStore.processDemandResolutions({batchSize:50});}catch{console.warn('[WINGA] Demand resolution processing deferred.');}
     }
     const jobs = await postgresStore.claimIntelligenceQueueBatch({
       limit: INTELLIGENCE_QUEUE_BATCH_SIZE,
@@ -6238,7 +6242,7 @@ function requestMessageReplayForLiveClients() {
   }
 }
 
-const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "offer", "follow", "content"]);
+const BLOCK_FILTERED_NOTIFICATION_TYPES = new Set(["message", "request", "offer", "follow", "content", "demand"]);
 
 async function emitAuthorizedNotifications(notificationRecords = []) {
   const notifications = (Array.isArray(notificationRecords) ? notificationRecords : [notificationRecords])
@@ -10767,6 +10771,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if(req.method==='POST' && url.pathname==='/api/search-demand/subscriptions'){
+      const session=findSession(store,readAuthToken(req)),user=ensureMarketplaceUser(store,session,res);
+      if(!user)return;
+      if(!postgresStore?.subscribeSearchDemand){sendJson(res,503,{code:'demand_resolution_unavailable'});return;}
+      const payload=await collectBody(req,{maxBytes:1024});
+      if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).join(',')!=='query'||typeof payload.query!=='string'||payload.query.length>160){sendJson(res,400,{code:'demand_subscription_invalid'});return;}
+      try{
+        const result=await postgresStore.subscribeSearchDemand({userId:user.username,audienceKey:getCommerceAudience(session).audienceKey,query:payload.query});
+        sendJson(res,200,result,{'Cache-Control':'private, no-store'});
+      }catch(error){sendJson(res,[400,404,409,429].includes(error.status)?error.status:503,{code:error.code||'demand_resolution_unavailable'});}
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/search-demand") {
       const token = readAuthToken(req);
       const session = token ? findSession(store, token) : null;
@@ -10951,7 +10968,8 @@ const server = http.createServer(async (req, res) => {
       }
       rememberDemandDedupeKey(demandEvent.dedupeKey);
       let commerceGoal = null;
-      if (session?.username && postgresStore?.upsertCommerceGoal) {
+      if (session?.username && ["notify_when_available","want_back"].includes(demandEvent.action) && postgresStore?.upsertCommerceGoal) {
+        try {
         commerceGoal = await postgresStore.upsertCommerceGoal({
           goalId: `goal_${crypto.randomUUID()}`,
           userId: session.username,
@@ -10961,8 +10979,9 @@ const server = http.createServer(async (req, res) => {
           color: demandEvent.color,
           size: demandEvent.size,
           region: demandEvent.region,
-          metadata: { source: "sold_out_demand", action: demandEvent.action }
+          metadata: { source: "sold_out_demand", action: demandEvent.action, notificationConsent: demandEvent.action==='notify_when_available', notificationMode:'in_app' }
         });
+        } catch { console.warn('[WINGA] Optional demand goal creation failed; demand remains recorded.'); }
       }
 
       await appendAuditLog({

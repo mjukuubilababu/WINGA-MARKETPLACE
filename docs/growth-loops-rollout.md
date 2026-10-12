@@ -234,3 +234,58 @@ Commerce/growth API and pagination regressions pass. Existing seller opportunity
 and rediscovery metrics remain canonical. Opt-in failed-search subscriptions,
 preference-aware resolution notifications, full retention cohorts and production
 value/performance evidence are still rollout gates, not inferred from fixtures.
+
+### Explicit Search/restock resolution notifications
+
+`WINGA_GROWTH_DEMAND_RESOLUTION_ENABLED` (backend and intelligence worker) and
+`growthDemandResolution` (frontend) default false. This independent rollout
+uses existing commerce goals/transitions and notifications, with no new demand,
+subscription, membership or notification store. Failed Search offers an explicit
+Notify me action. Guests authenticate and return to the same locally saved
+query. The client rechecks canonical product results before recording unmet
+Search and subscribing. The server derives the goal from the authenticated
+buyer's own canonical unmet Search event; client-supplied history/source IDs
+cannot enroll another buyer. Per-user quotas and an advisory lock deduplicate
+retries. A closed subscription cannot be silently reopened by replaying it.
+
+Only explicit Notify me grants `notificationConsent: true` for an in-app update.
+Want back remains a signal; Show similar no longer implicitly creates a goal.
+Optional goal creation failure preserves the recorded demand action. New consent
+merges into the existing canonical goal. Search query text is not placed in a
+share URL or growth event. Its short-lived auth intent contains only the
+explicitly selected query and expires under the common auth-return contract.
+
+Both existing intelligence processors run a bounded resolution scan at most
+every thirty seconds when enabled. Candidates require active users/sellers,
+available approved public products, symmetric block checks and exact source
+lineage (or the buyer's explicitly requested restock product). Nonmatching and
+unsafe goals do not starve matching goals behind the batch limit. One durable
+in-app notification is inserted atomically with the canonical `matched`
+transition. Notification persistence failure rolls back that transition for
+retry. A shared processor lock and two-notifications/recipient/day cap cover
+multiple workers. Stable notification IDs prevent duplicate delivery. There
+are no reminders, external provider calls, emails or automatic push fan-out.
+
+A match is a **candidate**, not confirmed size/color inventory, buyer satisfaction
+or a purchase. Notification copy asks the buyer to verify size, color and
+availability. Canonical order milestones and explicit buyer resolution retain
+that authority. Notifications open the exact product through a fresh safety
+read; unavailable products show a useful message. Notifications also offer Stop
+request and Manage product requests using existing self-scoped goal controls.
+Stopped goals receive no further match notifications. Blocking the seller hides
+these notices through the canonical notification authorization policy.
+
+Validation: real SQL subscription ownership/dedupe, canonical goal transitions,
+privacy/block/suspended-seller checks, injected notification write failure,
+consent, stopped goals and daily-cap/retry scenarios. Seven Chromium growth
+scenarios pass, including exact Search auth return. The browser subscription
+response is a fixture; server persistence/admission is tested separately.
+Frontend 145/145, growth contracts, pagination, localization gate and synchronized
+modules pass. The internal-share browser test now waits for the asynchronous
+canonical Room send result; the earlier immediate assertion raced in CI.
+
+Remaining production gates include the opted-in cohort, verifying flags on both
+services, processor latency/queue visibility and regional load/chaos evidence.
+Enable creation/processing gradually; disabling the flag stops new resolution
+alerts while existing goals, notifications and cancellation remain accessible.
+No historical demand is declared fulfilled by this rollout.

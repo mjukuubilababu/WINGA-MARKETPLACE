@@ -82,11 +82,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
+    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
+    if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
     if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(value.type)) {
       if (!inviteToken(value.token)) return null;
       return {...result,token:value.token};
@@ -18202,6 +18203,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             </div>
             <span class="meta-copy">${unreadCount} unread</span>
           </div>
+          <button type="button" class="action-btn action-btn-secondary" data-demand-requests>${deps.escapeHtml(t('growth.manageDemandRequests','Manage product requests'))}</button>
           <div class="notifications-list">
             ${items.length ? items.map((notification) => `
               <button class="notification-item ${notification.isRead ? "" : "unread"}" type="button" data-notification-id="${notification.id}">
@@ -18209,6 +18211,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
                 <span>${deps.escapeHtml(notification.body || "New activity")}</span>
                 <small>${new Date(notification.createdAt || Date.now()).toLocaleString("sw-TZ")}</small>
               </button>
+              ${notification.type==='demand'?`<button type="button" class="action-btn action-btn-secondary" data-stop-demand="${deps.escapeHtml(notification.conversationId||'')}">${deps.escapeHtml(t('growth.stopDemandRequest','Stop request'))}</button>`:''}
             `).join("") : `<p class="empty-copy">Hakuna notification mpya kwa sasa.</p>`}
           </div>
         </section>
@@ -32365,6 +32368,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       modal.querySelectorAll("[data-demand-action]").forEach((button) => {
         button.addEventListener("click", async () => {
           const action = button.dataset.demandAction || "";
+          if(action==='notify_when_available'&&window.WINGA_CONFIG?.growthDemandResolution===true&&!deps.getCurrentUser?.()){deps.promptGuestAuth?.({intent:{type:'notify-restock',productId:product.id}});return;}
           button.disabled = true;
           button.classList.add("is-disabled");
           try {

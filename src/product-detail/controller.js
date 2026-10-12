@@ -774,6 +774,7 @@
       modal.querySelectorAll("[data-demand-action]").forEach((button) => {
         button.addEventListener("click", async () => {
           const action = button.dataset.demandAction || "";
+          if(action==='notify_when_available'&&window.WINGA_CONFIG?.growthDemandResolution===true&&!deps.getCurrentUser?.()){deps.promptGuestAuth?.({intent:{type:'notify-restock',productId:product.id}});return;}
           button.disabled = true;
           button.classList.add("is-disabled");
           try {

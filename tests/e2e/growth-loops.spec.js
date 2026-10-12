@@ -153,8 +153,28 @@ test('internal product sharing uses rich canonical transports and stable retry I
   expect(messages).toHaveLength(2);expect(messages[0].options.clientMessageId).toBe(messages[1].options.clientMessageId);
   expect(messages[1].content.type).toBe('product');expect(messages[1].content.data.ids).toEqual([product.id]);
   await dialog.getByRole('button',{name:'Choose a gift',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__roomShares.length)).toBe(1);
   const rooms=await page.evaluate(()=>window.__roomShares);
   expect(rooms).toHaveLength(1);expect(rooms[0].action).toBe('command');expect(rooms[0].args[1]).toBe('product-share');
   expect(rooms[0].args[2]).toEqual({productId:product.id,note:'',snapshot:null});
+  await context.close();
+});
+
+test('failed-search notification request preserves exact query through authentication',async({browser,request})=>{
+  const {context,page}=await guest(browser,request);
+  await context.addInitScript(()=>{window.__WINGA_CONFIG_OVERRIDE__.growthDemandResolution=true;});
+  await context.route('**/api/search-demand/subscriptions',route=>{
+    const body=route.request().postDataJSON();
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({goalId:'goal_search_fixture',status:'looking',queryReceived:body.query})});
+  });
+  await page.goto('/');
+  await expect(page.locator('#search-input')).toBeVisible({timeout:30000});
+  const pending=page.waitForRequest('**/api/search-demand/subscriptions');
+  await page.evaluate(()=>notifySearchDemand('unfindable purple walking moon boots'));
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  const subscription=await pending;expect(subscription.postDataJSON()).toEqual({query:'unfindable purple walking moon boots'});
+  await expect(page.locator('#search-input')).toHaveValue('unfindable purple walking moon boots');
+  expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();
   await context.close();
 });

@@ -149,3 +149,70 @@ test('marketplace loop report measures eligible supply and value without raw use
   assert.deepEqual(report.demandResolution,{eligible:2,linked:1,ordered:1,delivered:1});
   assert.equal(JSON.stringify(report).includes('buyer'),false);
 });
+
+async function resolutionFixture(t){
+  const db=await roomDatabase(t);
+  await db.exec(`CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT);
+    CREATE TABLE products(id TEXT PRIMARY KEY,status TEXT,uploaded_by TEXT,availability TEXT,created_at TIMESTAMPTZ);
+    CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
+    CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);
+    CREATE TABLE search_demand_events(event_id TEXT,query_key TEXT,detected_category TEXT,detected_color TEXT,region TEXT,audience_type TEXT,audience_key TEXT,happened_at TIMESTAMPTZ,zero_result BOOLEAN,result_count INT);
+    CREATE TABLE notifications(id TEXT PRIMARY KEY,user_id TEXT,actor_username TEXT,type TEXT,message_id TEXT,conversation_id TEXT,title TEXT,body TEXT,is_read BOOLEAN,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ);
+    CREATE TABLE rediscovery_eligibility(product_id TEXT,supply_response_id TEXT,metadata JSONB,expires_at TIMESTAMPTZ);
+    CREATE TABLE supply_responses(response_id TEXT,status TEXT);
+    CREATE TABLE intelligence_recommendations(audience_type TEXT,audience_key TEXT,entity_type TEXT,entity_key TEXT,metadata JSONB);
+    INSERT INTO users VALUES('buyer','active'),('seller','active');
+    INSERT INTO products VALUES('new-dress','approved','seller','available',NOW());
+    INSERT INTO search_demand_events VALUES('search-one','white-dress','dress','white','mwanza','user','buyer-key',NOW(),true,0);
+    INSERT INTO supply_responses VALUES('response-one','active');
+    INSERT INTO rediscovery_eligibility VALUES('new-dress','response-one','{"sourceEventId":"search-one"}',NOW()+INTERVAL '1 day');`);
+  for(const migration of [require('../backend/migrations/commerce-goals'),require('../backend/migrations/commerce-goal-transitions')])for(const sql of migration.statements)await db.exec(sql);
+  await db.exec(require('../backend/migrations/growth-loops').statements.find(sql=>sql.includes('CREATE TABLE growth_rate_buckets')));
+  const store=createPostgresStore({databaseUrl:'postgres://test.invalid/winga',queryClient:db,demandResolutionEnabled:true});
+  return {db,store};
+}
+
+test('opt-in search subscriptions resolve once through canonical goals and durable capped notifications',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await assert.rejects(store.subscribeSearchDemand({userId:'buyer',audienceKey:'other-key',query:'white dress'}),{code:'demand_subscription_evidence_required'});
+  const input={userId:'buyer',audienceKey:'buyer-key',query:'white dress'};
+  const subscribed=await store.subscribeSearchDemand(input);assert.equal(subscribed.status,'looking');
+  assert.equal((await store.subscribeSearchDemand(input)).duplicate,true);
+  const result=await store.processDemandResolutions();assert.equal(result.processed,1);
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  const notice=(await db.query('SELECT * FROM notifications')).rows[0];
+  assert.equal(notice.user_id,'buyer');assert.equal(notice.message_id,'new-dress');assert.equal(notice.conversation_id,subscribed.goalId);
+  assert.equal((await db.query('SELECT status FROM commerce_goals')).rows[0].status,'matched');
+  assert.equal((await db.query("SELECT COUNT(*)::int AS count FROM commerce_goal_transitions WHERE to_status='matched'")).rows[0].count,1);
+  const stopped=await store.resolveCommerceGoal(subscribed.goalId,'buyer','stopped');assert.equal(stopped.status,'stopped');
+  assert.equal((await store.processDemandResolutions()).processed,0);
+});
+
+test('resolution blocks private/suspended/blocked products and notification failure rolls back matching for retry',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await db.exec("INSERT INTO user_blocks VALUES('seller','buyer')");assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("DELETE FROM user_blocks; INSERT INTO public_content_visibility VALUES('product','new-dress','private')");assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("DELETE FROM public_content_visibility;UPDATE users SET status='suspended' WHERE username='seller'");assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE users SET status='active';ALTER TABLE notifications ADD CONSTRAINT simulate_provider_failure CHECK(FALSE)");
+  await assert.rejects(store.processDemandResolutions());
+  assert.equal((await db.query('SELECT status FROM commerce_goals')).rows[0].status,'looking');
+  await db.exec('ALTER TABLE notifications DROP CONSTRAINT simulate_provider_failure');assert.equal((await store.processDemandResolutions()).processed,1);
+});
+
+test('demand notifications respect explicit consent, stopped goals and a shared recipient daily cap',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await db.exec(`INSERT INTO products VALUES('second','approved','seller','available',NOW()),('third','approved','seller','available',NOW()),('no-consent','approved','seller','available',NOW()),('stopped','approved','seller','available',NOW());
+    INSERT INTO commerce_goals(goal_id,user_id,product_id,metadata) VALUES
+      ('a','buyer','new-dress','{"notificationConsent":true,"notificationMode":"in_app"}'),
+      ('b','buyer','second','{"notificationConsent":true,"notificationMode":"in_app"}'),
+      ('c','buyer','third','{"notificationConsent":true,"notificationMode":"in_app"}'),
+      ('d','buyer','no-consent','{"notificationConsent":false,"notificationMode":"in_app"}');
+    INSERT INTO commerce_goals(goal_id,user_id,product_id,status,metadata) VALUES('e','buyer','stopped','stopped','{"notificationConsent":true,"notificationMode":"in_app"}');`);
+  assert.equal((await store.processDemandResolutions()).processed,2);assert.equal((await store.processDemandResolutions()).processed,0);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS count FROM notifications WHERE user_id='buyer'")).rows[0].count,2);
+  assert.equal((await db.query("SELECT status FROM commerce_goals WHERE goal_id='d'")).rows[0].status,'looking');
+  await db.exec("UPDATE notifications SET created_at=NOW()-INTERVAL '2 days'");
+  assert.equal((await store.processDemandResolutions()).processed,1);
+  assert.equal((await db.query("SELECT status FROM commerce_goals WHERE goal_id='e'")).rows[0].status,'stopped');
+});

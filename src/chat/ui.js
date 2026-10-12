@@ -563,6 +563,7 @@
             </div>
             <span class="meta-copy">${unreadCount} unread</span>
           </div>
+          <button type="button" class="action-btn action-btn-secondary" data-demand-requests>${deps.escapeHtml(t('growth.manageDemandRequests','Manage product requests'))}</button>
           <div class="notifications-list">
             ${items.length ? items.map((notification) => `
               <button class="notification-item ${notification.isRead ? "" : "unread"}" type="button" data-notification-id="${notification.id}">
@@ -570,6 +571,7 @@
                 <span>${deps.escapeHtml(notification.body || "New activity")}</span>
                 <small>${new Date(notification.createdAt || Date.now()).toLocaleString("sw-TZ")}</small>
               </button>
+              ${notification.type==='demand'?`<button type="button" class="action-btn action-btn-secondary" data-stop-demand="${deps.escapeHtml(notification.conversationId||'')}">${deps.escapeHtml(t('growth.stopDemandRequest','Stop request'))}</button>`:''}
             `).join("") : `<p class="empty-copy">Hakuna notification mpya kwa sasa.</p>`}
           </div>
         </section>

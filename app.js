@@ -5490,6 +5490,7 @@ async function resumePendingGuestIntent() {
     await getRoomInviteUi().open(intent.token,{requestAfterAuth:intent.type==='join-room-invite',safetyAction:intent.type==='block-room-inviter'?'block':intent.type==='report-room-invite'?'report':''});
     return;
   }
+  if(intent.type==='notify-search'){await notifySearchDemand(intent.query);return;}
   if (intent.productId) {
     const returningUser = currentUser;
     let availableProduct = null;
@@ -5512,6 +5513,7 @@ async function resumePendingGuestIntent() {
     }
   }
 
+  if(intent.type==='notify-restock'){document.querySelector('#product-detail-modal [data-demand-action=notify_when_available]')?.click();return;}
   if (intent.type === 'share-to-winga') { await openInternalProductShare(intent.productId); return; }
   if (intent.type === 'save-product' && intent.productId && getProductById(intent.productId)) {
     if (!isProductSaved(intent.productId)) { toggleSavedProduct(intent.productId); syncSavedProductLike(intent.productId,true); }
@@ -7520,6 +7522,14 @@ async function handleNotificationOpen(notificationId) {
     return false;
   }
   let productId = "";
+  const demandNotice=currentNotifications?.find(n=>n.id===safeId&&n.type==='demand');
+  if(demandNotice){
+    const product=await window.WingaDataLayer.loadSharedProduct(demandNotice.messageId);
+    await window.WingaDataLayer.markNotificationRead(safeId);await refreshNotificationsState();
+    if(product){refreshProductsFromStore();openProductDetailModal(product.id);}
+    else showInAppNotification({title:translateUi('growth.resolvedProductUnavailable',{},'This product is no longer available.'),variant:'info'});
+    return true;
+  }
   if (safeId.startsWith("followed-seller:")) {
     productId = safeId.slice("followed-seller:".length);
     markFollowedSellerNotificationRead(safeId);
@@ -8209,7 +8219,7 @@ function showInAppNotification(notification) {
   }
 
   const handledByPush = webPushTools?.active && (notification.messageId || ["message", "request"].includes(notification.type));
-  if (!handledByPush && "Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
+  if (notification.type!=='demand' && !handledByPush && "Notification" in window && document.visibilityState === "hidden" && Notification.permission === "granted") {
     const deviceContent = getDeviceNotificationContent(notification);
     try {
       new Notification(deviceContent.title, { body: deviceContent.body });
@@ -23407,6 +23417,7 @@ function renderCurrentView(options = {}) {
       && !initialProductsFailed
       ? "block"
       : "none";
+    syncSearchNotifyAction();
     setFeedLoadingStateVisible(shouldShowFeedLoading);
     setInitialProductsErrorStateVisible(shouldShowInitialProductsError);
     uploadForm.style.display = isUpload || editingProductId ? "block" : "none";
@@ -25892,3 +25903,61 @@ function openInternalProductShare(productId) {
   internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent})});
   return internalProductShareUi.open(productId);
 }
+
+function syncSearchNotifyAction(){
+  if(!emptyState)return;
+  let button=emptyState.querySelector('[data-search-notify]');
+  const show=window.WINGA_CONFIG?.growthDemandResolution===true&&emptyState.style.display==='block'&&String(searchInput?.value||'').trim().length>=2;
+  if(!show){button?.remove();return;}
+  if(!button){button=createElement('button',{className:'action-btn action-btn-secondary',textContent:translateUi('growth.notifyMatchingSupply',{},'Notify me when matching products are available'),attributes:{type:'button','data-search-notify':'true'}});emptyState.append(button);
+    button.onclick=async()=>{if(button.disabled)return;button.disabled=true;try{await notifySearchDemand(searchInput.value);}finally{button.disabled=false;}};
+  }
+}
+async function notifySearchDemand(query){
+  const selectedQuery=String(query||'').trim().slice(0,160);
+  if(!isAuthenticatedUser()){promptGuestAuth({intent:{type:'notify-search',query:selectedQuery}});return;}
+  if(window.WINGA_CONFIG?.growthDemandResolution!==true)return;
+  const owner=currentUser;searchInput.value=selectedQuery;setCurrentViewState('home',{syncHistory:false});renderCurrentView();
+  try{
+    const page=await window.WingaDataLayer.queryProductsPage({query:selectedQuery,category:selectedCategory!=='all'?selectedCategory:'',limit:4,force:true});
+    if(currentUser!==owner)return;
+    const count=Number(page.total??page.items?.length??0);
+    if(count>3){refreshProductsFromStore();renderCurrentView();showInAppNotification({title:translateUi('growth.matchingSupplyAlreadyAvailable',{},'Matching products are available. Explore the results.'),variant:'info'});return;}
+    const result=await window.WingaDataLayer.submitSearchDemandEvents([{query:selectedQuery,source:'text',resultCount:count,zeroResult:count===0,category:selectedCategory!=='all'?selectedCategory:'',location:filterLocationInput?.value||''}]);
+    if(result?.ok===false||currentUser!==owner)throw new Error('demand_subscription_evidence_required'); // i18n-gate: allow -- internal code, caught and localized below
+    const subscription=await window.WingaDataLayer.subscribeSearchDemand(selectedQuery);
+    if(currentUser!==owner)return;
+    if(!subscription?.goalId)throw new Error('demand_subscription_invalid'); // i18n-gate: allow -- internal code, caught and localized below
+    showInAppNotification({title:translateUi('growth.searchSubscriptionSaved',{},'Request saved'),body:translateUi('growth.searchSubscriptionSavedBody',{},'Winga will show an in-app update when matching supply appears. You can stop the request in your goals.'),variant:'success'});
+  }catch{if(currentUser===owner)showInAppNotification({title:translateUi('growth.searchSubscriptionFailed',{},'Unable to save the request. Please try again.'),variant:'warning'});}
+}
+
+async function stopDemandRequest(goalId){
+  const owner=currentUser;if(!owner)return false;
+  try{const result=await window.WingaDataLayer.resolveCommerceGoal(goalId,'stopped');if(currentUser!==owner)return false;
+    if(result?.goal?.status!=='stopped')return false;
+    showInAppNotification({title:translateUi('growth.demandRequestStopped',{},'Request stopped'),variant:'info'});return true;
+  }catch{if(currentUser===owner)showInAppNotification({title:translateUi('growth.demandStopFailed',{},'Unable to stop the request. Please try again.'),variant:'warning'});return false;}
+}
+async function openDemandRequests(){
+  const owner=currentUser;if(!owner)return;
+  const dialog=document.createElement('dialog');dialog.className='chat-security-dialog';
+  const title=document.createElement('h2');title.textContent=translateUi('growth.manageDemandRequests',{},'Manage product requests');
+  const status=document.createElement('p');status.setAttribute('role','status');status.textContent=translateUi('inbox.loading',{},'Loading...');
+  const close=document.createElement('button');close.type='button';close.textContent=translateUi('common.close',{},'Close');close.onclick=()=>dialog.close();
+  dialog.append(title,status,close);document.body.append(dialog);dialog.showModal();
+  const timer=setInterval(()=>{if(currentUser!==owner)dialog.close();},250);
+  dialog.addEventListener('close',()=>{clearInterval(timer);dialog.remove();},{once:true});
+  try{const goals=await window.WingaDataLayer.loadCommerceGoals(20);if(currentUser!==owner||!dialog.isConnected)return;
+    status.textContent=goals.length?'':translateUi('growth.noDemandRequests',{},'No active requests.');
+    for(const goal of goals){const row=document.createElement('div'),label=document.createElement('p'),button=document.createElement('button');
+      label.textContent=goal.productName||String(goal.queryKey||'').replace(/-/g,' ');button.type='button';button.textContent=translateUi('growth.stopDemandRequest',{},'Stop request');
+      button.onclick=async()=>{if(button.disabled)return;button.disabled=true;if(await stopDemandRequest(goal.goalId))row.remove();else button.disabled=false;};row.append(label,button);dialog.append(row);
+    }
+  }catch{if(dialog.isConnected)status.textContent=translateUi('growth.demandRequestsUnavailable',{},'Requests could not be loaded. Please try again.');}
+}
+document.addEventListener('click',async event=>{
+  const manage=event.target.closest('[data-demand-requests]');if(manage){await openDemandRequests();return;}
+  const stop=event.target.closest('[data-stop-demand]');if(!stop||stop.disabled)return;stop.disabled=true;
+  if(await stopDemandRequest(stop.dataset.stopDemand))stop.remove();else stop.disabled=false;
+});

@@ -2138,9 +2138,9 @@ test("remote communications API client owns messages notifications and realtime 
   assert.match(dataSource, /async loadNotifications\(\) \{\s+assertPersonAccess\(\);/);
   assert.match(dataSource, /async markNotificationRead\(notificationId\) \{\s+assertPersonAccess\(\);/);
   assert.match(serverSource, /postgresStore\?\.readUserNotifications\s+\? await postgresStore\.readUserNotifications\(user\.username, \{ limit: 100 \}\)/);
-  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "offer", "follow", "content"\]/);
+  assert.match(serverSource, /ALLOWED_NOTIFICATION_TYPES = \["message", "request", "order", "offer", "follow", "content", "demand"\]/);
   assert.match(serverSource, /emitAuthorizedNotifications\(followerNotifications\)/);
-  assert.match(serverSource, /BLOCK_FILTERED_NOTIFICATION_TYPES = new Set\(\["message", "request", "offer", "follow", "content"\]\)/);
+  assert.match(serverSource, /BLOCK_FILTERED_NOTIFICATION_TYPES = new Set\(\["message", "request", "offer", "follow", "content", "demand"\]\)/);
   assert.match(serverSource, /readUserBlockRelationships\(actorUsername\)/);
   assert.match(productsActionsSource, /data-content-visibility="\$\{product\.id\}"/);
   assert.match(appSource, /setPublicContentVisibility\(contentType, product\.id, nextVisibility\)/);

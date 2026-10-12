@@ -27,6 +27,7 @@ const WINGA_DEFAULT_CONFIG = {
   // Phase 1 measurement is opt-in; plain public links always remain available.
   growthProductSharing: false,
   growthMeasurement: false,
+  growthDemandResolution: false,
   clearLegacyLocalDataOnBoot: false,
   authRequestTimeoutMs: 18000,
   sessionRestoreTimeoutMs: 8000,

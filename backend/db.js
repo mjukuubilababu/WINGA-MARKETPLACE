@@ -179,7 +179,7 @@ function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
   return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT, searchDemandMinimumAudience = process.env.SEARCH_DEMAND_MIN_AUDIENCE, searchOpportunityMinimumAudience = process.env.SEARCH_OPPORTUNITY_MIN_AUDIENCE }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT, searchDemandMinimumAudience = process.env.SEARCH_DEMAND_MIN_AUDIENCE, searchOpportunityMinimumAudience = process.env.SEARCH_OPPORTUNITY_MIN_AUDIENCE, demandResolutionEnabled = process.env.WINGA_GROWTH_DEMAND_RESOLUTION_ENABLED==='true' }) {
   const requestedCommerceControlPercent = Number(commerceRediscoveryControlPercent ?? 10);
   const safeCommerceControlPercent = Math.min(50, Math.max(0, Number.isFinite(requestedCommerceControlPercent) ? requestedCommerceControlPercent : 10));
   const requestedSearchDemandMinimumAudience = Number(searchDemandMinimumAudience ?? 2);
@@ -4463,7 +4463,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        FROM notifications notification
        WHERE notification.user_id = $1
          AND (
-           notification.type NOT IN ('message', 'request', 'follow', 'content')
+           notification.type NOT IN ('message', 'request', 'follow', 'content', 'demand')
            OR notification.actor_username = ''
            OR notification.actor_username = $1
            OR NOT EXISTS (
@@ -6687,6 +6687,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'looking',$9::jsonb)
          ON CONFLICT (user_id, product_id, color, size) WHERE status IN ('looking','matched','contacted','ordered')
          DO UPDATE SET query_key=EXCLUDED.query_key, category=EXCLUDED.category, region=EXCLUDED.region,
+           metadata=commerce_goals.metadata||EXCLUDED.metadata,
            updated_at=NOW(), row_version=commerce_goals.row_version+1
          RETURNING goal_id AS "goalId", product_id AS "productId", query_key AS "queryKey", category,
            color, size, region, status, created_at AS "createdAt", updated_at AS "updatedAt"`,
@@ -9911,6 +9912,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     init,
     ...require('./growth-store').createGrowthStore({ query, withTransaction }),
     ...require('./growth-marketplace').createMarketplaceGrowth({readQuery}),
+    ...require('./demand-resolution').createDemandResolution({withTransaction,transitionGoal:transitionCommerceGoalsWithClient,insertNotification:insertNotificationRow,enabled:demandResolutionEnabled}),
     ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),
     readStore,
     readProductsPage,
