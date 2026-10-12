@@ -162,3 +162,11 @@ it does not revoke already persisted opportunities. Revert this code release
 to restore former eligibility/scoring; existing opportunity rows still follow
 canonical expiry, dismissal and response behavior. No destructive migration
 or reset is required.
+
+## Public-content measurement extension — 2026-10-12
+
+Collections, public profiles, Reels (including approved photo Reels) and Shorts now reuse the canonical share envelope, expiry/revocation, cohort policy, rate buckets, event dedupe, destination validation and browser outbox. Each has a separate disabled-by-default sharing flag. Product metrics remain separate. Private/empty collections, suspended creators, non-ready video, self actions and blocked participants cannot create attributed value. Canonical follow/save rows must postdate the share; link opens and registration are not sales or activation.
+
+The admin content report separates each content loop and reports observed views, verified follow/save value, reshares and time to value; delivered invitations and cross-device acquisition remain unknown. The restored browser outbox strips unsupported fields and rejects expired original contexts even when retry timestamps are corrupt.
+
+Validation: growth policy/runtime/SQL/event-job suite passed; frontend and module synchronization/localization gates passed; 12 browser scenarios passed, including guest collection discovery, opaque reshare URLs and destination delivery while attribution returns 503. These are isolated synthetic tests, not production acquisition evidence. Production feature activation remains subject to the explicitly selected opted-in cohort.

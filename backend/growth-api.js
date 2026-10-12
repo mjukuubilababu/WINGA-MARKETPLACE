@@ -30,6 +30,11 @@ function createGrowthApi(deps) {
         if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).length){send(400,{code:'growth_replay_invalid'});return true;}
         send(200,await store.reconcileRoomGrowthEvents({batchSize:50}));return true;
       }
+      if(path==='/api/admin/growth/content'&&req.method==='GET'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.readContentGrowthHealth){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.readContentGrowthHealth(url.searchParams.get('type')));return true;
+      }
       if (path === '/api/admin/growth/health' && req.method === 'GET') {
         if (!session || !deps.isAdminSession(session)) { send(403, { code: 'growth_admin_required' }); return true; }
         if (!store?.readGrowthHealth) { send(503, { code: 'growth_unavailable' }); return true; }
@@ -103,11 +108,12 @@ function createGrowthApi(deps) {
         send(200, await store.revokeGrowthShare(match[1], context)); return true;
       }
       if (path === '/api/growth/shares' && req.method === 'POST') {
-        if (!deps.productSharingEnabled) { send(404, { code: 'growth_sharing_disabled' }); return true; }
         if (!cohort.allowsCreation(context.username)) { send(403, { code: 'growth_cohort_excluded' }); return true; }
+        const payload = await deps.collectBody(req, { maxBytes: 4096 });
+        const allowed=payload?.contentType==='PRODUCT'?deps.productSharingEnabled:payload?.contentType==='COLLECTION'?deps.collectionSharingEnabled:payload?.contentType==='PROFILE'?deps.profileSharingEnabled:['REEL','SHORT'].includes(payload?.contentType)?deps.creatorSharingEnabled:false;
+        if (!allowed) { send(404, { code: 'growth_sharing_disabled' }); return true; }
         if (context.bot) { send(400, { code: 'growth_crawler_rejected' }); return true; }
         if (!store?.createGrowthShare) { send(503, { code: 'growth_unavailable' }); return true; }
-        const payload = await deps.collectBody(req, { maxBytes: 4096 });
         send(200, await store.createGrowthShare(payload, context)); return true;
       }
       if (path === '/api/growth/events' && req.method === 'POST') {

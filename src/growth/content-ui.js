@@ -18,6 +18,7 @@
         const collection=await deps.dataLayer.loadSharedCollection(id);if(!current())return;
         title.textContent=collection.title;status.textContent=collection.description||'';
         for(const item of collection.items||[]){const button=el('button',item.name||item.productId);button.type='button';button.className='action-btn action-btn-secondary';button.onclick=async()=>{if(!current())return;close();await deps.openProduct(item.productId);};items.append(button);}
+        if(collection.visibility==='public'&&collection.status==='published'&&items.children.length)try{deps.getGrowth?.().contentVisible('COLLECTION',id,collection.ownerUsername,()=>current()&&dialog.open);}catch{}
         if(!items.children.length)items.append(el('p',t('growth.collectionEmpty','This collection has no available products.')));
         const profile=el('button',t('growth.viewCurator','View curator'));profile.type='button';profile.onclick=()=>{if(!current())return;close();deps.openProfile(collection.ownerUsername);};dialog.append(profile);
         const follow=el('button',deps.isFollowing(collection.ownerUsername)?t('personProfile.following','Following'):t('personProfile.follow','Follow'));follow.type='button';follow.dataset.followCollectionOwner=collection.ownerUsername;

@@ -27,6 +27,12 @@ test('collection projection excludes private notes and invalid identities fail b
   await assert.rejects(reader('alice','wallet','p1'),{status:400});
 });
 
+test('photo Reels preserve structured references without granting Short visibility',async()=>{
+  const photoReader=createConversationReferenceReader({readProduct:async()=>({id:'photo',status:'approved',category:'reels',images:['/photo.jpg'],mediaItems:[]})});
+  assert.equal((await photoReader('alice','reel','photo')).image,'/photo.jpg');
+  await assert.rejects(photoReader('alice','short','photo'),{status:404});
+});
+
 test('exact-ID PostgreSQL reads retain canonical visibility and block clauses on the primary',async()=>{
   const {createPostgresStore}=require('../backend/db'),calls=[];
   const queryClient={query:async(text,params)=>{calls.push({text,params});return {rows:text.includes('SELECT owner_username')?[{owner_username:'bob'}]:text.includes('COUNT(*)')?[{total:0}]:[]};}};

@@ -8103,6 +8103,7 @@ const server = http.createServer(async (req, res) => {
         },
         cohort: require('./growth-policy').createGrowthPolicy(process.env),
         productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
+        collectionSharingEnabled:process.env.WINGA_GROWTH_COLLECTION_SHARING_ENABLED==='true',profileSharingEnabled:process.env.WINGA_GROWTH_PROFILE_SHARING_ENABLED==='true',creatorSharingEnabled:process.env.WINGA_GROWTH_CREATOR_SHARING_ENABLED==='true',
         measurementEnabled: process.env.WINGA_GROWTH_MEASUREMENT_ENABLED === 'true' });
       if (await growthApi.handle(req, res, url)) return;
     }

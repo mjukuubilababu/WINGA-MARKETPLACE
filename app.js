@@ -7280,7 +7280,8 @@ function syncUserFollowMutation(username, following, options = {}) {
   if (!currentUser || typeof window.WingaDataLayer?.setUserFollow !== "function") return;
   const actor = currentUser;
   Promise.resolve(window.WingaDataLayer.setUserFollow(username, following, options))
-    .then(() => {
+    .then(result => {
+      if(currentUser===actor&&following&&result?.following===true)try{getGrowthRuntime().contentFollowed(username);}catch{}
       if (options.source === "profile_connections" && currentView === "profile") {
         void loadProfileConnections(profileConnectionsState.direction, { force: true });
       }
@@ -11256,6 +11257,7 @@ async function loadPersonProfile(username, options = {}) {
     personProfileState.collections=[];
     personProfileState.status = "ready";
     renderPersonProfileModal();
+    try{getGrowthRuntime().contentVisible('PROFILE',safeUsername,safeUsername,()=>personProfileState.username===safeUsername&&document.getElementById('person-profile-modal')?.classList.contains('open'));}catch{}
     void collectionRead.then(collectionPage=>{
       if(requestId!==personProfileState.requestId||currentUser!==viewer)return;
       personProfileState.collections = Array.isArray(collectionPage?.items) ? collectionPage.items : [];
@@ -11326,7 +11328,9 @@ async function handleShareSellerShop(username) {
   const shareText = `See more from ${sellerName} on Winga. Start with ${latestProduct.name}.`;
   const target=window.WingaModules.growth.contract.destination('PROFILE',username);
   if(!target)return;
-  const shareUrl=new URL(target.path,window.location.origin).href;
+  let prepared;try{prepared=getGrowthRuntime().prepareShare(username,'profile','PROFILE');}catch{}
+  const shareUrl=prepared?.url||new URL(target.path,window.location.origin).href;
+  const commit=()=>{try{prepared?.commit();}catch{}};
 
   if (navigator.share) {
     try {
@@ -11335,7 +11339,7 @@ async function handleShareSellerShop(username) {
         text: shareText,
         url: shareUrl
       });
-      return;
+      commit();return;
     } catch (error) {
       if (error && error.name === "AbortError") {
         return;
@@ -11344,7 +11348,7 @@ async function handleShareSellerShop(username) {
   }
 
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);commit();
     showInAppNotification({
       title: translateUi("share.readyTitle", {}, "Share ready"),
       body: translateUi("share.linkCopied", { name: sellerName }, `${sellerName} link ime-copy tayari kwa sharing.`),
@@ -11454,10 +11458,11 @@ async function handleShareCollection(options = {}) {
     || "Discover products selected for this collection on Winga.";
   const heading = String(options.heading || "").trim() || "Marketplace Picks";
   const shareText = `${heading}: ${title}. ${subtitle}`;
-  let shareUrl;
+  let shareUrl,prepared;
   if(options.collectionId){
     const target=window.WingaModules.growth.contract.destination('COLLECTION',collection.id);
-    if(!target)return;shareUrl=new URL(target.path,window.location.origin).href;
+    if(!target)return;try{prepared=getGrowthRuntime().prepareShare(collection.id,'collection','COLLECTION');}catch{}
+    shareUrl=prepared?.url||new URL(target.path,window.location.origin).href;
   }else shareUrl = buildCollectionShareUrl({category:shareCategory,topCategory:shareTopCategory});
 
   if (navigator.share) {
@@ -11467,6 +11472,7 @@ async function handleShareCollection(options = {}) {
         text: shareText,
         url: shareUrl
       });
+      try{prepared?.commit();}catch{}
       return;
     } catch (error) {
       if (error && error.name === "AbortError") {
@@ -11476,7 +11482,7 @@ async function handleShareCollection(options = {}) {
   }
 
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);
+    await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);try{prepared?.commit();}catch{}
     showInAppNotification({
       title: translateUi("share.readyTitle", {}, "Share ready"),
       body: translateUi("share.linkCopied", { name: title }, `${title} link ime-copy tayari kwa sharing.`),
@@ -24220,8 +24226,9 @@ async function handleShareProduct(product, options = {}) {
 
   const shareText = `${product.name} - ${formatProductPrice(product.price)} | ${product.shop}`;
   let preparedShare;
+  const contentType=options.contentType||((product.category==='reels')?'REEL':'PRODUCT');
   try { preparedShare = getGrowthRuntime()?.prepareShare(product.id, options.sourceSurface
-    || (document.body.classList.contains('product-detail-open') ? 'product_detail' : 'feed')); } catch {}
+    || (document.body.classList.contains('product-detail-open') ? 'product_detail' : 'feed'),contentType); } catch {}
   const shareUrl = preparedShare?.url || `${window.location.origin}${getProductDetailPath(product.id)}`;
   const commitShare = () => { try { preparedShare?.commit(); } catch {} };
 
@@ -25985,7 +25992,7 @@ document.addEventListener('click',async event=>{
 
 let canonicalContentUi;
 function getCanonicalContentUi(){
-  canonicalContentUi ||= window.WingaModules.growth.createContentUi({window,dataLayer:window.WingaDataLayer,getAccount:()=>currentUser||'',translate:(key,fallback)=>translateUi(key,{},fallback),
+  canonicalContentUi ||= window.WingaModules.growth.createContentUi({window,dataLayer:window.WingaDataLayer,getGrowth:getGrowthRuntime,getAccount:()=>currentUser||'',translate:(key,fallback)=>translateUi(key,{},fallback),
     isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
     shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
     explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
@@ -26004,8 +26011,9 @@ async function openCanonicalContentDestination(target){
   if(['REEL','SHORT'].includes(target.type)){
     const account=currentUser;let product;try{product=await window.WingaDataLayer.loadSharedProduct(target.id);}catch{}
     if(currentUser!==account)return;
-    const ready=product?.mediaItems?.some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected');
+    const ready=product?.mediaItems?.some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected')||target.type==='REEL'&&product?.category==='reels'&&product.images?.length>0;
     if(!ready){showInAppNotification({title:translateUi('growth.videoUnavailable',{},'This video is no longer available.'),variant:'info'});return;}
-    refreshProductsFromStore();openProductDetailModal(product.id);
+    refreshProductsFromStore();openProductDetailModal(product.id,{skipHistoryPush:true});
+    try{getGrowthRuntime().contentVisible(target.type,product.id,product.uploadedBy,()=>document.body.classList.contains('product-detail-open')&&window.location.pathname===target.path);}catch{}
   }
 }

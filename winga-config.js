@@ -26,6 +26,9 @@ const WINGA_DEFAULT_CONFIG = {
   enableClientEventLogging: true,
   // Phase 1 measurement is opt-in; plain public links always remain available.
   growthProductSharing: false,
+  growthCollectionSharing: false,
+  growthProfileSharing: false,
+  growthCreatorSharing: false,
   growthMeasurement: false,
   growthDemandResolution: false,
   clearLegacyLocalDataOnBoot: false,

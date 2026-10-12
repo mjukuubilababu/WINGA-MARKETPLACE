@@ -9,9 +9,11 @@
   const version = 1;
   const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) && !['.', '..'].includes(value);
-  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog'];
+  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog','profile','collection','creator'];
   const events = ['product_share_opened', 'shared_product_viewed', 'shared_product_saved',
     'shared_product_message_started', 'shared_product_order_started'];
+  const publicTypes=['PRODUCT','PROFILE','COLLECTION','REEL','SHORT'];
+  const contentEvents=['content_share_opened','shared_content_viewed','shared_content_saved','shared_content_followed'];
   const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
   const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
@@ -31,8 +33,9 @@
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
   }
-  function shareUrl(origin, contentId, shareId = '') {
-    const target = destination('PRODUCT', contentId);
+  function shareUrl(origin, contentId, shareId = '', type='PRODUCT') {
+    if(!publicTypes.includes(type))return null;
+    const target = destination(type, contentId);
     if (!target) return null;
     try {
       const url = new URL(target.path, origin);
@@ -68,5 +71,5 @@
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
   const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
-  return Object.freeze({ version, uuid, id, surfaces, events, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
+  return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });

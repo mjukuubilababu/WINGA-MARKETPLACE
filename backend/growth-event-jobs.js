@@ -1,6 +1,6 @@
 const {fail,key,insertEvent}=require('./growth-infrastructure');
 const contract=require('../src/growth/contract');
-const allowed=new Set([...contract.events,...contract.roomEvents,'product_share_created','shared_product_reshared','room_invite_created','room_invite_requested','room_invite_reported','room_inviter_blocked']);
+const allowed=new Set([...contract.events,...contract.contentEvents,...contract.roomEvents,'content_share_created','shared_content_reshared','product_share_created','shared_product_reshared','room_invite_created','room_invite_requested','room_invite_reported','room_inviter_blocked']);
 async function enqueueGrowthEvent(client,eventId,shareId,actorKey,eventType,verification,durationMs=null,occurredAt=null){
   if(typeof eventId!=='string'||!/^[A-Za-z0-9:_-]{1,160}$/.test(eventId)||!contract.uuid(shareId)||!/^[a-f0-9]{64}$/.test(actorKey)
     ||!allowed.has(eventType)||!['server','client_observed'].includes(verification)

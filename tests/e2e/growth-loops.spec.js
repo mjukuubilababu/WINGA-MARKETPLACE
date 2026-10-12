@@ -215,6 +215,27 @@ test('unavailable collection falls back without forcing signup',async({browser,r
   await expect(page.locator('#auth-container')).toBeHidden();await context.close();
 });
 
+test('attributed public collection delivers guest value during measurement outage',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request,{growthCollectionSharing:true});
+  const id=await collectionPreview(context,product),shareId=randomUUID();
+  await page.goto('/collection/'+id+'?share='+shareId);
+  const preview=page.locator('[data-collection-id="'+id+'"]');
+  await expect(preview.getByRole('heading')).toHaveText('Help choose a gift',{timeout:30000});
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await expect.poll(()=>page.evaluate(shareId=>{
+    const entries=JSON.parse(localStorage.getItem('winga-growth-outbox-v1')||'[]');
+    return ['content_share_opened','shared_content_viewed'].every(type=>entries.some(e=>e.payload.shareId===shareId&&e.payload.eventType===type));
+  },shareId)).toBe(true);
+  await preview.getByRole('button',{name:/^(Share|Shiriki)$/}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/collection/'+id+'?share=');
+  const copied=await page.evaluate(()=>window.__copiedGrowthLink);
+  const url=new URL(copied.match(/https?:\/\/\S+/)[0]);
+  expect([...url.searchParams.keys()]).toEqual(['share']);
+  expect(url.searchParams.get('share')).not.toBe(shareId);
+  await expect(preview).toBeVisible();
+  await context.close();
+});
+
 test('public profile remains visible when optional collections are unavailable',async({browser,request})=>{
   const {context,page}=await guest(browser,request);
   await context.route('**/api/social/users/market_seller',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({profile:{username:'market_seller',fullName:'Gift Curator',status:'active',publicContent:{products:1,reels:0,collections:0},followers:0,following:0,viewerFollows:false}})}));

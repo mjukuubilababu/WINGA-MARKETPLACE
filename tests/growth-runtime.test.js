@@ -183,3 +183,36 @@ test('room touches preserve product first-touch and use the canonical bounded ou
   assert.equal(f.runtime.getJourney().touches.length,1);
   f.runtime.close();
 });
+
+test('public-content multi-touch shares use the common outbox and clear value context on account change',async()=>{
+  const f=fixture({online:false});f.win.WINGA_CONFIG.growthCollectionSharing=true;
+  const shareId=randomUUID();f.win.location.href='https://winga.test/collection/public-picks?share='+shareId;
+  f.runtime.contentVisible('COLLECTION','public-picks','curator');
+  assert.equal(f.runtime.getJourney().firstTouch.destinationType,'COLLECTION');
+  const prepared=f.runtime.prepareShare('public-picks','collection','COLLECTION');prepared.commit();
+  assert.match(prepared.url,/\/collection\/public-picks\?share=/);
+  const queued=JSON.parse(f.local.get('winga-growth-outbox-v1'));
+  assert.equal(queued.find(i=>i.kind==='shares').payload.contentType,'COLLECTION');
+  assert.equal(queued.find(i=>i.kind==='shares').payload.parentShareId,shareId);
+  f.setAccount('first');f.runtime.contentFollowed('curator');
+  const count=JSON.parse(f.local.get('winga-growth-outbox-v1')).length;
+  f.setAccount('second');f.runtime.contentFollowed('curator');
+  assert.equal(JSON.parse(f.local.get('winga-growth-outbox-v1')).length,count);assert.equal(f.runtime.getJourney().firstTouch,null);
+});
+
+test('content view requires visible context and prepared shares cannot change actors during handoff',async()=>{
+  const f=fixture({online:false});f.win.WINGA_CONFIG.growthCollectionSharing=true;const shareId=randomUUID();
+  f.win.location.href='https://winga.test/collection/picks?share='+shareId;
+  f.runtime.contentVisible('COLLECTION','picks','curator',()=>false);await f.advance(5000);
+  assert.equal(JSON.parse(f.local.get('winga-growth-outbox-v1')).some(i=>i.payload.eventType==='shared_content_viewed'),false);
+  const share=f.runtime.prepareShare('picks','collection','COLLECTION');f.setAccount('different');share.commit();
+  assert.equal(JSON.parse(f.local.get('winga-growth-outbox-v1')).some(i=>i.kind==='shares'),false);
+});
+
+test('restored telemetry strips arbitrary private payloads and future scheduling cannot renew expired records',async()=>{
+  const event={eventId:randomUUID(),shareId:randomUUID(),sessionId:randomUUID(),eventType:'product_share_opened',schemaVersion:1,privateBody:'private message',orderId:{body:'private order'}};
+  const f=fixture({online:false,initialTime:100000000,localEntries:[['winga-growth-outbox-v1',JSON.stringify([{id:event.eventId,kind:'events',payload:event,account:'',attempts:0,nextAt:1e20,createdAt:1}])]]});
+  f.win.navigator.onLine=true;await f.runtime.flush();
+  const dead=JSON.parse(f.local.get('winga-growth-dead-v1'));assert.equal(dead[0].reason,'context_expired');
+  assert.equal(dead[0].payload.privateBody,undefined);assert.equal(dead[0].payload.orderId,undefined);
+});

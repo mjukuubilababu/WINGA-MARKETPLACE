@@ -10,7 +10,7 @@ function createConversationReferenceReader({readProduct,readOrder,readCollection
     }
     if(['product','reel','short'].includes(kind)) {
       const p=await readProduct(id,owner);if(!p||p.status!=='approved')fail(404,'conversation_reference_unavailable');
-      if(kind!=='product'&&!(p.mediaItems||[]).some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected'))fail(404,'conversation_reference_unavailable');
+      if(kind!=='product'&&!(kind==='reel'&&p.category==='reels'&&(p.images||[]).length>0)&&!(p.mediaItems||[]).some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected'))fail(404,'conversation_reference_unavailable');
       return {kind,id:p.id,name:p.name,price:p.price,currency:p.currency||'TZS',image:p.image||p.images?.[0]||'',
         availability:p.availability||'available',uploadedBy:p.uploadedBy,updatedAt:p.updatedAt||'',stockQuantity:p.stockQuantity??null};
     }

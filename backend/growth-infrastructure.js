@@ -32,4 +32,22 @@ async function insertEvent(client, eventId, shareId, actorKey, eventType, verifi
   }
   return result.rows.length > 0;
 }
-module.exports = {fail, key, fields, publicProduct, quota, insertEvent};
+async function publicContent(client,type,contentId,viewer='',sharer='') {
+  if(type==='PRODUCT')return await publicProduct(client,contentId,viewer,sharer)?{id:contentId}:null;
+  let record;
+  if(['REEL','SHORT'].includes(type)){
+    if(!await publicProduct(client,contentId,viewer,sharer))return null;
+    record=(await client.query(`SELECT id,uploaded_by AS creator FROM products p WHERE p.id=$1
+      AND (EXISTS(SELECT 1 FROM jsonb_array_elements(p.media_items) m WHERE m->>'type'='video' AND m->>'status'='ready' AND COALESCE(m->>'moderationStatus','')<>'rejected')
+        OR ($2='REEL' AND p.category='reels' AND jsonb_array_length(p.images)>0))`,[contentId,type])).rows[0];
+  }else if(type==='PROFILE')record=(await client.query("SELECT username AS id,username AS creator FROM users WHERE username=$1 AND status='active'",[contentId])).rows[0];
+  else if(type==='COLLECTION')record=(await client.query(`SELECT c.id,c.owner_username AS creator FROM public_collections c JOIN users u ON u.username=c.owner_username AND u.status='active'
+    WHERE c.id=$1 AND c.status='published' AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='collection' AND content_id=c.id),'public')='public'
+      AND EXISTS(SELECT 1 FROM public_collection_items i JOIN products p ON p.id=i.product_id JOIN users seller ON seller.username=p.uploaded_by AND seller.status='active'
+        WHERE i.collection_id=c.id AND p.status='approved' AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='product' AND content_id=p.id),'public')='public'
+          AND ($2='' OR NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_username=$2 AND b.blocked_username=p.uploaded_by) OR (b.blocked_username=$2 AND b.blocker_username=p.uploaded_by))))`,[contentId,viewer])).rows[0];
+  if(!record)return null;
+  if(viewer&&(await client.query(`SELECT 1 FROM user_blocks WHERE (blocker_username=$1 AND blocked_username IN ($2,$3)) OR (blocked_username=$1 AND blocker_username IN ($2,$3)) LIMIT 1`,[viewer,record.creator,sharer])).rows.length)return null;
+  return record;
+}
+module.exports = {fail, key, fields, publicProduct, publicContent, quota, insertEvent};

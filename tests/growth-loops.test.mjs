@@ -312,3 +312,49 @@ test('growth operations protect replay/reconciliation and expose only aggregate 
   payload={eventIds:['safe-event']};await api.handle(req,{},url('/replay'));assert.deepEqual(response,{status:200,body:{replayed:1}});
   payload={};await api.handle(req,{},url('/reconcile'));assert.deepEqual(response,{status:200,body:{queued:0}});
 });
+
+async function publicContentFixture(t){
+  const f=await fixture(t);
+  await f.db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN images JSONB DEFAULT '[]';ALTER TABLE products ADD COLUMN media_items JSONB DEFAULT '[]';
+    CREATE TABLE user_follows(follower_username TEXT,followed_username TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE public_collections(id TEXT PRIMARY KEY,owner_username TEXT,status TEXT);
+    CREATE TABLE public_collection_items(collection_id TEXT,product_id TEXT);
+    INSERT INTO public_collections VALUES('public-picks','seller','published'),('private-picks','seller','published'),('empty-picks','seller','published');
+    INSERT INTO public_collection_items VALUES('public-picks','p1');
+    INSERT INTO public_content_visibility VALUES('collection','private-picks','private');
+    UPDATE products SET media_items='[{"type":"video","status":"ready","moderationStatus":"approved"}]',images='["/public.webp"]' WHERE id='p2';`);
+  for(const sql of require('../backend/migrations/growth-public-content').statements)await f.db.exec(sql);
+  return f;
+}
+
+test('public-content envelopes share canonical safety, dedupe, distinct funnels and verified follow values',async t=>{
+  const f=await publicContentFixture(t),sessionId=randomUUID();
+  const payload={...f.payload,contentType:'COLLECTION',contentId:'public-picks',sourceSurface:'collection'};
+  await f.store.createGrowthShare(payload,f.source);assert.equal((await f.store.createGrowthShare(payload,f.source)).duplicate,true);
+  for(const contentId of ['private-picks','empty-picks','missing'])await assert.rejects(f.store.createGrowthShare({...payload,shareId:randomUUID(),contentId},f.source),{code:'growth_share_unavailable'});
+  const event=type=>({...f.event(type),sessionId,eventType:type});
+  await f.store.recordGrowthEvent(event('content_share_opened'),f.recipient);await f.store.recordGrowthEvent(event('shared_content_viewed'),f.recipient);
+  await assert.rejects(f.store.recordGrowthEvent(event('shared_content_followed'),f.recipient),{code:'growth_value_unconfirmed'});
+  await f.db.exec("INSERT INTO user_follows VALUES('recipient','seller','active',NOW())");
+  await f.store.recordGrowthEvent(event('shared_content_followed'),f.recipient);
+  await f.store.createGrowthShare({...payload,shareId:randomUUID(),sessionId,parentShareId:payload.shareId},f.recipient);
+  const report=await f.store.readContentGrowthHealth('COLLECTION');assert.equal(report.cohort.recipientJourneys,1);assert.equal(report.cohort.activationCount,1);assert.equal(report.cohort.valueCount,1);assert.equal(report.cohort.continuationCount,1);
+  assert.equal((await f.store.readGrowthHealth()).shares,0);
+  await assert.rejects(f.store.recordGrowthEvent(event('shared_product_saved'),f.recipient),{code:'growth_event_invalid'});
+  await f.db.exec("INSERT INTO user_blocks VALUES('seller','recipient')");await assert.rejects(f.store.resolveGrowthShare(payload.shareId,f.recipient),{code:'growth_share_unavailable'});
+});
+
+test('creator/Profile envelopes enforce ready content, current public visibility and post-share value evidence',async t=>{
+  const f=await publicContentFixture(t);
+  const reel={...f.payload,contentType:'REEL',contentId:'p2',sourceSurface:'creator'};
+  await f.store.createGrowthShare(reel,f.source);assert.equal((await f.store.resolveGrowthShare(reel.shareId,f.recipient)).destinationType,'REEL');
+  await f.db.exec("INSERT INTO product_likes VALUES('p2','recipient',NOW()-INTERVAL '1 day')");
+  await assert.rejects(f.store.recordGrowthEvent({...f.event('shared_content_saved')},f.recipient),{code:'growth_value_unconfirmed'});
+  await f.db.exec("UPDATE product_likes SET created_at=NOW()");await f.store.recordGrowthEvent(f.event('shared_content_saved'),f.recipient);
+  await f.db.exec("UPDATE products SET media_items='[{\"type\":\"video\",\"status\":\"processing\"}]' WHERE id='p2'");
+  await assert.rejects(f.store.resolveGrowthShare(reel.shareId,f.recipient),{code:'growth_share_unavailable'});
+  await f.db.exec("UPDATE products SET category='reels',media_items='[]' WHERE id='p2'");assert.equal((await f.store.resolveGrowthShare(reel.shareId,f.recipient)).destinationType,'REEL');
+  const profile={...f.payload,shareId:randomUUID(),contentType:'PROFILE',contentId:'seller',sourceSurface:'profile'};
+  await f.store.createGrowthShare(profile,f.source);await f.db.exec("UPDATE users SET status='suspended' WHERE username='seller'");
+  await assert.rejects(f.store.resolveGrowthShare(profile.shareId,f.recipient),{code:'growth_share_unavailable'});
+});

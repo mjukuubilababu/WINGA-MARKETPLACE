@@ -1,5 +1,5 @@
 const contract = require('../src/growth/contract');
-const {fail, key, fields, publicProduct, quota, insertEvent} = require('./growth-infrastructure');
+const {fail, key, fields, publicProduct, publicContent, quota, insertEvent} = require('./growth-infrastructure');
 
 function createGrowthStore({ query, withTransaction }) {
   function identity(context, sessionId) {
@@ -12,14 +12,14 @@ function createGrowthStore({ query, withTransaction }) {
     if (!contract.uuid(shareId)) fail(404, 'growth_share_unavailable');
     const share = (await client.query(`SELECT * FROM growth_shares WHERE id=$1
       AND revoked_at IS NULL AND expires_at>NOW()`, [shareId])).rows[0];
-    if (!share || share.content_type !== 'PRODUCT' || !await publicProduct(client, share.content_id, context.username || '', share.owner_username || ''))
+    if (!share || !contract.publicTypes.includes(share.content_type) || !await publicContent(client, share.content_type,share.content_id, context.username || '', share.owner_username || ''))
       fail(404, 'growth_share_unavailable');
     return share;
   }
   async function createGrowthShare(payload, context) {
     if (context.growthCohort && !context.growthCohort.allowsCreation(context.username || '')) fail(403, 'growth_cohort_excluded');
     if (!fields(payload, ['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion'])
-      || payload.schemaVersion !== 1 || payload.contentType !== 'PRODUCT' || !contract.uuid(payload.shareId)
+      || payload.schemaVersion !== 1 || !contract.publicTypes.includes(payload.contentType) || !contract.uuid(payload.shareId)
       || !contract.destination(payload.contentType, payload.contentId) || !contract.surfaces.includes(payload.sourceSurface)
       || (payload.parentShareId && !contract.uuid(payload.parentShareId))) fail(400, 'growth_share_invalid');
     const actorKey = identity(context, payload.sessionId);
@@ -27,13 +27,13 @@ function createGrowthStore({ query, withTransaction }) {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['growth-share:' + payload.shareId]);
       const existing = (await client.query('SELECT * FROM growth_shares WHERE id=$1', [payload.shareId])).rows[0];
       if (existing) {
-        if (existing.actor_key !== actorKey || (existing.owner_username || '') !== (context.username || '') || existing.content_id !== payload.contentId
+        if (existing.actor_key !== actorKey || (existing.owner_username || '') !== (context.username || '') || existing.content_type !== payload.contentType || existing.content_id !== payload.contentId
           || existing.source_surface !== payload.sourceSurface || (existing.parent_share_id || '') !== (payload.parentShareId || ''))
           fail(409, 'growth_share_conflict');
         await load(client, payload.shareId, context);
         return { shareId: existing.id, duplicate: true };
       }
-      if (!await publicProduct(client, payload.contentId, context.username || '')) fail(404, 'growth_share_unavailable');
+      if (!await publicContent(client,payload.contentType,payload.contentId,context.username || '')) fail(404, 'growth_share_unavailable');
       const quotaActor = context.username ? key('user:' + context.username) : actorKey;
       await quota(client, 'share:actor:' + quotaActor, 30);
       await quota(client, 'share:ip:' + key(context.ip || 'unknown'), 60);
@@ -42,22 +42,22 @@ function createGrowthStore({ query, withTransaction }) {
       let parent = null;
       if (payload.parentShareId) {
         parent = await load(client, payload.parentShareId, context);
-        if (parent.content_id !== payload.contentId) fail(400, 'growth_parent_invalid');
+        if (parent.content_type !== payload.contentType || parent.content_id !== payload.contentId) fail(400, 'growth_parent_invalid');
       }
       // Quota upserts can wait on another transaction. At READ COMMITTED,
       // use a fresh eligibility snapshot after those waits before persisting.
-      if (!await publicProduct(client, payload.contentId, context.username || '')) fail(404, 'growth_share_unavailable');
+      if (!await publicContent(client,payload.contentType,payload.contentId,context.username || '')) fail(404, 'growth_share_unavailable');
       // Recheck the parent after the final eligibility read, not its earlier snapshot.
       if (parent) parent = await load(client, payload.parentShareId, context);
       const result = await client.query(`INSERT INTO growth_shares(id,content_type,content_id,source_surface,
         owner_username,actor_key,parent_share_id,expires_at)
-        VALUES($1,'PRODUCT',$2,$3,$4,$5,$6,NOW()+INTERVAL '30 days') ON CONFLICT DO NOTHING RETURNING id`,
-      [payload.shareId,payload.contentId,payload.sourceSurface,context.username || null,actorKey,parent?.id || null]);
+        VALUES($1,$7,$2,$3,$4,$5,$6,NOW()+INTERVAL '30 days') ON CONFLICT DO NOTHING RETURNING id`,
+      [payload.shareId,payload.contentId,payload.sourceSurface,context.username || null,actorKey,parent?.id || null,payload.contentType]);
       if (!result.rows.length) fail(409, 'growth_share_conflict');
-      await insertEvent(client, 'created:' + payload.shareId, payload.shareId, actorKey, 'product_share_created', 'server');
+      await insertEvent(client, 'created:' + payload.shareId, payload.shareId, actorKey, payload.contentType==='PRODUCT'?'product_share_created':'content_share_created', 'server');
       if (parent && parent.actor_key !== actorKey && (!context.username || parent.owner_username !== context.username)
         && (!context.growthCohort || context.growthCohort.allowsMeasurement(parent.owner_username || '', context.username || '')))
-        await insertEvent(client, 'reshared:' + payload.shareId, parent.id, actorKey, 'shared_product_reshared', 'server');
+        await insertEvent(client, 'reshared:' + payload.shareId, parent.id, actorKey, payload.contentType==='PRODUCT'?'shared_product_reshared':'shared_content_reshared', 'server');
       return { shareId: payload.shareId, duplicate: false };
     });
   }
@@ -71,14 +71,15 @@ function createGrowthStore({ query, withTransaction }) {
   async function recordGrowthEvent(payload, context) {
     if (!fields(payload, ['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs'])
       || payload.schemaVersion !== 1 || !contract.uuid(payload.eventId)
-      || !contract.uuid(payload.shareId) || !contract.events.includes(payload.eventType)
-      || (payload.orderId && !contract.id(payload.orderId))) fail(400, 'growth_event_invalid');
+      || !contract.uuid(payload.shareId) || ![...contract.events,...contract.contentEvents].includes(payload.eventType)
+      || (payload.orderId && !contract.id(payload.orderId)) || payload.orderId!==undefined&&payload.eventType!=='shared_product_order_started') fail(400, 'growth_event_invalid');
     if (payload.durationMs !== undefined && (payload.eventType !== 'shared_product_viewed'
       || !Number.isInteger(payload.durationMs) || payload.durationMs < 0 || payload.durationMs > 300000)) fail(400, 'growth_event_invalid');
     const actorKey = identity(context, payload.sessionId);
     if (context.bot) return { accepted: false, reason: 'crawler' };
     return withTransaction(async client => {
       const share = await load(client, payload.shareId, context);
+      if(!(share.content_type==='PRODUCT'?contract.events:contract.contentEvents).includes(payload.eventType))fail(400,'growth_event_invalid');
       if (context.growthCohort && !context.growthCohort.allowsMeasurement(share.owner_username || '', context.username || ''))
         fail(403, 'growth_cohort_excluded');
       if (share.actor_key === actorKey || (context.username && share.owner_username === context.username))
@@ -98,6 +99,16 @@ function createGrowthStore({ query, withTransaction }) {
           [payload.orderId,share.content_id,context.username,share.created_at])).rows.length)
           fail(409, 'growth_value_unconfirmed');
         verification = 'server';
+      }
+      if(payload.eventType==='shared_content_followed'){
+        const target=await publicContent(client,share.content_type,share.content_id,context.username||'',share.owner_username||'');
+        if(!context.username||!target?.creator||target.creator===context.username||!(await client.query(`SELECT 1 FROM user_follows WHERE follower_username=$1 AND followed_username=$2 AND status='active' AND created_at>=$3`,[context.username,target.creator,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
+        verification='server';
+      }
+      if(payload.eventType==='shared_content_saved'){
+        const target=await publicContent(client,share.content_type,share.content_id,context.username||'',share.owner_username||'');
+        if(!['REEL','SHORT'].includes(share.content_type)||!context.username||target?.creator===context.username||!(await client.query('SELECT 1 FROM product_likes WHERE product_id=$1 AND user_id=$2 AND created_at>=$3',[share.content_id,context.username,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
+        verification='server';
       }
       // A revoked/expired link or privacy change committed during quota or
       // evidence waits must not authorize a new event using the earlier read.
@@ -168,12 +179,36 @@ function createGrowthStore({ query, withTransaction }) {
         'Time to value uses server event-receipt times; missing/unordered events are excluded.',
         'A save or order start is value, not a completed purchase. Cross-device identities are not inferred.'] };
   }
+  async function readContentGrowthHealth(type){
+    if(!['PROFILE','COLLECTION','REEL','SHORT'].includes(type))fail(400,'growth_content_type_invalid');
+    const counts=(await query(`SELECT e.event_type,e.verification,COUNT(*)::int AS count FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
+      WHERE s.content_type=$1 AND s.created_at>=NOW()-INTERVAL '30 days' GROUP BY e.event_type,e.verification`,[type])).rows;
+    const summary=(await query(`WITH journey AS (
+      SELECT e.share_id,e.actor_key,MIN(e.created_at) FILTER(WHERE e.event_type='content_share_opened') AS opened_at,
+        MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_content_viewed','shared_content_followed','shared_content_saved')) AS activated_at,
+        MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_content_followed','shared_content_saved')) AS value_at,
+        BOOL_OR(e.event_type='shared_content_reshared') AS continued
+      FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
+      WHERE s.content_type=$1 AND s.created_at>=NOW()-INTERVAL '30 days' AND e.actor_key<>s.actor_key GROUP BY e.share_id,e.actor_key
+    ) SELECT COUNT(*) FILTER(WHERE opened_at IS NOT NULL)::int AS opens,
+      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND activated_at>=opened_at)::int AS activations,
+      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND value_at>=opened_at)::int AS values,
+      COUNT(*) FILTER(WHERE value_at>=opened_at AND continued)::int AS continuations,
+      AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE value_at>=opened_at)::float8 AS seconds
+      FROM journey`,[type])).rows[0]||{};
+    const entries=Number((await query("SELECT COUNT(*)::int AS count FROM growth_shares WHERE content_type=$1 AND created_at>=NOW()-INTERVAL '30 days'",[type])).rows[0]?.count||0);
+    const rate=(n,d)=>Number(d)?Number(n)/Number(d):null;
+    return {schemaVersion:1,loop:type.toLowerCase()+'_share',windowDays:30,entryCount:entries,evidence:counts,
+      cohort:{recipientJourneys:Number(summary.opens||0),activationCount:Number(summary.activations||0),valueCount:Number(summary.values||0),continuationCount:Number(summary.continuations||0),
+        activationRate:rate(summary.activations,summary.opens),valueRate:rate(summary.values,summary.activations),continuationRate:rate(summary.continuations,summary.values),timeToValueSeconds:summary.seconds===null?null:Number(summary.seconds),viralCoefficient:null},
+      limitations:['Views are client observed. Follow/save values require canonical post-share evidence.','Registration is not activation; delivered shares and cross-device identity are unknown.','These metrics describe observed organic sharing, not revenue or causal lift.']};
+  }
   async function pruneGrowthRecords() {
     // Retain bounded attribution history; explicit operations task, never a request-path scan.
     await query(`DELETE FROM growth_rate_buckets WHERE window_start<NOW()-INTERVAL '2 days'`);
     const result = await query(`DELETE FROM growth_shares WHERE created_at<NOW()-INTERVAL '90 days' RETURNING id`);
     return { deleted: result.rows.length };
   }
-  return { createGrowthShare, resolveGrowthShare, recordGrowthEvent, revokeGrowthShare, readGrowthHealth, pruneGrowthRecords };
+  return { createGrowthShare, resolveGrowthShare, recordGrowthEvent, revokeGrowthShare, readGrowthHealth, readContentGrowthHealth, pruneGrowthRecords };
 }
 module.exports = { createGrowthStore };

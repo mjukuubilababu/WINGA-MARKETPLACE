@@ -4668,7 +4668,7 @@ async loadAdminPayments(filters) {
     async likeProduct(productId, liked = true) {
       const result = await state.adapter.likeProduct(productId, liked);
       mergeProductMutationResult(productId, result);
-      try { if (liked && result?.liked === true) window.WingaGrowth?.event('shared_product_saved',productId); } catch {}
+      try { if (liked && result?.liked === true) {window.WingaGrowth?.event('shared_product_saved',productId);window.WingaGrowth?.contentSaved(productId);} } catch {}
       return result;
     },
     async trackProductView(productId) {

@@ -50,9 +50,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const version = 1;
   const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) && !['.', '..'].includes(value);
-  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog'];
+  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog','profile','collection','creator'];
   const events = ['product_share_opened', 'shared_product_viewed', 'shared_product_saved',
     'shared_product_message_started', 'shared_product_order_started'];
+  const publicTypes=['PRODUCT','PROFILE','COLLECTION','REEL','SHORT'];
+  const contentEvents=['content_share_opened','shared_content_viewed','shared_content_saved','shared_content_followed'];
   const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
   const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
@@ -72,8 +74,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
   }
-  function shareUrl(origin, contentId, shareId = '') {
-    const target = destination('PRODUCT', contentId);
+  function shareUrl(origin, contentId, shareId = '', type='PRODUCT') {
+    if(!publicTypes.includes(type))return null;
+    const target = destination(type, contentId);
     if (!target) return null;
     try {
       const url = new URL(target.path, origin);
@@ -109,7 +112,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
   const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
-  return Object.freeze({ version, uuid, id, surfaces, events, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
+  return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });
 
 
@@ -120,7 +123,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const now = deps.now || Date.now;
     const timingNow = () => win.performance?.now ? win.performance.now() : now();
     const randomId = () => win.crypto.randomUUID();
-    const enabled = () => win.WINGA_CONFIG?.growthProductSharing === true;
+    const enabled = (type='PRODUCT') => win.WINGA_CONFIG?.[type==='COLLECTION'?'growthCollectionSharing':type==='PROFILE'?'growthProfileSharing':['REEL','SHORT'].includes(type)?'growthCreatorSharing':'growthProductSharing']===true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
     const account = () => deps.getAccount?.() || '';
     const freshRecord = item => Number.isFinite(item?.createdAt)
@@ -133,15 +136,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     if (!contract.uuid(sessionId)) { sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId); }
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
+    const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(field==='schemaVersion')return value===1;
+      if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
+      if(field==='contentType')return contract.publicTypes.includes(value);
+      if(field==='sourceSurface')return contract.surfaces.includes(value);
+      if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents].includes(value);
+      if(field==='tokenHash')return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+      if(['contentId','orderId'].includes(field))return contract.id(value);
+      return field==='parentShareId'&&value===''||contract.uuid(value);
+    }));
+    queue=queue.map(item=>({...item,payload:safePayload(item.kind,item.payload)}));
     let dead = read('localStorage', 'winga-growth-dead-v1', []);
-    dead = Array.isArray(dead) ? dead.filter(x => x && now()-x.failedAt < 7*86400000).slice(-50) : [];
+    dead = Array.isArray(dead) ? dead.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion===1 && now()-x.failedAt < 7*86400000).slice(-50).map(item=>({...item,payload:safePayload(item.kind,item.payload)})) : [];
     let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
     if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
-    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || t?.destinationType==='SHOPPING_ROOM' && t.destinationId===t.shareId)
+    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || t?.destinationType==='SHOPPING_ROOM' && t.destinationId===t.shareId || contract.publicTypes.includes(t?.destinationType)&&contract.id(t.destinationId))
       && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
     journey.touches = journey.touches.map(t => t.destinationType==='SHOPPING_ROOM'
       ? {shareId:t.shareId,destinationType:'SHOPPING_ROOM',destinationId:t.shareId,at:t.at}
-      : {shareId:t.shareId,productId:t.productId,at:t.at});
+      : t.destinationType&&t.destinationType!=='PRODUCT'?{shareId:t.shareId,destinationType:t.destinationType,destinationId:t.destinationId,...(contract.id(t.creatorRef)?{creatorRef:t.creatorRef}:{}),at:t.at}:{shareId:t.shareId,productId:t.productId,at:t.at});
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
@@ -180,11 +195,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       try {
         // Shares precede their dependent events. A failed share may resolve on the next bounded retry.
         for (const item of [...queue].sort((a,b) => (a.kind === 'shares' ? 0 : 1)-(b.kind === 'shares' ? 0 : 1))) {
-          if (item.nextAt > now()) continue;
           if (item.account !== account() || !freshRecord(item)) {
             queue = queue.filter(x => x !== item); deadLetter(item, 'context_expired'); continue;
           }
-          if (item.kind === 'shares' ? !enabled() : !measurement()) continue;
+          if(!Number.isFinite(item.nextAt)||item.nextAt>now()+30000)item.nextAt=now();
+          if(item.nextAt>now())continue;
+          if (item.kind === 'shares' ? !enabled(item.payload.contentType) : !measurement()) continue;
           try {
             await deps.request(item.kind, item.payload);
             queue = queue.filter(x => x !== item);
@@ -199,7 +215,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       } finally {
         persist(); flushing = false;
-        const pending = queue.filter(x => x.kind === 'shares' ? enabled() : measurement());
+        const pending = queue.filter(x => x.kind === 'shares' ? enabled(x.payload.contentType) : measurement());
         if (pending.length && !closed) retryTimer = win.setTimeout(flush, Math.max(250,Math.min(...pending.map(x => x.nextAt))-now()));
       }
     }
@@ -240,18 +256,40 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         event('product_share_opened',target.id);
       } catch { health('capture_failed'); }
     }
-    function prepareShare(productId, sourceSurface = 'product_detail') {
+    function prepareShare(productId, sourceSurface = 'product_detail',contentType='PRODUCT') {
       syncIdentity();
-      const shareId = enabled() ? randomId() : '';
-      const url = contract.shareUrl(win.location.origin,productId,shareId);
-      const parent = touchFor(productId);
+      const preparedAccount=account(),preparedSession=sessionId;
+      const shareId = enabled(contentType) ? randomId() : '';
+      const url = contract.shareUrl(win.location.origin,productId,shareId,contentType);
+      const parent = contentType==='PRODUCT'?touchFor(productId):[...journey.touches].reverse().find(t=>t.destinationType===contentType&&t.destinationId===productId);
       return { url, commit() {
-        if (!shareId) return;
-        enqueue('shares',{ shareId,sessionId,contentType:'PRODUCT',contentId:productId,
+        if (!shareId || account()!==preparedAccount) return;
+        enqueue('shares',{ shareId,sessionId:preparedSession,contentType,contentId:productId,
           sourceSurface:contract.surfaces.includes(sourceSurface) ? sourceSurface : 'product_detail',
           parentShareId:parent?.shareId || '',schemaVersion:1 });
       } };
     }
+    function contentEvent(eventType,touch){
+      syncIdentity();if(!measurement()||!contract.contentEvents.includes(eventType)||!contract.uuid(touch?.shareId))return;
+      enqueue('events',{eventId:randomId(),shareId:touch.shareId,sessionId,eventType,schemaVersion:1});
+    }
+    const contentTimers=new Map();
+    function contentVisible(type,id,creatorRef='',visibleCheck=()=>true){
+      syncIdentity();if(!measurement()||type==='PRODUCT'||!contract.publicTypes.includes(type)||win.document.visibilityState!=='visible')return;
+      const target=contract.parseDestination(win.location.href,win.location.origin),shareId=new URL(win.location.href).searchParams.get('share');
+      if(target?.type!==type||target.id!==id||!contract.uuid(shareId))return;
+      let touch=journey.touches.find(t=>t.shareId===shareId);
+      if(!touch){touch={shareId,destinationType:type,destinationId:id,...(contract.id(creatorRef)?{creatorRef}:{}),at:now()};
+        journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+        journey.firstTouch=journey.firstTouch||touch;journey.lastTouch=touch;storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));}
+      contentEvent('content_share_opened',touch);
+      if(contentTimers.has(shareId))return;
+      if(contentTimers.size>=20){const oldest=contentTimers.keys().next().value;win.clearTimeout(contentTimers.get(oldest));contentTimers.delete(oldest);}
+      const owner=account(),timer=win.setTimeout(()=>{contentTimers.delete(shareId);if(!closed&&account()===owner&&win.document.visibilityState==='visible'&&visibleCheck())contentEvent('shared_content_viewed',touch);},5000);
+      contentTimers.set(shareId,timer);
+    }
+    function contentFollowed(username){syncIdentity();for(const touch of [...journey.touches].reverse())if(touch.creatorRef===username){contentEvent('shared_content_followed',touch);break;}}
+    function contentSaved(productId){syncIdentity();for(const touch of [...journey.touches].reverse())if(['REEL','SHORT'].includes(touch.destinationType)&&touch.destinationId===productId){contentEvent('shared_content_saved',touch);break;}}
     function roomInviteTouch(inviteId) {
       syncIdentity();
       if (!measurement() || !contract.uuid(inviteId) || journey.lastTouch?.shareId===inviteId) return;
@@ -291,7 +329,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -301,7 +339,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         for (const item of retryable) enqueue(item.kind,item.payload,item.createdAt);
         return retryable.length;
       },
-      close() { closed = true; if (retryTimer) win.clearTimeout(retryTimer); if (viewTimer) win.clearTimeout(viewTimer);
+      close() { closed = true; for(const timer of contentTimers.values())win.clearTimeout(timer);contentTimers.clear(); if (retryTimer) win.clearTimeout(retryTimer); if (viewTimer) win.clearTimeout(viewTimer);
         win.removeEventListener('online',online); win.removeEventListener('popstate',navigation); win.document.removeEventListener('visibilitychange',visibility); }
     };
   }
@@ -479,6 +517,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const collection=await deps.dataLayer.loadSharedCollection(id);if(!current())return;
         title.textContent=collection.title;status.textContent=collection.description||'';
         for(const item of collection.items||[]){const button=el('button',item.name||item.productId);button.type='button';button.className='action-btn action-btn-secondary';button.onclick=async()=>{if(!current())return;close();await deps.openProduct(item.productId);};items.append(button);}
+        if(collection.visibility==='public'&&collection.status==='published'&&items.children.length)try{deps.getGrowth?.().contentVisible('COLLECTION',id,collection.ownerUsername,()=>current()&&dialog.open);}catch{}
         if(!items.children.length)items.append(el('p',t('growth.collectionEmpty','This collection has no available products.')));
         const profile=el('button',t('growth.viewCurator','View curator'));profile.type='button';profile.onclick=()=>{if(!current())return;close();deps.openProfile(collection.ownerUsername);};dialog.append(profile);
         const follow=el('button',deps.isFollowing(collection.ownerUsername)?t('personProfile.following','Following'):t('personProfile.follow','Follow'));follow.type='button';follow.dataset.followCollectionOwner=collection.ownerUsername;
