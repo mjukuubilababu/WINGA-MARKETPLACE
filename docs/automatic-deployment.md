@@ -52,3 +52,14 @@ Render does not require an Actions API key for its existing Git integration.
 Monitor the `Winga Production Deployment` run in GitHub Actions and service
 deployments in Render. No chat session is needed once the workflow is on `master`
 and the GitHub credential configuration is complete.
+## Cloudflare transient API failures
+
+The Worker deploy step uses `scripts/deploy-cloudflare-worker.js` with the
+previously verified Wrangler version 4.149.0. Each Worker has at most three
+attempts, waiting five and fifteen seconds for transient HTTP/network failures
+or malformed API responses. Authentication, permission and configuration errors
+fail immediately. Retries preserve the same config, `--keep-vars` and frontend
+build bindings; a failed Worker never advances the job to production verification.
+The existing required CI checks, commit pinning, superseded-head check and
+expected-build verification remain mandatory. Tests cover bounded exhaustion,
+transient recovery, exact arguments and non-retryable failures.

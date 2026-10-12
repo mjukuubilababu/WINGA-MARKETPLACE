@@ -77,7 +77,7 @@ jobs:
         run: npm ci
       - name: Test deployment verifier
         if: steps.revision.outputs.current == 'true'
-        run: node --test tests/production-shell-verification.test.js
+        run: node --test tests/production-shell-verification.test.js tests/cloudflare-deploy-retry.test.js
       - name: Build and deploy existing production Workers
         if: steps.revision.outputs.current == 'true'
         env:
@@ -87,11 +87,11 @@ jobs:
         run: |
           export WINGA_ASSET_VERSION=$(date -u +%Y%m%d%H%M%S)
           npm run build:vercel
-          npx wrangler deploy --config wrangler.intelligence.toml --keep-vars
-          npx wrangler deploy --config wrangler.session-security.toml --keep-vars
-          npx wrangler deploy --config wrangler.account-recovery.toml --keep-vars
-          npx wrangler deploy --config wrangler.video-safety.jsonc --keep-vars
-          npx wrangler deploy --config wrangler.toml --keep-vars --var "BUILD_VERSION:$WINGA_ASSET_VERSION" --var "WINGA_BUILD_VERSION:$WINGA_ASSET_VERSION"
+          node scripts/deploy-cloudflare-worker.js deploy --config wrangler.intelligence.toml --keep-vars
+          node scripts/deploy-cloudflare-worker.js deploy --config wrangler.session-security.toml --keep-vars
+          node scripts/deploy-cloudflare-worker.js deploy --config wrangler.account-recovery.toml --keep-vars
+          node scripts/deploy-cloudflare-worker.js deploy --config wrangler.video-safety.jsonc --keep-vars
+          node scripts/deploy-cloudflare-worker.js deploy --config wrangler.toml --keep-vars --var "BUILD_VERSION:$WINGA_ASSET_VERSION" --var "WINGA_BUILD_VERSION:$WINGA_ASSET_VERSION"
           echo "WINGA_EXPECTED_BUILD_VERSION=$WINGA_ASSET_VERSION" >> "$GITHUB_ENV"
       - name: Verify production shell and deployed build
         if: steps.revision.outputs.current == 'true'
