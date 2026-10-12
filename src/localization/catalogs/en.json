@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "growth.opportunitySignin": "Sign in to view the supply opportunity.",
+        "growth.opportunityUnavailable": "This opportunity is unavailable for this account or has expired.",
         "growth.dashboard.accounts": "Accounts",
         "growth.dashboard.activation": "Activation rate",
         "growth.dashboard.cohorts": "Authenticated recipient cohorts",

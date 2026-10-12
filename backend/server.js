@@ -12271,6 +12271,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if(req.method==='GET'&&/^\/api\/opportunities\/[^/]+$/.test(url.pathname)){
+      res.setHeader('Cache-Control','private, no-store');
+      const session=findSession(store,readAuthToken(req)),seller=ensureMarketplaceUser(store,session,res);if(!seller)return;
+      if(!canCreateMarketplaceSupply(seller.role)){sendJson(res,403,{code:'opportunity_access_required'});return;}
+      let id;try{id=decodeURIComponent(url.pathname.split('/').at(-1));}catch{sendJson(res,404,{code:'opportunity_unavailable'});return;}
+      if(!/^[A-Za-z0-9._:-]{1,100}$/.test(id)){sendJson(res,404,{code:'opportunity_unavailable'});return;}
+      if(!postgresStore?.readSellerCommerceOpportunities){sendJson(res,503,{code:'opportunity_unavailable'});return;}
+      const [item]=await postgresStore.readSellerCommerceOpportunities(seller.username,1,id);
+      if(!item){sendJson(res,404,{code:'opportunity_unavailable'});return;}
+      sendJson(res,200,{opportunityId:item.opportunityId,type:item.type,source:item.source,queryKey:item.queryKey,productId:item.productId,
+        category:item.category,region:item.region,color:item.color,size:item.size,demandScore:item.demandScore,supplyScore:item.supplyScore,
+        evidenceCount:item.evidenceCount,status:item.status,expiresAt:item.expiresAt,responseCount:item.responseCount,sellerResponded:item.sellerResponded,
+        metadata:{evidenceLevel:item.metadata?.evidenceLevel,evidenceBasis:item.metadata?.evidenceBasis}});return;
+    }
     if (req.method === "GET" && url.pathname === "/api/opportunities") {
       const session = findSession(store, readAuthToken(req));
       const seller = ensureMarketplaceUser(store, session, res);

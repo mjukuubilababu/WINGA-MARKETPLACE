@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "growth.opportunitySignin": "سجّل الدخول لعرض فرصة العرض.",
+        "growth.opportunityUnavailable": "هذه الفرصة غير متاحة لهذا الحساب أو انتهت صلاحيتها.",
         "growth.dashboard.accounts": "الحسابات",
         "growth.dashboard.activation": "معدل التفعيل",
         "growth.dashboard.cohorts": "مجموعات المستلمين المسجلين",

@@ -357,3 +357,13 @@ test("commerce learning migration contains durable privacy-safe loop tables", ()
   assert.match(experimentSql, /experiment_arm TEXT NOT NULL DEFAULT 'treatment'/);
   assert.match(experimentSql, /CHECK \(experiment_arm IN \('control', 'treatment'\)\)/);
 });
+
+test('exact Opportunity reads retain seller relevance and ignored-state rules on the primary',async()=>{
+  const calls=[],store=createPostgresStore({databaseUrl:'postgres://fixture/opportunity',queryClient:{query:async(text,params)=>{calls.push({text,params});return {rows:[]};}},readQueryClient:{query:async()=>{throw Error('exact destination must not use replica');}}});
+  assert.deepEqual(await store.readSellerCommerceOpportunities('seller',1,'opp_exact'),[]);
+  assert.equal(calls.length,1);assert.deepEqual(calls[0].params,['seller',1,'opp_exact']);
+  assert.match(calls[0].text,/o\.opportunity_id = \$3/);assert.match(calls[0].text,/o\.expires_at > NOW\(\)/);
+  assert.match(calls[0].text,/seller_product\.uploaded_by = \$1/);assert.match(calls[0].text,/seller_user\.primary_category/);
+  assert.match(calls[0].text,/action_type IN \('ignore', 'dismiss'\)/);
+  assert.deepEqual(await store.readSellerCommerceOpportunities('seller',1,'../../secret'),[]);assert.equal(calls.length,1);
+});

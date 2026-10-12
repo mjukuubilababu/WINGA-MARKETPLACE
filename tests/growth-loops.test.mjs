@@ -12,8 +12,9 @@ const { createGrowthPolicy } = require('../backend/growth-policy');
 test('canonical product links reject redirects, traversal, malformed encoding and gated private domains', () => {
   for (const path of ['https://evil.test/product/p1','//evil.test/product/p1','/product/%2fsecret','/product/%ZZ','/product/p1/extra','/product/..','/product/p1#private'])
     assert.equal(contract.parseDestination(path,'https://winga.test'),null,path);
-  for (const type of ['SHOPPING_ROOM','CONVERSATION','OPPORTUNITY'])
+  for (const type of ['SHOPPING_ROOM','CONVERSATION'])
     assert.equal(contract.destination(type,'private-id'),null);
+  assert.equal(contract.shareUrl('https://winga.test','private-id',randomUUID(),'OPPORTUNITY'),null);
   assert.deepEqual(contract.parseDestination('/product/p1?share=invalid','https://winga.test'),{type:'PRODUCT',id:'p1',path:'/product/p1'});
   const url = new URL(contract.shareUrl('https://winga.test','p1',randomUUID()));
   assert.deepEqual([...url.searchParams.keys()],['share']);
@@ -379,4 +380,11 @@ test('account cohorts use authenticated evidence and mature exact-day denominato
   for(const day of ['D1','D7','D30'])assert.deepEqual(data.cohorts[0].retention[day],{eligible:1,returned:1,rate:1});
   assert.equal(JSON.stringify(data).includes(key('user:recipient')),false);
   assert.equal(JSON.stringify(data).includes('recipient"'),false);
+});
+
+test('authorized Opportunity routes preserve bounded auth context without becoming public share envelopes',()=>{
+  const now=Date.now();assert.deepEqual(contract.parseDestination('/opportunity/opp_exact','https://winga.test'),{type:'OPPORTUNITY',id:'opp_exact',path:'/opportunity/opp_exact'});
+  assert.deepEqual(contract.authIntent({type:'open-opportunity',opportunityId:'opp_exact',createdAt:now,returnTo:'https://evil.test',buyerId:'private'},now),{type:'open-opportunity',opportunityId:'opp_exact',createdAt:now});
+  for(const path of ['/opportunity/%2Fsecret','/opportunity/opp_exact?share='+randomUUID(),'/opportunity/opp_exact?redirect=https://evil.test'])assert.equal(contract.parseDestination(path,'https://winga.test'),null);
+  assert.equal(contract.shareUrl('https://winga.test','opp_exact',randomUUID(),'OPPORTUNITY'),null);
 });

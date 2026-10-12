@@ -878,7 +878,7 @@
       renderGrowthReports(panel);
     }
 
-    return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics };
+    return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics,createSellerOpportunityItem };
   }
 
   window.WingaModules.admin.createAdminUiModule = createAdminUiModule;

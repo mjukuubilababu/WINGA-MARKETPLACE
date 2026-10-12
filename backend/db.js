@@ -7496,11 +7496,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     return { received: source.length, upserted };
   }
 
-  async function readSellerCommerceOpportunities(sellerId = "", limit = 20) {
+  async function readSellerCommerceOpportunities(sellerId = "", limit = 20, exactOpportunityId = "") {
     const safeSellerId = String(sellerId || "").trim().slice(0, 80);
     const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
     if (!safeSellerId) return [];
-    const result = await readQuery(
+    const exactId=String(exactOpportunityId||'');
+    if(exactId&&!/^[A-Za-z0-9._:-]{1,100}$/.test(exactId))return [];
+    const result = await (exactId?query:readQuery)(
       `SELECT o.opportunity_id AS "opportunityId", o.type, o.source, o.query_key AS "queryKey",
               o.product_id AS "productId", o.category, o.region, o.color, o.size,
               o.demand_score::float8 AS "demandScore", o.supply_score::float8 AS "supplyScore",
@@ -7510,6 +7512,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        FROM commerce_opportunities o
        LEFT JOIN supply_responses sr ON sr.opportunity_id = o.opportunity_id AND sr.status = 'active'
        WHERE o.status IN ('open', 'responded') AND o.expires_at > NOW()
+         ${exactId?'AND o.opportunity_id = $3':''}
          AND (
            o.category = '' OR EXISTS (
              SELECT 1 FROM products seller_product
@@ -7524,8 +7527,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
        HAVING NOT COALESCE(BOOL_OR(sr.seller_id = $1 AND sr.action_type IN ('ignore', 'dismiss')), false)
        ORDER BY o.demand_score DESC, o.created_at DESC, o.opportunity_id
        LIMIT $2`,
-      [safeSellerId, safeLimit]
+      exactId?[safeSellerId,safeLimit,exactId]:[safeSellerId, safeLimit]
     );
+    if(exactId&&result.rows?.[0]?.productId&&!await require('./growth-infrastructure').publicProduct({query},result.rows[0].productId,safeSellerId))return [];
     return (result.rows || []).map((row) => ({
       ...row,
       demandScore: Number(row.demandScore || 0),

@@ -31,7 +31,27 @@
         const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);
       }
     }
-    return {openCollection,close};
+    async function openOpportunity(id){
+      if(active?.dataset.opportunityId===id&&active.owner===deps.getAccount())return;
+      close();const account=deps.getAccount(),revision=epoch,dialog=el('dialog');
+      dialog.className='chat-security-dialog';dialog.dataset.opportunityId=id;dialog.owner=account;
+      const status=el('p',t('inbox.loading','Loading...'));status.setAttribute('role','status');
+      const dismiss=el('button',t('common.close','Close'));dismiss.type='button';dismiss.onclick=close;
+      dialog.append(dismiss,el('h2',t('commerceOpportunity.defaultTitle','Buyer demand opportunity')),status);
+      win.document.body.append(dialog);dialog.showModal();active=dialog;
+      const current=()=>active===dialog&&epoch===revision&&deps.getAccount()===account;
+      const timer=win.setInterval(()=>{if(!current())dialog.close();},250);
+      dialog.addEventListener('close',()=>{win.clearInterval(timer);dialog.remove();if(active===dialog)active=null;},{once:true});
+      const unavailable=()=>{status.textContent=t('growth.opportunityUnavailable','This opportunity is unavailable for this account or has expired.');
+        const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);};
+      if(!account){status.textContent=t('growth.opportunitySignin','Sign in to view the supply opportunity.');const login=el('button',t('auth.signIn','Sign in'));login.type='button';login.onclick=()=>{if(current())deps.requireOpportunityAuth(id);};dialog.append(login);return;}
+      if(!deps.canUseSellerFeatures()){unavailable();return;}
+      try{const opportunity=await deps.dataLayer.loadSellerOpportunity(id);if(!current())return;
+        if(opportunity?.opportunityId!==id)throw new Error('opportunity_unavailable');
+        status.textContent='';dialog.append(deps.renderOpportunity(opportunity));
+      }catch{if(current())unavailable();}
+    }
+    return {openCollection,openOpportunity,close};
   }
   window.WingaModules.growth.createContentUi=createContentUi;
 })();

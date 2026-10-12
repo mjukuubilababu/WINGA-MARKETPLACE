@@ -290,3 +290,16 @@ test('member failed Search exposes an explicit notification action',async({brows
   await expect.poll(()=>subscribed).toBe('unfindable green underwater snow shoes');
   await expect(page.locator('#auth-container')).toBeHidden();await context.close();
 });
+
+test('authorized Opportunity link preserves exact context and reveals details only after authentication',async({browser,request})=>{
+  const {context,page}=await guest(browser,request),id='opp_growth_fixture';let reads=0;
+  await context.route('**/api/opportunities/'+id,route=>{reads++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({opportunityId:id,type:'zero_result',queryKey:'white-maxi-dress',category:'wanawake-magauni',region:'mwanza',demandScore:1,evidenceCount:1,status:'open',expiresAt:new Date(Date.now()+86400000).toISOString(),metadata:{evidenceLevel:'single_signal'}})});});
+  await page.goto('/opportunity/'+id);
+  const dialog=page.locator('[data-opportunity-id="'+id+'"]');
+  await expect(dialog.locator('[role=status]')).toContainText('Sign in',{timeout:30000});expect(reads).toBe(0);
+  await dialog.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(dialog).toBeVisible({timeout:30000});await expect(dialog).toContainText('white maxi dress');
+  await expect(page).toHaveURL('/opportunity/'+id);expect(reads).toBeGreaterThan(0);
+  expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();await context.close();
+});

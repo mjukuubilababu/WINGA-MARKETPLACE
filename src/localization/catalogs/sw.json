@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "growth.opportunitySignin": "Ingia kuona supply opportunity.",
+        "growth.opportunityUnavailable": "Opportunity hii haipatikani kwa akaunti hii au imeisha muda.",
         "growth.dashboard.accounts": "Akaunti",
         "growth.dashboard.activation": "Kiwango cha activation",
         "growth.dashboard.cohorts": "Makundi ya wapokeaji walioingia",

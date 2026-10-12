@@ -60,15 +60,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
-    const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short'};
-    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
+    const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short',OPPORTUNITY:'opportunity'};
+    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40 || type==='OPPORTUNITY'&&contentId.length>100) return null;
     return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
   }
   function parseDestination(input, origin) {
     try {
       const url = new URL(input, origin);
       if (url.origin !== origin || url.username || url.password || url.hash) return null;
-      const match = /^\/(product|profile|collection|reel|short)\/([^/]+)\/?$/i.exec(url.pathname);
+      const match = /^\/(product|profile|collection|reel|short|opportunity)\/([^/]+)\/?$/i.exec(url.pathname);
+      if(match?.[1].toLowerCase()==='opportunity')return !url.search?destination('OPPORTUNITY',decodeURIComponent(match[2])):null;
       if (match && (!url.search || match[1].toLowerCase()==='product' || [...url.searchParams.keys()].every(k=>k==='share')&&uuid(url.searchParams.get('share')))) return destination(match[1].toUpperCase(), decodeURIComponent(match[2]));
       const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
@@ -86,11 +87,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
+    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-opportunity','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
+    if(value.type==='open-opportunity'){if(!destination('OPPORTUNITY',value.opportunityId))return null;return {...result,opportunityId:value.opportunityId};}
     if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
     if(value.type==='share-to-winga'&&value.contentId!==undefined){
       if(!['PRODUCT','REEL','SHORT','COLLECTION'].includes(value.contentType)||!id(value.contentId))return null;
@@ -553,7 +555,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);
       }
     }
-    return {openCollection,close};
+    async function openOpportunity(id){
+      if(active?.dataset.opportunityId===id&&active.owner===deps.getAccount())return;
+      close();const account=deps.getAccount(),revision=epoch,dialog=el('dialog');
+      dialog.className='chat-security-dialog';dialog.dataset.opportunityId=id;dialog.owner=account;
+      const status=el('p',t('inbox.loading','Loading...'));status.setAttribute('role','status');
+      const dismiss=el('button',t('common.close','Close'));dismiss.type='button';dismiss.onclick=close;
+      dialog.append(dismiss,el('h2',t('commerceOpportunity.defaultTitle','Buyer demand opportunity')),status);
+      win.document.body.append(dialog);dialog.showModal();active=dialog;
+      const current=()=>active===dialog&&epoch===revision&&deps.getAccount()===account;
+      const timer=win.setInterval(()=>{if(!current())dialog.close();},250);
+      dialog.addEventListener('close',()=>{win.clearInterval(timer);dialog.remove();if(active===dialog)active=null;},{once:true});
+      const unavailable=()=>{status.textContent=t('growth.opportunityUnavailable','This opportunity is unavailable for this account or has expired.');
+        const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);};
+      if(!account){status.textContent=t('growth.opportunitySignin','Sign in to view the supply opportunity.');const login=el('button',t('auth.signIn','Sign in'));login.type='button';login.onclick=()=>{if(current())deps.requireOpportunityAuth(id);};dialog.append(login);return;}
+      if(!deps.canUseSellerFeatures()){unavailable();return;}
+      try{const opportunity=await deps.dataLayer.loadSellerOpportunity(id);if(!current())return;
+        if(opportunity?.opportunityId!==id)throw new Error('opportunity_unavailable');
+        status.textContent='';dialog.append(deps.renderOpportunity(opportunity));
+      }catch{if(current())unavailable();}
+    }
+    return {openCollection,openOpportunity,close};
   }
   window.WingaModules.growth.createContentUi=createContentUi;
 })();
@@ -26128,7 +26150,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       renderGrowthReports(panel);
     }
 
-    return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics };
+    return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics,createSellerOpportunityItem };
   }
 
   window.WingaModules.admin.createAdminUiModule = createAdminUiModule;

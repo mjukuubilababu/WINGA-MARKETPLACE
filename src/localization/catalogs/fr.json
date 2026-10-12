@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "growth.opportunitySignin": "Connectez-vous pour voir cette opportunité d’offre.",
+        "growth.opportunityUnavailable": "Cette opportunité est indisponible pour ce compte ou a expiré.",
         "growth.dashboard.accounts": "Comptes",
         "growth.dashboard.activation": "Taux d’activation",
         "growth.dashboard.cohorts": "Cohortes de destinataires authentifiés",

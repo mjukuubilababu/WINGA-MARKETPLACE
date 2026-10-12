@@ -5492,6 +5492,7 @@ async function resumePendingGuestIntent() {
     return;
   }
   if(intent.type==='notify-search'){await notifySearchDemand(intent.query);return;}
+  if(intent.type==='open-opportunity'){await getCanonicalContentUi().openOpportunity(intent.opportunityId);return;}
   if(intent.type==='share-to-winga'&&intent.contentId){await openCanonicalContentDestination(window.WingaModules.growth.contract.destination(intent.contentType,intent.contentId));await openInternalProductShare(intent.contentId,intent.contentType);return;}
   if (intent.productId) {
     const returningUser = currentUser;
@@ -13134,7 +13135,7 @@ const {
   getCurrentUser: () => currentUser
 });
 
-const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics } = window.WingaModules.admin.createAdminUiModule({
+const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics,createSellerOpportunityItem } = window.WingaModules.admin.createAdminUiModule({
   createElement,
   createSectionHeading,
   createEmptyState,
@@ -26002,17 +26003,19 @@ function getCanonicalContentUi(){
     isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
     shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
     shareInternally:(type,id)=>{canonicalContentUi.close();openInternalProductShare(id,type);},
+    canUseSellerFeatures,renderOpportunity:createSellerOpportunityItem,requireOpportunityAuth:id=>{canonicalContentUi.close();promptGuestAuth({intent:{type:'open-opportunity',opportunityId:id}});},
     explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
     openProduct:async id=>{const product=await window.WingaDataLayer.loadSharedProduct(id);if(product){refreshProductsFromStore();openProductDetailModal(id);}else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
   });return canonicalContentUi;
 }
 function openPublicContentRouteIfNeeded(){
-  if(!/^\/(?:profile|collection|reel|short)\//i.test(window.location.pathname))return false;
+  if(!/^\/(?:profile|collection|reel|short|opportunity)\//i.test(window.location.pathname))return false;
   const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
   if(target)void openCanonicalContentDestination(target);else void getCanonicalContentUi().openCollection('');
   return true;
 }
 async function openCanonicalContentDestination(target){
+  if(target.type==='OPPORTUNITY'){await getCanonicalContentUi().openOpportunity(target.id);return;}
   if(target.type==='PROFILE'){await loadPersonProfile(target.id,{source:'public_deep_link'});return;}
   if(target.type==='COLLECTION'){await getCanonicalContentUi().openCollection(target.id);return;}
   if(['REEL','SHORT'].includes(target.type)){

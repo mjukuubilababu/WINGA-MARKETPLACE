@@ -216,3 +216,24 @@ test('demand notifications respect explicit consent, stopped goals and a shared 
   assert.equal((await store.processDemandResolutions()).processed,1);
   assert.equal((await db.query("SELECT status FROM commerce_goals WHERE goal_id='e'")).rows[0].status,'stopped');
 });
+
+test('exact Opportunity destination executes canonical relevance, expiry, dismissal and public-product safety',async t=>{
+  const db=await roomDatabase(t);
+  await db.exec(`CREATE TABLE users(username TEXT PRIMARY KEY,primary_category TEXT,status TEXT);
+    CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,category TEXT,status TEXT);
+    CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
+    CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);
+    CREATE TABLE supply_responses(response_id TEXT,opportunity_id TEXT,seller_id TEXT,action_type TEXT,status TEXT);
+    INSERT INTO users VALUES('relevant','dress','active'),('unrelated','phone','active'),('source','dress','active');
+    INSERT INTO products VALUES('public-product','source','dress','approved');`);
+  await db.exec(MIGRATIONS.flatMap(m=>m.statements||[]).find(sql=>sql.includes('CREATE TABLE IF NOT EXISTS commerce_opportunities')));
+  await db.exec(`INSERT INTO commerce_opportunities(opportunity_id,type,category,product_id,expires_at) VALUES('opp_exact','sold_out_restock','dress','public-product',NOW()+INTERVAL '1 day');`);
+  const store=createPostgresStore({databaseUrl:'postgres://fixture/primary',queryClient:db,readQueryClient:{query:async()=>{throw Error('canonical destination read must use primary');}}});
+  assert.equal((await store.readSellerCommerceOpportunities('relevant',1,'opp_exact'))[0].opportunityId,'opp_exact');
+  assert.deepEqual(await store.readSellerCommerceOpportunities('unrelated',1,'opp_exact'),[]);
+  await db.exec("INSERT INTO supply_responses VALUES('dismiss','opp_exact','relevant','dismiss','active')");
+  assert.deepEqual(await store.readSellerCommerceOpportunities('relevant',1,'opp_exact'),[]);await db.exec('DELETE FROM supply_responses');
+  await db.exec("INSERT INTO user_blocks VALUES('source','relevant')");assert.deepEqual(await store.readSellerCommerceOpportunities('relevant',1,'opp_exact'),[]);await db.exec('DELETE FROM user_blocks');
+  await db.exec("INSERT INTO public_content_visibility VALUES('product','public-product','private')");assert.deepEqual(await store.readSellerCommerceOpportunities('relevant',1,'opp_exact'),[]);await db.exec('DELETE FROM public_content_visibility');
+  await db.exec("UPDATE commerce_opportunities SET expires_at=NOW()-INTERVAL '1 second'");assert.deepEqual(await store.readSellerCommerceOpportunities('relevant',1,'opp_exact'),[]);
+});

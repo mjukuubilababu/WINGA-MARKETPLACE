@@ -2193,6 +2193,7 @@ async loadAdminPayments(filters) {
           headers: createAuthHeaders()
         });
       },
+      async loadSellerOpportunity(id) { return fetchJson(`${baseUrl}/opportunities/${encodeURIComponent(id)}`,{headers:createAuthHeaders()}); },
       async loadAnalytics(options = {}) {
           const requestedDays = Number(options.windowDays || 30);
           const windowDays = [7, 30, 90].includes(requestedDays) ? requestedDays : 30;
@@ -4233,6 +4234,11 @@ async loadAdminPayments() {
       assertPersonAccess();
       const goals = state.adapter.loadCommerceGoals ? await state.adapter.loadCommerceGoals(limit) : [];
       return Array.isArray(goals) ? goals : [];
+    },
+    async loadSellerOpportunity(id) {
+      assertBuyerCapableAccess();ensureAdapter();
+      if(!window.WingaModules.growth.contract.destination('OPPORTUNITY',id)||!state.adapter.loadSellerOpportunity)throw Object.assign(new Error('opportunity_unavailable'),{code:'opportunity_unavailable'});
+      return state.adapter.loadSellerOpportunity(id);
     },
       async loadAppSettings() {
         const settings = state.adapter.loadAppSettings ? await state.adapter.loadAppSettings() : normalizeAppSettings(DEFAULT_APP_SETTINGS);

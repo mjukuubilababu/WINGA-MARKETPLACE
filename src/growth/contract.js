@@ -19,15 +19,16 @@
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
-    const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short'};
-    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
+    const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short',OPPORTUNITY:'opportunity'};
+    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40 || type==='OPPORTUNITY'&&contentId.length>100) return null;
     return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
   }
   function parseDestination(input, origin) {
     try {
       const url = new URL(input, origin);
       if (url.origin !== origin || url.username || url.password || url.hash) return null;
-      const match = /^\/(product|profile|collection|reel|short)\/([^/]+)\/?$/i.exec(url.pathname);
+      const match = /^\/(product|profile|collection|reel|short|opportunity)\/([^/]+)\/?$/i.exec(url.pathname);
+      if(match?.[1].toLowerCase()==='opportunity')return !url.search?destination('OPPORTUNITY',decodeURIComponent(match[2])):null;
       if (match && (!url.search || match[1].toLowerCase()==='product' || [...url.searchParams.keys()].every(k=>k==='share')&&uuid(url.searchParams.get('share')))) return destination(match[1].toUpperCase(), decodeURIComponent(match[2]));
       const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
@@ -45,11 +46,12 @@
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
+    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-opportunity','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
+    if(value.type==='open-opportunity'){if(!destination('OPPORTUNITY',value.opportunityId))return null;return {...result,opportunityId:value.opportunityId};}
     if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
     if(value.type==='share-to-winga'&&value.contentId!==undefined){
       if(!['PRODUCT','REEL','SHORT','COLLECTION'].includes(value.contentType)||!id(value.contentId))return null;
