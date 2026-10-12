@@ -196,3 +196,41 @@ Reel/Short/Collection sharing remains available in the existing conversation
 attachment picker; their external destinations and growth attribution belong
 to Phase 4. This completes the product destination picker, not all Phase 2
 production readiness gates.
+
+## Phase 3 — demand evidence, source lineage and marketplace measurement
+
+Explicit restock/variant requests now support N=1. Canonical candidates count
+unique nonempty audience keys in thirty days, exclude seller self-requests and
+show-similar actions, and cap the activity contribution per audience. Repeating
+a request cannot create more independent evidence. Metadata marks single-signal
+versus corroborated evidence; aggregate trend/regional thresholds remain intact.
+
+`recordSupplyResponse` retains the first matching canonical Search/Demand event
+ID and its source type in the existing rediscovery eligibility metadata. Search
+lineage requires an unmet result and the exact opportunity query where present;
+a successful/unrelated category search does not become resolution evidence.
+Stable existing response and eligibility IDs preserve retry dedupe. The existing
+eligibility ID serves as the buyer-resolution reference linking opportunity,
+response, product, feed exposure and authoritative order milestones. Historical
+rows are not backfilled with invented source IDs. Eligibility alone is potential
+supply matching, not proof that the buyer returned or their need was fulfilled.
+
+The admin-only `/api/admin/growth/marketplace` report reads canonical inventory,
+Search, likes, orders, eligibility and authoritative commerce outcomes. Category
+supply excludes private products and suspended sellers. Search success means a
+nonempty result, not verified relevance. Region/category search health and
+weekly first-approved-publication seller cohorts are separate. Seller value
+requires a nonself save or noncancelled order after publication; signup alone
+never activates a seller. Resolution counts use distinct eligibility IDs so
+created/paid/delivered outcomes do not multiply their denominators. Order starts
+and delivered status remain distinct; delivery is not independently verified.
+No private messages, usernames, audience keys or source-event IDs are exposed
+in the aggregate report. Paid reach and Growth events do not write Search.
+
+Executable SQL tests verify N=1 restock/variant evidence, repeated/self/unknown
+exclusion, exact search/demand source linkage, stable retries, public supply,
+seller value and denominator protection across multiple commerce milestones.
+Commerce/growth API and pagination regressions pass. Existing seller opportunity
+and rediscovery metrics remain canonical. Opt-in failed-search subscriptions,
+preference-aware resolution notifications, full retention cohorts and production
+value/performance evidence are still rollout gates, not inferred from fixtures.

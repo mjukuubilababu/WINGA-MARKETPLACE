@@ -70,9 +70,9 @@ function meetsOpportunityThreshold(candidate = {}) {
   const supplyScore = boundedNumber(candidate.supplyScore, 0, 1000000);
   if (type === "zero_result") return evidenceCount >= 1 && supplyScore === 0;
   if (type === "low_supply") return evidenceCount >= 1 && supplyScore <= 3;
-  if (type === "sold_out_restock") return evidenceCount >= 2 || demandScore >= 6;
+  if (type === "sold_out_restock") return evidenceCount >= 1;
   if (type === "regional_demand") return evidenceCount >= 5 && Boolean(clean(candidate.region, 80));
-  if (type === "variant_gap") return evidenceCount >= 2 && Boolean(clean(candidate.color || candidate.size, 80));
+  if (type === "variant_gap") return evidenceCount >= 1 && Boolean(clean(candidate.color || candidate.size, 80));
   if (type === "category_gap") return evidenceCount >= 4 && Boolean(clean(candidate.category, 100));
   return false;
 }
@@ -109,7 +109,7 @@ function normalizeCommerceOpportunity(candidate = {}, options = {}) {
       ...(candidate.metadata && typeof candidate.metadata === "object" && !Array.isArray(candidate.metadata)
       ? candidate.metadata
       : {}),
-      ...(["zero_result", "low_supply"].includes(type) ? {
+      ...(["zero_result", "low_supply", "sold_out_restock", "variant_gap"].includes(type) ? {
         evidenceBasis: "distinct_audiences",
         evidenceLevel: Math.floor(boundedNumber(candidate.evidenceCount)) === 1 ? "single_signal" : "corroborated"
       } : {})

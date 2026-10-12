@@ -7397,14 +7397,16 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          SELECT 'sold_out_restock'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
                 COALESCE(NULLIF(MAX(de.color), ''), '') AS color,
-                COUNT(de.demand_id)::int AS evidence_count,
-                COALESCE(MAX(pds.demand_score), 0)::float8 AS demand_score,
+                COUNT(DISTINCT de.audience_type || ':' || de.audience_key)::int AS evidence_count,
+                (COUNT(DISTINCT de.audience_type || ':' || de.audience_key)
+                 + COUNT(DISTINCT de.audience_type || ':' || de.audience_key) FILTER(WHERE de.created_at>=NOW()-INTERVAL '7 days'))::float8 AS demand_score,
                 0::float8 AS supply_score,
                 p.id AS product_id,
                 COALESCE(NULLIF(MAX(de.size), ''), '') AS size
          FROM products p
          LEFT JOIN product_demand_summaries pds ON pds.product_id = p.id
          LEFT JOIN demand_events de ON de.product_id = p.id AND de.created_at >= NOW() - INTERVAL '30 days'
+           AND NULLIF(de.audience_key,'') IS NOT NULL AND de.action IN ('notify_when_available','want_back') AND de.seller_id <> de.buyer_id
          WHERE p.availability = 'sold_out'
          GROUP BY p.id, p.category
        ), regional_gaps AS (
@@ -7422,13 +7424,15 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          SELECT 'variant_gap'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
                 COALESCE(NULLIF(de.color, ''), '') AS color,
-                COUNT(*)::int AS evidence_count,
-                SUM(de.demand_score)::float8 AS demand_score,
+                COUNT(DISTINCT de.audience_type || ':' || de.audience_key)::int AS evidence_count,
+                (COUNT(DISTINCT de.audience_type || ':' || de.audience_key)
+                 + COUNT(DISTINCT de.audience_type || ':' || de.audience_key) FILTER(WHERE de.created_at>=NOW()-INTERVAL '7 days'))::float8 AS demand_score,
                 0::float8 AS supply_score,
                 de.product_id, COALESCE(NULLIF(de.size, ''), '') AS size
          FROM demand_events de
          LEFT JOIN products p ON p.id = de.product_id
          WHERE de.created_at >= NOW() - INTERVAL '30 days' AND (de.color <> '' OR de.size <> '')
+           AND NULLIF(de.audience_key,'') IS NOT NULL AND de.action IN ('notify_when_available','want_back') AND de.seller_id <> de.buyer_id
          GROUP BY de.product_id, p.category, de.color, de.size
        )
        SELECT type, 'search_gap_aggregate'::text AS source, query_key AS "queryKey",
@@ -7653,19 +7657,29 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
         [opportunity.opportunity_id]
       );
       const audienceResult = await client.query(
-        `SELECT DISTINCT audience_type AS "audienceType", audience_key AS "audienceKey", 'product_demand'::text AS "reasonCode"
-         FROM demand_events de
-         LEFT JOIN products dp ON dp.id = de.product_id
-         WHERE de.audience_key <> '' AND de.created_at >= NOW() - INTERVAL '90 days'
-           AND (de.product_id = NULLIF($1, '') OR (NULLIF($2, '') IS NOT NULL AND dp.category = $2))
-           AND (NULLIF($3, '') IS NULL OR de.region = '' OR de.region = $3)
-         UNION
-         SELECT DISTINCT audience_type, audience_key, 'search_gap'::text
-         FROM search_demand_events se
-         WHERE se.audience_key <> '' AND se.happened_at >= NOW() - INTERVAL '90 days'
-           AND ((NULLIF($4, '') IS NOT NULL AND se.query_key = $4) OR (NULLIF($2, '') IS NOT NULL AND se.detected_category = $2))
-           AND (NULLIF($3, '') IS NULL OR COALESCE(NULLIF(se.region, ''), se.location, '') = '' OR COALESCE(NULLIF(se.region, ''), se.location) = $3)
-         LIMIT 5000`,
+        `SELECT * FROM (
+           SELECT DISTINCT ON(de.audience_type,de.audience_key)
+             de.audience_type AS "audienceType",de.audience_key AS "audienceKey",'product_demand'::text AS "reasonCode",
+             de.demand_id AS "sourceEventId",'PRODUCT_DEMAND'::text AS "sourceType"
+           FROM demand_events de LEFT JOIN products dp ON dp.id=de.product_id
+           WHERE de.audience_key<>'' AND de.created_at>=NOW()-INTERVAL '30 days'
+             AND de.action IN ('notify_when_available','want_back') AND de.buyer_id<>de.seller_id
+             AND (de.product_id=NULLIF($1,'') OR (NULLIF($2,'') IS NOT NULL AND dp.category=$2))
+             AND (NULLIF($3,'') IS NULL OR de.region='' OR de.region=$3)
+           ORDER BY de.audience_type,de.audience_key,de.created_at,de.demand_id
+         ) product_requesters
+         UNION ALL SELECT * FROM (
+           SELECT DISTINCT ON(se.audience_type,se.audience_key)
+             se.audience_type,se.audience_key,'search_gap'::text,se.event_id,'SEARCH_DEMAND'::text
+           FROM search_demand_events se
+           WHERE se.audience_key<>'' AND se.happened_at>=NOW()-INTERVAL '30 days'
+             AND (se.zero_result IS TRUE OR se.result_count BETWEEN 1 AND 3)
+             AND ((NULLIF($4,'') IS NOT NULL AND se.query_key=$4)
+               OR (NULLIF($4,'') IS NULL AND NULLIF($2,'') IS NOT NULL AND se.detected_category=$2))
+             AND (NULLIF($3,'') IS NULL OR COALESCE(NULLIF(se.region,''),se.location,'')=''
+               OR COALESCE(NULLIF(se.region,''),se.location)=$3)
+           ORDER BY se.audience_type,se.audience_key,se.happened_at,se.event_id
+         ) search_requesters LIMIT 5000`,
         [opportunity.product_id || productId, opportunity.category || category, opportunity.region || "", opportunity.query_key || ""]
       );
       let eligible = 0;
@@ -7680,9 +7694,9 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
              eligibility_id, opportunity_id, supply_response_id, audience_type, audience_key,
              product_id, reason_code, region, status, eligible_at, expires_at, metadata,
              experiment_key, experiment_arm, assigned_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible', NOW(), $9, '{}'::jsonb, $10, $11, NOW())
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'eligible', NOW(), $9, $12::jsonb, $10, $11, NOW())
            ON CONFLICT (supply_response_id, audience_type, audience_key, reason_code) DO NOTHING`,
-          [eligibilityId, opportunity.opportunity_id, responseId, audience.audienceType, audience.audienceKey, productId, audience.reasonCode, opportunity.region || "", opportunity.expires_at, experiment.experimentKey, experiment.arm]
+          [eligibilityId, opportunity.opportunity_id, responseId, audience.audienceType, audience.audienceKey, productId, audience.reasonCode, opportunity.region || "", opportunity.expires_at, experiment.experimentKey, experiment.arm, JSON.stringify({schemaVersion:1,sourceType:audience.sourceType,sourceEventId:audience.sourceEventId})]
         );
         eligible += Number(eligibilityResult.rowCount || 0);
       }
@@ -9896,6 +9910,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   return {
     init,
     ...require('./growth-store').createGrowthStore({ query, withTransaction }),
+    ...require('./growth-marketplace').createMarketplaceGrowth({readQuery}),
     ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),
     readStore,
     readProductsPage,

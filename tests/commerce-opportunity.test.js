@@ -122,7 +122,7 @@ test("white maxi dress Mwanza closes opportunity to attributed order determinist
         responsePersisted = true;
         return { rows: [{ responseId: "resp-white-maxi" }], rowCount: 1 };
       }
-      if (sql.includes("SELECT DISTINCT audience_type") && sql.includes("FROM demand_events")) {
+      if (sql.includes("product_requesters") && sql.includes("FROM demand_events")) {
         return { rows: [{ audienceType: "session", audienceKey, reasonCode: "search_gap" }], rowCount: 1 };
       }
       if (sql.includes("INSERT INTO rediscovery_eligibility")) {

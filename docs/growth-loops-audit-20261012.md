@@ -16,11 +16,11 @@ implementation and does not authorize enabling every loop together.
 | Shared multi-content router | PARTIAL / DUPLICATED | The growth contract deliberately admits public PRODUCT only. Existing profile, collection and rich-reference handlers remain separate owners; non-product handlers are not yet integrated into one safe destination contract. Do not expose private room/conversation identifiers as public admission links. |
 | Generic invites | MISSING | No shared expiring/revocable external invitation lifecycle. The existing product-share envelope is not a private invitation or membership grant. |
 | Referral links / seller referral | MISSING | No canonical referral lifecycle, first-value cohort or incentives. Utility sharing exists; do not add generic reward invites first. |
-| Conversations sharing | IMPLEMENTED / PARTIAL | `src/chat/rich-content.js` and `backend/conversation-references.js` resolve live product, Reel/Short, collection and authorized order/payment/delivery cards. Recent-contact share picker and complete growth journey attribution are absent. |
+| Conversations sharing | IMPLEMENTED / PARTIAL | `src/chat/rich-content.js` and `backend/conversation-references.js` resolve live product, Reel/Short, collection and authorized order/payment/delivery cards. The product action sheet now offers a recent encrypted-peer/accepted-room picker, preserving canonical rich cards and stable message IDs. Complete growth journey attribution remains partial. |
 | Shopping Room invitations | PARTIAL | `backend/encrypted-shopping-rooms.js`, `src/chat/room-session.js` and `src/chat/rooms-ui.js` own MLS roster transitions, device proofs, acceptance, membership, polls and blocks. Scoped opaque invitations, guest previews, expiry/revocation, signed join requests and aggregate reporting now reuse the canonical MLS/growth owners. Source flags default off; production canary, event reconciliation and load/chaos evidence remain outstanding. Token acceptance never substitutes for MLS admission. |
 | Product cards in chat / rooms | IMPLEMENTED | Rich-reference authorization and existing encrypted room product operations are canonical; do not create another card or membership model. |
 | Demand / Opportunity | PARTIAL | The baseline withheld search-gap candidates below two audiences and the canonical normalizer rejected fewer than three signals. The N=1 remediation below separates search-gap eligibility from corroborated aggregate reports. Growth events must not inflate search demand. |
-| Demand → response → product linkage | PARTIAL | `backend/db.js:recordSupplyResponse` links opportunity, response, product and rediscovery audiences; commerce exposure/action/outcome tables exist. A complete per-buyer resolution chain and loop dashboard remain incomplete. |
+| Demand → response → product linkage | PARTIAL | `backend/db.js:recordSupplyResponse` links opportunity, response, product and rediscovery audiences; commerce exposure/action/outcome tables exist. Existing eligibility references now retain exact canonical source-event lineage and link authoritative order milestones. Admin marketplace reporting is implemented; opt-in resolution notifications and production value evidence remain incomplete. |
 | Seller onboarding / activation | PARTIAL | Verification, usable product publication, messages/orders and opportunity responses exist. First-value cohorts and supply-quality/liquidity reporting are not a complete growth contract. |
 | Creator / Reel / Short sharing | PARTIAL | Public video products, playback attribution and rich references exist. Creator-specific destination integration, first-value and retention cohorts are missing. |
 | Saved products | IMPLEMENTED / PARTIAL | Canonical product likes provide confirmed share-save evidence. Saving is not a purchase, and cross-device acquisition/cohorts are not inferred. |
@@ -66,13 +66,13 @@ defects here. Current regression and production evidence must still be checked.
 | Product Sharing Loop end-to-end | Existing synthetic SQL/browser rehearsal; real production cohort/value evidence remains pending. |
 | Shopping Room Invite Loop end-to-end | Lifecycle and scoped reporting implemented and tested locally; production cohort/operational evidence outstanding. |
 | Demand → Opportunity → Supply | Existing response linkage and verified N=1 search-gap SQL; full resolution chain and production value evidence incomplete. |
-| Seller liquidity metrics | Complete category/region liquidity dashboard MISSING. |
-| Anti-spam / rate limits | Product share/event quotas implemented; external-invite controls not implemented. |
+| Seller liquidity metrics | Admin aggregate category/region liquidity and seller first-value cohorts implemented; relevance/response/retention and production evidence partial. |
+| Anti-spam / rate limits | Product share/event and scoped room invite/request quotas implemented; production abuse analysis remains pending. |
 | Duplicate protection | Stable IDs, SQL unique keys and canonical roster transitions exist; current regression evidence required. |
 | Block / report / privacy | Existing owners enforce blocks/visibility; future invitations must preserve these boundaries. |
 | Crawler exclusion | Known crawlers/preview agents excluded; comprehensive bot/fraud resistance not established. |
 | Notification frequency / dedupe | Existing social/chat controls; loop-wide cross-channel fatigue policy PARTIAL. |
-| Flags / kill switches | Product sharing/measurement and server cohorts exist; later-loop controls MISSING. |
+| Flags / kill switches | Product sharing/measurement, server cohorts and independent room-invite controls exist; later-loop controls remain partial. |
 | Failure isolation | Existing analytics-outage browser test and optional share/boot instrumentation guards; replay lifetime defect found. |
 | Deep-link performance | Bounded client-observed latency exists; regional production SLO evidence pending. |
 | Load / chaos / security | Existing SQL concurrency and synthetic outage coverage; full viral/fan-out/production chaos evidence pending. |
