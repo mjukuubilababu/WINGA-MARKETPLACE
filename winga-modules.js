@@ -109,6 +109,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const enabled = () => win.WINGA_CONFIG?.growthProductSharing === true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
     const account = () => deps.getAccount?.() || '';
+    const freshRecord = item => Number.isFinite(item?.createdAt)
+      && item.createdAt <= now() && now()-item.createdAt <= 86400000;
     const storage = (area, method, key, value) => { try { return win[area][method](key, value); } catch { return null; } };
     const read = (area, key, fallback) => {
       try { return JSON.parse(storage(area, 'getItem', key) || 'null') || fallback; } catch { return fallback; }
@@ -148,8 +150,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       storage('localStorage','setItem','winga-growth-dead-v1',JSON.stringify(dead));
       health('dead_letter', reason);
     }
-    function enqueue(kind, payload) {
-      const item = { id: payload.eventId || payload.shareId, kind, payload, account: account(), attempts: 0, nextAt: now(), createdAt: now() };
+    function enqueue(kind, payload, createdAt = now()) {
+      const item = { id: payload.eventId || payload.shareId, kind, payload, account: account(), attempts: 0, nextAt: now(), createdAt };
       if (queue.some(x => x.id === item.id && x.kind === kind)) return;
       if (queue.length >= 100) deadLetter(queue.shift(), 'queue_capacity');
       queue.push(item); persist(); void flush();
@@ -162,7 +164,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         // Shares precede their dependent events. A failed share may resolve on the next bounded retry.
         for (const item of [...queue].sort((a,b) => (a.kind === 'shares' ? 0 : 1)-(b.kind === 'shares' ? 0 : 1))) {
           if (item.nextAt > now()) continue;
-          if (item.account !== account() || now()-item.createdAt > 86400000) {
+          if (item.account !== account() || !freshRecord(item)) {
             queue = queue.filter(x => x !== item); deadLetter(item, 'context_expired'); continue;
           }
           if (item.kind === 'shares' ? !enabled() : !measurement()) continue;
@@ -260,10 +262,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
-        const retryable = dead.filter(item => item.account === account() && now()-item.createdAt <= 86400000);
+        const retryable = dead.filter(item => item.account === account() && freshRecord(item));
         dead = dead.filter(item => !retryable.includes(item));
         storage('localStorage','setItem','winga-growth-dead-v1',JSON.stringify(dead));
-        for (const item of retryable) enqueue(item.kind,item.payload);
+        for (const item of retryable) enqueue(item.kind,item.payload,item.createdAt);
         return retryable.length;
       },
       close() { closed = true; if (retryTimer) win.clearTimeout(retryTimer); if (viewTimer) win.clearTimeout(viewTimer);

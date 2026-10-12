@@ -1,5 +1,8 @@
 # Growth loops audit — 8 October 2026
 
+Historical baseline. See [the 12 October current architecture audit](growth-loops-audit-20261012.md)
+for updated classifications and the current specification readiness assessment.
+
 Audited baseline: `a2391bb0`, default branch `master`. Status describes source behavior, not a production certification. No deployment was performed. The supplied Growth Loops v1.0 contract requires phased rollout; this change starts with Phase 1.
 
 | Capability | Status | Evidence and consequence |

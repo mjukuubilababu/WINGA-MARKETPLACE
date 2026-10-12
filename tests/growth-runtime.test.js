@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 const contract = require('../src/growth/contract');
 
-function fixture({storageDenied=false,online=true,request=async()=>({}),performance=false,href='https://winga.test/',initialTime=10000}={}) {
-  const session = new Map(), local = new Map(), timers = new Map(), events = [];
+function fixture({storageDenied=false,online=true,request=async()=>({}),performance=false,href='https://winga.test/',initialTime=10000,localEntries=[]}={}) {
+  const session = new Map(), local = new Map(localEntries), timers = new Map(), events = [];
   let time = initialTime, number = 0, account = '';
   const storage = map => ({getItem:k=>{if(storageDenied)throw Error('denied');return map.get(k)||null;},setItem:(k,v)=>{if(storageDenied)throw Error('denied');map.set(k,v);}});
   const listeners = new Map();
@@ -125,6 +125,40 @@ test('hidden initial routes and excessive durations do not fabricate latency sam
     await f.advance(hidden?1000:300001);f.win.document.visibilityState='visible';
     f.runtime.productVisible('p1');await f.advance(2000);
     assert.equal(sent.find(p=>p.eventType==='shared_product_viewed').durationMs,undefined);
+    f.runtime.close();
+  }
+});
+
+test('dead-letter replay preserves original lifetime and event identity instead of renewing retention',async()=>{
+  const sent=[],f=fixture({request:async(_kind,payload)=>{
+    sent.push(payload.shareId);throw Object.assign(Error('invalid'),{status:400});
+  }});
+  const prepared=f.runtime.prepareShare('p1');prepared.commit();await f.advance(0);
+  assert.equal(f.runtime.getHealth().deadLetters,1);
+  f.win.navigator.onLine=false;await f.advance(23*60*60*1000);
+  assert.equal(f.runtime.retryDeadLetters(),1);
+  const pending=JSON.parse(f.local.get('winga-growth-outbox-v1'))[0];
+  assert.equal(pending.createdAt,10000);
+  assert.equal(pending.payload.shareId,new URL(prepared.url).searchParams.get('share'));
+  await f.advance(2*60*60*1000);f.win.navigator.onLine=true;await f.runtime.flush();
+  assert.equal(sent.length,1);
+  assert.equal(f.runtime.getHealth().pending,0);
+  assert.equal(f.runtime.retryDeadLetters(),0);
+  assert.ok(f.events.some(e=>e.detail.code==='context_expired'));
+  f.runtime.close();
+});
+
+test('restored records with missing, nonnumeric or future creation times cannot bypass retention',async()=>{
+  for(const createdAt of [undefined,null,'10000',10001]) {
+    const sent=[],eventId=randomUUID();
+    const item={id:eventId,kind:'events',account:'',attempts:0,nextAt:0,createdAt,
+      payload:{eventId,shareId:randomUUID(),sessionId:randomUUID(),eventType:'product_share_opened',schemaVersion:1}};
+    const f=fixture({localEntries:[['winga-growth-outbox-v1',JSON.stringify([item])]],request:async(_kind,p)=>sent.push(p)});
+    await f.advance(0);
+    assert.equal(sent.length,0);
+    assert.equal(f.runtime.getHealth().pending,0);
+    assert.equal(f.runtime.getHealth().deadLetters,1);
+    assert.equal(f.runtime.retryDeadLetters(),0);
     f.runtime.close();
   }
 });

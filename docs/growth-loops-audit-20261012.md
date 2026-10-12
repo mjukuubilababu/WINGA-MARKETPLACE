@@ -1,0 +1,127 @@
+# Growth Loops v1.0 — current architecture audit
+
+Audited on 12 October 2026 against repository baseline `75407b78`. This supersedes
+the **status assessment** in the 8 October audit, while retaining its history.
+Classification describes source capabilities, not a production certification.
+The supplied specification requires phased delivery; this assessment precedes
+implementation and does not authorize enabling every loop together.
+
+## Existing capabilities
+
+| Capability | Classification | Current evidence and boundary |
+| --- | --- | --- |
+| Product share flows | IMPLEMENTED | `app.js:handleShareProduct` reuses native sharing, copy, explicit WhatsApp and a plain-link fallback. Preparation and commits are isolated from instrumentation exceptions. |
+| WhatsApp sharing | IMPLEMENTED | Explicit friend-sharing composer in `handleShareProduct`; seller contact remains a separate action. No recipient selection, automatic sending or address-book upload. Handoff is not evidence of delivery. |
+| Product deep links | IMPLEMENTED | `src/growth/contract.js:destination/parseDestination`, `app.js:openDeepLinkedProductRouteIfNeeded`, Worker product routing and direct product lookup. Existing links remain valid without attribution. |
+| Shared multi-content router | PARTIAL / DUPLICATED | The growth contract deliberately admits public PRODUCT only. Existing profile, collection and rich-reference handlers remain separate owners; non-product handlers are not yet integrated into one safe destination contract. Do not expose private room/conversation identifiers as public admission links. |
+| Generic invites | MISSING | No shared expiring/revocable external invitation lifecycle. The existing product-share envelope is not a private invitation or membership grant. |
+| Referral links / seller referral | MISSING | No canonical referral lifecycle, first-value cohort or incentives. Utility sharing exists; do not add generic reward invites first. |
+| Conversations sharing | IMPLEMENTED / PARTIAL | `src/chat/rich-content.js` and `backend/conversation-references.js` resolve live product, Reel/Short, collection and authorized order/payment/delivery cards. Recent-contact share picker and complete growth journey attribution are absent. |
+| Shopping Room invitations | PARTIAL | `backend/encrypted-shopping-rooms.js`, `src/chat/room-session.js` and `src/chat/rooms-ui.js` own MLS roster transitions, device proofs, acceptance, membership, polls and blocks. External bearer invites, scoped guest previews, revocation/expiry and room-growth reporting are missing. Token acceptance must never substitute for MLS admission. |
+| Product cards in chat / rooms | IMPLEMENTED | Rich-reference authorization and existing encrypted room product operations are canonical; do not create another card or membership model. |
+| Demand / Opportunity | PARTIAL / BROKEN | `backend/search-demand-service.js` supports minimum audience one. `backend/db.js:185-186` clamps persisted opportunity audience to at least two; `backend/server.js:10821` also supplies two in a legacy path. This does not meet the N=1 contract. Growth events must not inflate search demand. |
+| Demand → response → product linkage | PARTIAL | `backend/db.js:recordSupplyResponse` links opportunity, response, product and rediscovery audiences; commerce exposure/action/outcome tables exist. A complete per-buyer resolution chain and loop dashboard remain incomplete. |
+| Seller onboarding / activation | PARTIAL | Verification, usable product publication, messages/orders and opportunity responses exist. First-value cohorts and supply-quality/liquidity reporting are not a complete growth contract. |
+| Creator / Reel / Short sharing | PARTIAL | Public video products, playback attribution and rich references exist. Creator-specific destination integration, first-value and retention cohorts are missing. |
+| Saved products | IMPLEMENTED / PARTIAL | Canonical product likes provide confirmed share-save evidence. Saving is not a purchase, and cross-device acquisition/cohorts are not inferred. |
+| Collection sharing | PARTIAL / BROKEN | Public collection persistence and authorization exist in `backend/db.js`; `app.js:handleShareCollection` shares category/top-category browse context rather than a stable collection identity. Preserve legacy URLs until canonical collection routing exists. |
+| Person following / suggestions | IMPLEMENTED / PARTIAL | Canonical `user_follows`, symmetric blocks, public-content eligibility and public-category/mutual-connection explanation codes exist. Growth acquisition and D1/D7/D30 follow cohorts are incomplete. |
+| Notifications | IMPLEMENTED / PARTIAL | Social recipient frequency limits, content dedupe, message push outbox, session rebinding and conversation/room mute policy exist. Cross-channel loop-wide fatigue/suppression is not complete. Phase 1 sends no growth reminders. |
+| Attribution IDs / envelopes | IMPLEMENTED | `backend/growth-store.js`, additive growth migrations and `src/growth/contract.js` provide opaque share UUIDs, server-owned source identity, organic campaign type, expiry, revocation and safety rechecks. No private message bodies or search histories belong in these payloads. |
+| Attribution events / multi-touch | IMPLEMENTED / PARTIAL | Versioned events, stable IDs, SQL dedupe, first/last touch and a bounded browser journal exist. Browser session attribution is not a cross-device identity solution; unknown bots and multi-account fraud remain limitations. |
+| Analytics/reporting | PARTIAL | Admin-only aggregate product-share cohort, activation/value/continuation and client-observed timing report exist. Full loop dashboards, regional/category liquidity and retention cohorts are missing. K-factor remains null because recipient delivery is unknown. |
+| Auth return | IMPLEMENTED / PARTIAL | Expiring allowlisted intents return product actions to exact product/image context. Full safe destinations/actions for all later-phase content types are not wired. |
+| Anti-spam / privacy | IMPLEMENTED / PARTIAL | Durable share/event user/IP quotas, daily caps, CSRF, symmetric blocks, public/seller eligibility, bot/preview-agent exclusion and final transaction rechecks exist. Later invitations require their own consent, recipient suppression and abuse integration through the canonical owners. |
+| Retry / dead letters | PARTIAL / BROKEN | `src/growth/runtime.js:retryDeadLetters` re-enqueues through `enqueue`, resetting `createdAt`. Repeated explicit replay can renew the documented 24-hour retention window. Restored records with invalid timestamps can evade the original age comparison. Fix this in the existing outbox, retaining event IDs. |
+| Reviews / trust | IMPLEMENTED / PARTIAL | Review creation checks delivered buyer orders and dedupe. Review-driven growth reporting and complete abuse/fraud evidence remain separate work. |
+
+The earlier audit's unsafe public preview and broken product auth-return findings
+were subsequently addressed in source. They are not reclassified as unresolved
+defects here. Current regression and production evidence must still be checked.
+
+## Canonical ownership and rollout order
+
+1. **Phase 1:** retain product links, product sharing, growth store/API, browser
+   attribution outbox, product auth intents and existing abuse controls. Repair
+   bounded replay lifetime; validate product/guest/auth/outage behavior first.
+2. **Phase 2:** extend existing rich-card and encrypted-room owners. Design one
+   reusable external-invite lifecycle with revocation/expiry, recipient consent,
+   scoped previews, blocks and canonical device-bound admission before exposing
+   links. Room participation, not signup, is activation.
+3. **Phase 3:** retain Search Demand and commerce attribution as separate domains.
+   Correct N=1 without labeling one buyer a high-confidence trend, then complete
+   buyer-resolution, opportunity response, restock and liquidity reporting.
+4. **Phase 4:** wire canonical collection/content/profile destinations and
+   seller utility referrals; require safety/visibility and first-value cohorts.
+   Do not introduce rewards or contact uploads to manufacture participation.
+
+## Definition-of-done assessment (§106)
+
+| Requirement | Assessment |
+| --- | --- |
+| Existing architecture audited | This current source audit is complete; production behavior is not inferred from it. |
+| One canonical deep-link system | Product contract exists; all requested destination types remain PARTIAL. |
+| Attribution contract | Product envelope/events implemented; broader loop attribution PARTIAL. |
+| Guest-first product / auth return | Existing browser regression coverage; current run results must be recorded. |
+| Product Sharing Loop end-to-end | Existing synthetic SQL/browser rehearsal; real production cohort/value evidence remains pending. |
+| Shopping Room Invite Loop end-to-end | External invite lifecycle and metrics MISSING. |
+| Demand → Opportunity → Supply | Existing response linkage; full resolution chain and N=1 behavior incomplete. |
+| Seller liquidity metrics | Complete category/region liquidity dashboard MISSING. |
+| Anti-spam / rate limits | Product share/event quotas implemented; external-invite controls not implemented. |
+| Duplicate protection | Stable IDs, SQL unique keys and canonical roster transitions exist; current regression evidence required. |
+| Block / report / privacy | Existing owners enforce blocks/visibility; future invitations must preserve these boundaries. |
+| Crawler exclusion | Known crawlers/preview agents excluded; comprehensive bot/fraud resistance not established. |
+| Notification frequency / dedupe | Existing social/chat controls; loop-wide cross-channel fatigue policy PARTIAL. |
+| Flags / kill switches | Product sharing/measurement and server cohorts exist; later-loop controls MISSING. |
+| Failure isolation | Existing analytics-outage browser test and optional share/boot instrumentation guards; replay lifetime defect found. |
+| Deep-link performance | Bounded client-observed latency exists; regional production SLO evidence pending. |
+| Load / chaos / security | Existing SQL concurrency and synthetic outage coverage; full viral/fan-out/production chaos evidence pending. |
+| Loop dashboards | Admin product-share aggregate endpoint exists; complete multi-loop dashboard MISSING. |
+| Core regression | Relevant current tests required; source audit alone cannot certify Feed/Search/Auth/Conversations. |
+| Rollout / rollback | Existing Phase 1 flags, cohort policy and append-only migration procedure in `growth-loops-rollout.md`; later-phase rollout remains gated. |
+
+## Value and scale decisions
+
+Product share starts with a person choosing to share a useful public product.
+The recipient receives that product immediately. Meaningful visible viewing is
+activation; confirmed saves/order starts are measured value proxies, never sales.
+Resharing is continuation. Public/seller eligibility, blocks, bot exclusion,
+quotas and dedupe limit abuse. Destination access and plain sharing must survive
+analytics failure, and this loop needs no rewards.
+
+Internal Conversations and Shopping Rooms already provide collaborative value,
+but an external room invite's preview scope, admission and metrics cannot yet be
+answered completely. Demand and seller loops have useful canonical owners but
+incomplete first-value/resolution reporting. Collections, creator acquisition
+and seller referrals need destination and value contracts before scale. No loop
+is declared production-ready from upload, registration, clicks or source alone.
+
+No global growth flags, reminders, rewards or later-phase loops are enabled by
+this audit. Live cohort selection and regional evidence remain rollout work.
+
+## Phase 1 remediation after audit
+
+The two new retention regression tests reproduced the defects before the fix:
+replay changed `createdAt` from `10000` to `82810000`, and a restored record with
+an invalid timestamp was submitted instead of being expired.
+
+The existing runtime now preserves the original `createdAt` on explicit replay,
+keeps the same share/event IDs and payloads, and rejects missing, nonnumeric or
+future creation timestamps during both flushing and replay selection. After
+24 hours a replayed record expires using its original age, even if it was replayed
+while offline. No parallel outbox, new schema or changed product destination was
+introduced. Account isolation, bounded retries and plain sharing remain intact.
+
+Current local growth checks passed: 3 cohort-policy tests, 3 share-handoff tests,
+11 runtime tests and 13 SQL/API tests using PGlite (30 total, no skips). This is
+not a fresh real-PostgreSQL concurrency run or production cohort measurement.
+The generated 95-module bundle is synchronized and static build validation passed.
+Frontend core checks passed 145/145. Two Chromium browser scenarios passed:
+guest product/copy/meaningful-view behavior during a simulated growth API 503
+outage, and exact product-detail return after authentication for a guest purchase
+intent. Canonical content/auth APIs used the existing local synthetic E2E server.
+No external invitation, message, payment or production order was created.
+
+Production cohort configuration, admin report access and opted-in test accounts
+have not been established by these tests. Source default flags are not evidence
+of the deployed environment's settings. Live canary selection is still pending.

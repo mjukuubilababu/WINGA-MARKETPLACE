@@ -1,9 +1,12 @@
 # Growth canary: local rehearsal and live handoff
 
 **The local rehearsal passed. A live staging/production canary has not started.**
-The current managed environment has no configured deployment credentials,
-staging target or selected live accounts. The target/cohort clarification is
-pending. Production feature flags remain off.
+At the 8 October rehearsal, deployment credentials and live cohort selection
+were unavailable. As of 12 October, Render and Cloudflare deployment access is
+configured; opted-in live accounts, an approved public listing and admin-report
+access still need selection. Deployed growth flag settings have not been
+verified by the current source audit. See the
+[current readiness assessment](growth-loops-audit-20261012.md).
 
 ## Rehearsal evidence
 

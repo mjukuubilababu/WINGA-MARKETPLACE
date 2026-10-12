@@ -1,6 +1,24 @@
 # Growth Loops v1 — Phase 1 rollout and evidence
 
-This implements the first phase of the supplied 106-section contract, following its instruction not to ship all loops simultaneously. See [the baseline audit](growth-loops-audit.md). Growth Loops as a whole is **not production-ready**. Nothing in this change deploys or enables a production feature.
+Current architecture assessment: [12 October 2026 audit](growth-loops-audit-20261012.md).
+
+This describes the first phase of the supplied 106-section contract, following its instruction not to ship all loops simultaneously. See [the baseline audit](growth-loops-audit.md) and current assessment above. Growth Loops as a whole is **not production-ready**. Deploying the retention hardening does not itself change growth rollout flags or enroll a production cohort.
+
+## 2026-10-12 retention hardening
+
+Explicit dead-letter replay now retains the original record creation time as
+well as its event/share IDs. Its 24-hour lifetime cannot be renewed by replaying
+it repeatedly or while offline. Missing, nonnumeric and future creation times
+expire before submission and cannot be replayed. A manual replay may restart
+the bounded attempt counter only inside the original lifetime and current
+account context. Seven-day diagnostic dead-letter retention is unchanged.
+
+Two regression tests reproduced the prior defects before correction. Current
+validation passed 30 growth checks (including 13 PGlite SQL/API contracts),
+145 frontend core checks, two Chromium growth/guest/auth scenarios, module
+synchronization and static build validation. See the current audit for evidence
+and outstanding production gates. Later-phase features and all production
+rollout flags remain outside this retention change.
 
 ## Phase 1 behavior
 
