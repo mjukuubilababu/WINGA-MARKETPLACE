@@ -472,3 +472,11 @@ backend inspection showed product sharing and measurement enabled for an existin
 two-account allowlist, guest measurement off, and no Room signing secret. Do not
 expand the cohort, enable new loops or activate invite reminders without the
 explicit opt-in/security/operations rollout gates recorded in the evidence map.
+
+## Authenticated Product Share canary activation
+
+The account-scoped rollout bridge and read-only aggregate comparison procedure
+are documented in [growth-account-canary.md](growth-account-canary.md). It reuses
+the current server cohort, returns no public enrollment list and requires the
+new default-off server account-rollout switch. Guest measurement remains off.
+Participant enrollment and product selection stay in the private operator handoff.

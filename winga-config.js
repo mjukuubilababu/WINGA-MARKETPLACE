@@ -25,6 +25,7 @@ const WINGA_DEFAULT_CONFIG = {
   // Use the bounded telemetry transport on production too; overrides can disable it.
   enableClientEventLogging: true,
   // Phase 1 measurement is opt-in; plain public links always remain available.
+  growthAccountRolloutEnabled: !WINGA_IS_FILE_MODE && !WINGA_IS_LOCAL_WEB,
   growthProductSharing: false,
   growthCollectionSharing: false,
   growthInternalContentSharing: false,

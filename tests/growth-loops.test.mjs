@@ -399,3 +399,30 @@ test('a seller receiving another person’s share cannot manufacture own-product
  await assert.rejects(f.store.recordGrowthEvent(f.event('shared_product_saved'),seller),{code:'growth_value_unconfirmed'});
  await assert.rejects(f.store.recordGrowthEvent({...f.event('shared_product_order_started'),orderId:'self-order'},seller),{code:'growth_value_unconfirmed'});
 });
+
+test('authenticated capabilities reuse canonical cohort without exposing enrollment or enabling guests, bots or client-selected actors',async()=>{
+ let session=null,output;const headers={};let enabled=true;const cohort=createGrowthPolicy({WINGA_GROWTH_COHORT_MODE:'allowlist',WINGA_GROWTH_COHORT_USERS:'recipient'});
+ const api=()=>createGrowthApi({cohort,accountRolloutEnabled:enabled,productSharingEnabled:true,measurementEnabled:true,findSession:()=>session,readAuthToken:()=>'',clientIp:()=>'',getStore:()=>null,ensureUser:()=>true,sendJson:(_r,status,body,h)=>{output={status,body,headers:h};}});
+ const req={method:'GET',headers:{'user-agent':'Mozilla/5.0'}};const url=new URL('https://winga.test/api/growth/capabilities');
+ await api().handle(req,{},url);assert.equal(output.body.measurement,false);assert.equal(output.body.account,null);
+ session={username:'recipient'};await api().handle(req,{},url);assert.deepEqual(output.body,{schemaVersion:1,account:'recipient',productSharing:true,measurement:true});assert.equal(output.headers['Cache-Control'],'private, no-store');assert.equal(output.headers.Vary,'Cookie, Authorization');
+ assert.equal(JSON.stringify(output.body).includes('enrolledAccounts'),false);
+ session={username:'other'};await api().handle(req,{},url);assert.equal(output.body.productSharing,false);
+ session={username:'recipient'};await api().handle({...req,headers:{'user-agent':'WhatsApp'}},{},url);assert.equal(output.body.measurement,false);
+ enabled=false;await api().handle(req,{},url);assert.equal(output.body.productSharing,false);
+ await api().handle(req,{},new URL(url+'?username=recipient'));assert.equal(output.status,400);
+});
+
+test('canary reader reports only explicit account/product scope and excludes unmeasured actors without private fields or writes',async t=>{
+ const f=await fixture(t),{readProductCanary,selection}=require('../backend/growth-canary-reader');
+ const since=new Date(Date.now()-60000).toISOString();await f.store.createGrowthShare(f.payload,f.source);
+ await f.store.createGrowthShare({...f.payload,shareId:randomUUID(),contentId:'p2'},f.source);
+ const viewed=f.event('shared_product_viewed');await f.store.recordGrowthEvent(viewed,f.recipient);
+ await f.store.recordGrowthEvent({...viewed,eventId:randomUUID(),sessionId:randomUUID()}, {username:'other',ip:'127.0.0.3',bot:false});
+ const queries=[];const report=await readProductCanary((sql,params)=>{queries.push(sql);return f.db.query(sql,params);},{accounts:['sender','recipient'],productIds:['p1'],since});
+ assert.equal(report.sharesCreated,1);assert.equal(report.recipientAccountsObserved,1);assert.equal(report.events.find(e=>e.eventType==='shared_product_viewed').count,1);
+ assert.equal(report.writesPerformed,false);assert.equal(report.privateContentAccessed,false);assert.ok(queries.every(q=>!/(INSERT|UPDATE|DELETE|ciphertext|orders|encrypted_messages)/.test(q)));
+ const body=JSON.stringify(report);for(const value of ['"sender"','"recipient"','"p1"',viewed.sessionId])assert.equal(body.includes(value),false);
+ assert.throws(()=>selection({accounts:['sender','sender'],productIds:['p1'],since}),{code:'GROWTH_CANARY_SELECTION_INVALID'});
+ assert.throws(()=>selection({accounts:['sender'],productIds:['../../secret'],since}),{code:'GROWTH_CANARY_SELECTION_INVALID'});
+});

@@ -336,3 +336,32 @@ test('seller utility referral waits for canonical creation and shares only its o
   const copied=await page.evaluate(()=>window.__copiedGrowthLink);expect(copied).not.toContain('opp_source');
   const url=new URL(copied.split('\n').at(-1));expect(url.search).toBe('');await context.close();
 });
+
+test('account rollout keeps guest measurement off and enables only the authenticated cohort response',async({browser,request})=>{
+ const {context,page,product}=await guest(browser,request,{growthAccountRolloutEnabled:true,growthProductSharing:false,growthMeasurement:false});
+ let capabilityRequests=0;const shareId=randomUUID();
+ await context.route('**/api/growth/capabilities',route=>{capabilityRequests++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({schemaVersion:1,account:'buyer_seller',productSharing:true,measurement:true})});});
+ await page.goto('/product/'+product.id+'?share='+shareId);await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+ expect(capabilityRequests).toBe(0);expect(await page.evaluate(()=>WingaGrowth.getJourney().touches.length)).toBe(0);
+ await page.locator('#product-detail-modal [data-buy-product]').first().click();await page.locator('#auth-gate-login').click();
+ await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+ await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});await expect.poll(()=>page.evaluate(()=>WINGA_CONFIG.growthMeasurement)).toBe(true);
+ await expect.poll(()=>page.evaluate(()=>WingaGrowth.getJourney().firstTouch?.shareId)).toBe(shareId);
+ await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('winga-growth-outbox-v1')||'[]').some(x=>x.payload.eventType==='shared_product_viewed'))).toBe(true);
+ await page.evaluate(id=>openMediaActionSheet(getProductById(id)),product.id);await page.locator('[data-media-action="share-copy"]').click();
+ await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('?share=');
+ await page.evaluate(()=>logout());expect(await page.evaluate(()=>WINGA_CONFIG.growthMeasurement)).toBe(false);expect(await page.evaluate(()=>WINGA_CONFIG.growthProductSharing)).toBe(false);
+ await context.close();
+});
+
+test('account rollout outage leaves exact public content and plain sharing available after real authentication',async({browser,request})=>{
+ const {context,page,product}=await guest(browser,request,{growthAccountRolloutEnabled:true,growthProductSharing:false,growthMeasurement:false});
+ await page.goto('/product/'+product.id);await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+ await page.locator('#product-detail-modal [data-buy-product]').first().click();await page.locator('#auth-gate-login').click();
+ await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+ await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});await expect(page.locator('#product-detail-title')).toHaveText(product.name);
+ await page.evaluate(id=>openMediaActionSheet(getProductById(id)),product.id);await page.locator('[data-media-action="share-copy"]').click();
+ await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/product/'+product.id);
+ expect(await page.evaluate(()=>window.__copiedGrowthLink)).not.toContain('?share=');expect(await page.evaluate(()=>WINGA_CONFIG.growthMeasurement)).toBe(false);
+ await context.close();
+});

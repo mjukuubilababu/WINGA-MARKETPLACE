@@ -8102,6 +8102,7 @@ const server = http.createServer(async (req, res) => {
           return postgresStore.createReport(normalizeReportRecord({reporterUserId,targetUserId,targetType:'user',reason,description:'Unwanted shared content or invitation.'}));
         },
         cohort: require('./growth-policy').createGrowthPolicy(process.env),
+        accountRolloutEnabled:process.env.WINGA_GROWTH_ACCOUNT_ROLLOUT_ENABLED==='true',
         productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
         collectionSharingEnabled:process.env.WINGA_GROWTH_COLLECTION_SHARING_ENABLED==='true',profileSharingEnabled:process.env.WINGA_GROWTH_PROFILE_SHARING_ENABLED==='true',creatorSharingEnabled:process.env.WINGA_GROWTH_CREATOR_SHARING_ENABLED==='true',
         sellerReferralEnabled:process.env.WINGA_GROWTH_SELLER_REFERRAL_ENABLED==='true',

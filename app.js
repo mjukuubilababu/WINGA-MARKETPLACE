@@ -1766,6 +1766,7 @@ function applySessionState(session) {
   if (!session || typeof session !== "object" || Array.isArray(session)) {
     currentSession = null;
     currentUser = "";
+    try{void window.WingaGrowth?.refreshCapabilities();}catch{}
     return;
   }
 
@@ -1773,6 +1774,7 @@ function applySessionState(session) {
   if (!username) {
     currentSession = null;
     currentUser = "";
+    try{void window.WingaGrowth?.refreshCapabilities();}catch{}
     return;
   }
 
@@ -1796,6 +1798,7 @@ function applySessionState(session) {
     verifiedSeller: Boolean(session.verifiedSeller)
   };
   currentUser = username;
+  try{void window.WingaGrowth?.refreshCapabilities();}catch{}
   hydrateSharedCollectionIntentState(username);
 }
 
@@ -24302,6 +24305,8 @@ async function handleShareProduct(product, options = {}) {
 function getGrowthRuntime() {
   if (!window.WingaGrowth) {
     window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
+      loadCapabilities:()=>window.WingaDataLayer.loadGrowthCapabilities(),
+      getIdentity:()=>JSON.stringify([currentUser||'',currentSession?.sessionId||'']),
       recordTiming:(metric,duration)=>recordRuntimeMetricWindow(metric,duration),
       getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload),
       resolveInternalShare:(messageId,type,id)=>window.WingaDataLayer.resolveInternalGrowthShare(messageId,type,id) });

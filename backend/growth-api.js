@@ -71,6 +71,13 @@ function createGrowthApi(deps) {
         send(200,await store.pruneGrowthRecords()); return true;
       }
       if (session && !deps.ensureUser(session, res)) return true;
+      if(path==='/api/growth/capabilities'&&req.method==='GET'){
+        if(url.search){send(400,{code:'growth_capabilities_invalid'});return true;}
+        const enrolled=Boolean(session&&!context.bot&&deps.accountRolloutEnabled===true&&cohort.allowsCreation(context.username));
+        const productSharing=enrolled&&deps.productSharingEnabled===true;
+        send(200,{schemaVersion:1,account:context.username||null,productSharing,
+          measurement:Boolean(productSharing&&deps.measurementEnabled===true&&cohort.allowsMeasurement(context.username,context.username))},{'Vary':'Cookie, Authorization'});return true;
+      }
       const shareSafety=/^\/api\/growth\/shares\/([0-9a-f-]+)\/(block|report)$/.exec(path);
       if(shareSafety&&uuid(shareSafety[1])&&req.method==='POST'){
         if(!session){send(403,{code:'growth_auth_required'});return true;}

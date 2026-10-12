@@ -1887,6 +1887,7 @@ async loadAdminPayments(filters) {
     }
 
     return {
+      async loadGrowthCapabilities(){return fetchJson(`${baseUrl}/growth/capabilities`,{headers:createAuthHeaders(),timeoutMs:3000});},
       async growthRequest(kind, payload) {
         if (!['shares','events','room-events'].includes(kind)) throw new Error('growth_route_invalid'); // i18n-gate: allow -- internal routing contract
         return fetchJson(`${baseUrl}/growth/${kind}`, { method: 'POST',
@@ -3569,6 +3570,7 @@ async loadAdminPayments() {
   }
 
   window.WingaDataLayer = {
+    async loadGrowthCapabilities(){ensureAdapter();if(!state.adapter.loadGrowthCapabilities)throw Object.assign(new Error('growth_unavailable'),{code:'growth_unavailable'});return state.adapter.loadGrowthCapabilities();},
     async growthRequest(kind, payload) {
       ensureAdapter();
       if (!state.adapter.growthRequest) throw Object.assign(new Error('growth_unavailable'), { status: 503 }); // i18n-gate: allow -- internal availability diagnostic

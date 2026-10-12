@@ -5,20 +5,20 @@ const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 const contract = require('../src/growth/contract');
 
-function fixture({storageDenied=false,online=true,request=async()=>({}),resolveInternalShare,performance=false,href='https://winga.test/',initialTime=10000,localEntries=[]}={}) {
+function fixture({storageDenied=false,online=true,request=async()=>({}),resolveInternalShare,loadCapabilities,getIdentity,accountRollout=false,performance=false,href='https://winga.test/',initialTime=10000,localEntries=[]}={}) {
   const session = new Map(), local = new Map(localEntries), timers = new Map(), events = [];
   let time = initialTime, number = 0, account = '';
   const storage = map => ({getItem:k=>{if(storageDenied)throw Error('denied');return map.get(k)||null;},setItem:(k,v)=>{if(storageDenied)throw Error('denied');map.set(k,v);}});
   const listeners = new Map();
-  const win = {WingaModules:{growth:{contract}},WINGA_CONFIG:{growthProductSharing:true,growthMeasurement:true},
+  const win = {WingaModules:{growth:{contract}},WINGA_CONFIG:{growthProductSharing:true,growthMeasurement:true,growthAccountRolloutEnabled:accountRollout},
     crypto:{randomUUID},location:{origin:'https://winga.test',href},navigator:{onLine:online},
     performance:performance?{now:()=>time}:undefined,
     sessionStorage:storage(session),localStorage:storage(local),
-    document:{visibilityState:'visible',body:{classList:{contains:()=>true}},addEventListener:()=>{},removeEventListener:()=>{}},
+    document:{visibilityState:'visible',body:{classList:{contains:name=>name==='product-detail-open'}},addEventListener:()=>{},removeEventListener:()=>{}},
     addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k),dispatchEvent:e=>events.push(e),CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}},
     setTimeout:(fn,delay)=>{timers.set(++number,{fn,at:time+delay});return number;},clearTimeout:id=>timers.delete(id)};
   vm.runInNewContext(fs.readFileSync('src/growth/runtime.js','utf8'),{window:win,URL});
-  const runtime = win.WingaModules.growth.createRuntime({window:win,now:()=>time,request,resolveInternalShare,getAccount:()=>account});
+  const runtime = win.WingaModules.growth.createRuntime({window:win,now:()=>time,request,resolveInternalShare,loadCapabilities,getIdentity,getAccount:()=>account});
   const advance = async ms => {time+=ms;const ready=[...timers.entries()].filter(([,v])=>v.at<=time);for(const [id,v] of ready){timers.delete(id);await v.fn();}await new Promise(r=>setImmediate(r));};
   return {win,runtime,local,session,events,advance,setAccount:v=>{account=v;}};
 }
@@ -262,3 +262,36 @@ test('internal card attribution uses opaque journal context after independent de
   f.win.WINGA_CONFIG.growthMeasurement=false;f.runtime.recordTiming('auth_return_to_destination_ms',5);
   assert.equal(f.runtime.getTimingSamples().auth_return_to_destination_ms,undefined);f.runtime.close();
  });
+
+test('session-scoped capabilities keep guests unmeasured, resume exact shared context after login and stop on logout',async()=>{
+  const sent=[],shareId=randomUUID(),f=fixture({accountRollout:true,href:'https://winga.test/product/p1?share='+shareId,loadCapabilities:async()=>({schemaVersion:1,account:'recipient',productSharing:true,measurement:true}),request:async(k,p)=>sent.push([k,p])});
+  f.runtime.productVisible('p1');await f.advance(2500);assert.equal(sent.length,0);assert.equal(f.runtime.getJourney().touches.length,0);
+  assert.equal(new URL(f.runtime.prepareShare('p1').url).searchParams.has('share'),false);
+  f.win.location.href='https://winga.test/product/p1';f.runtime.capture();
+  f.setAccount('recipient');await f.runtime.refreshCapabilities();await f.advance(2100);await f.runtime.flush();
+  assert.ok(sent.some(([,p])=>p.shareId===shareId&&p.eventType==='shared_product_viewed'));
+  assert.equal(f.runtime.getJourney().firstTouch.shareId,shareId);
+  f.setAccount('');await f.runtime.refreshCapabilities();const before=sent.length;f.runtime.prepareShare('p1').commit();await f.advance(61000);assert.equal(sent.length,before);assert.equal(f.win.WINGA_CONFIG.growthMeasurement,false);f.runtime.close();
+});
+test('capability replies are account bound and outage or withdrawal preserves plain product access',async()=>{
+  let resolve,mode='late',requests=0;const f=fixture({accountRollout:true,loadCapabilities:()=>{requests++;if(mode==='late')return new Promise(r=>resolve=r);if(mode==='outage')throw Error('down');return Promise.resolve({schemaVersion:1,account:'other',productSharing:false,measurement:false});}});
+  f.setAccount('recipient');const pending=f.runtime.refreshCapabilities();f.setAccount('other');mode='withdrawn';await f.runtime.refreshCapabilities();
+  // Resolving the old account cannot activate the new account.
+  mode='withdrawn';await f.runtime.refreshCapabilities();resolve({schemaVersion:1,account:'recipient',productSharing:true,measurement:true});await pending;
+  assert.equal(f.win.WINGA_CONFIG.growthMeasurement,false);
+  mode='outage';await f.runtime.refreshCapabilities();assert.equal(f.win.WINGA_CONFIG.growthProductSharing,false);assert.match(f.runtime.prepareShare('p1').url,/\/product\/p1$/);assert.ok(requests>=3);f.runtime.close();
+});
+
+test('same-account session replacement cannot reuse a stale capability grant',async()=>{
+ let key='old-session',resolve;const f=fixture({accountRollout:true,getIdentity:()=>key,loadCapabilities:()=>new Promise(r=>resolve=r)});
+ f.setAccount('recipient');const pending=f.runtime.refreshCapabilities();key='new-session';resolve({schemaVersion:1,account:'recipient',productSharing:true,measurement:true});await pending;
+ assert.equal(f.win.WINGA_CONFIG.growthMeasurement,false);assert.equal(f.win.WINGA_CONFIG.growthProductSharing,false);f.runtime.close();
+});
+
+test('a delayed capability response during transient auth Home navigation waits for the matching visible product',async()=>{
+ const sent=[],shareId=randomUUID(),f=fixture({accountRollout:true,href:'https://winga.test/product/p1?share='+shareId,loadCapabilities:async()=>({schemaVersion:1,account:'recipient',productSharing:true,measurement:true}),request:async(k,p)=>sent.push([k,p])});
+ f.runtime.productVisible('p1');f.win.location.href='https://winga.test/';f.win.document.body.classList.contains=()=>false;f.runtime.capture();
+ f.setAccount('recipient');await f.runtime.refreshCapabilities();await f.advance(2100);assert.equal(sent.length,0);
+ f.win.document.body.classList.contains=name=>name==='product-detail-open';f.runtime.productVisible('p1');f.win.location.href='https://winga.test/product/p1';await f.advance(2100);await f.runtime.flush();
+ assert.ok(sent.some(([,p])=>p.eventType==='shared_product_viewed'&&p.shareId===shareId));f.runtime.close();
+});

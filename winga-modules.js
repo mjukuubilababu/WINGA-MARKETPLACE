@@ -173,15 +173,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     journey.lastTouch = journey.touches.at(-1) || null;
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
     let previousAccount = account();
-    let routeTiming = null, initialCapture = true;
+    let routeTiming = null, initialCapture = true,pendingProductShare=null;
+    const accountRollout=win.WINGA_CONFIG?.growthAccountRolloutEnabled===true&&typeof deps.loadCapabilities==='function';
+    const identity=()=>deps.getIdentity?.()||account();
+    let capabilityGeneration=0,capabilityIdentity='',capabilityTimer=null;
+    function disableAccountCapabilities(){win.WINGA_CONFIG.growthProductSharing=false;win.WINGA_CONFIG.growthMeasurement=false;if(capabilityTimer)win.clearTimeout(capabilityTimer);capabilityTimer=null;}
+    if(accountRollout)disableAccountCapabilities();
     const roomProductContexts=new Map();
     function syncIdentity() {
       const current = account();
+      if(accountRollout&&capabilityIdentity&&identity()!==capabilityIdentity){capabilityGeneration++;capabilityIdentity='';disableAccountCapabilities();}
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
-        roomProductContexts.clear();
+        roomProductContexts.clear();pendingProductShare=null;
         storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
       previousAccount = current;
@@ -195,6 +201,27 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(closed||!measurement()||!timingNames.has(metric)||!Number.isFinite(duration)||duration<0||duration>300000)return;
       const samples=timingMetrics.get(metric)||[];samples.push(Math.round(duration));timingMetrics.set(metric,samples.slice(-100));
       try{deps.recordTiming?.(metric,Math.round(duration));}catch{}
+    }
+    async function refreshCapabilities(){
+      if(!accountRollout||closed)return;
+      syncIdentity();const owner=account(),key=identity(),generation=++capabilityGeneration;
+      disableAccountCapabilities();capabilityIdentity=key;
+      if(!owner)return;
+      const current=()=>!closed&&generation===capabilityGeneration&&account()===owner&&identity()===key;
+      try{
+        const result=await deps.loadCapabilities();if(!current())return;
+        if(result?.schemaVersion!==1||result.account!==owner||typeof result.productSharing!=='boolean'||typeof result.measurement!=='boolean')throw Error('growth_capabilities_invalid');
+        win.WINGA_CONFIG.growthProductSharing=result.productSharing;
+        win.WINGA_CONFIG.growthMeasurement=result.productSharing&&result.measurement;
+        if(measurement()){
+          const pending=pendingProductShare;
+          const destination=contract.parseDestination(win.location.href,win.location.origin);
+          if(pending&&pending.at<=now()&&now()-pending.at<=1800000&&destination?.type==='PRODUCT'&&destination.id===pending.productId){pendingProductShare=null;capture(pending.url);if(routeTiming)routeTiming.eligible=false;}
+          else capture();
+          if(activeProduct)productVisible(activeProduct);void flush();
+        }
+      }catch{if(current()){disableAccountCapabilities();health('capabilities_unavailable');}}
+      finally{if(current())capabilityTimer=win.setTimeout(()=>void refreshCapabilities(),60000);}
     }
     function deadLetter(item, reason) {
       // Keep replayable schema-only records, never private message bodies or arbitrary metadata.
@@ -257,10 +284,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     function capture(input = win.location.href) {
       syncIdentity();
-      if (!measurement()) return;
       try {
         const target = contract.parseDestination(input, win.location.origin), url = new URL(input, win.location.origin);
         const shareId = url.searchParams.get('share');
+        if(!measurement()){
+          if(accountRollout&&target?.type==='PRODUCT'&&contract.uuid(shareId))pendingProductShare={productId:target.id,url:contract.shareUrl(win.location.origin,target.id,shareId),at:now()};
+          else if(pendingProductShare&&((target?.type==='PRODUCT'&&pendingProductShare.productId!==target.id)||url.searchParams.has('share')||pendingProductShare.at>now()||now()-pendingProductShare.at>1800000))pendingProductShare=null;
+          return;
+        }
         if (target?.type!=='PRODUCT' || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
         if (!routeTiming || routeTiming.shareId !== shareId || routeTiming.productId !== target.id) {
           routeTiming = { productId: target.id, shareId,
@@ -370,7 +401,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     function roomOrderStarted(productId,orderId){syncIdentity();const context=roomProductContexts.get(productId);
       if(context&&context.owner===account()&&now()-context.at<1800000)return roomEvent('first_order_started',context.invite,{orderId});}
     function productVisible(productId) {
-      activeProduct = productId;
+      syncIdentity();activeProduct = productId;
+      if(measurement()&&pendingProductShare?.productId===productId&&pendingProductShare.at<=now()&&now()-pendingProductShare.at<=1800000
+        &&win.document.body.classList.contains('product-detail-open')&&!win.document.body.classList.contains('auth-modal-open')){
+        const pending=pendingProductShare;pendingProductShare=null;capture(pending.url);if(routeTiming)routeTiming.eligible=false;
+      }
       if (viewTimer) win.clearTimeout(viewTimer);
       if (!touchFor(productId) || !measurement() || win.document.visibilityState !== 'visible') return;
       if (routeTiming?.productId === productId && routeTiming.eligible && routeTiming.durationMs === null) {
@@ -382,7 +417,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       // A visible detail view for two seconds is activation; opening a URL alone is not.
       viewTimer = win.setTimeout(() => {
         if (activeProduct === productId && win.document.visibilityState === 'visible'
-          && win.document.body.classList.contains('product-detail-open')) event('shared_product_viewed',productId,{durationMs});
+          && win.document.body.classList.contains('product-detail-open')&&!win.document.body.classList.contains('auth-modal-open')) event('shared_product_viewed',productId,{durationMs});
       },2000);
     }
     function visibility() {
@@ -392,8 +427,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const online = () => void flush();
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
-    capture(); void flush();
-    return { recordTiming,getTimingSamples:()=>Object.fromEntries([...timingMetrics].map(([name,samples])=>[name,[...samples]])),prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    capture(); void flush();void refreshCapabilities();
+    return { refreshCapabilities,recordTiming,getTimingSamples:()=>Object.fromEntries([...timingMetrics].map(([name,samples])=>[name,[...samples]])),prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -403,7 +438,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         for (const item of retryable) enqueue(item.kind,item.payload,item.createdAt);
         return retryable.length;
       },
-      close() { closed = true; for(const timer of contentTimers.values())win.clearTimeout(timer);contentTimers.clear(); if (retryTimer) win.clearTimeout(retryTimer); if (viewTimer) win.clearTimeout(viewTimer);
+      close() { closed = true;capabilityGeneration++;if(capabilityTimer)win.clearTimeout(capabilityTimer); for(const timer of contentTimers.values())win.clearTimeout(timer);contentTimers.clear(); if (retryTimer) win.clearTimeout(retryTimer); if (viewTimer) win.clearTimeout(viewTimer);
         win.removeEventListener('online',online); win.removeEventListener('popstate',navigation); win.document.removeEventListener('visibilitychange',visibility); }
     };
   }

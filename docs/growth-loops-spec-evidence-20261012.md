@@ -234,3 +234,15 @@ including six-connection/two-store multi-sender convergence, concurrent admissio
 preference lost-response retries and an old-epoch send racing a committed freeze.
 All fixture schemas were removed and the owned container was deleted. This adds
 actual bounded native race evidence; it remains distinct from viral capacity.
+
+## Subsequent opted-in Product Share canary preparation
+
+The operator subsequently confirmed three participants and supplied three exact
+public product links. Read-only catalog checks verified approved/available public
+content. The production frontend's default-off flags required a session-scoped
+capability bridge; see [growth-account-canary.md](growth-account-canary.md).
+Canonical cohort/feature switches govern activation, stale account/session replies
+are rejected and guest context is preserved in memory through the auth-return
+race without pre-auth observations. A scoped read-only aggregate reader supports
+baseline/after comparison. Configured enrollment is not meaningful participation;
+real participant actions and live observations must still be verified separately.
