@@ -11,6 +11,25 @@ function createGrowthApi(deps) {
     const context = { username: session?.username || '', ip: deps.clientIp(req), bot: crawler(req.headers['user-agent']), growthCohort: cohort };
     const store = deps.getStore();
     try {
+      if(path==='/api/admin/growth/events' && req.method==='GET'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.readGrowthEventJobHealth){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.readGrowthEventJobHealth());return true;
+      }
+      if(path==='/api/admin/growth/events/replay' && req.method==='POST'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.replayGrowthEventJobs){send(503,{code:'growth_unavailable'});return true;}
+        const payload=await deps.collectBody(req,{maxBytes:12288});
+        if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).join(',')!=='eventIds'){send(400,{code:'growth_replay_invalid'});return true;}
+        send(200,await store.replayGrowthEventJobs(payload.eventIds));return true;
+      }
+      if(path==='/api/admin/growth/events/reconcile' && req.method==='POST'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.reconcileRoomGrowthEvents){send(503,{code:'growth_unavailable'});return true;}
+        const payload=await deps.collectBody(req,{maxBytes:1024});
+        if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).length){send(400,{code:'growth_replay_invalid'});return true;}
+        send(200,await store.reconcileRoomGrowthEvents({batchSize:50}));return true;
+      }
       if (path === '/api/admin/growth/health' && req.method === 'GET') {
         if (!session || !deps.isAdminSession(session)) { send(403, { code: 'growth_admin_required' }); return true; }
         if (!store?.readGrowthHealth) { send(503, { code: 'growth_unavailable' }); return true; }

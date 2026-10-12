@@ -1095,6 +1095,7 @@ function writeLegacyStore(store, options = {}) {
 }
 
 async function appendAuditLog(entry) {
+  entry={...entry,path:require('../src/growth/contract').telemetryPath(entry?.path||'')};
   if (!MEDIA_STORAGE_POLICY.remoteOnly) {
     ensureLocalArtifacts();
     fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(entry)}\n`);
@@ -1436,6 +1437,7 @@ async function processIntelligenceQueueOnce(options = {}) {
       intelligenceQueueWorkerState.lastDemandResolutionAt=Date.now();
       try{await postgresStore.processDemandResolutions({batchSize:50});}catch{console.warn('[WINGA] Demand resolution processing deferred.');}
     }
+    if(postgresStore.processGrowthEventJobs)try{await postgresStore.reconcileRoomGrowthEvents({batchSize:50});await postgresStore.processGrowthEventJobs({batchSize:50});}catch{console.warn('[WINGA] Growth metadata processing deferred.');}
     const jobs = await postgresStore.claimIntelligenceQueueBatch({
       limit: INTELLIGENCE_QUEUE_BATCH_SIZE,
       workerId: INTELLIGENCE_QUEUE_WORKER_ID

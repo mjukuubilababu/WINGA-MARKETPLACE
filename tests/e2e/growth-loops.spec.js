@@ -166,13 +166,16 @@ test('failed-search notification request preserves exact query through authentic
     const body=route.request().postDataJSON();
     return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({goalId:'goal_search_fixture',status:'looking',queryReceived:body.query})});
   });
+  let releaseBoot;const bootDelay=new Promise(resolve=>{releaseBoot=resolve;});
+  await context.route('**/api/products**',async route=>{await bootDelay;await route.continue();});
   await page.goto('/');
-  await expect(page.locator('#search-input')).toBeVisible({timeout:30000});
-  await expect(page.locator('body')).toHaveClass(/app-ready/);
+  await page.waitForFunction(()=>typeof notifySearchDemand==='function');
   // Exercise the common auth-return contract with a previously selected Search context.
   // Canonical Search itself remains members-only. Wait for boot to finish before an action.
   const pending=page.waitForRequest('**/api/search-demand/subscriptions');
   await page.evaluate(()=>notifySearchDemand('unfindable purple walking moon boots'));
+  await expect(page.locator('#auth-container')).toBeVisible();
+  releaseBoot();await expect(page.locator('.product-card').first()).toBeAttached({timeout:30000});
   await expect(page.locator('#auth-container')).toBeVisible();
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   const subscription=await pending;expect(subscription.postDataJSON()).toEqual({query:'unfindable purple walking moon boots'});

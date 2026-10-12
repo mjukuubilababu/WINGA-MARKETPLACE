@@ -18,7 +18,7 @@
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
     const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short'};
-    if (!paths[type] || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
+    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
     return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
   }
   function parseDestination(input, origin) {

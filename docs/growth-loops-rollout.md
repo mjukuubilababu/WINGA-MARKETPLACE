@@ -337,3 +337,55 @@ collection/profile/creator attribution, utility seller-referral cohorts and the
 multi-loop operations dashboard are subsequent work. It does not certify live
 creator acquisition, D1/D7/D30 retention or regional performance. Keep measurement
 rollout under the existing cohort controls and retain the production-canary gate.
+
+## Shared server metadata delivery and operations
+
+Migration `202610121602_growth_event_jobs_v1` adds one reusable growth event
+outbox and Room measurement-eligibility flags to the existing canonical invite
+records. Accepted Room metadata is durably queued after authorization/ledger
+checks, then delivered to the same `growth_events` ledger asynchronously. The
+outbox stores opaque attribution/event IDs, actor hashes and allowlisted event
+metadata; no tokens, private room IDs, ciphertext or private message bodies.
+Processing uses bounded batches and `FOR UPDATE SKIP LOCKED`, savepoint isolation,
+six attempts, exponential backoff capped at five minutes, and dead letters.
+Canonical event uniqueness protects at-least-once delivery.
+
+Replay at `/api/admin/growth/events/replay` accepts at most fifty event IDs, only
+for dead jobs still within their original twenty-four-hour deadline. Replay
+preserves event identity, original creation/occurrence times and expiry.
+Reconciliation uses canonical opted-in invitation/request/acceptance facts if
+optional enqueue failed. It preserves those facts' original times and lifetime;
+it does not manufacture participation from ciphertext or enroll records created
+while measurement was disabled. Excluded cohort records are removed from
+reconciliation eligibility rather than repeatedly starving a bounded batch.
+Unmeasured requests do not enter acquisition denominators.
+
+Admin-only `/api/admin/growth/events` exposes aggregate queue states, retries,
+oldest ages and missing/expired invitation-creation reconciliation gaps. Manual
+reconciliation at `/api/admin/growth/events/reconcile` is bounded and requires an
+empty action body. No endpoint changes room membership, notifications, orders or
+content access. Existing CSRF/session/admin authorization applies. Both existing
+intelligence processors drain metadata opportunistically; the global measurement
+kill switch pauses processing without blocking core user actions. Existing
+browser outbox and direct product ledger contracts remain canonical.
+
+The browser regression now holds initial product requests to reproduce a real
+auth lifecycle race: late boot could close an auth dialog requested by the user.
+Opening auth cancels pending session restoration, and boot preserves the active
+auth dialog/context. The deliberately delayed-boot scenario now passes. Invite
+tokens are redacted centrally before all audit writes, and destination validation
+rejects inherited object keys as content types.
+
+Validation: durable async receipt/delivery, duplicate IDs, original occurrence
+and expiry, SQL failure/backoff/dead-letter/replay, expired replay rejection,
+measurement kill switch, canonical Room fact reconciliation, no retrospective
+enrollment, admin authorization and strict operation bodies. Full Room and
+frontend suites pass, eleven browser scenarios pass, and backend startup/health/
+graceful shutdown pass with localhost access. CI additionally runs the queue SQL
+contracts against disposable PostgreSQL. These checks do not establish live
+cohort activation, D7/D30 retention or production load/chaos SLOs.
+
+Rollback: stop measurement processing and invitation creation flags; retain the
+additive schema and canonical Room state. Keep dead letters for diagnosis and
+resume only eligible records inside original expiry. Do not renew deadlines or
+replay private content to reconstruct unavailable client-observed participation.

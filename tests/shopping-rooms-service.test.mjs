@@ -19,7 +19,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
       CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
       INSERT INTO products VALUES('public-product','bob','approved'),('private-product','bob','approved'),('suspended-product','bob','suspended');
       INSERT INTO public_content_visibility VALUES('product','private-product','private');`);
-    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
+    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
   }
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,
     roomInvitesEnabled:invites,inviteMeasurementEnabled:invites,inviteSecret:'synthetic-room-invite-secret-at-least-32-characters',
@@ -804,7 +804,7 @@ test('Room invitation preview exposes selected public products and requires cano
   assert.match(created.token,/^[A-Za-z0-9_-]{43}$/);
   assert.deepEqual(await f.alice.operation('room-invite-create',payload),{...created,duplicate:true});
   const guest=await f.store.resolveLoopInvite(created.token,{});
-  assert.deepEqual(Object.keys(guest).sort(),['attributionContext','expiresAt','inviteId','joiningEnabled','productIds','purpose','version']);
+  assert.deepEqual(Object.keys(guest).sort(),['attributionContext','expiresAt','inviteId','joiningEnabled','measurementEnabled','productIds','purpose','version']);
   assert.deepEqual(guest.productIds,['public-product']);
   assert.ok(!JSON.stringify(guest).includes(f.id));
   const authenticated=await f.store.resolveLoopInvite(created.token,{username:'dave'});
@@ -836,6 +836,7 @@ test('Room invitation preview exposes selected public products and requires cano
   const productShare=await sessions[0].command(f.id,'product-share',{productId:'public-product',note:'',snapshot:null});await sessions[3].sync();
   const shortlist=await sessions[3].command(f.id,'shortlist',{shareId:productShare.id,selected:true});
   await f.store.recordRoomGrowthEvent({...event('room_shortlist_created'),eventId:shortlist.id},{username:'dave'});
+  await f.store.processGrowthEventJobs();
   const report=await f.store.readRoomLoopHealth();
   assert.equal(report.cohort.canonicalAcceptCount,1);
   assert.equal(report.cohort.activationCount,1);
@@ -885,4 +886,20 @@ test('Room invite measurement failure cannot roll back durable invitation state;
   const preview=await f.store.resolveLoopInvite(created.token,{username:'dave'}),dave=f.people.find(p=>p.owner==='dave');
   await assert.rejects(dave.operation('room-invite-request',{...preview.joinContext,inviteId:created.inviteId,sessionId:randomUUID()}),{code:'growth_invitations_disabled'});
   assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM growth_invite_requests')).rows[0].n,0);
+  assert.equal((await f.store.reconcileRoomGrowthEvents()).queued,1);
+  await f.store.processGrowthEventJobs();
+  assert.equal((await f.store.reconcileRoomGrowthEvents()).queued,0);
+  const recovered=(await f.db.query('SELECT created_at FROM growth_events WHERE event_id=$1',['invite-created:'+payload.inviteId])).rows[0];
+  const source=(await f.db.query('SELECT created_at FROM growth_shares WHERE id=$1',[payload.inviteId])).rows[0];
+  assert.equal(new Date(recovered.created_at).toISOString(),new Date(source.created_at).toISOString());
+});
+
+test('Room measurement does not retroactively enroll invitations created while disabled',async t=>{
+  const f=await fixture(t,{invites:true});await f.activate();
+  const off=f.newStore({inviteMeasurementEnabled:false}),payload=invitePayload(f);
+  const created=await off.encryptedOperation(f.alice.context,f.alice.signed('room-invite-create',payload));
+  const preview=await f.store.resolveLoopInvite(created.token,{});assert.equal(preview.measurementEnabled,false);
+  const result=await f.store.recordRoomGrowthEvent({eventId:randomUUID(),shareId:created.inviteId,tokenHash:hash(Buffer.from(created.token)),sessionId:randomUUID(),eventType:'room_invite_opened',schemaVersion:1},{});
+  assert.equal(result.ignored,'unmeasured_invitation');assert.equal((await f.store.reconcileRoomGrowthEvents()).queued,0);
+  assert.equal((await f.store.readRoomLoopHealth()).entryCount,0);
 });

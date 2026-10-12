@@ -9,7 +9,7 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20, roomInvitesEnabled=process.env.WINGA_GROWTH_ROOM_INVITES_ENABLED==='true', inviteMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true',inviteSecret=process.env.WINGA_GROWTH_INVITE_SECRET || '', inviteCohort, inviteEventWriter, metrics=require('./conversation-metrics').conversationMetrics }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20, roomInvitesEnabled=process.env.WINGA_GROWTH_ROOM_INVITES_ENABLED==='true', inviteMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true',inviteSecret=process.env.WINGA_GROWTH_INVITE_SECRET || '', inviteCohort, inviteEventWriter, growthJobEventWriter, metrics=require('./conversation-metrics').conversationMetrics }) {
   if(typeof multiDeviceEnabled!=='boolean')throw new TypeError('Invalid encrypted device feature gate');
   if(typeof roomsEnabled!=='boolean')throw new TypeError('Invalid encrypted room feature gate');
   const newConversationLimit=Number(newConversationLimitPerHour);
@@ -24,6 +24,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     access:async(client,g,actor,owner,options)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner,options);},
     membershipFrozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),historyRecoveryEnabled:multiDeviceEnabled});
   const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,multiDeviceEnabled,roomLimits});
+  const growthEventJobs=require('./growth-event-jobs').createGrowthEventJobs({withTransaction,query:(...args)=>withTransaction(client=>client.query(...args)),enabled:inviteMeasurementEnabled,eventWriter:growthJobEventWriter,cohort:inviteCohort});
   const loopInvites=require('./growth-loop-invites').createLoopInvites({withTransaction,authorizeRoom:rooms.access,enabled:roomsEnabled&&roomInvitesEnabled,measurementEnabled:inviteMeasurementEnabled,secret:inviteSecret,
     cohort:inviteCohort,eventWriter:inviteEventWriter,onEventFailure:()=>{try{metrics.record('growth-invite-event-failure',503,0);}catch{}}});
   const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
@@ -352,7 +353,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       return {version:1,mode:row?.security_mode || 'legacy-plaintext'};
     });
   }
-  return { encryptedOperation, readEncryptedConversationMode,
+  return { encryptedOperation, readEncryptedConversationMode, ...growthEventJobs,
     resolveLoopInvite:loopInvites.resolveLoopInvite,recordRoomGrowthEvent:loopInvites.recordRoomGrowthEvent,invitePreferences:loopInvites.invitePreferences,readRoomLoopHealth:loopInvites.readRoomLoopHealth,
     resolveInviteSafetyTarget:loopInvites.resolveInviteSafetyTarget,recordInviteSafetyEvent:loopInvites.recordInviteSafetyEvent,
     pruneEncryptedNativeHistory:({batchSize=100}={})=>multiDeviceEnabled?withTransaction(async client=>{

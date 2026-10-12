@@ -299,3 +299,16 @@ test('public content routing rejects redirects and keeps safe follow context thr
   assert.deepEqual(contract.authIntent({type:'follow-person',username:'curator',returnTo:'/collection/public-picks',createdAt:now}),{type:'follow-person',username:'curator',returnTo:'/collection/public-picks',createdAt:now});
   assert.equal(contract.authIntent({type:'follow-person',username:'curator',returnTo:'https://evil.test',createdAt:now}).returnTo,undefined);
 });
+
+test('growth operations protect replay/reconciliation and expose only aggregate queue health',async()=>{
+  let session=null,response,payload={},calls=0;
+  const api=createGrowthApi({findSession:()=>session,readAuthToken:()=>'',clientIp:()=> '127.0.0.1',isAdminSession:s=>s.role==='admin',ensureUser:()=>true,
+    collectBody:async()=>payload,sendJson:(_res,status,body)=>{response={status,body};},getStore:()=>({readGrowthEventJobHealth:async()=>{calls++;return {states:[]};},replayGrowthEventJobs:async ids=>{calls++;assert.deepEqual(ids,['safe-event']);return {replayed:1};},reconcileRoomGrowthEvents:async()=>{calls++;return {queued:0};}})});
+  const req={method:'POST',headers:{'user-agent':'Mozilla/5.0'}};
+  const url=p=>new URL('https://winga.test/api/admin/growth/events'+p);
+  await api.handle(req,{},url('/replay'));assert.equal(response.status,403);assert.equal(calls,0);
+  session={username:'member',role:'buyer'};await api.handle({...req,method:'GET'},{},url(''));assert.equal(response.status,403);assert.equal(calls,0);
+  session={username:'admin',role:'admin'};payload={eventIds:['safe-event'],privateRoom:'secret'};await api.handle(req,{},url('/replay'));assert.equal(response.status,400);assert.equal(calls,0);
+  payload={eventIds:['safe-event']};await api.handle(req,{},url('/replay'));assert.deepEqual(response,{status:200,body:{replayed:1}});
+  payload={};await api.handle(req,{},url('/reconcile'));assert.deepEqual(response,{status:200,body:{queued:0}});
+});

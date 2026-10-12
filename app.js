@@ -4123,6 +4123,7 @@ function hideAuthGatePrompt() {
 }
 
 function openAuthModal(mode = "login", options = {}) {
+  if(!isAuthenticatedUser())cancelPendingSessionRestore("auth_dialog_opened");
   isPasswordRecovery = mode === "recover";
   isLogin = !isPasswordRecovery && mode !== "signup";
   authSignupStep = 1;
@@ -25824,13 +25825,16 @@ async function bootApp() {
     authState: currentUser ? "signed_in" : "guest"
   });
 
-  authContainer.style.display = "none";
-  document.body.classList.remove("auth-modal-open");
+  const preserveRequestedAuth=document.body.classList.contains("auth-modal-open")&&!isAuthenticatedUser();
+  if(!preserveRequestedAuth){
+    authContainer.style.display = "none";
+    document.body.classList.remove("auth-modal-open");
+  }
   appContainer.style.display = "block";
   refreshPublicEntryChrome({ deferHeavyChrome: true });
   const bootTargetView = getBootTargetView(cachedSession);
   const shouldUseEphemeralBootView = Boolean(cachedSession?.username);
-  if (suppressInitialProductHomeRender) {
+  if (suppressInitialProductHomeRender && !preserveRequestedAuth) {
     setCurrentViewState("home", shouldUseEphemeralBootView ? getEphemeralLifecycleViewOptions() : { syncHistory: false });
     openDeepLinkedProductRouteIfNeeded({ skipHomeRender: true });
   } else {
@@ -25841,14 +25845,14 @@ async function bootApp() {
         : undefined
     );
     renderCurrentView();
-    if (bootTargetView === "home") {
+    if (bootTargetView === "home"&&!preserveRequestedAuth) {
       openDeepLinkedProductRouteIfNeeded();
     }
   }
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
-  openPublicContentRouteIfNeeded();
-  if(String(window.location.pathname || '').startsWith('/invite/')){
+  if(!preserveRequestedAuth)openPublicContentRouteIfNeeded();
+  if(!preserveRequestedAuth&&String(window.location.pathname || '').startsWith('/invite/')){
     const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
     void getRoomInviteUi().open(target?.type==='SHOPPING_ROOM'?target.id:'');
   }

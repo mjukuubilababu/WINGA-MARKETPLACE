@@ -59,7 +59,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
     const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short'};
-    if (!paths[type] || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
+    if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
     return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
   }
   function parseDestination(input, origin) {
@@ -353,13 +353,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(invite?.version!==1||!contract.uuid(invite.inviteId)||invite.purpose!=='choose_products'||!Array.isArray(invite.productIds)
         ||invite.productIds.length>4||!invite.productIds.every(contract.id)||!Number.isFinite(Date.parse(invite.expiresAt))){unavailable();return;}
       if(!safetyCompleted)status.textContent='';
-      try{deps.getGrowth?.().roomInviteTouch(invite.inviteId);}catch{}
+      if(invite.measurementEnabled!==false)try{deps.getGrowth?.().roomInviteTouch(invite.inviteId);}catch{}
       let hash=invite.joinContext?.tokenHash || '';
       if(!hash&&win.WINGA_CONFIG?.growthMeasurement===true)try{
         hash=Array.from(new Uint8Array(await win.crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),b=>b.toString(16).padStart(2,'0')).join('');
       }catch{}
       if(!current())return;
-      try{deps.getGrowth?.().roomEvent('room_invite_opened',{inviteId:invite.inviteId,tokenHash:hash});}catch{}
+      if(invite.measurementEnabled!==false)try{deps.getGrowth?.().roomEvent('room_invite_opened',{inviteId:invite.inviteId,tokenHash:hash});}catch{}
       const products=await Promise.allSettled(invite.productIds.map(id=>deps.dataLayer.loadSharedProduct(id)));
       if(!current())return;
       for(const result of products){const product=result.status==='fulfilled'?result.value:null;

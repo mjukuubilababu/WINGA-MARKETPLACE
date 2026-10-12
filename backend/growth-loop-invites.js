@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const contract = require('../src/growth/contract');
-const {fail, key, publicProduct, quota, insertEvent} = require('./growth-infrastructure');
+const {fail, key, publicProduct, quota} = require('./growth-infrastructure');
 const {withTransportLocks} = require('./encrypted-transport-locks');
 const fields = Object.freeze({
   'room-invite-create': ['conversationId', 'inviteId', 'previewProducts', 'purpose', 'ttlHours'],
@@ -14,7 +14,7 @@ const tokenValid = token => typeof token === 'string' && /^[A-Za-z0-9_-]{43}$/.t
 const hashValid = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const participationEvents = ['room_participation_started', 'first_vote', 'first_comment', 'first_product_added', 'first_product_viewed', 'room_shortlist_created', 'room_poll_closed'];
 
-function createLoopInvites({withTransaction, authorizeRoom, enabled = false, measurementEnabled=false, secret = '', cohort = require('./growth-policy').createGrowthPolicy(process.env), eventWriter = insertEvent, onEventFailure = () => {}}) {
+function createLoopInvites({withTransaction, authorizeRoom, enabled = false, measurementEnabled=false, secret = '', cohort = require('./growth-policy').createGrowthPolicy(process.env), eventWriter = require('./growth-event-jobs').enqueueGrowthEvent, onEventFailure = () => {}}) {
   const actor = username => key('user:' + username);
   async function room(client, id) {
     return (await client.query('SELECT * FROM encrypted_conversations WHERE id=$1', [id])).rows[0];
@@ -41,7 +41,7 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
   async function load(client, id, context = {}, tokenHash = null, {admission = true} = {}) {
     if (!contract.uuid(id) || tokenHash !== null && !hashValid(tokenHash)) fail(404, 'growth_invite_unavailable');
     const invite = (await client.query(`SELECT s.*,i.token_hash,i.issuer_device_id,i.purpose,i.preview_products,i.ttl_hours,
-      i.expires_at AS invite_expires_at FROM growth_shares s JOIN growth_loop_invites i ON i.share_id=s.id
+      i.measurement_enabled,i.expires_at AS invite_expires_at FROM growth_shares s JOIN growth_loop_invites i ON i.share_id=s.id
       WHERE s.id=$1 AND s.content_type='SHOPPING_ROOM' AND s.revoked_at IS NULL AND s.expires_at>NOW()
         AND ($2::text IS NULL OR i.token_hash=$2) AND (NOT $3::boolean OR i.expires_at>NOW())`, [id, tokenHash, admission])).rows[0];
     if (!invite?.owner_username) fail(404, 'growth_invite_unavailable');
@@ -95,8 +95,8 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
       for (const id of products) if (!await publicProduct(client, id, owner)) fail(404, 'growth_invite_product_unavailable');
       await client.query(`INSERT INTO growth_shares(id,content_type,content_id,source_surface,campaign_type,owner_username,actor_key,expires_at)
         VALUES($1,'SHOPPING_ROOM',$2,'room','organic_invite',$3,$4,NOW()+INTERVAL '30 days')`, [p.inviteId, p.conversationId, owner, actor(owner)]);
-      const created = (await client.query(`INSERT INTO growth_loop_invites(share_id,token_hash,issuer_device_id,purpose,preview_products,ttl_hours,expires_at)
-        VALUES($1,$2,$3,$4,$5::jsonb,$6::integer,NOW()+($6::integer)*INTERVAL '1 hour') RETURNING expires_at`, [p.inviteId, key(token), deviceId, p.purpose, p.previewProducts, p.ttlHours])).rows[0];
+      const created = (await client.query(`INSERT INTO growth_loop_invites(share_id,token_hash,issuer_device_id,purpose,preview_products,ttl_hours,expires_at,measurement_enabled)
+        VALUES($1,$2,$3,$4,$5::jsonb,$6::integer,NOW()+($6::integer)*INTERVAL '1 hour',$7::boolean) RETURNING expires_at`, [p.inviteId, key(token), deviceId, p.purpose, p.previewProducts, p.ttlHours,measurementEnabled])).rows[0];
       await safeEvent(client, 'invite-created:' + p.inviteId, p.inviteId, actor(owner), 'room_invite_created', 'server');
       return {version: 1, inviteId: p.inviteId, token, expiresAt: new Date(created.expires_at).toISOString(), duplicate: false};
     }
@@ -138,7 +138,7 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
       if (!prior) fail(404, 'growth_invite_request_required');
       await authority(client, p.conversationId, owner, deviceId);
       await client.query("UPDATE growth_invite_requests SET status='accepted',accepted_at=COALESCE(accepted_at,NOW()) WHERE invite_id=$1 AND recipient_username=$2", [p.inviteId, owner]);
-      if (measurementEnabled && !prior.existing_member && owner !== state.invite.owner_username && cohort.allowsMeasurement(state.invite.owner_username, owner))
+      if (measurementEnabled && prior.measurement_enabled && !prior.existing_member && owner !== state.invite.owner_username && cohort.allowsMeasurement(state.invite.owner_username, owner))
         await safeEvent(client, 'invite-accepted:' + p.inviteId + ':' + actor(owner), p.inviteId, actor(owner), 'room_invite_accepted', 'server');
       return {version: 1, status: 'accepted', conversationId: p.conversationId, duplicate: prior.status === 'accepted'};
     }
@@ -154,9 +154,9 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
     const existingMember = final.info.owners.includes(owner);
     const accepted=existingMember&&final.info.roster.some(m=>m.owner===owner&&m.id===deviceId);
     if(accepted)await authority(client,p.conversationId,owner,deviceId);
-    await client.query(`INSERT INTO growth_invite_requests(invite_id,recipient_username,actor_device_id,existing_member,actor_key,journey_actor_key,status,accepted_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,CASE WHEN $8 THEN NOW() ELSE NULL END)`, [p.inviteId, owner, deviceId, existingMember, actor(owner), key('session:' + p.sessionId),accepted?'accepted':'requested',accepted]);
-    if (measurementEnabled && !existingMember && cohort.allowsMeasurement(final.invite.owner_username, owner))
+    await client.query(`INSERT INTO growth_invite_requests(invite_id,recipient_username,actor_device_id,existing_member,actor_key,journey_actor_key,status,accepted_at,measurement_enabled)
+      VALUES($1,$2,$3,$4,$5,$6,$7,CASE WHEN $8 THEN NOW() ELSE NULL END,$9::boolean)`, [p.inviteId, owner, deviceId, existingMember, actor(owner), key('session:' + p.sessionId),accepted?'accepted':'requested',accepted,measurementEnabled&&final.invite.measurement_enabled&&!existingMember&&cohort.allowsMeasurement(final.invite.owner_username,owner)]);
+    if (measurementEnabled && final.invite.measurement_enabled && !existingMember && cohort.allowsMeasurement(final.invite.owner_username, owner))
       await safeEvent(client, 'invite-requested:' + p.inviteId + ':' + actor(owner), p.inviteId, actor(owner), 'room_invite_requested', 'server');
     return {version: 1, status: accepted?'accepted':'requested', conversationId: p.conversationId, existingMember, duplicate: false};
   }
@@ -169,7 +169,7 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
       if (!initial) fail(404, 'growth_invite_unavailable');
       return withTransportLocks(client, ['group:' + initial.content_id], async () => {
         const {invite} = await load(client, row.share_id, context, key(token));
-        return {version: 1, inviteId: invite.id, purpose: invite.purpose,joiningEnabled:enabled,
+        return {version: 1, inviteId: invite.id, purpose: invite.purpose,joiningEnabled:enabled,measurementEnabled:invite.measurement_enabled&&measurementEnabled,
           attributionContext:{attributionId:invite.id,sourceType:'shopping_room_invite',sourceSurface:'room',campaignType:'organic_invite',
             destinationType:'SHOPPING_ROOM',destinationId:invite.id,createdAt:new Date(invite.created_at).toISOString(),expiresAt:new Date(invite.expires_at).toISOString(),metadataVersion:1},
           productIds: await visibleProducts(client, invite, context.username || ''), expiresAt: new Date(invite.invite_expires_at).toISOString(),
@@ -186,13 +186,14 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
     if (!measurementEnabled) return {ignored:'measurement_disabled'};
     return withTransaction(async client => {
       const {invite} = await load(client, payload.shareId, context, payload.tokenHash, {admission: payload.eventType === 'room_invite_opened'});
+      if(!invite.measurement_enabled)return {ignored:'unmeasured_invitation'};
       if (!cohort.allowsMeasurement(invite.owner_username, context.username || '')) return {ignored: 'cohort'};
       if (invite.owner_username === context.username) return {ignored: 'source'};
       let actorKey = key('session:' + payload.sessionId);
       if (payload.eventType !== 'room_invite_opened') {
         if (!context.username) fail(403, 'growth_invite_membership_required');
         const request = (await client.query("SELECT * FROM growth_invite_requests WHERE invite_id=$1 AND recipient_username=$2 AND status IN ('requested','accepted')", [payload.shareId, context.username])).rows[0];
-        if (!request || request.existing_member) fail(403, 'growth_invite_membership_required');
+        if (!request || !request.measurement_enabled || request.existing_member) fail(403, 'growth_invite_membership_required');
         const info = await load(client, payload.shareId, context, payload.tokenHash, {admission: false});
         if (!info.info.owners.includes(context.username)) fail(403, 'growth_invite_membership_required');
         actorKey = actor(context.username);
@@ -228,12 +229,12 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
   async function readRoomLoopHealth() {
     return withTransaction(async client => {
       const events = (await client.query(`SELECT e.event_type,e.verification,COUNT(*)::int AS count FROM growth_events e
-        JOIN growth_shares s ON s.id=e.share_id WHERE s.content_type='SHOPPING_ROOM'
+        JOIN growth_shares s ON s.id=e.share_id JOIN growth_loop_invites i ON i.share_id=s.id AND i.measurement_enabled WHERE s.content_type='SHOPPING_ROOM'
         AND s.created_at>=NOW()-INTERVAL '30 days' GROUP BY e.event_type,e.verification`)).rows;
       const counts = {};
       for (const row of events) counts[row.event_type]=(counts[row.event_type] || 0)+Number(row.count);
       const summary = (await client.query(`WITH opens AS (
-          SELECT e.share_id,e.actor_key,MIN(e.created_at) AS opened_at FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
+          SELECT e.share_id,e.actor_key,MIN(e.created_at) AS opened_at FROM growth_events e JOIN growth_shares s ON s.id=e.share_id JOIN growth_loop_invites i ON i.share_id=s.id AND i.measurement_enabled
           WHERE s.content_type='SHOPPING_ROOM' AND s.created_at>=NOW()-INTERVAL '30 days' AND e.event_type='room_invite_opened'
           AND e.actor_key<>s.actor_key GROUP BY e.share_id,e.actor_key
         ), journeys AS (
@@ -241,7 +242,7 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
             MIN(e.created_at) FILTER(WHERE e.event_type='room_participation_started' AND e.created_at>=r.accepted_at) AS activated_at,
             MIN(e.created_at) FILTER(WHERE e.event_type IN ('room_shortlist_created','room_poll_closed','first_order_started') AND e.created_at>=r.accepted_at) AS value_at,
             BOOL_OR(e.event_type='new_room_created_from_invited_user' AND e.created_at>=r.accepted_at) AS continued
-          FROM opens o LEFT JOIN growth_invite_requests r ON r.invite_id=o.share_id AND r.journey_actor_key=o.actor_key
+          FROM opens o LEFT JOIN growth_invite_requests r ON r.invite_id=o.share_id AND r.journey_actor_key=o.actor_key AND r.measurement_enabled
           LEFT JOIN growth_events e ON e.share_id=o.share_id AND e.actor_key=r.actor_key
           GROUP BY o.share_id,o.actor_key,o.opened_at,r.status,r.existing_member,r.actor_key
         ) SELECT COUNT(*)::int AS opens,COUNT(DISTINCT share_id)::int AS opened_invites,
@@ -254,12 +255,12 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
           (SELECT COUNT(*)::int FROM (SELECT member_actor FROM journeys WHERE activated_at IS NOT NULL AND NOT existing_member
             GROUP BY member_actor HAVING COUNT(*)>1) repeated)::int AS repeat_recipients
         FROM journeys`)).rows[0] || {};
-      const entryCount = Number((await client.query(`SELECT COUNT(*)::int AS count FROM growth_shares
-        WHERE content_type='SHOPPING_ROOM' AND created_at>=NOW()-INTERVAL '30 days'`)).rows[0]?.count || 0);
+      const entryCount = Number((await client.query(`SELECT COUNT(*)::int AS count FROM growth_shares s JOIN growth_loop_invites i ON i.share_id=s.id AND i.measurement_enabled
+        WHERE content_type='SHOPPING_ROOM' AND s.created_at>=NOW()-INTERVAL '30 days'`)).rows[0]?.count || 0);
       const ratio = (numerator, denominator) => Number(denominator) ? Number(numerator)/Number(denominator) : null;
       return {schemaVersion:1,loop:'shopping_room',windowDays:30,entryCount,counts,
         invitationsCreated:counts.room_invite_created || 0,invitationsDelivered:null,
-        cohort:{basis:'invites_created_last_30_days',humanOpenShareRate:ratio(summary.opened_invites,entryCount),
+        cohort:{basis:'measurement_eligible_invites_created_last_30_days',humanOpenShareRate:ratio(summary.opened_invites,entryCount),
           humanOpenJourneys:Number(summary.opens || 0),requestCount:Number(summary.requests || 0),canonicalAcceptCount:Number(summary.accepts || 0),
           activationCount:Number(summary.activations || 0),valueCount:Number(summary.values || 0),continuationCount:Number(summary.continuations || 0),
           requestRate:ratio(summary.requests,summary.opens),joinRate:ratio(summary.accepts,summary.requests),
@@ -286,7 +287,11 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
   }
   async function recordInviteSafetyEvent(inviteId,context,eventType){
     if(!measurementEnabled||!context.username||!contract.uuid(inviteId)||!['room_invite_reported','room_inviter_blocked'].includes(eventType))return;
-    return withTransaction(client=>safeEvent(client,'invite-safety:'+inviteId+':'+actor(context.username)+':'+eventType,inviteId,actor(context.username),eventType,'server'));
+    return withTransaction(async client=>{
+      const source=(await client.query('SELECT s.owner_username FROM growth_loop_invites i JOIN growth_shares s ON s.id=i.share_id WHERE i.share_id=$1 AND i.measurement_enabled',[inviteId])).rows[0];
+      if(!source?.owner_username||!cohort.allowsMeasurement(source.owner_username,context.username))return;
+      await safeEvent(client,'invite-safety:'+inviteId+':'+actor(context.username)+':'+eventType,inviteId,actor(context.username),eventType,'server');
+    });
   }
   return {handle, resolveLoopInvite, recordRoomGrowthEvent, invitePreferences, readRoomLoopHealth,resolveInviteSafetyTarget,recordInviteSafetyEvent};
 }
