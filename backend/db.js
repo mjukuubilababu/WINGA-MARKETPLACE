@@ -179,11 +179,14 @@ function resolveSlowQueryThreshold(value = process.env.DB_SLOW_QUERY_MS) {
   return Number.isFinite(parsedValue) ? Math.min(60000, Math.max(100, parsedValue)) : 1000;
 }
 
-function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT, searchDemandMinimumAudience = process.env.SEARCH_DEMAND_MIN_AUDIENCE }) {
+function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, readQueryClient = null, readReplicaDatabaseUrl = process.env.READ_REPLICA_DATABASE_URL || "", slowQueryThreshold = process.env.DB_SLOW_QUERY_MS, readRetryDelayMs = process.env.DB_READ_RETRY_DELAY_MS, listenClientFactory = null, commerceRediscoveryControlPercent = process.env.COMMERCE_REDISCOVERY_CONTROL_PERCENT, searchDemandMinimumAudience = process.env.SEARCH_DEMAND_MIN_AUDIENCE, searchOpportunityMinimumAudience = process.env.SEARCH_OPPORTUNITY_MIN_AUDIENCE }) {
   const requestedCommerceControlPercent = Number(commerceRediscoveryControlPercent ?? 10);
   const safeCommerceControlPercent = Math.min(50, Math.max(0, Number.isFinite(requestedCommerceControlPercent) ? requestedCommerceControlPercent : 10));
   const requestedSearchDemandMinimumAudience = Number(searchDemandMinimumAudience ?? 2);
   const safeSearchDemandMinimumAudience = Math.min(20, Math.max(2, Number.isFinite(requestedSearchDemandMinimumAudience) ? Math.round(requestedSearchDemandMinimumAudience) : 2));
+  // Seller search-gap eligibility is independent of aggregate trend privacy.
+  const requestedSearchOpportunityMinimumAudience = Number(searchOpportunityMinimumAudience ?? 1);
+  const safeSearchOpportunityMinimumAudience = Math.min(20, Math.max(1, Number.isFinite(requestedSearchOpportunityMinimumAudience) ? Math.round(requestedSearchOpportunityMinimumAudience) : 1));
   const pool = queryClient || new Pool({
     connectionString: databaseUrl,
     ssl: ssl ? { rejectUnauthorized: false } : false,
@@ -7379,14 +7382,17 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            query_key, MAX(detected_category) AS category,
            COALESCE(NULLIF(MAX(region), ''), NULLIF(MAX(location), ''), '') AS region,
            MAX(detected_color) AS color,
-           COUNT(*)::int AS evidence_count,
-           SUM(CASE WHEN happened_at >= NOW() - INTERVAL '7 days' THEN 2 ELSE 1 END)::float8 AS demand_score,
+           COUNT(DISTINCT audience_type || ':' || audience_key)::int AS evidence_count,
+           (COUNT(DISTINCT audience_type || ':' || audience_key)
+             + COUNT(DISTINCT audience_type || ':' || audience_key)
+               FILTER (WHERE happened_at >= NOW() - INTERVAL '7 days'))::float8 AS demand_score,
            MAX(result_count)::float8 AS supply_score
          FROM search_demand_events
          WHERE happened_at >= NOW() - INTERVAL '30 days'
            AND (zero_result IS TRUE OR result_count BETWEEN 1 AND 3)
+           AND NULLIF(audience_key, '') IS NOT NULL
          GROUP BY query_key
-         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
+         HAVING COUNT(DISTINCT audience_type || ':' || audience_key) >= $2
        ), sold_out_gaps AS (
          SELECT 'sold_out_restock'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
@@ -7411,7 +7417,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          WHERE happened_at >= NOW() - INTERVAL '30 days'
            AND detected_category <> '' AND COALESCE(NULLIF(region, ''), location) <> ''
          GROUP BY detected_category, COALESCE(NULLIF(region, ''), location)
-         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $2
+         HAVING COUNT(DISTINCT NULLIF(audience_type || ':' || audience_key, 'session:')) >= $3
        ), variant_gaps AS (
          SELECT 'variant_gap'::text AS type, ''::text AS query_key, p.category,
                 COALESCE(NULLIF(MAX(de.region), ''), '') AS region,
@@ -7441,7 +7447,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
               evidence_count, demand_score, supply_score FROM variant_gaps
        ORDER BY "demandScore" DESC, "evidenceCount" DESC
        LIMIT $1`,
-      [safeLimit, safeSearchDemandMinimumAudience]
+      [safeLimit, safeSearchOpportunityMinimumAudience, safeSearchDemandMinimumAudience]
     );
     return (result.rows || []).map((row) => ({
       ...row,
@@ -7493,7 +7499,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       `SELECT o.opportunity_id AS "opportunityId", o.type, o.source, o.query_key AS "queryKey",
               o.product_id AS "productId", o.category, o.region, o.color, o.size,
               o.demand_score::float8 AS "demandScore", o.supply_score::float8 AS "supplyScore",
-              o.evidence_count AS "evidenceCount", o.status, o.expires_at AS "expiresAt",
+              o.evidence_count AS "evidenceCount", o.metadata, o.status, o.expires_at AS "expiresAt",
               COUNT(sr.response_id) FILTER (WHERE sr.action_type NOT IN ('ignore', 'dismiss'))::int AS "responseCount",
               COALESCE(BOOL_OR(sr.seller_id = $1 AND sr.action_type NOT IN ('ignore', 'dismiss')), false) AS "sellerResponded"
        FROM commerce_opportunities o

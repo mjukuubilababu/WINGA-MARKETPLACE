@@ -19,7 +19,7 @@ implementation and does not authorize enabling every loop together.
 | Conversations sharing | IMPLEMENTED / PARTIAL | `src/chat/rich-content.js` and `backend/conversation-references.js` resolve live product, Reel/Short, collection and authorized order/payment/delivery cards. Recent-contact share picker and complete growth journey attribution are absent. |
 | Shopping Room invitations | PARTIAL | `backend/encrypted-shopping-rooms.js`, `src/chat/room-session.js` and `src/chat/rooms-ui.js` own MLS roster transitions, device proofs, acceptance, membership, polls and blocks. External bearer invites, scoped guest previews, revocation/expiry and room-growth reporting are missing. Token acceptance must never substitute for MLS admission. |
 | Product cards in chat / rooms | IMPLEMENTED | Rich-reference authorization and existing encrypted room product operations are canonical; do not create another card or membership model. |
-| Demand / Opportunity | PARTIAL / BROKEN | `backend/search-demand-service.js` supports minimum audience one. `backend/db.js:185-186` clamps persisted opportunity audience to at least two; `backend/server.js:10821` also supplies two in a legacy path. This does not meet the N=1 contract. Growth events must not inflate search demand. |
+| Demand / Opportunity | PARTIAL | The baseline withheld search-gap candidates below two audiences and the canonical normalizer rejected fewer than three signals. The N=1 remediation below separates search-gap eligibility from corroborated aggregate reports. Growth events must not inflate search demand. |
 | Demand → response → product linkage | PARTIAL | `backend/db.js:recordSupplyResponse` links opportunity, response, product and rediscovery audiences; commerce exposure/action/outcome tables exist. A complete per-buyer resolution chain and loop dashboard remain incomplete. |
 | Seller onboarding / activation | PARTIAL | Verification, usable product publication, messages/orders and opportunity responses exist. First-value cohorts and supply-quality/liquidity reporting are not a complete growth contract. |
 | Creator / Reel / Short sharing | PARTIAL | Public video products, playback attribution and rich references exist. Creator-specific destination integration, first-value and retention cohorts are missing. |
@@ -65,7 +65,7 @@ defects here. Current regression and production evidence must still be checked.
 | Guest-first product / auth return | Existing browser regression coverage; current run results must be recorded. |
 | Product Sharing Loop end-to-end | Existing synthetic SQL/browser rehearsal; real production cohort/value evidence remains pending. |
 | Shopping Room Invite Loop end-to-end | External invite lifecycle and metrics MISSING. |
-| Demand → Opportunity → Supply | Existing response linkage; full resolution chain and N=1 behavior incomplete. |
+| Demand → Opportunity → Supply | Existing response linkage and verified N=1 search-gap SQL; full resolution chain and production value evidence incomplete. |
 | Seller liquidity metrics | Complete category/region liquidity dashboard MISSING. |
 | Anti-spam / rate limits | Product share/event quotas implemented; external-invite controls not implemented. |
 | Duplicate protection | Stable IDs, SQL unique keys and canonical roster transitions exist; current regression evidence required. |
@@ -125,3 +125,40 @@ No external invitation, message, payment or production order was created.
 Production cohort configuration, admin report access and opted-in test accounts
 have not been established by these tests. Source default flags are not evidence
 of the deployed environment's settings. Live canary selection is still pending.
+
+## N=1 search-gap remediation
+
+One identified search audience can now generate a canonical zero-result or
+low-supply opportunity. `SEARCH_OPPORTUNITY_MIN_AUDIENCE` defaults to one and is
+bounded from one to twenty. `SEARCH_DEMAND_MIN_AUDIENCE` retains its minimum two
+for aggregate trends and regional candidates; the file-store summary's minimum
+two is also intentionally unchanged. This is separate eligibility, not a second
+Demand store or growth-event input to Search.
+
+Search-gap evidence now counts distinct server-owned audience keys, excluding
+missing identities and events older than thirty days. A buyer contributes at
+most two score units: one for demand within thirty days and one for activity
+within seven days. Repeated searches do not create independent evidence or
+increase that score. Opportunity IDs remain stable as evidence accumulates.
+Metadata marks `evidenceBasis: distinct_audiences` and `evidenceLevel:
+single_signal` or `corroborated`; neither is a statistical confidence estimate
+or a claim of high confidence. Seller reads retain these labels. No identity
+keys are returned to sellers, no growth notifications are added, and other
+opportunity types retain their existing thresholds.
+
+The executable SQL regression failed before the fix because both single-buyer
+gaps were absent. It now covers N=1 zero-result and low-supply eligibility,
+identity-less/stale exclusion, repeated searches, canonical normalization and
+upsert, seller evidence reads, two-buyer corroboration, stable IDs, preserved
+trend thresholds and a configurable higher opportunity threshold. It passes
+locally using PGlite; the required functional CI job runs it against a disposable
+PostgreSQL instance. Existing commerce tests (9) and pagination/storage tests
+(120) pass locally. These checks do not establish real buyer resolution,
+seller sales, production cohort activation or full N=1 support for every demand
+type. Restock, variant and regional loop completion remain further work.
+
+Raising `SEARCH_OPPORTUNITY_MIN_AUDIENCE` controls future candidate refreshes;
+it does not revoke already persisted opportunities. Revert this code release
+to restore former eligibility/scoring; existing opportunity rows still follow
+canonical expiry, dismissal and response behavior. No destructive migration
+or reset is required.

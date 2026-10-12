@@ -10,7 +10,7 @@ const {
   normalizeCommerceOpportunity
 } = require("../backend/commerce-opportunity");
 
-test("commerce opportunities have stable identities and reject weak signals", () => {
+test("commerce opportunities have stable identities and retain single-buyer evidence", () => {
   const now = new Date("2026-09-13T10:00:00.000Z");
   const candidate = {
     type: "zero_result",
@@ -29,7 +29,14 @@ test("commerce opportunities have stable identities and reject weak signals", ()
   assert.ok(first.opportunityId.startsWith("opp_"));
   assert.equal(first.opportunityId, second.opportunityId);
   assert.equal(first.region, "mwanza");
-  assert.equal(weak, null);
+  assert.ok(weak);
+  assert.equal(weak.evidenceCount, 1);
+  assert.equal(weak.metadata.evidenceLevel, "single_signal");
+  assert.equal(weak.metadata.evidenceBasis, "distinct_audiences");
+  assert.equal(normalizeCommerceOpportunity({ ...candidate, evidenceCount: 0 }, { now }), null);
+  assert.equal(normalizeCommerceOpportunity({ ...candidate, supplyScore: 1 }, { now }), null);
+  assert.equal(normalizeCommerceOpportunity({ ...candidate, type: "low_supply", evidenceCount: 1, supplyScore: 2 }, { now }).metadata.evidenceLevel, "single_signal");
+  assert.equal(first.metadata.evidenceLevel, "corroborated");
   assert.equal(buildCommerceOpportunities([candidate, candidate], { now }).length, 1);
 });
 

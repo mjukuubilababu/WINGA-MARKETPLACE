@@ -3085,7 +3085,7 @@ test("PostgreSQL search demand persistence stores anonymous events and reads agg
     assert.match(call.text, /HAVING COUNT\(DISTINCT NULLIF\(audience_type \|\| ':' \|\| audience_key, 'session:'\)\) >= \$2/);
   });
 });
-test("PostgreSQL commerce search opportunities require corroborating audiences", async () => {
+test("PostgreSQL search-gap eligibility is independent of corroborated regional reports", async () => {
   const calls = [];
   const store = createPostgresStore({
     databaseUrl: "postgres://test.invalid/winga",
@@ -3101,8 +3101,9 @@ test("PostgreSQL commerce search opportunities require corroborating audiences",
   const candidates = await store.readCommerceOpportunityCandidates(25);
 
   assert.deepEqual(candidates, []);
-  assert.deepEqual(calls[0].params, [25, 3]);
-  assert.equal((calls[0].text.match(/HAVING COUNT\(DISTINCT NULLIF\(audience_type \|\| ':' \|\| audience_key, 'session:'\)\) >= \$2/g) || []).length, 2);
+  assert.deepEqual(calls[0].params, [25, 1, 3]);
+  assert.match(calls[0].text, /HAVING COUNT\(DISTINCT audience_type \|\| ':' \|\| audience_key\) >= \$2/);
+  assert.match(calls[0].text, /HAVING COUNT\(DISTINCT NULLIF\(audience_type \|\| ':' \|\| audience_key, 'session:'\)\) >= \$3/);
 });
 test("PostgreSQL locale preferences use one versioned upsert and detect conflicts", async () => {
   const calls = [];
