@@ -19,7 +19,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
       CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
       INSERT INTO products VALUES('public-product','bob','approved'),('private-product','bob','approved'),('suspended-product','bob','suspended');
       INSERT INTO public_content_visibility VALUES('product','private-product','private');`);
-    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
+    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs','growth-cohorts'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
   }
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,
     roomInvitesEnabled:invites,inviteMeasurementEnabled:invites,inviteSecret:'synthetic-room-invite-secret-at-least-32-characters',

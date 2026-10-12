@@ -397,3 +397,11 @@ Collections, public profiles, Reels (including approved photo Reels) and Shorts 
 The admin content report separates each content loop and reports observed views, verified follow/save value, reshares and time to value; delivered invitations and cross-device acquisition remain unknown. The restored browser outbox strips unsupported fields and rejects expired original contexts even when retry timestamps are corrupt.
 
 Validation: growth policy/runtime/SQL/event-job suite passed; frontend and module synchronization/localization gates passed; 12 browser scenarios passed, including guest collection discovery, opaque reshare URLs and destination delivery while attribution returns 503. These are isolated synthetic tests, not production acquisition evidence. Production feature activation remains subject to the explicitly selected opted-in cohort.
+
+## Loop dashboards and authenticated cohorts — 2026-10-12
+
+The existing admin analytics surface now loads separate product, Room, public-content, marketplace and durable-delivery reports asynchronously. A failed report displays unavailable, not fabricated zero conversions; account changes discard late responses. No user IDs, invite tokens or private message bodies are displayed. The dashboard remains accessible when optional marketplace analytics fail. Labels are supplied in all four existing locales.
+
+An additive migration records only a server-derived authenticated account hash on newly accepted recipient events. Legacy/anonymous events remain unlinked; no backfill guesses identities. The aggregate cohort endpoint reports activation/value and exact 24-hour D1/D7/D30 return windows with mature denominators (2/8/31 elapsed days). This measures accepted growth-event return, not whole-app retention or proven first-ever acquisition. Historical source/cross-device claims without evidence remain unknown.
+
+Validation: canonical SQL cohort tests verify authenticated identity, anonymous exclusion, mature denominators and unknown immature rates; dashboard tests cover partial outages, escaped text and late account switches. Growth suites, four Room invitation/privacy/reconciliation scenarios, frontend checks, module synchronization and localization gates pass. Production D1/D7/D30 observations still require opted-in traffic and elapsed observation windows.

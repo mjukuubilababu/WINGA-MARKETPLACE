@@ -9913,6 +9913,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   return {
     init,
     ...require('./growth-store').createGrowthStore({ query, withTransaction }),
+    ...require('./growth-cohorts').createGrowthCohorts({query}),
     ...require('./growth-marketplace').createMarketplaceGrowth({readQuery}),
     ...require('./demand-resolution').createDemandResolution({withTransaction,transitionGoal:transitionCommerceGoalsWithClient,insertNotification:insertNotificationRow,enabled:demandResolutionEnabled}),
     ...createCheckoutReservationStore({ withTransaction, insertNotificationRow }),

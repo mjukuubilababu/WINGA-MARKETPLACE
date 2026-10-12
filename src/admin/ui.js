@@ -656,7 +656,56 @@
       }
     }
 
+    let growthSequence=0;
+    function renderGrowthReports(panel) {
+      if(!deps.isAdminUser()||!deps.loadGrowthLoopReports)return;
+      const sequence=++growthSequence,owner=deps.getCurrentUser?.();
+      const section=el('section','analytics-list',undefined,{'data-growth-dashboard':'true'});
+      section.append(el('h3','',t('growth.dashboard.title','Growth loop health')));
+      section.append(el('p','product-meta',t('growth.dashboard.loading','Loading loop reports…')));
+      panel.append(section);
+      Promise.resolve().then(()=>deps.loadGrowthLoopReports()).then(reports=>{
+        if(sequence!==growthSequence||!section.isConnected||deps.getCurrentUser?.()!==owner||!deps.isAdminUser()||deps.isAdminAnalyticsContext?.()===false)return;
+        section.replaceChildren(el('h3','',t('growth.dashboard.title','Growth loop health')));
+        const labels={product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
+        for(const report of Array.isArray(reports)?reports:[]){
+          if(!Object.hasOwn(labels,report.loop))continue;
+          const card=el('article','analytics-list-item',undefined,{'data-growth-loop':report.loop});
+          card.append(el('h4','',labels[report.loop]));
+          if(!report.available||!report.data){card.append(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));section.append(card);continue;}
+          const data=report.data,cohort=data.cohort||{},grid=el('div','analytics-grid');
+          const metric=(label,value,percentage=false)=>grid.append(createAnalyticsCard(label,percentage?rate(value):count(value)));
+          if(['product','room','profile','collection','reel','short'].includes(report.loop)){
+            metric(t('growth.dashboard.entries','Entries'),data.entryCount??cohort.entryCount);
+            metric(t('growth.dashboard.opened','Recipient journeys'),cohort.recipientJourneys??cohort.humanOpenJourneys);
+            metric(t('growth.dashboard.activation','Activation rate'),cohort.activationRate,true);
+            metric(t('growth.dashboard.value','Value rate'),cohort.valueRate,true);
+            metric(t('growth.dashboard.continuation','Continuation rate'),cohort.continuationRate,true);
+            metric(t('growth.dashboard.time','Time to value (seconds)'),cohort.timeToValueSeconds);
+            metric(t('growth.dashboard.repeat','Repeat recipients'),cohort.repeatRecipients);
+          }else if(report.loop==='delivery'){
+            for(const state of ['pending','completed','dead'])metric(state,(data.states||[]).find(row=>row.status===state)?.count??0);
+            metric(t('growth.dashboard.gaps','Missing source events'),data.reconciliationGaps?.missing);
+            metric(t('growth.dashboard.expired','Expired source gaps'),data.reconciliationGaps?.expired);
+          }else if(report.loop==='cohorts'){
+            for(const row of (data.cohorts||[]).slice(0,60))card.append(createAnalyticsListItem(`${String(row.loop)} · ${String(row.week).slice(0,10)}`,
+              `${t('growth.dashboard.accounts','Accounts')}: ${count(row.accounts)} · D1: ${rate(row.retention?.D1?.rate)} · D7: ${rate(row.retention?.D7?.rate)} · D30: ${rate(row.retention?.D30?.rate)}`));
+          }else{
+            metric(t('growth.dashboard.linked','Demand responses linked'),data.demandResolution?.linked);
+            metric(t('growth.dashboard.orders','Attributed order starts'),data.demandResolution?.ordered);
+            metric(t('growth.dashboard.delivered','Canonical delivered orders'),data.demandResolution?.delivered);
+            for(const row of (data.categories||[]).slice(0,12))card.append(createAnalyticsListItem(String(row.category||'—'),
+              `${t('growth.dashboard.supply','Available supply')}: ${count(row.available)} · ${t('growth.dashboard.search','Search result rate')}: ${rate(row.searchSuccessRate)}`));
+          }
+          card.append(grid);
+          for(const note of (data.limitations||[]).slice(0,8))if(typeof note==='string')card.append(el('p','product-meta',note));
+          section.append(card);
+        }
+      }).catch(()=>{if(sequence===growthSequence&&section.isConnected)section.replaceChildren(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));});
+    }
+
     function renderAnalyticsPanel(data, heading, subtitle) {
+      ++growthSequence;
       const panel = deps.getAnalyticsPanel();
       if (!panel) {
         return;
@@ -673,6 +722,7 @@
       if (!data) {
         nodes.push(deps.createEmptyState("Analytics hazijapatikana kwa sasa."));
         panel.replaceChildren(...nodes);
+        renderGrowthReports(panel);
         return;
       }
 
@@ -825,6 +875,7 @@
       }
 
       panel.replaceChildren(...nodes, grid, list);
+      renderGrowthReports(panel);
     }
 
     return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics };

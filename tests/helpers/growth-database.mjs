@@ -17,7 +17,7 @@ export async function growthFixture(t, {migrate = true} = {}) {
     INSERT INTO users VALUES('seller','active'),('sender','active'),('recipient','active'),('other','active');
     INSERT INTO products VALUES('p1','seller','approved'),('p2','seller','approved'),('private','seller','approved'),('pending','seller','pending');
     INSERT INTO public_content_visibility VALUES('product','private','private');`);
-  if (migrate) for (const step of [migration, require('../../backend/migrations/growth-event-timing')])
+  if (migrate) for (const step of [migration, require('../../backend/migrations/growth-event-timing'), require('../../backend/migrations/growth-cohorts')])
     for (const sql of step.statements) await db.exec(sql);
   // Fixed-window quota assertions need their small workload in one real server
   // minute. Avoid starting in its final ten seconds; do not mock database time.

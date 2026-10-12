@@ -43,6 +43,15 @@
       });
     }
 
+    async function loadGrowthLoopReports() {
+      requireFetcher();
+      const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],
+        ...['PROFILE','COLLECTION','REEL','SHORT'].map(type=>[type.toLowerCase(),'content?type='+type])];
+      const settled=await Promise.allSettled(sources.map(([,path])=>fetchJson(`${baseUrl}/admin/growth/${path}`,{headers:authHeaders()})));
+      return sources.map(([loop],index)=>({loop,available:settled[index].status==='fulfilled',
+        data:settled[index].status==='fulfilled'?settled[index].value:null}));
+    }
+
     async function loadAdminUsers() {
       requireFetcher();
       const data = await fetchJson(`${baseUrl}/admin/users`, {
@@ -222,6 +231,7 @@
 
     return {
       loadAdminOpsSummary,
+      loadGrowthLoopReports,
       loadAdminUsers,
       loadAdminProducts,
       loadAdminVideos,

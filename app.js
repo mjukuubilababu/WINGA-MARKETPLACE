@@ -13149,6 +13149,8 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsVie
   getCurrentDisplayName,
   isSellerAnalyticsView: () => currentView === "analytics" && canUseSellerFeatures(),
   loadAnalytics: (options) => window.WingaDataLayer.loadAnalytics(options),
+  loadGrowthLoopReports: () => window.WingaDataLayer.loadGrowthLoopReports(),
+  isAdminAnalyticsContext: () => currentView === "admin" && isAdminUser(),
   resolveCommerceGoal: (goalId, resolution) => window.WingaDataLayer.resolveCommerceGoal(goalId, resolution),
   decorateSellerAnalytics: (data) => ({ ...data, market: getSellerMarketInsightsForAnalytics(currentUser) }),
   onAnalyticsBack: () => {

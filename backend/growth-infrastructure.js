@@ -21,10 +21,14 @@ async function quota(client, bucket, limit, windowSeconds = 60) {
     WHERE growth_rate_buckets.count<$2 RETURNING count`, [bucket, limit, windowSeconds]);
   if (!result.rows.length) fail(429, 'growth_rate_limited');
 }
-async function insertEvent(client, eventId, shareId, actorKey, eventType, verification, durationMs = null) {
-  const result = await client.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification,client_duration_ms)
-    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING event_id`,
-  [eventId, shareId, actorKey, eventType, verification, durationMs]);
+async function insertEvent(client, eventId, shareId, actorKey, eventType, verification, durationMs = null, authenticatedActorKey = null) {
+  // Native Room actions use a server-derived account hash. Public open events
+  // use tab identities and acquire account identity only from authenticated intake.
+  const roomAccountEvent=eventType.startsWith('room_')&&eventType!=='room_invite_opened'||['first_vote','first_comment','first_product_added','first_product_viewed','first_order_started','new_room_created_from_invited_user'].includes(eventType);
+  const accountKey=authenticatedActorKey||(roomAccountEvent?actorKey:null);
+  const result = await client.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification,client_duration_ms,authenticated_actor_key)
+    VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING event_id`,
+  [eventId, shareId, actorKey, eventType, verification, durationMs,accountKey]);
   if (!result.rows.length) {
     const existing = (await client.query('SELECT share_id,actor_key,event_type FROM growth_events WHERE event_id=$1',[eventId])).rows[0];
     if (existing && (existing.share_id !== shareId || existing.actor_key !== actorKey || existing.event_type !== eventType))

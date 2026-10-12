@@ -225,6 +225,8 @@ test('timing migration preserves old events and rolls back a failed schema trans
   for(const sql of timing.statements)await f.db.exec(sql);
   const old=(await f.db.query("SELECT client_duration_ms FROM growth_events WHERE event_id='legacy-event'")).rows[0];
   assert.equal(old.client_duration_ms,null);
+  for(const sql of require('../backend/migrations/growth-cohorts').statements)await f.db.exec(sql);
+  assert.equal((await f.db.query("SELECT authenticated_actor_key FROM growth_events WHERE event_id='legacy-event'")).rows[0].authenticated_actor_key,null);
   await f.store.recordGrowthEvent(f.event('shared_product_viewed'),f.recipient);
   assert.equal((await f.store.readGrowthHealth()).timing.samples,0);
 });
@@ -357,4 +359,24 @@ test('creator/Profile envelopes enforce ready content, current public visibility
   const profile={...f.payload,shareId:randomUUID(),contentType:'PROFILE',contentId:'seller',sourceSurface:'profile'};
   await f.store.createGrowthShare(profile,f.source);await f.db.exec("UPDATE users SET status='suspended' WHERE username='seller'");
   await assert.rejects(f.store.resolveGrowthShare(profile.shareId,f.recipient),{code:'growth_share_unavailable'});
+});
+
+test('account cohorts use authenticated evidence and mature exact-day denominators, never anonymous guesses',async t=>{
+  const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+  const authenticated=f.event('shared_product_viewed');
+  await f.store.recordGrowthEvent(authenticated,f.recipient);
+  const {key}=require('../backend/growth-infrastructure');
+  const row=(await f.db.query('SELECT authenticated_actor_key FROM growth_events WHERE event_id=$1',[authenticated.eventId])).rows[0];
+  assert.equal(row.authenticated_actor_key,key('user:recipient'));
+  await f.store.recordGrowthEvent(f.event('product_share_opened'),{...f.recipient,username:''});
+  const report=require('../backend/growth-cohorts').createGrowthCohorts({query:(...args)=>f.db.query(...args)});
+  let data=await report.readGrowthCohorts();assert.equal(data.cohorts.length,1);
+  assert.equal(data.cohorts[0].accounts,1);assert.equal(data.cohorts[0].retention.D1.rate,null);
+  await f.db.query("UPDATE growth_events SET created_at=NOW()-INTERVAL '35 days' WHERE event_id=$1",[authenticated.eventId]);
+  for(const days of [34,28,5])await f.db.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification,authenticated_actor_key,created_at)
+    VALUES($1,$2,$3,'shared_product_viewed','client_observed',$4,NOW()-$5::integer*INTERVAL '1 day')`,[randomUUID(),f.payload.shareId,key('test-session:'+days),key('user:recipient'),days]);
+  data=await report.readGrowthCohorts();assert.equal(data.cohorts[0].accounts,1);
+  for(const day of ['D1','D7','D30'])assert.deepEqual(data.cohorts[0].retention[day],{eligible:1,returned:1,rate:1});
+  assert.equal(JSON.stringify(data).includes(key('user:recipient')),false);
+  assert.equal(JSON.stringify(data).includes('recipient"'),false);
 });

@@ -40,6 +40,11 @@ function createGrowthApi(deps) {
         if (!store?.readGrowthHealth) { send(503, { code: 'growth_unavailable' }); return true; }
         send(200, { ...await store.readGrowthHealth(), rollout: cohort.summary }); return true;
       }
+      if(path==='/api/admin/growth/cohorts'&&req.method==='GET'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.readGrowthCohorts){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.readGrowthCohorts());return true;
+      }
       if(path === '/api/admin/growth/marketplace' && req.method === 'GET'){
         if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
         if(!store?.readMarketplaceLoopHealth){send(503,{code:'growth_unavailable'});return true;}

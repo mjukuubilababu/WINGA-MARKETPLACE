@@ -2317,6 +2317,9 @@ async loadAdminPayments(filters) {
       async loadAdminOpsSummary() {
         return getAdminApiClient().loadAdminOpsSummary();
       },
+      async loadGrowthLoopReports() {
+        return getAdminApiClient().loadGrowthLoopReports();
+      },
       async reviewPromotion(promotionId, payload) {
         return getCommerceApiClient().reviewPromotion(promotionId, payload);
       },
@@ -4475,6 +4478,10 @@ async loadAdminPayments() {
       async loadAdminOpsSummary() {
         assertAdminAccess();
         return state.adapter.loadAdminOpsSummary ? state.adapter.loadAdminOpsSummary() : null;
+      },
+      async loadGrowthLoopReports() {
+        assertAdminAccess();
+        return state.adapter.loadGrowthLoopReports ? state.adapter.loadGrowthLoopReports() : [];
       },
       async reviewPromotion(promotionId, payload) {
         assertAdminAccess();

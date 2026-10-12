@@ -115,7 +115,7 @@ function createGrowthStore({ query, withTransaction }) {
       const finalShare = await load(client, payload.shareId, context);
       if (context.growthCohort && !context.growthCohort.allowsMeasurement(finalShare.owner_username || '', context.username || ''))
         fail(403, 'growth_cohort_excluded');
-      const inserted = await insertEvent(client,payload.eventId,share.id,actorKey,payload.eventType,verification,payload.durationMs ?? null);
+      const inserted = await insertEvent(client,payload.eventId,share.id,actorKey,payload.eventType,verification,payload.durationMs ?? null,context.username?key('user:'+context.username):null);
       return { accepted: true, duplicate: !inserted };
     });
   }
