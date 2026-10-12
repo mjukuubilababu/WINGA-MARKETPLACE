@@ -465,7 +465,7 @@
         '</strong><div data-rich-reference-kind="product" data-rich-reference-id="'+esc(c.data.productId)+'"></div>'+
         (message.senderId!==deps.getCurrentUser()&&message.sendState!=='failed'?'<button type="button" class="chat-rich-action" data-seller-message="'+esc(message.id)+'" data-seller-action="'+(c.type==='seller-question'?'answer':'share')+'">'+icon(c.type==='seller-question'?'reply':'share-2')+esc(t(c.type==='seller-question'?'rooms.respond':'rooms.shareResponse',c.type==='seller-question'?'Respond':'Share response to room'))+'</button>':'')+'</section>';
       if(['product','reel','short','collection','order','payment','delivery'].includes(c.type)) {
-        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
+        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'" data-growth-message-id="'+esc(message.id||'')+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
       }
       if(c.type==='contact')return '<button type="button" class="chat-rich-contact" data-rich-contact="'+esc(c.data.username)+'">'+icon('user-round')+'<span>'+esc(c.data.name||c.data.username)+'</span></button>';
       if(c.type==='location') {

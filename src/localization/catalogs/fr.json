@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "fr",
     "messages":  {
+        "growth.internalShareQueued": "En attente d’envoi ; la livraison n’est pas confirmée.",
         "growth.dashboard.conversation": "Réponses aux conversations",
         "growth.dashboard.trust": "Avis et confiance",
         "growth.dashboard.follow": "Réseau de suivi des personnes",

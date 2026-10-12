@@ -43,7 +43,7 @@ else
   node tests/growth-postgres.test.mjs
   node tests/growth-seller-referrals.test.mjs
   node tests/growth-network-health.test.mjs
-  node --test --test-name-pattern='Room invitation|Room invite measurement|Room measurement' tests/shopping-rooms-service.test.mjs
+  node --test --test-name-pattern='Room invitation|Room invite measurement|Room measurement|Room internal share' tests/shopping-rooms-service.test.mjs
 fi
 # Every fixture must have removed its schema before container cleanup.
 growth_schemas="$(growth_docker exec "$growth_container" psql -U winga_test -d winga_test -Atc "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'winga_room_test_%'")"

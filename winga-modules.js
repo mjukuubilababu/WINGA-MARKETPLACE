@@ -123,7 +123,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return result;
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
-  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
+  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|api\/growth\/internal|invite)\/)[^/?#]+/gi,'$1[redacted]');
   return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, shareTypes, referralEvents, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });
 
@@ -149,7 +149,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
-      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion','messageId']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
       if(field==='contentType')return contract.shareTypes.includes(value);
@@ -304,6 +304,21 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     function contentFollowed(username){syncIdentity();for(const touch of [...journey.touches].reverse())if(touch.creatorRef===username){contentEvent('shared_content_followed',touch);break;}}
     function contentSaved(productId){syncIdentity();for(const touch of [...journey.touches].reverse())if(['REEL','SHORT'].includes(touch.destinationType)&&touch.destinationId===productId){contentEvent('shared_content_saved',touch);break;}}
+    function noteInternalShare(type,id,messageId,sourceSurface){
+      syncIdentity();if(!account()||!measurement()||!enabled(type)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(type)||!contract.id(id)||!contract.uuid(messageId)||!['conversation','room'].includes(sourceSurface))return;
+      enqueue('shares',{shareId:randomId(),sessionId,contentType:type,contentId:id,messageId,sourceSurface,parentShareId:'',schemaVersion:1});
+    }
+    async function internalContentOpened(messageId,type,id,visibleProductId=id){
+      syncIdentity();const owner=account();
+      if(!owner||!measurement()||!contract.uuid(messageId)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(type)||!contract.id(id)||!deps.resolveInternalShare)return;
+      try{const source=await deps.resolveInternalShare(messageId,type,id);if(closed||account()!==owner||!contract.uuid(source?.shareId)||source.destinationType!==type||source.destinationId!==id)return;
+        const touch=type==='PRODUCT'?{shareId:source.shareId,productId:id,at:now()}:{shareId:source.shareId,destinationType:type,destinationId:id,...(contract.id(source.creatorRef)?{creatorRef:source.creatorRef}:{}),at:now()};
+        if(!journey.touches.some(t=>t.shareId===touch.shareId))journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+        journey.firstTouch=journey.firstTouch||touch;journey.lastTouch=touch;storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+        if(type==='PRODUCT'){event('product_share_opened',id);if(activeProduct===id)productVisible(id);}
+        else{contentEvent('content_share_opened',touch);if(activeProduct===visibleProductId){if(contentTimers.has(source.shareId))return;if(contentTimers.size>=20){const oldest=contentTimers.keys().next().value;win.clearTimeout(contentTimers.get(oldest));contentTimers.delete(oldest);}const timer=win.setTimeout(()=>{contentTimers.delete(source.shareId);if(!closed&&account()===owner&&activeProduct===visibleProductId&&win.document.visibilityState==='visible'&&win.document.body.classList.contains('product-detail-open'))contentEvent('shared_content_viewed',touch);},5000);contentTimers.set(source.shareId,timer);}}
+      }catch{health('internal_attribution_unavailable');}
+    }
     async function prepareSellerReferral(opportunityId){
       syncIdentity();const owner=account(),preparedSession=sessionId;
       if(!owner||!enabled('SELLER_REFERRAL')||!contract.destination('OPPORTUNITY',opportunityId))throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});
@@ -369,7 +384,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,prepareSellerReferral,referralVisible,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -509,8 +524,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               contentType==='PRODUCT'?await deps.dataLayer.loadSharedProduct(productId):await deps.dataLayer.readConversationReference(contentType.toLowerCase(),productId);
             if(!product||!current())throw new Error('growth_share_unavailable');
             if(contentType==='COLLECTION'&&(product.status!=='published'||product.visibility!=='public'||!product.items?.length))throw new Error('growth_share_unavailable');
-            await send(actionId);
-            if(current()){status.textContent=t('growth.internalShareSent','Shared.');button.remove();}
+            const result=await send(actionId);
+            if(current()){status.textContent=result?.status==='pending'||result?.sendState==='queued'?t('growth.internalShareQueued','Queued for sending; delivery is not confirmed.'):t('growth.internalShareSent','Shared.');button.remove();}
           }catch{if(current())status.textContent=t('growth.internalShareFailed','Unable to share. Try again to retry the same message.');}
           finally{busy=false;if(current())for(const b of list.querySelectorAll('button'))b.disabled=false;}
         };
@@ -2252,6 +2267,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      resolveInternalGrowthShare:async(messageId,type,id)=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.resolveInternalGrowthShare(messageId,type,id);},
       localConversationHistory:async peer=>{
         const key=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
         const identity=key(),session=deps.getSession?.();
@@ -18304,7 +18320,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         '</strong><div data-rich-reference-kind="product" data-rich-reference-id="'+esc(c.data.productId)+'"></div>'+
         (message.senderId!==deps.getCurrentUser()&&message.sendState!=='failed'?'<button type="button" class="chat-rich-action" data-seller-message="'+esc(message.id)+'" data-seller-action="'+(c.type==='seller-question'?'answer':'share')+'">'+icon(c.type==='seller-question'?'reply':'share-2')+esc(t(c.type==='seller-question'?'rooms.respond':'rooms.shareResponse',c.type==='seller-question'?'Respond':'Share response to room'))+'</button>':'')+'</section>';
       if(['product','reel','short','collection','order','payment','delivery'].includes(c.type)) {
-        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
+        return (c.data.ids||[c.data.id]).map(id=>'<div class="chat-rich-card" data-rich-reference-kind="'+esc(c.type)+'" data-rich-reference-id="'+esc(id)+'" data-growth-message-id="'+esc(message.id||'')+'"><p>'+esc(t('inbox.loading','Loading...'))+'</p></div>').join('');
       }
       if(c.type==='contact')return '<button type="button" class="chat-rich-contact" data-rich-contact="'+esc(c.data.username)+'">'+icon('user-round')+'<span>'+esc(c.data.name||c.data.username)+'</span></button>';
       if(c.type==='location') {
@@ -20457,6 +20473,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         fail('encrypted_seller_request_invalid');
       }
       const service={
+        resolveInternalGrowthShare:(messageId,contentType,contentId)=>serialize(()=>operation('growth-internal-read',{messageId,contentType,contentId})),
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia','invitationCapabilities','createInvite','createdInvites','revokeInvite','invitationRequests','declineInvite','requestInvite','inviteEvent'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(async()=>{
@@ -21112,7 +21129,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
-        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed',undefined,{productId:p.id}).catch(()=>{});return actions.openProduct?.(p.id);}));
+        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed',undefined,{productId:p.id}).catch(()=>{});return actions.openProduct?.(p.id,{growthMessageId:share.shareId,contentType:'PRODUCT'});}));
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
@@ -21220,7 +21237,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           else if(globalThis.WingaRichContent?.parse(m.message)&&['product','reel','short','collection'].includes(globalThis.WingaRichContent.parse(m.message).type)){
             const content=globalThis.WingaRichContent.parse(m.message);
             if(content.text)bubble.append(element('p',content.text));
-            for(const id of content.data.ids){const card=element('div','','chat-rich-card');card.dataset.richReferenceId=id;card.dataset.richReferenceKind=content.type;bubble.append(card);}
+            for(const id of content.data.ids){const card=element('div','','chat-rich-card');card.dataset.richReferenceId=id;card.dataset.richReferenceKind=content.type;card.dataset.growthMessageId=m.id;bubble.append(card);}
           }
           else if(m.message.startsWith('WINGA-ROOM/')){
             const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);
@@ -22095,13 +22112,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           ].filter(Boolean).join(' / ')));
           const row=element('div','chat-rich-card-actions');card.append(row);
           if(['product','reel','short'].includes(kind)) {
-            row.append(button(t('inbox.viewProduct','View product'),'eye',()=>actions.openProduct?.(id)));
+            row.append(button(t('inbox.viewProduct','View product'),'eye',()=>actions.openProduct?.(id,{growthMessageId:card.dataset.growthMessageId,contentType:kind.toUpperCase()})));
             if(kind==='product') {
               row.append(button(t('common.save','Save'),'bookmark',()=>actions.saveProduct?.(id)));
               if(item.availability!=='sold_out'&&item.availability!=='reserved')row.append(button(t('chat.richAddOrder','Add to order'),'shopping-bag',()=>actions.buyProduct?.(id)));
             }
           }else if(kind==='collection') {
-            for(const p of item.items||[])row.append(button(p.name||p.id,'tag',()=>actions.openProduct?.(p.id)));
+            for(const p of item.items||[])row.append(button(p.name||p.id,'tag',()=>actions.openProduct?.(p.id,{growthMessageId:card.dataset.growthMessageId,contentType:'COLLECTION',contentId:id})));
           }else {
             row.append(button(t('chat.richViewOrder','View order'),'shopping-bag',()=>actions.openOrder?.(id)));
             if(item.canSubmitReference)row.append(button(t('order.submitReferenceAction','Submit reference'),'credit-card',()=>actions.payOrder?.(id)));

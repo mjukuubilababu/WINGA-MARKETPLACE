@@ -147,6 +147,7 @@ function createGrowthApi(deps) {
       if (path === '/api/growth/shares' && req.method === 'POST') {
         if (!cohort.allowsCreation(context.username)) { send(403, { code: 'growth_cohort_excluded' }); return true; }
         const payload = await deps.collectBody(req, { maxBytes: 4096 });
+        if(payload?.messageId&&!deps.measurementEnabled){send(404,{code:'growth_measurement_disabled'});return true;}
         const allowed=payload?.contentType==='SELLER_REFERRAL'?deps.sellerReferralEnabled:payload?.contentType==='PRODUCT'?deps.productSharingEnabled:payload?.contentType==='COLLECTION'?deps.collectionSharingEnabled:payload?.contentType==='PROFILE'?deps.profileSharingEnabled:['REEL','SHORT'].includes(payload?.contentType)?deps.creatorSharingEnabled:false;
         if (!allowed) { send(404, { code: 'growth_sharing_disabled' }); return true; }
         if (context.bot) { send(400, { code: 'growth_crawler_rejected' }); return true; }

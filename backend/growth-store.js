@@ -1,7 +1,7 @@
 const contract = require('../src/growth/contract');
 const {fail, key, fields, publicProduct, publicContent, quota, insertEvent} = require('./growth-infrastructure');
 
-function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true' }) {
+function createGrowthStore({ query, withTransaction, authorizeInternalDirect,allowInternalRooms=true,referralMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true' }) {
   const referrals=require('./growth-seller-referrals').createSellerReferrals({query,withTransaction,measurementEnabled:referralMeasurementEnabled});
   function identity(context, sessionId) {
     if (!contract.uuid(sessionId)) fail(400, 'growth_session_invalid');
@@ -20,20 +20,32 @@ function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=
   async function createGrowthShare(payload, context) {
     if(payload?.contentType==='SELLER_REFERRAL')return referrals.createSellerReferral(payload,context);
     if (context.growthCohort && !context.growthCohort.allowsCreation(context.username || '')) fail(403, 'growth_cohort_excluded');
-    if (!fields(payload, ['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion'])
+    if (!fields(payload, ['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion','messageId'])
       || payload.schemaVersion !== 1 || !contract.publicTypes.includes(payload.contentType) || !contract.uuid(payload.shareId)
       || !contract.destination(payload.contentType, payload.contentId) || !contract.surfaces.includes(payload.sourceSurface)
       || (payload.parentShareId && !contract.uuid(payload.parentShareId))) fail(400, 'growth_share_invalid');
+    if(payload.messageId!==undefined&&(!contract.uuid(payload.messageId)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(payload.contentType)||!['conversation','room'].includes(payload.sourceSurface)))fail(400,'growth_share_invalid');
     const actorKey = identity(context, payload.sessionId);
     return withTransaction(async client => {
+      let internal=null;
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['growth-share:' + payload.shareId]);
+      if(payload.messageId)await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['growth-internal:'+payload.messageId+':'+payload.contentType+':'+payload.contentId]);
       const existing = (await client.query('SELECT * FROM growth_shares WHERE id=$1', [payload.shareId])).rows[0];
       if (existing) {
         if (existing.actor_key !== actorKey || (existing.owner_username || '') !== (context.username || '') || existing.content_type !== payload.contentType || existing.content_id !== payload.contentId
           || existing.source_surface !== payload.sourceSurface || (existing.parent_share_id || '') !== (payload.parentShareId || ''))
           fail(409, 'growth_share_conflict');
         await load(client, payload.shareId, context);
+        if(payload.messageId){const mapping=(await client.query('SELECT message_id FROM growth_internal_shares WHERE share_id=$1',[existing.id])).rows[0];
+          if(mapping?.message_id!==payload.messageId)fail(409,'growth_share_conflict');
+          await require('./growth-internal-context').authorizeInternalShare(client,payload.messageId,context.username,{source:true});}
         return { shareId: existing.id, duplicate: true };
+      }
+      if(payload.messageId){
+        internal=await require('./growth-internal-context').authorizeInternalShare(client,payload.messageId,context.username,{source:true});
+        if(internal.surface!==payload.sourceSurface||Date.now()-new Date(internal.message.created_at).getTime()>86400000)fail(404,'growth_internal_share_unavailable');
+        const reusable=(await client.query('SELECT share_id FROM growth_internal_shares WHERE message_id=$1 AND content_type=$2 AND content_id=$3',[payload.messageId,payload.contentType,payload.contentId])).rows[0];
+        if(reusable){await load(client,reusable.share_id,context);return {shareId:reusable.share_id,duplicate:true};}
       }
       if (!await publicContent(client,payload.contentType,payload.contentId,context.username || '')) fail(404, 'growth_share_unavailable');
       const quotaActor = context.username ? key('user:' + context.username) : actorKey;
@@ -52,10 +64,14 @@ function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=
       // Recheck the parent after the final eligibility read, not its earlier snapshot.
       if (parent) parent = await load(client, payload.parentShareId, context);
       const result = await client.query(`INSERT INTO growth_shares(id,content_type,content_id,source_surface,
-        owner_username,actor_key,parent_share_id,expires_at)
-        VALUES($1,$7,$2,$3,$4,$5,$6,NOW()+INTERVAL '30 days') ON CONFLICT DO NOTHING RETURNING id`,
-      [payload.shareId,payload.contentId,payload.sourceSurface,context.username || null,actorKey,parent?.id || null,payload.contentType]);
+        owner_username,actor_key,parent_share_id,created_at,expires_at)
+        VALUES($1,$7,$2,$3,$4,$5,$6,COALESCE($8::timestamptz,NOW()),COALESCE($8::timestamptz,NOW())+INTERVAL '30 days') ON CONFLICT DO NOTHING RETURNING id`,
+      [payload.shareId,payload.contentId,payload.sourceSurface,context.username || null,actorKey,parent?.id || null,payload.contentType,internal?.message.created_at||null]);
       if (!result.rows.length) fail(409, 'growth_share_conflict');
+      if(payload.messageId){
+        await require('./growth-internal-context').authorizeInternalShare(client,payload.messageId,context.username,{source:true});
+        await client.query('INSERT INTO growth_internal_shares(share_id,message_id,content_type,content_id) VALUES($1,$2,$3,$4)',[payload.shareId,payload.messageId,payload.contentType,payload.contentId]);
+      }
       await insertEvent(client, 'created:' + payload.shareId, payload.shareId, actorKey, payload.contentType==='PRODUCT'?'product_share_created':'content_share_created', 'server');
       if (parent && parent.actor_key !== actorKey && (!context.username || parent.owner_username !== context.username)
         && (!context.growthCohort || context.growthCohort.allowsMeasurement(parent.owner_username || '', context.username || '')))
@@ -69,6 +85,20 @@ function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=
     return { attributionId: share.id, destinationType: share.content_type, destinationId: share.content_id,
       sourceType: 'organic_share', sourceSurface: share.source_surface, campaignType: share.campaign_type,
       createdAt: new Date(share.created_at).toISOString(), expiresAt: new Date(share.expires_at).toISOString(), metadataVersion: 1 };
+  }
+  async function resolveInternalGrowthShare(messageId,contentType,contentId,context){
+    if(!contract.uuid(messageId)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(contentType)||!contract.id(contentId))fail(404,'growth_internal_share_unavailable');
+    if(!contract.uuid(context.actorDeviceId))fail(403,'growth_native_proof_required');
+    return withTransaction(async client=>{
+      await require('./growth-internal-context').authorizeInternalShare(client,messageId,context.username,{deviceId:context.actorDeviceId,authorizeDirect:authorizeInternalDirect,allowRooms:allowInternalRooms});
+      const mapping=(await client.query('SELECT share_id FROM growth_internal_shares WHERE message_id=$1 AND content_type=$2 AND content_id=$3',[messageId,contentType,contentId])).rows[0];
+      if(!mapping)fail(404,'growth_internal_share_unavailable');
+      const share=await load(client,mapping.share_id,context);
+      const content=await publicContent(client,share.content_type,share.content_id,context.username,share.owner_username||'');
+      if(!content)fail(404,'growth_internal_share_unavailable');
+      await require('./growth-internal-context').authorizeInternalShare(client,messageId,context.username,{deviceId:context.actorDeviceId,authorizeDirect:authorizeInternalDirect,allowRooms:allowInternalRooms});
+      return {shareId:share.id,destinationType:share.content_type,destinationId:share.content_id,...(content.creator?{creatorRef:content.creator}:{}),metadataVersion:1};
+    });
   }
   async function recordGrowthEvent(payload, context) {
     if(contract.referralEvents.includes(payload?.eventType))return referrals.recordSellerReferralEvent(payload,context);
@@ -91,14 +121,14 @@ function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=
       await quota(client, 'event:actor:' + (context.username ? key('user:' + context.username) : actorKey), 120);
       let verification = 'client_observed';
       if (payload.eventType === 'shared_product_saved') {
-        if (!context.username || !(await client.query(`SELECT 1 FROM product_likes
-          WHERE product_id=$1 AND user_id=$2 AND created_at>=$3`,
+        if (!context.username || !(await client.query(`SELECT 1 FROM product_likes l JOIN products p ON p.id=l.product_id
+          WHERE l.product_id=$1 AND l.user_id=$2 AND p.uploaded_by<>$2 AND l.created_at>=$3`,
           [share.content_id,context.username,share.created_at])).rows.length) fail(409, 'growth_value_unconfirmed');
         verification = 'server';
       }
       if (payload.eventType === 'shared_product_order_started') {
-        if (!context.username || !payload.orderId || !(await client.query(`SELECT 1 FROM orders
-          WHERE id=$1 AND product_id=$2 AND buyer_username=$3 AND created_at>=$4`,
+        if (!context.username || !payload.orderId || !(await client.query(`SELECT 1 FROM orders o JOIN products p ON p.id=o.product_id
+          WHERE o.id=$1 AND o.product_id=$2 AND o.buyer_username=$3 AND p.uploaded_by<>$3 AND o.created_at>=$4`,
           [payload.orderId,share.content_id,context.username,share.created_at])).rows.length)
           fail(409, 'growth_value_unconfirmed');
         verification = 'server';
@@ -219,6 +249,6 @@ function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=
     const result = await query(`DELETE FROM growth_shares WHERE created_at<NOW()-INTERVAL '90 days' RETURNING id`);
     return { deleted: result.rows.length };
   }
-  return { ...referrals,createGrowthShare, resolveGrowthShare, recordGrowthEvent, revokeGrowthShare, resolveGrowthShareSafetyTarget,readGrowthHealth, readContentGrowthHealth, pruneGrowthRecords };
+  return { ...referrals,createGrowthShare, resolveGrowthShare, resolveInternalGrowthShare,recordGrowthEvent, revokeGrowthShare, resolveGrowthShareSafetyTarget,readGrowthHealth, readContentGrowthHealth, pruneGrowthRecords };
 }
 module.exports = { createGrowthStore };

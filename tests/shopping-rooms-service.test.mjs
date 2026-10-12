@@ -20,7 +20,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
       CREATE TABLE orders(id TEXT PRIMARY KEY,product_id TEXT,buyer_username TEXT,seller_username TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
       INSERT INTO products VALUES('public-product','bob','approved'),('private-product','bob','approved'),('suspended-product','bob','suspended');
       INSERT INTO public_content_visibility VALUES('product','private-product','private');`);
-    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs','growth-cohorts'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
+    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs','growth-cohorts','growth-internal-shares'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
   }
   const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,
     roomInvitesEnabled:invites,inviteMeasurementEnabled:invites,inviteSecret:'synthetic-room-invite-secret-at-least-32-characters',
@@ -915,4 +915,27 @@ test('Room measurement does not retroactively enroll invitations created while d
   const result=await f.store.recordRoomGrowthEvent({eventId:randomUUID(),shareId:created.inviteId,tokenHash:hash(Buffer.from(created.token)),sessionId:randomUUID(),eventType:'room_invite_opened',schemaVersion:1},{});
   assert.equal(result.ignored,'unmeasured_invitation');assert.equal((await f.store.reconcileRoomGrowthEvents()).queued,0);
   assert.equal((await f.store.readRoomLoopHealth()).entryCount,0);
+});
+
+test('Room internal share attribution reuses accepted native messages without disclosing history or granting membership',async t=>{
+ const f=await fixture(t,{four:true,invites:true,excludeFromRoom:['dave']});await f.activate();
+ const sessions=await lifecycleSessions(f),share=await sessions[0].command(f.id,'product-share',{productId:'public-product',note:'PRIVATE_CONTEXT_NEVER_ANALYTICS',snapshot:null});
+ const store=require('../backend/growth-store').createGrowthStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(work)});
+ const payload={shareId:randomUUID(),sessionId:randomUUID(),contentType:'PRODUCT',contentId:'public-product',sourceSurface:'room',parentShareId:'',schemaVersion:1,messageId:share.id};
+ await store.createGrowthShare(payload,{username:'alice',ip:'fixture'});
+ assert.equal((await store.createGrowthShare(payload,{username:'alice',ip:'fixture'})).duplicate,true);
+ assert.equal((await store.createGrowthShare({...payload,shareId:randomUUID()},{username:'alice',ip:'fixture'})).shareId,payload.shareId);
+ const metadata=await f.eve.operation('growth-internal-read',{messageId:share.id,contentType:'PRODUCT',contentId:'public-product'});
+ await assert.rejects(store.resolveInternalGrowthShare(share.id,'PRODUCT','public-product',{username:'eve'}),{code:'growth_native_proof_required'});
+ await assert.rejects(f.store.encryptedOperation(f.eve.context,{action:'growth-internal-read',actorId:f.eve.native.id,requestId:randomUUID(),issuedAt:Date.now(),payload:{messageId:share.id,contentType:'PRODUCT',contentId:'public-product'},signature:encode(randomBytes(64))}),{code:'encrypted_proof_rejected'});
+ assert.equal(metadata.shareId,payload.shareId);assert.equal(metadata.destinationId,'public-product');
+ for(const privateValue of [share.id,f.id,'PRIVATE_CONTEXT_NEVER_ANALYTICS','alice'])assert.equal(JSON.stringify(metadata).includes(privateValue),false);
+ assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_internal_shares')).rows[0].count,1);
+ const clocks=(await f.db.query('SELECT s.created_at=m.created_at AS same FROM growth_shares s JOIN growth_internal_shares i ON i.share_id=s.id JOIN encrypted_conversation_messages m ON m.id=i.message_id WHERE s.id=$1',[payload.shareId])).rows[0];assert.equal(clocks.same,true);
+ await assert.rejects(f.people.find(person=>person.owner==='dave').operation('growth-internal-read',{messageId:share.id,contentType:'PRODUCT',contentId:'public-product'}),{code:'growth_internal_share_unavailable'});
+ await assert.rejects(store.createGrowthShare({...payload,shareId:randomUUID()},{username:'dave',ip:'fixture'}),{code:'growth_internal_share_unavailable'});
+ await f.db.query("INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('alice','eve')");
+ await assert.rejects(f.eve.operation('growth-internal-read',{messageId:share.id,contentType:'PRODUCT',contentId:'public-product'}),{code:'growth_internal_share_unavailable'});
+ await f.db.query('DELETE FROM user_blocks');await sessions[2].leave(f.id);
+ await assert.rejects(f.eve.operation('growth-internal-read',{messageId:share.id,contentType:'PRODUCT',contentId:'public-product'}),{code:'growth_internal_share_unavailable'});
 });

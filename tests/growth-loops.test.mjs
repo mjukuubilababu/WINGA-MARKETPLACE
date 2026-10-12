@@ -388,3 +388,12 @@ test('authorized Opportunity routes preserve bounded auth context without becomi
   for(const path of ['/opportunity/%2Fsecret','/opportunity/opp_exact?share='+randomUUID(),'/opportunity/opp_exact?redirect=https://evil.test'])assert.equal(contract.parseDestination(path,'https://winga.test'),null);
   assert.equal(contract.shareUrl('https://winga.test','opp_exact',randomUUID(),'OPPORTUNITY'),null);
 });
+
+test('a seller receiving another person’s share cannot manufacture own-product save/order value',async t=>{
+ const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+ await f.db.query("INSERT INTO product_likes(product_id,user_id) VALUES('p1','seller')");
+ await f.db.query("INSERT INTO orders(id,product_id,buyer_username) VALUES('self-order','p1','seller')");
+ const seller={...f.recipient,username:'seller'};
+ await assert.rejects(f.store.recordGrowthEvent(f.event('shared_product_saved'),seller),{code:'growth_value_unconfirmed'});
+ await assert.rejects(f.store.recordGrowthEvent({...f.event('shared_product_order_started'),orderId:'self-order'},seller),{code:'growth_value_unconfirmed'});
+});

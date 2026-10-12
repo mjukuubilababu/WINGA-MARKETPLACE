@@ -3,6 +3,7 @@
     "version":  "2026.09.09.3",
     "locale":  "ar",
     "messages":  {
+        "growth.internalShareQueued": "في قائمة انتظار الإرسال؛ لم يتم تأكيد التسليم.",
         "growth.dashboard.conversation": "الردود على المحادثات",
         "growth.dashboard.trust": "المراجعات والثقة",
         "growth.dashboard.follow": "شبكة متابعة الأشخاص",

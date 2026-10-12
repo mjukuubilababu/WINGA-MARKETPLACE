@@ -12914,7 +12914,8 @@ const {
   openOwnProductMessages: openOwnProductMessagesFromController
 } = window.WingaModules.chat.createChatControllerModule({
   resumeOrderPayment,
-  openConversationProduct:async id=>{await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();openProductDetailModal(id);},
+  openConversationProduct:async(id,context={})=>{await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();openProductDetailModal(id);
+    if(context.growthMessageId)try{void getGrowthRuntime().internalContentOpened(context.growthMessageId,context.contentType||'PRODUCT',context.contentId||id,id);}catch{}},
   saveConversationProduct:async id=>{await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();toggleSavedProduct(id);},
   buyConversationProduct:async id=>{const product=await window.WingaDataLayer.readConversationProduct(id);refreshProductsFromStore();beginPurchaseFlow(product);},
   openConversationOrder:()=>openProfileSection("profile-orders-panel"),
@@ -24293,7 +24294,8 @@ async function handleShareProduct(product, options = {}) {
 function getGrowthRuntime() {
   if (!window.WingaGrowth) {
     window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
-      getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload) });
+      getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload),
+      resolveInternalShare:(messageId,type,id)=>window.WingaDataLayer.resolveInternalGrowthShare(messageId,type,id) });
   }
   return window.WingaGrowth;
 }

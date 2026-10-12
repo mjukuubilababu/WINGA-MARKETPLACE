@@ -82,6 +82,6 @@
     return result;
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
-  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
+  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|api\/growth\/internal|invite)\/)[^/?#]+/gi,'$1[redacted]');
   return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, shareTypes, referralEvents, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });

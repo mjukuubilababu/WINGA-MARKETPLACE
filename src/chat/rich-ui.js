@@ -187,13 +187,13 @@
           ].filter(Boolean).join(' / ')));
           const row=element('div','chat-rich-card-actions');card.append(row);
           if(['product','reel','short'].includes(kind)) {
-            row.append(button(t('inbox.viewProduct','View product'),'eye',()=>actions.openProduct?.(id)));
+            row.append(button(t('inbox.viewProduct','View product'),'eye',()=>actions.openProduct?.(id,{growthMessageId:card.dataset.growthMessageId,contentType:kind.toUpperCase()})));
             if(kind==='product') {
               row.append(button(t('common.save','Save'),'bookmark',()=>actions.saveProduct?.(id)));
               if(item.availability!=='sold_out'&&item.availability!=='reserved')row.append(button(t('chat.richAddOrder','Add to order'),'shopping-bag',()=>actions.buyProduct?.(id)));
             }
           }else if(kind==='collection') {
-            for(const p of item.items||[])row.append(button(p.name||p.id,'tag',()=>actions.openProduct?.(p.id)));
+            for(const p of item.items||[])row.append(button(p.name||p.id,'tag',()=>actions.openProduct?.(p.id,{growthMessageId:card.dataset.growthMessageId,contentType:'COLLECTION',contentId:id})));
           }else {
             row.append(button(t('chat.richViewOrder','View order'),'shopping-bag',()=>actions.openOrder?.(id)));
             if(item.canSubmitReference)row.append(button(t('order.submitReferenceAction','Submit reference'),'credit-card',()=>actions.payOrder?.(id)));

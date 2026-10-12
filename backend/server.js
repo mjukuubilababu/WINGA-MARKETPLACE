@@ -6933,7 +6933,7 @@ function getRateLimitIdentity(req, store) {
 
 function getRateLimitRule(pathname, method = "GET") {
   const normalizedMethod = String(method || "GET").toUpperCase();
-  if (pathname.startsWith('/api/growth/shares/') || pathname.startsWith('/api/admin/growth/')) {
+  if (pathname.startsWith('/api/growth/shares/') || pathname.startsWith('/api/growth/internal/') || pathname.startsWith('/api/admin/growth/')) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: '/api/growth/read' };
   }
   if (pathname.startsWith('/api/growth/invites/') || pathname.startsWith('/api/growth/referrals/')) {

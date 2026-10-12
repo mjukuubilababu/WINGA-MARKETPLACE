@@ -18,7 +18,7 @@
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
-      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion','messageId']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
       if(field==='contentType')return contract.shareTypes.includes(value);
@@ -173,6 +173,21 @@
     }
     function contentFollowed(username){syncIdentity();for(const touch of [...journey.touches].reverse())if(touch.creatorRef===username){contentEvent('shared_content_followed',touch);break;}}
     function contentSaved(productId){syncIdentity();for(const touch of [...journey.touches].reverse())if(['REEL','SHORT'].includes(touch.destinationType)&&touch.destinationId===productId){contentEvent('shared_content_saved',touch);break;}}
+    function noteInternalShare(type,id,messageId,sourceSurface){
+      syncIdentity();if(!account()||!measurement()||!enabled(type)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(type)||!contract.id(id)||!contract.uuid(messageId)||!['conversation','room'].includes(sourceSurface))return;
+      enqueue('shares',{shareId:randomId(),sessionId,contentType:type,contentId:id,messageId,sourceSurface,parentShareId:'',schemaVersion:1});
+    }
+    async function internalContentOpened(messageId,type,id,visibleProductId=id){
+      syncIdentity();const owner=account();
+      if(!owner||!measurement()||!contract.uuid(messageId)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(type)||!contract.id(id)||!deps.resolveInternalShare)return;
+      try{const source=await deps.resolveInternalShare(messageId,type,id);if(closed||account()!==owner||!contract.uuid(source?.shareId)||source.destinationType!==type||source.destinationId!==id)return;
+        const touch=type==='PRODUCT'?{shareId:source.shareId,productId:id,at:now()}:{shareId:source.shareId,destinationType:type,destinationId:id,...(contract.id(source.creatorRef)?{creatorRef:source.creatorRef}:{}),at:now()};
+        if(!journey.touches.some(t=>t.shareId===touch.shareId))journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+        journey.firstTouch=journey.firstTouch||touch;journey.lastTouch=touch;storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+        if(type==='PRODUCT'){event('product_share_opened',id);if(activeProduct===id)productVisible(id);}
+        else{contentEvent('content_share_opened',touch);if(activeProduct===visibleProductId){if(contentTimers.has(source.shareId))return;if(contentTimers.size>=20){const oldest=contentTimers.keys().next().value;win.clearTimeout(contentTimers.get(oldest));contentTimers.delete(oldest);}const timer=win.setTimeout(()=>{contentTimers.delete(source.shareId);if(!closed&&account()===owner&&activeProduct===visibleProductId&&win.document.visibilityState==='visible'&&win.document.body.classList.contains('product-detail-open'))contentEvent('shared_content_viewed',touch);},5000);contentTimers.set(source.shareId,timer);}}
+      }catch{health('internal_attribution_unavailable');}
+    }
     async function prepareSellerReferral(opportunityId){
       syncIdentity();const owner=account(),preparedSession=sessionId;
       if(!owner||!enabled('SELLER_REFERRAL')||!contract.destination('OPPORTUNITY',opportunityId))throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});
@@ -238,7 +253,7 @@
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,prepareSellerReferral,referralVisible,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {

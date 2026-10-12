@@ -72,7 +72,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
   async function encryptedOperation(context, op) {
     const release=require('./conversation-release-policy');
     release.assertCompatibleProtocol(release.readConversationReleasePolicy());
-    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
+    assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','growth-internal-read','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
       'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields),...Object.keys(require('./growth-loop-invites').fields),...Object.keys(require('./encrypted-room-sellers').fields)].includes(op?.action));
     if(op.action.startsWith('room-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
     if(op.action.startsWith('seller-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
@@ -84,6 +84,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       send:['id','conversationId','epoch','deviceId','ciphertext','hash'],receipt:['id','conversationId','epoch','hash','kind'],
       'receipt-ack':['id','conversationId','epoch','hash','kind'],poll:[]};
     fields.reject=['id','conversationId','epoch','hash','reason'];
+    fields['growth-internal-read']=['messageId','contentType','contentId'];
     fields['media-reserve']=['id','conversationId','messageId','bytes','sha256'];
     fields['media-history-grant']=fields['media-reserve'];
     fields['replace-reserve']=['id','conversationId','previousEpoch','removedDeviceId','replacementDeviceId','packageHash'];
@@ -117,6 +118,10 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     const result=await withTransaction(async client => withTransportLocks(client,scopes,async()=>{
       // Scope before the actor lock; proof expiry is still checked after waiting.
       await authorize(client, context, op);
+      if(op.action==='growth-internal-read'){
+        const growth=require('./growth-store').createGrowthStore({query:(...args)=>client.query(...args),withTransaction:work=>work(client),authorizeInternalDirect:access,allowInternalRooms:roomsEnabled});
+        return growth.resolveInternalGrowthShare(p.messageId,p.contentType,p.contentId,{username:context.owner,actorDeviceId:op.actorId});
+      }
       if(op.action.startsWith('room-invite-'))return loopInvites.handle(client,context,op);
       if(op.action.startsWith('seller-'))return sellers.handle(client,context,op);
       if(op.action.startsWith('room-'))return rooms.handle(client,context,op);

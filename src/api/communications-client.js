@@ -495,6 +495,7 @@
 
     return api = {
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
+      resolveInternalGrowthShare:async(messageId,type,id)=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.resolveInternalGrowthShare(messageId,type,id);},
       localConversationHistory:async peer=>{
         const key=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
         const identity=key(),session=deps.getSession?.();

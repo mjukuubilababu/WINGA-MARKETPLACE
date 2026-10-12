@@ -230,7 +230,7 @@
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
-        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed',undefined,{productId:p.id}).catch(()=>{});return actions.openProduct?.(p.id);}));
+        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed',undefined,{productId:p.id}).catch(()=>{});return actions.openProduct?.(p.id,{growthMessageId:share.shareId,contentType:'PRODUCT'});}));
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
@@ -338,7 +338,7 @@
           else if(globalThis.WingaRichContent?.parse(m.message)&&['product','reel','short','collection'].includes(globalThis.WingaRichContent.parse(m.message).type)){
             const content=globalThis.WingaRichContent.parse(m.message);
             if(content.text)bubble.append(element('p',content.text));
-            for(const id of content.data.ids){const card=element('div','','chat-rich-card');card.dataset.richReferenceId=id;card.dataset.richReferenceKind=content.type;bubble.append(card);}
+            for(const id of content.data.ids){const card=element('div','','chat-rich-card');card.dataset.richReferenceId=id;card.dataset.richReferenceKind=content.type;card.dataset.growthMessageId=m.id;bubble.append(card);}
           }
           else if(m.message.startsWith('WINGA-ROOM/')){
             const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);

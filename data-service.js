@@ -1898,6 +1898,7 @@ async loadAdminPayments(filters) {
         return fetchJson(`${baseUrl}/growth/invites/${token}`,{headers:createAuthHeaders(),timeoutMs:3000});
       },
       async resolveSellerReferral(id){return fetchJson(`${baseUrl}/growth/referrals/${encodeURIComponent(id)}`,{headers:createAuthHeaders(),timeoutMs:3000});},
+      async resolveInternalGrowthShare(messageId,type,id){return getCommunicationsApiClient().resolveInternalGrowthShare(messageId,type,id);},
       async growthShareSafety(id,action){return fetchJson(`${baseUrl}/growth/shares/${encodeURIComponent(id)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json',...createAuthHeaders()},body:JSON.stringify({reason:'spam'}),timeoutMs:3000});},
       async roomInvitePreferences(allowInvites) {
         return fetchJson(`${baseUrl}/growth/invite-preferences`,allowInvites===undefined?{headers:createAuthHeaders()}:
@@ -3574,6 +3575,7 @@ async loadAdminPayments() {
       return state.adapter.growthRequest(kind, payload);
     },
     async resolveSellerReferral(id){ensureAdapter();if(!window.WingaModules.growth.contract.uuid(id)||!state.adapter.resolveSellerReferral)throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});return state.adapter.resolveSellerReferral(id);},
+    async resolveInternalGrowthShare(messageId,type,id){assertPersonAccess();ensureAdapter();if(!state.adapter.resolveInternalGrowthShare)throw Object.assign(new Error('growth_unavailable'),{code:'growth_unavailable'});return state.adapter.resolveInternalGrowthShare(messageId,type,id);},
     async growthShareSafety(id,action){assertPersonAccess();ensureAdapter();if(!window.WingaModules.growth.contract.uuid(id)||!['block','report'].includes(action)||!state.adapter.growthShareSafety)throw Object.assign(new Error('growth_unavailable'),{code:'growth_unavailable'});return state.adapter.growthShareSafety(id,action);},
     async resolveRoomInvite(token) {
       ensureAdapter();
@@ -4355,7 +4357,12 @@ async loadAdminPayments() {
       async shoppingRoom(action,args=[]) {
         assertBuyerCapableAccess();ensureAdapter();
         if(!state.adapter.shoppingRoom)throw Object.assign(new Error('encrypted_rooms_disabled'),{code:'encrypted_rooms_disabled'});
-        return state.adapter.shoppingRoom(action,args);
+        const actor=state.adapter.loadSession?.()?.username,result=await state.adapter.shoppingRoom(action,args);
+        if(actor&&state.adapter.loadSession?.()?.username===actor&&result?.id){try{
+          if(action==='command'&&args[1]==='product-share')window.WingaGrowth?.noteInternalShare('PRODUCT',args[2]?.productId,result.id,'room');
+          if(action==='send'){const content=window.WingaRichContent?.parse(args[1]);if(['product','collection','reel','short'].includes(content?.type))for(const id of content.data.ids)window.WingaGrowth?.noteInternalShare(content.type.toUpperCase(),id,result.id,'room');}
+        }catch{}}
+        return result;
       },
       async localConversationHistory(peer) {
         assertBuyerCapableAccess();ensureAdapter();
@@ -4369,7 +4376,9 @@ async loadAdminPayments() {
       async readEncryptedMediaDraft(peer) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readEncryptedMediaDraft(peer); },
       async discardEncryptedMediaDraft(peer) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.discardEncryptedMediaDraft(peer); },
       async sendEncryptedMediaDraft(peer,text) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.sendEncryptedMediaDraft(peer,text); },
-      async sendRichMessage(peer,content,options) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.sendRichMessage(peer,content,options); },
+      async sendRichMessage(peer,content,options) { assertBuyerCapableAccess();ensureAdapter();const actor=state.adapter.loadSession?.()?.username,result=await state.adapter.sendRichMessage(peer,content,options);
+        if(actor&&state.adapter.loadSession?.()?.username===actor&&result?.id&&['product','collection','reel','short'].includes(content?.type))try{for(const id of content.data.ids)window.WingaGrowth?.noteInternalShare(content.type.toUpperCase(),id,result.id,'conversation');}catch{}
+        return result; },
       async mutateEncryptedMessage(peer,type,id,value) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.mutateEncryptedMessage(peer,type,id,value); },
       async readConversationReference(kind,id) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readConversationReference(kind,id); },
       async readRichCatalog(kind,query) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.readRichCatalog(kind,query); },

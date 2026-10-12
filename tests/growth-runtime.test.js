@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const {randomUUID} = require('node:crypto');
 const contract = require('../src/growth/contract');
 
-function fixture({storageDenied=false,online=true,request=async()=>({}),performance=false,href='https://winga.test/',initialTime=10000,localEntries=[]}={}) {
+function fixture({storageDenied=false,online=true,request=async()=>({}),resolveInternalShare,performance=false,href='https://winga.test/',initialTime=10000,localEntries=[]}={}) {
   const session = new Map(), local = new Map(localEntries), timers = new Map(), events = [];
   let time = initialTime, number = 0, account = '';
   const storage = map => ({getItem:k=>{if(storageDenied)throw Error('denied');return map.get(k)||null;},setItem:(k,v)=>{if(storageDenied)throw Error('denied');map.set(k,v);}});
@@ -18,7 +18,7 @@ function fixture({storageDenied=false,online=true,request=async()=>({}),performa
     addEventListener:(k,v)=>listeners.set(k,v),removeEventListener:k=>listeners.delete(k),dispatchEvent:e=>events.push(e),CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}},
     setTimeout:(fn,delay)=>{timers.set(++number,{fn,at:time+delay});return number;},clearTimeout:id=>timers.delete(id)};
   vm.runInNewContext(fs.readFileSync('src/growth/runtime.js','utf8'),{window:win,URL});
-  const runtime = win.WingaModules.growth.createRuntime({window:win,now:()=>time,request,getAccount:()=>account});
+  const runtime = win.WingaModules.growth.createRuntime({window:win,now:()=>time,request,resolveInternalShare,getAccount:()=>account});
   const advance = async ms => {time+=ms;const ready=[...timers.entries()].filter(([,v])=>v.at<=time);for(const [id,v] of ready){timers.delete(id);await v.fn();}await new Promise(r=>setImmediate(r));};
   return {win,runtime,local,session,events,advance,setAccount:v=>{account=v;}};
 }
@@ -242,4 +242,15 @@ test('seller referral creation uses a durable canonical ID before handoff and st
   const event=calls.find(call=>call.payload.eventType==='seller_referral_opened');assert.ok(event);assert.equal(event.payload.contentId,undefined);
   assert.equal(f.runtime.getJourney().lastTouch.destinationId,canonicalId);
   f.setAccount('other');assert.equal(f.runtime.getSessionId()===calls[0].payload.sessionId,false);assert.equal(f.runtime.getJourney().touches.length,0);f.runtime.close();
+});
+
+test('internal card attribution uses opaque journal context after independent destination access',async()=>{
+ const sent=[],shareId=randomUUID(),messageId=randomUUID(),f=fixture({request:async(kind,payload)=>sent.push({kind,payload}),resolveInternalShare:async()=>({shareId,destinationType:'PRODUCT',destinationId:'p1'})});f.setAccount('recipient');
+ f.runtime.noteInternalShare('PRODUCT','p1',messageId,'conversation');await f.advance(300);
+ const source=sent.find(call=>call.kind==='shares');assert.equal(source.payload.messageId,messageId);assert.equal(source.payload.conversationId,undefined);
+ f.runtime.productVisible('p1');await f.runtime.internalContentOpened(messageId,'PRODUCT','p1');await f.advance(2100);await f.runtime.flush();
+ assert.ok(sent.some(call=>call.payload.eventType==='shared_product_viewed'&&call.payload.shareId===shareId));
+ assert.equal(JSON.stringify(f.runtime.getJourney()).includes(messageId),false);f.runtime.close();
+ const outage=fixture({resolveInternalShare:async()=>{throw Error('outage');}});outage.setAccount('recipient');outage.runtime.productVisible('p1');
+ await outage.runtime.internalContentOpened(messageId,'PRODUCT','p1');assert.equal(outage.runtime.getJourney().touches.length,0);assert.ok(outage.events.some(e=>e.detail.type==='internal_attribution_unavailable'));outage.runtime.close();
 });

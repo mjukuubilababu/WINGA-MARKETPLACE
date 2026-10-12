@@ -32,8 +32,8 @@
               contentType==='PRODUCT'?await deps.dataLayer.loadSharedProduct(productId):await deps.dataLayer.readConversationReference(contentType.toLowerCase(),productId);
             if(!product||!current())throw new Error('growth_share_unavailable');
             if(contentType==='COLLECTION'&&(product.status!=='published'||product.visibility!=='public'||!product.items?.length))throw new Error('growth_share_unavailable');
-            await send(actionId);
-            if(current()){status.textContent=t('growth.internalShareSent','Shared.');button.remove();}
+            const result=await send(actionId);
+            if(current()){status.textContent=result?.status==='pending'||result?.sendState==='queued'?t('growth.internalShareQueued','Queued for sending; delivery is not confirmed.'):t('growth.internalShareSent','Shared.');button.remove();}
           }catch{if(current())status.textContent=t('growth.internalShareFailed','Unable to share. Try again to retry the same message.');}
           finally{busy=false;if(current())for(const b of list.querySelectorAll('button'))b.disabled=false;}
         };
