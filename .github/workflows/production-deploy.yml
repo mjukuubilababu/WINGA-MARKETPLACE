@@ -77,7 +77,7 @@ jobs:
         run: npm ci
       - name: Test deployment verifier
         if: steps.revision.outputs.current == 'true'
-        run: node --test tests/production-shell-verification.test.js tests/cloudflare-deploy-retry.test.js
+        run: node --test tests/production-shell-verification.test.js tests/cloudflare-deploy-retry.test.js tests/cloudflare-frontend-deploy.test.js
       - name: Build and deploy existing production Workers
         if: steps.revision.outputs.current == 'true'
         env:

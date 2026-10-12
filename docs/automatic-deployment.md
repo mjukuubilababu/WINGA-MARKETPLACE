@@ -53,6 +53,38 @@ Monitor the `Winga Production Deployment` run in GitHub Actions and service
 deployments in Render. No chat session is needed once the workflow is on `master`
 and the GitHub credential configuration is complete.
 
+## Cloudflare Workers Builds configuration
+
+The canonical automatic production deployment is the checked GitHub Actions
+workflow above. Cloudflare's repository-connected Workers Builds is a separate
+pipeline; its failure does not imply that the Actions deployment failed.
+
+For an existing frontend Workers Builds connection, open `mkubwa` → Settings →
+Builds and use these commands at repository root `/`, production branch `master`:
+
+- Build command: leave empty (the deploy helper builds the frontend).
+- Deploy command: `npm run deploy:worker:frontend`.
+
+This command builds the ignored `public/` directory from the checked-out source,
+uses pinned Wrangler 4.149.0 with bounded transient retries, preserves remote
+variables, and sets both build version bindings from the generated manifest.
+`npm run deploy:worker:frontend -- --dry-run` builds and validates without publishing.
+The Worker connection must target `mkubwa`, matching `wrangler.toml`; a token name
+alone does not establish the connected Worker name. Its build token must have
+the permissions required by the existing assets, routes and bindings.
+
+`keep_vars` is also set in the frontend Wrangler configuration to preserve
+dashboard-managed variables. Replace the direct `npx wrangler deploy` command:
+it does not generate the ignored assets and can retain an older remote
+`BUILD_VERSION`. Adding only a separate build command is insufficient for the
+version bindings; the helper explicitly updates both after building.
+
+Avoid two automatic production publishers for the frontend. Keep GitHub Actions
+as the automatic publisher; use the separate Workers Builds connection manually
+for diagnosis, or disconnect its automatic Git integration in Cloudflare. The
+Workers Builds API requires separate permissions from Worker deployment, so
+repository edits cannot update an inaccessible dashboard build setting.
+
 ## Cloudflare transient API failures
 
 The Worker deploy step uses `scripts/deploy-cloudflare-worker.js` with the

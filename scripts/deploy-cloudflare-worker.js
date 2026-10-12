@@ -6,9 +6,9 @@ function transientFailure(output = '') {
   return /(?:->\s*|\bHTTP(?:\/[0-9.]+)?\s+|\bstatus(?: code)?\s*[:=]?\s*)(?:429|500|502|503|504)\b|gateway timeout|service unavailable|internal server error|bad gateway|too many requests|ETIMEDOUT|ECONNRESET|EAI_AGAIN|fetch failed|received a malformed response from the API/i.test(output);
 }
 
-function runWrangler(args, write) {
+function runWrangler(args, write, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['--yes', 'wrangler@4.149.0', ...args], {stdio: ['ignore', 'pipe', 'pipe']});
+    const child = spawn('npx', ['--yes', 'wrangler@4.149.0', ...args], {stdio: ['ignore', 'pipe', 'pipe'], env});
     let output = '';
     const receive = chunk => {
       write(chunk);
@@ -21,10 +21,10 @@ function runWrangler(args, write) {
   });
 }
 
-async function deployWorker(args, {run = runWrangler, wait = pause, write = chunk => process.stdout.write(chunk)} = {}) {
+async function deployWorker(args, {run = runWrangler, wait = pause, write = chunk => process.stdout.write(chunk), env = process.env} = {}) {
   if (!Array.isArray(args) || args[0] !== 'deploy' || !args.includes('--keep-vars')) throw new Error('Expected a Worker deploy with --keep-vars.');
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const result = await run(args, write);
+    const result = await run(args, write, env);
     if (result.code === 0) return 0;
     if (attempt === 3 || !transientFailure(result.output)) return result.code || 1;
     const delay = attempt === 1 ? 5000 : 15000;

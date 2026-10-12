@@ -3,6 +3,7 @@ name = "mkubwa"
 main = "./worker.js"
 compatibility_date = "2026-05-30"
 workers_dev = false
+keep_vars = true
 
 [assets]
 directory = "./public"
