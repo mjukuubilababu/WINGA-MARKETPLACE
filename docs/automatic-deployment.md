@@ -17,7 +17,8 @@ skipped, or missing required jobs prevent Cloudflare deployment.
 The workflow updates the five existing Workers: `mkubwa`,
 `winga-intelligence-worker`, `winga-session-security-relay`,
 `winga-account-recovery-relay`, and `winga-video-safety-adapter`. It preserves
-remote variables and secrets and explicitly updates the frontend build version.
+remote variables and secrets and explicitly updates both frontend build version
+bindings (`BUILD_VERSION` and `WINGA_BUILD_VERSION`) to the same asset version.
 It checks the production shell and confirms the published build version.
 Worker updates are sequential; a failure can leave some Workers updated. Review
 the failed run before retrying with a new push.

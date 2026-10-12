@@ -10,7 +10,7 @@ const REQUIRED_ROUTES = [
 
 function fetchUrl(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, (response) => {
+    const request = https.get(url, { headers: { "User-Agent": "WingaProductionVerifier/1.0" } }, (response) => {
       const statusCode = response.statusCode || 0;
       const headers = response.headers || {};
       if ([301, 302, 307, 308].includes(statusCode) && headers.location) {
