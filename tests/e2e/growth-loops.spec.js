@@ -296,8 +296,8 @@ test('authorized Opportunity link preserves exact context and reveals details on
   await context.route('**/api/opportunities/'+id,route=>{reads++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({opportunityId:id,type:'zero_result',queryKey:'white-maxi-dress',category:'wanawake-magauni',region:'mwanza',demandScore:1,evidenceCount:1,status:'open',expiresAt:new Date(Date.now()+86400000).toISOString(),metadata:{evidenceLevel:'single_signal'}})});});
   await page.goto('/opportunity/'+id);
   const dialog=page.locator('[data-opportunity-id="'+id+'"]');
-  await expect(dialog.locator('[role=status]')).toContainText('Sign in',{timeout:30000});expect(reads).toBe(0);
-  await dialog.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.locator('#auth-container')).toBeVisible();
+  await expect(dialog.locator('[role=status]')).toContainText(/Sign in|Ingia/,{timeout:30000});expect(reads).toBe(0);
+  await dialog.getByRole('button',{name:/^(Sign in|Ingia)$/i}).click();await expect(page.locator('#auth-container')).toBeVisible();
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   await expect(dialog).toBeVisible({timeout:30000});await expect(dialog).toContainText('white maxi dress');
   await expect(page).toHaveURL('/opportunity/'+id);expect(reads).toBeGreaterThan(0);
@@ -327,7 +327,7 @@ test('seller utility referral waits for canonical creation and shares only its o
   const {context,page}=await guest(browser,request,{growthSellerReferral:true}),canonicalId=randomUUID();let posted;
   await context.route('**/api/opportunities/opp_source',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({opportunityId:'opp_source',queryKey:'white-maxi-dress',category:'dress',demandScore:1,evidenceCount:1})}));
   await context.route('**/api/growth/shares',route=>{posted=route.request().postDataJSON();return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({shareId:canonicalId,duplicate:true})});});
-  await page.goto('/opportunity/opp_source');await page.locator('[data-opportunity-id] button').filter({hasText:/^Sign in$/i}).click();
+  await page.goto('/opportunity/opp_source');await page.locator('[data-opportunity-id] button').filter({hasText:/^(Sign in|Ingia)$/i}).click();
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   const opportunity=page.locator('[data-opportunity-id="opp_source"]');await expect(opportunity).toContainText('white maxi dress',{timeout:30000});
   await opportunity.getByRole('button',{name:/^(Share this supply opportunity|Shiriki supply opportunity hii)$/}).click();
