@@ -162,3 +162,24 @@ test('restored records with missing, nonnumeric or future creation times cannot 
     f.runtime.close();
   }
 });
+
+test('room touches preserve product first-touch and use the canonical bounded outbox without private content',async()=>{
+  const sent=[],f=fixture({online:false,request:async(kind,p)=>sent.push({kind,p})}),productShare=randomUUID(),inviteId=randomUUID();
+  f.runtime.capture('https://winga.test/product/p1?share='+productShare);
+  f.runtime.roomInviteTouch(inviteId);
+  assert.equal(f.runtime.getJourney().firstTouch.shareId,productShare);
+  assert.equal(f.runtime.getJourney().lastTouch.destinationId,inviteId);
+  const eventId=randomUUID();
+  f.runtime.roomEvent('first_vote',{inviteId,tokenHash:'a'.repeat(64),conversationId:'private-room',message:'private body'},{eventId,optionId:'private-choice'});
+  f.runtime.roomEvent('first_vote',{inviteId,tokenHash:'a'.repeat(64)},{eventId});
+  const room=JSON.parse(f.local.get('winga-growth-outbox-v1')).filter(item=>item.kind==='room-events');
+  assert.equal(room.length,1);
+  assert.equal(room[0].payload.eventId,eventId);
+  assert.equal(room[0].payload.sessionId,f.runtime.getSessionId());
+  assert.ok(!JSON.stringify(room).includes('private'));
+  f.win.navigator.onLine=true;await f.runtime.flush();
+  assert.equal(sent.filter(item=>item.kind==='room-events').length,1);
+  f.setAccount('first');f.runtime.roomInviteTouch(inviteId);f.setAccount('second');f.runtime.roomInviteTouch(randomUUID());
+  assert.equal(f.runtime.getJourney().touches.length,1);
+  f.runtime.close();
+});

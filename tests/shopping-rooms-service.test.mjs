@@ -8,13 +8,22 @@ import {encodeRoomContent,projectRoomContent} from '../src/chat/shopping-room-co
 const require=createRequire(import.meta.url),{createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Buffer.from(b,'base64url'));
-async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits}={}){
+async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits,invites=false,excludeFromRoom=[]}={}){
   const db=await roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',
     'encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery','encrypted-device-admissions','encrypted-device-lifecycle','encrypted-native-history','encrypted-shopping-rooms','encrypted-room-preferences','encrypted-room-departures','encrypted-message-invariants'])
     await db.transaction(async c=>{for(const sql of require(`../backend/migrations/${name}`).statements)await c.exec(sql);});
   const {enqueueMessagePush}=require('../backend/message-web-push');
-  const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
+  if(invites){
+    await db.exec(`CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
+      CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
+      INSERT INTO products VALUES('public-product','bob','approved'),('private-product','bob','approved'),('suspended-product','bob','suspended');
+      INSERT INTO public_content_visibility VALUES('product','private-product','private');`);
+    for(const name of ['growth-loops','growth-event-timing','growth-loop-invites'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
+  }
+  const pushes=[],options={withTransaction:work=>db.transaction(work),roomsEnabled:true,multiDeviceEnabled:sibling,mediaEnabled,roomLimits,
+    roomInvitesEnabled:invites,inviteMeasurementEnabled:invites,inviteSecret:'synthetic-room-invite-secret-at-least-32-characters',
+    enqueuePush:async(c,p)=>{pushes.push(p);await enqueueMessagePush(c,p);}};
   let store=createEncryptedConversationStore(options);
   let tamperHistoryEpoch=false;
   const setLimits=value=>{store=createEncryptedConversationStore({...options,roomLimits:value});};
@@ -50,7 +59,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
     p.device=await p.runtime.initialize();people.push(p);
   }
   for(const a of people)for(const b of people)if(a!==b)a.pins.push({...b.device,status:'active'});
-  const members=people.filter(p=>p.context.deviceId!=='a2');
+  const members=people.filter(p=>p.context.deviceId!=='a2'&&!excludeFromRoom.includes(p.owner));
   const id=randomUUID(),[alice,bob,eve]=people,roster=members.map(p=>({owner:p.owner,id:p.device.id,fingerprint:p.device.fingerprint,key:Array.from(p.device.signaturePublicKey)})).sort((a,b)=>a.owner+'/'+a.id<b.owner+'/'+b.id?-1:1);
   const intent={version:1,kind:'shopping-room',id:randomUUID(),conversationId:id,previousEpoch:'0',revision:'1',actorOwner:'alice',actorDeviceId:alice.device.id,roster:JSON.stringify(roster),
     roles:JSON.stringify(members.map(p=>({owner:p.owner,role:p===alice?'admin':'member'})).sort((a,b)=>a.owner<b.owner?-1:1)),changes:JSON.stringify(members.slice(1).map(p=>({type:'add',owner:p.owner,id:p.device.id,packageHash:p.device.hash})).sort((a,b)=>a.id<b.id?-1:1))};
@@ -74,7 +83,7 @@ async function lifecycleSessions(f,hooks={}){
   const sessions=[];
   for(const p of f.people){const saved=await p.vault.snapshot();
     await p.vault.write({expectedRevision:saved.revision,values:{[`room:approved:${f.intent.id}`]:true}});
-    sessions.push(globalThis.WingaRoomSession.createRoomSession({owner:p.owner,runtime:()=>p.runtime,vault:p.vault,
+    sessions.push(globalThis.WingaRoomSession.createRoomSession({contentLoader:()=>import('../src/chat/shopping-room-content.mjs'),owner:p.owner,runtime:()=>p.runtime,vault:p.vault,
       operation:async(action,payload,requestId)=>{const result=await p.operation(action,payload,requestId);return hooks.after?hooks.after(p,action,result):result;},
       verifyPackage:async(pkg,fingerprint)=>{assert.ok(f.people.some(m=>m.device.id===pkg.deviceId&&m.owner===pkg.owner&&m.native.fingerprint===fingerprint));},
       verifyProof:async(proof,action)=>{const signer=f.people.find(m=>m.native.id===proof.actorId);assert.ok(signer);assert.equal(proof.owner,signer.owner);assert.equal(proof.action,action);
@@ -785,4 +794,95 @@ test('aggregate Room readiness is read-only and detects missing historical nativ
   await f.db.exec('ALTER TABLE encrypted_conversation_epoch_devices DISABLE TRIGGER guard_encrypted_epoch_device');
   await f.db.query('DELETE FROM encrypted_conversation_epoch_devices WHERE conversation_id=$1 AND device_id=$2',[f.id,f.eve.device.id]);
   assert.equal((await verifyShoppingRooms(f.db,{})).health.invalidEpochGrants,1);
+});
+
+const invitePayload = f => ({conversationId:f.id,inviteId:randomUUID(),previewProducts:JSON.stringify(['public-product']),purpose:'choose_products',ttlHours:24});
+test('Room invitation preview exposes selected public products and requires canonical MLS admission',async t=>{
+  const f=await fixture(t,{four:true,invites:true,excludeFromRoom:['dave']});await f.activate();
+  const dave=f.people.find(p=>p.owner==='dave'),payload=invitePayload(f);
+  const created=await f.alice.operation('room-invite-create',payload);
+  assert.match(created.token,/^[A-Za-z0-9_-]{43}$/);
+  assert.deepEqual(await f.alice.operation('room-invite-create',payload),{...created,duplicate:true});
+  const guest=await f.store.resolveLoopInvite(created.token,{});
+  assert.deepEqual(Object.keys(guest).sort(),['attributionContext','expiresAt','inviteId','joiningEnabled','productIds','purpose','version']);
+  assert.deepEqual(guest.productIds,['public-product']);
+  assert.ok(!JSON.stringify(guest).includes(f.id));
+  const authenticated=await f.store.resolveLoopInvite(created.token,{username:'dave'});
+  const request={...authenticated.joinContext,inviteId:created.inviteId,sessionId:randomUUID()};
+  const event=eventType=>({eventId:randomUUID(),shareId:created.inviteId,tokenHash:authenticated.joinContext.tokenHash,sessionId:request.sessionId,schemaVersion:1,eventType});
+  assert.equal((await f.store.recordRoomGrowthEvent(event('room_invite_opened'),{bot:true})).ignored,'crawler');
+  await f.store.recordRoomGrowthEvent(event('room_invite_opened'),{});
+  assert.equal((await dave.operation('room-invite-request',request)).status,'requested');
+  assert.equal((await dave.operation('room-invite-request',request)).duplicate,true);
+  const confirm={...authenticated.joinContext,inviteId:created.inviteId};
+  await assert.rejects(f.store.recordRoomGrowthEvent(event('first_vote'),{username:'dave'}),{code:'growth_invite_membership_required'});
+  await assert.rejects(dave.operation('room-invite-confirm',confirm),{code:'growth_invite_unavailable'});
+  assert.equal((await f.db.query('SELECT epoch FROM encrypted_conversations WHERE id=$1',[f.id])).rows[0].epoch,'1');
+  assert.equal((await f.alice.operation('room-invite-requests',{conversationId:f.id})).requests[0].username,'dave');
+  const sessions=await lifecycleSessions(f),alice=sessions[0];
+  await alice.change(f.id,await alice.inspectChange(f.id,['dave']));
+  for(const s of sessions)await s.join(f.id);
+  for(let n=0;n<3;n++)for(const s of sessions)await s.sync();
+  assert.equal((await dave.operation('room-invite-confirm',confirm)).status,'accepted');
+  assert.equal((await dave.operation('room-invite-confirm',confirm)).duplicate,true);
+  await f.store.recordRoomGrowthEvent(event('first_product_viewed'),{username:'dave'});
+  assert.equal((await f.store.readRoomLoopHealth()).cohort.activationCount,0);
+  await assert.rejects(f.store.recordRoomGrowthEvent(event('first_vote'),{username:'dave'}),{code:'growth_room_action_required'});
+  const optionId=randomUUID(),poll=await sessions[0].command(f.id,'poll-create',{question:'Which product?',options:[{id:optionId,label:'First'},{id:randomUUID(),label:'Second'}],closesAt:null});
+  await sessions[3].sync();
+  const voteMessage=await sessions[3].command(f.id,'poll-vote',{pollId:poll.id,optionId}),vote={...event('first_vote'),eventId:voteMessage.id};
+  await f.store.recordRoomGrowthEvent(vote,{username:'dave'});
+  assert.equal((await f.store.recordRoomGrowthEvent(vote,{username:'dave'})).duplicate,true);
+  const productShare=await sessions[0].command(f.id,'product-share',{productId:'public-product',note:'',snapshot:null});await sessions[3].sync();
+  const shortlist=await sessions[3].command(f.id,'shortlist',{shareId:productShare.id,selected:true});
+  await f.store.recordRoomGrowthEvent({...event('room_shortlist_created'),eventId:shortlist.id},{username:'dave'});
+  const report=await f.store.readRoomLoopHealth();
+  assert.equal(report.cohort.canonicalAcceptCount,1);
+  assert.equal(report.cohort.activationCount,1);
+  assert.equal(report.cohort.valueCount,1);
+  assert.equal(report.invitationsDelivered,null);
+  assert.ok(!JSON.stringify(report).includes('dave'));
+  assert.ok(!JSON.stringify(report).includes(f.id));
+  const counts=(await f.db.query("SELECT event_type,COUNT(*)::int AS count FROM growth_events GROUP BY event_type")).rows;
+  assert.equal(counts.find(r=>r.event_type==='room_invite_created').count,1);
+  assert.equal(counts.find(r=>r.event_type==='room_invite_accepted').count,1);
+  assert.equal(f.pushes.length,0);
+});
+
+test('Room invitation tokens enforce expiry, revocation, scope, blocks and public-product eligibility',async t=>{
+  const f=await fixture(t,{four:true,invites:true,excludeFromRoom:['dave']});await f.activate();
+  await assert.rejects(f.bob.operation('room-invite-create',invitePayload(f)),{code:'growth_invite_admin_required'});
+  for(const product of ['private-product','suspended-product','missing'])await assert.rejects(f.alice.operation('room-invite-create',{...invitePayload(f),previewProducts:JSON.stringify([product])}),{code:'growth_invite_product_unavailable'});
+  const payload=invitePayload(f),created=await f.alice.operation('room-invite-create',payload);
+  await assert.rejects(f.store.resolveLoopInvite('x'.repeat(43),{}),{code:'growth_invite_unavailable'});
+  await assert.rejects(f.store.resolveLoopInvite(created.token+'x',{}),{code:'growth_invite_unavailable'});
+  await f.db.query("INSERT INTO user_blocks VALUES('dave','eve')");
+  await assert.rejects(f.store.resolveLoopInvite(created.token,{username:'dave'}),{code:'growth_invite_unavailable'});
+  assert.deepEqual((await f.store.resolveLoopInvite(created.token,{})).productIds,['public-product']);
+  await f.db.query('DELETE FROM user_blocks');
+  await f.db.query("UPDATE public_content_visibility SET visibility='private' WHERE content_id='public-product'");
+  // A visibility change after sharing is rechecked; no private room history is returned.
+  await f.db.query("INSERT INTO public_content_visibility VALUES('product','public-product','private')");
+  assert.deepEqual((await f.store.resolveLoopInvite(created.token,{})).productIds,[]);
+  await f.db.query("UPDATE growth_loop_invites SET expires_at=NOW()-INTERVAL '1 second'");
+  await assert.rejects(f.store.resolveLoopInvite(created.token,{}),{code:'growth_invite_unavailable'});
+  assert.equal((await f.alice.operation('room-invite-revoke',{conversationId:f.id,inviteId:payload.inviteId})).revoked,true);
+  assert.equal((await f.alice.operation('room-invite-revoke',{conversationId:f.id,inviteId:payload.inviteId})).revoked,true);
+  await assert.rejects(f.store.resolveLoopInvite(created.token,{}),{code:'growth_invite_unavailable'});
+});
+
+test('Room invite measurement failure cannot roll back durable invitation state; quotas and opt-out remain active',async t=>{
+  const f=await fixture(t,{four:true,invites:true,excludeFromRoom:['dave']});await f.activate();
+  const node=f.newStore({inviteEventWriter:async client=>{await client.query('SELECT deliberately_missing_growth_column');}});
+  const payload=invitePayload(f);
+  const created=await node.encryptedOperation(f.alice.context,f.alice.signed('room-invite-create',payload));
+  assert.equal((await f.store.resolveLoopInvite(created.token,{})).inviteId,payload.inviteId);
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM growth_events')).rows[0].n,0);
+  assert.equal((await node.encryptedOperation(f.alice.context,f.alice.signed('room-invite-create',payload))).duplicate,true);
+  for(let n=0;n<4;n++)await f.alice.operation('room-invite-create',invitePayload(f));
+  await assert.rejects(f.alice.operation('room-invite-create',invitePayload(f)),{code:'growth_rate_limited'});
+  await f.store.invitePreferences({username:'dave'},false);
+  const preview=await f.store.resolveLoopInvite(created.token,{username:'dave'}),dave=f.people.find(p=>p.owner==='dave');
+  await assert.rejects(dave.operation('room-invite-request',{...preview.joinContext,inviteId:created.inviteId,sessionId:randomUUID()}),{code:'growth_invitations_disabled'});
+  assert.equal((await f.db.query('SELECT COUNT(*)::int AS n FROM growth_invite_requests')).rows[0].n,0);
 });

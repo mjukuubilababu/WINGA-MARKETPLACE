@@ -16,13 +16,16 @@
     let sessionId = storage('sessionStorage', 'getItem', 'winga-growth-session');
     if (!contract.uuid(sessionId)) { sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId); }
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
-    queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
+    queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     let dead = read('localStorage', 'winga-growth-dead-v1', []);
     dead = Array.isArray(dead) ? dead.filter(x => x && now()-x.failedAt < 7*86400000).slice(-50) : [];
     let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
     if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
-    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && contract.id(t?.productId)
+    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || t?.destinationType==='SHOPPING_ROOM' && t.destinationId===t.shareId)
       && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
+    journey.touches = journey.touches.map(t => t.destinationType==='SHOPPING_ROOM'
+      ? {shareId:t.shareId,destinationType:'SHOPPING_ROOM',destinationId:t.shareId,at:t.at}
+      : {shareId:t.shareId,productId:t.productId,at:t.at});
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
@@ -104,7 +107,7 @@
       try {
         const target = contract.parseDestination(input, win.location.origin), url = new URL(input, win.location.origin);
         const shareId = url.searchParams.get('share');
-        if (!target || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
+        if (target?.type!=='PRODUCT' || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
         if (!routeTiming || routeTiming.shareId !== shareId || routeTiming.productId !== target.id) {
           routeTiming = { productId: target.id, shareId,
             startedAt: initialCapture && win.performance?.now && input === win.location.href ? 0 : timingNow(),
@@ -133,6 +136,22 @@
           parentShareId:parent?.shareId || '',schemaVersion:1 });
       } };
     }
+    function roomInviteTouch(inviteId) {
+      syncIdentity();
+      if (!measurement() || !contract.uuid(inviteId) || journey.lastTouch?.shareId===inviteId) return;
+      const touch={shareId:inviteId,destinationType:'SHOPPING_ROOM',destinationId:inviteId,at:now()};
+      journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+      journey.firstTouch=journey.firstTouch || touch;journey.lastTouch=touch;
+      storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+    }
+    function roomEvent(eventType, invite, extra={}) {
+      syncIdentity();
+      if (!measurement() || !contract.roomEvents.includes(eventType) || !contract.uuid(invite?.inviteId)
+        || typeof invite.tokenHash!=='string' || !/^[a-f0-9]{64}$/.test(invite.tokenHash)) return;
+      enqueue('room-events',{eventId:contract.uuid(extra.eventId)?extra.eventId:randomId(),shareId:invite.inviteId,
+        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1});
+      return true;
+    }
     function productVisible(productId) {
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
@@ -156,7 +175,7 @@
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,
+    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {

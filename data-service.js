@@ -1888,10 +1888,22 @@ async loadAdminPayments(filters) {
 
     return {
       async growthRequest(kind, payload) {
-        if (!['shares','events'].includes(kind)) throw new Error('growth_route_invalid'); // i18n-gate: allow -- internal routing contract
+        if (!['shares','events','room-events'].includes(kind)) throw new Error('growth_route_invalid'); // i18n-gate: allow -- internal routing contract
         return fetchJson(`${baseUrl}/growth/${kind}`, { method: 'POST',
           headers: { 'Content-Type': 'application/json', ...createAuthHeaders() },
           body: JSON.stringify(payload), timeoutMs: 3000 });
+      },
+      async resolveRoomInvite(token) {
+        if (!window.WingaModules.growth.contract.inviteToken(token)) throw Object.assign(new Error('growth_invite_unavailable'),{status:404}); // i18n-gate: allow -- internal routing contract
+        return fetchJson(`${baseUrl}/growth/invites/${token}`,{headers:createAuthHeaders(),timeoutMs:3000});
+      },
+      async roomInvitePreferences(allowInvites) {
+        return fetchJson(`${baseUrl}/growth/invite-preferences`,allowInvites===undefined?{headers:createAuthHeaders()}:
+          {method:'PUT',headers:{'Content-Type':'application/json',...createAuthHeaders()},body:JSON.stringify({allowInvites})});
+      },
+      async roomInviteSafety(token,action,reason) {
+        if(!window.WingaModules.growth.contract.inviteToken(token)||!['block','report'].includes(action))throw Object.assign(new Error('growth_invite_safety_invalid'),{status:400}); // i18n-gate: allow -- internal routing contract
+        return fetchJson(`${baseUrl}/growth/invites/${token}/${action}`,{method:'POST',headers:{'Content-Type':'application/json',...createAuthHeaders()},body:JSON.stringify(reason?{reason}:{})});
       },
       async loadUsers() {
         const data = await fetchJson(`${baseUrl}/users`, {
@@ -3552,6 +3564,21 @@ async loadAdminPayments() {
       ensureAdapter();
       if (!state.adapter.growthRequest) throw Object.assign(new Error('growth_unavailable'), { status: 503 }); // i18n-gate: allow -- internal availability diagnostic
       return state.adapter.growthRequest(kind, payload);
+    },
+    async resolveRoomInvite(token) {
+      ensureAdapter();
+      if(!state.adapter.resolveRoomInvite)throw Object.assign(new Error('growth_invite_unavailable'),{status:503}); // i18n-gate: allow -- internal availability diagnostic
+      return state.adapter.resolveRoomInvite(token);
+    },
+    async roomInvitePreferences(allowInvites) {
+      assertBuyerCapableAccess();ensureAdapter();
+      if(!state.adapter.roomInvitePreferences)throw Object.assign(new Error('growth_unavailable'),{status:503}); // i18n-gate: allow -- internal availability diagnostic
+      return state.adapter.roomInvitePreferences(allowInvites);
+    },
+    async roomInviteSafety(token,action,reason) {
+      assertBuyerCapableAccess();ensureAdapter();
+      if(!state.adapter.roomInviteSafety)throw Object.assign(new Error('growth_unavailable'),{status:503}); // i18n-gate: allow -- internal availability diagnostic
+      return state.adapter.roomInviteSafety(token,action,reason);
     },
     async loadSharedProduct(productId) {
       ensureAdapter();

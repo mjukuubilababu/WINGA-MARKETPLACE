@@ -4264,7 +4264,7 @@ async function requireFreshStepUpForSensitiveAction({ session, user, req, res, c
     time: new Date().toISOString(),
     ip: clientIp,
     method: req.method,
-    path: req.url || "",
+    path: require('../src/growth/contract').telemetryPath(req.url || ""),
     event: "sensitive_action_step_up_required",
     username: user.username,
     sessionId: session.sessionId,
@@ -6930,6 +6930,12 @@ function getRateLimitRule(pathname, method = "GET") {
   if (pathname.startsWith('/api/growth/shares/') || pathname.startsWith('/api/admin/growth/')) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: '/api/growth/read' };
   }
+  if (pathname.startsWith('/api/growth/invites/')) {
+    return {limit: 120,windowMs:RATE_LIMIT_WINDOW_MS,key:'/api/growth/invite-preview'};
+  }
+  if (pathname === '/api/growth/room-events' || pathname === '/api/growth/invite-preferences') {
+    return {limit:120,windowMs:RATE_LIMIT_WINDOW_MS,key:'/api/growth/invite-actions'};
+  }
   if (normalizedMethod === "POST" && /^\/api\/orders\/[^/]+\/payment-reference$/.test(pathname)) {
     return { ...RATE_LIMIT_RULES["/api/orders"], key: "/api/orders/payment-reference" };
   }
@@ -8085,6 +8091,10 @@ const server = http.createServer(async (req, res) => {
         findSession: token => findSession(store, token), readAuthToken,
         ensureUser: (session, targetRes) => ensureMarketplaceUser(store, session, targetRes),
         isAdminSession, clientIp: getClientIp, getStore: () => postgresStore,
+        reportInvite:(reporterUserId,targetUserId,reason)=>{
+          if(!postgresStore?.createReport)throw Object.assign(new Error('growth_unavailable'),{status:503});
+          return postgresStore.createReport(normalizeReportRecord({reporterUserId,targetUserId,targetType:'user',reason,description:'Unwanted Shopping Room invitation.'}));
+        },
         cohort: require('./growth-policy').createGrowthPolicy(process.env),
         productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
         measurementEnabled: process.env.WINGA_GROWTH_MEASUREMENT_ENABLED === 'true' });
@@ -8106,6 +8116,7 @@ const server = http.createServer(async (req, res) => {
         mediaEnabled:encryptedMediaEnabled(),
         multiDeviceEnabled:process.env.WINGA_ENCRYPTED_MULTIDEVICE_ENABLED==='true',
         roomsEnabled:process.env.WINGA_ENCRYPTED_ROOMS_ENABLED==='true',
+        roomInvitesEnabled:process.env.WINGA_GROWTH_ROOM_INVITES_ENABLED==='true',clientIp:getClientIp,
         roomLimits:require('./encrypted-room-limits').readRoomLimits(),
         enabled: process.env.WINGA_ENCRYPTED_CONVERSATIONS_ENABLED === "true"
           && process.env.WINGA_CRYPTO_DEVICES_ENABLED === "true" && process.env.WINGA_MLS_CANDIDATE_ENABLED === "true"

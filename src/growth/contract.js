@@ -12,8 +12,11 @@
   const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog'];
   const events = ['product_share_opened', 'shared_product_viewed', 'shared_product_saved',
     'shared_product_message_started', 'shared_product_order_started'];
+  const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
+    if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
     if (type !== 'PRODUCT' || !id(contentId)) return null;
     return { type, id: contentId, path: '/product/' + encodeURIComponent(contentId) };
   }
@@ -22,7 +25,9 @@
       const url = new URL(input, origin);
       if (url.origin !== origin || url.username || url.password || url.hash) return null;
       const match = /^\/product\/([^/]+)\/?$/i.exec(url.pathname);
-      return match ? destination('PRODUCT', decodeURIComponent(match[1])) : null;
+      if (match) return destination('PRODUCT', decodeURIComponent(match[1]));
+      const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
+      return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
   }
   function shareUrl(origin, contentId, shareId = '') {
@@ -36,11 +41,15 @@
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'follow-person', 'go-upload', 'go-profile'];
+    'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
+    if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(value.type)) {
+      if (!inviteToken(value.token)) return null;
+      return {...result,token:value.token};
+    }
     if (Number.isInteger(value.initialImageIndex) && value.initialImageIndex >= 0 && value.initialImageIndex <= 50)
       result.initialImageIndex = value.initialImageIndex;
     if (value.type === 'follow-person') {
@@ -54,5 +63,6 @@
     return result;
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
-  return Object.freeze({ version, uuid, id, surfaces, events, destination, parseDestination, shareUrl, authIntent, crawler });
+  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
+  return Object.freeze({ version, uuid, id, surfaces, events, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });

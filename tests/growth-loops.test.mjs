@@ -228,3 +228,35 @@ test('timing migration preserves old events and rolls back a failed schema trans
   await f.store.recordGrowthEvent(f.event('shared_product_viewed'),f.recipient);
   assert.equal((await f.store.readGrowthHealth()).timing.samples,0);
 });
+
+test('opaque Room links and auth returns reject raw room IDs, redirects and token telemetry leaks',()=>{
+  const token='a'.repeat(43),path='/invite/'+token;
+  assert.deepEqual(contract.parseDestination(path,'https://winga.test'),{type:'SHOPPING_ROOM',id:token,path});
+  for(const url of ['/invite/'+randomUUID(),path+'?redirect=https://evil.test',path+'#private','https://evil.test'+path])assert.equal(contract.parseDestination(url,'https://winga.test'),null);
+  assert.equal(contract.destination('SHOPPING_ROOM',randomUUID()),null);
+  const intent={type:'join-room-invite',token,createdAt:1000,roomId:'private-id',redirect:'https://evil.test'};
+  assert.deepEqual(contract.authIntent(intent,1100),{type:intent.type,token,createdAt:1000});
+  assert.equal(contract.authIntent({...intent,token:'bad'},1100),null);
+  assert.equal(contract.authIntent(intent,31*60000),null);
+  assert.ok(!contract.telemetryPath('https://winga.test/api/growth/invites/'+token).includes(token));
+  assert.ok(!contract.telemetryPath('https://winga.test'+path).includes(token));
+});
+
+test('invite safety delegates to canonical block/report owners without disclosing sender or room',async()=>{
+  let response,session=null,payload={},calls=[];
+  const token='A'.repeat(43),inviteId=randomUUID();
+  const store={resolveInviteSafetyTarget:async(value,context)=>{calls.push(['resolve',value,context.username]);return {username:'sender',inviteId};},
+    setUserBlock:async(...args)=>{calls.push(['block',...args]);return {updated:true};},recordInviteSafetyEvent:async()=>{throw Error('analytics down');}};
+  const api=createGrowthApi({findSession:()=>session,readAuthToken:()=>'',ensureUser:()=>true,clientIp:()=> '127.0.0.1',getStore:()=>store,
+    collectBody:async()=>payload,sendJson:(_res,status,body)=>{response={status,body};},reportInvite:async(...args)=>{calls.push(['report',...args]);return {code:'duplicate_report'};}});
+  const req={method:'POST',headers:{'user-agent':'Mozilla/5.0 Chrome/128 Safari/537.36'}};
+  const url=action=>new URL('https://winga.test/api/growth/invites/'+token+'/'+action);
+  await api.handle(req,{},url('block'));assert.equal(response.status,403);assert.equal(calls.length,0);
+  session={username:'recipient'};payload={roomId:'private'};
+  await api.handle(req,{},url('block'));assert.equal(response.status,400);assert.equal(calls.length,0);
+  payload={};await api.handle(req,{},url('block'));
+  assert.deepEqual(response,{status:200,body:{blocked:true}});assert.deepEqual(calls.at(-1),['block','recipient','sender',true]);
+  payload={reason:'harassment'};await api.handle(req,{},url('report'));
+  assert.deepEqual(response,{status:200,body:{reported:true,duplicate:true}});assert.deepEqual(calls.at(-1),['report','recipient','sender','harassment']);
+  await new Promise(resolve=>setImmediate(resolve));
+});

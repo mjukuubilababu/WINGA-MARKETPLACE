@@ -64,3 +64,55 @@ test('authentication returns a guest purchase action to exact product detail',as
   expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();
   await context.close();
 });
+
+async function roomPreview(context,product,{expired=false}={}) {
+  const token='A'.repeat(43),inviteId=randomUUID(),conversationId=randomUUID();
+  await context.route('**/api/growth/invites/'+token,route=>route.fulfill({status:expired?404:200,contentType:'application/json',body:JSON.stringify(expired?{code:'growth_invite_unavailable'}:{version:1,inviteId,purpose:'choose_products',joiningEnabled:true,productIds:[product.id],expiresAt:new Date(Date.now()+86400000).toISOString(),joinContext:{conversationId,tokenHash:'b'.repeat(64)}})}));
+  return {token,conversationId};
+}
+
+test('guest room invitation shows public value during analytics outage',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request);
+  const {token}=await roomPreview(context,product);
+  await page.goto('/invite/'+token);
+  const preview=page.locator('.room-invitation-preview');
+  await expect(preview).toBeVisible({timeout:30000});
+  await expect(preview.locator('h3')).toHaveText(product.name);
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await expect(page).toHaveURL('/invite/'+token);
+  await preview.locator('.room-invite-product button').click();
+  await expect(page.locator('#product-detail-title')).toHaveText(product.name);
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await context.close();
+});
+
+test('room join authentication returns to exact invite and requests approval',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request);
+  const {token,conversationId}=await roomPreview(context,product);
+  await page.goto('/invite/'+token);
+  await expect(page.locator('.room-invitation-preview h3')).toHaveText(product.name,{timeout:30000});
+  // Browser checks navigation/auth continuity; real MLS admission is covered by database tests.
+  await page.evaluate(id=>{window.WingaDataLayer.shoppingRoom=async(action,args)=>{window.__roomInviteRequest={action,args};return {status:'requested',conversationId:id};};},conversationId);
+  await page.locator('[data-room-join]').click();
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();
+  await page.locator('#username').fill('buyer_seller');
+  await page.locator('#password').fill('Pass1234!Secure');
+  await page.locator('#auth-button').click();
+  await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  await expect(page.locator('.room-invitation-preview [role=status]')).toContainText(/approve|idhini/i);
+  await expect(page).toHaveURL('/invite/'+token);
+  expect(await page.evaluate(()=>window.__roomInviteRequest.action)).toBe('requestInvite');
+  expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();
+  await context.close();
+});
+
+test('expired room invitation offers a useful fallback before signup',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request);
+  const {token}=await roomPreview(context,product,{expired:true});
+  await page.goto('/invite/'+token);
+  await expect(page.locator('.room-invitation-preview [role=status]')).toContainText(/no longer available|haipatikani/i,{timeout:30000});
+  await expect(page.locator('[data-room-join]')).toHaveCount(0);
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await context.close();
+});

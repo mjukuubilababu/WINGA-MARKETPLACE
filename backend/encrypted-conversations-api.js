@@ -1,4 +1,4 @@
-function createEncryptedConversationsApi({collectBody,sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,enabled=false,legacyOnly=false,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomLimits,env=process.env,metrics=require('./conversation-metrics').conversationMetrics}) {
+function createEncryptedConversationsApi({collectBody,sendJson,findSession,readAuthToken,ensureMarketplaceUser,getPostgresStore,enabled=false,legacyOnly=false,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomInvitesEnabled=false,roomLimits,clientIp=req=>req.socket?.remoteAddress || '',env=process.env,metrics=require('./conversation-metrics').conversationMetrics}) {
   const limits=require('./encrypted-room-limits').roomLimits(roomLimits);
   async function handle(req,res,url) {
     if(!['/api/conversations/encrypted/capabilities','/api/conversations/encrypted/operations','/api/conversations/encrypted/mode','/api/conversations/experience'].includes(url.pathname)) return false;
@@ -23,11 +23,11 @@ function createEncryptedConversationsApi({collectBody,sendJson,findSession,readA
         else if(!enabled && legacyOnly)sendJson(res,200,{version:1,mode:'legacy-plaintext'},headers);
         else sendJson(res,503,{code:'encrypted_store_unavailable'},headers);
       }
-      else if(url.pathname.endsWith('/capabilities') && req.method==='GET') sendJson(res,200,{version:1,enabled:true,mediaEnabled:enabled&&mediaEnabled,multiDeviceEnabled:enabled&&multiDeviceEnabled,...(roomsEnabled?{roomsEnabled:true,roomLimits:limits}:{})},headers);
+      else if(url.pathname.endsWith('/capabilities') && req.method==='GET') sendJson(res,200,{version:1,enabled:true,mediaEnabled:enabled&&mediaEnabled,multiDeviceEnabled:enabled&&multiDeviceEnabled,...(roomsEnabled?{roomsEnabled:true,roomLimits:limits,...(roomInvitesEnabled?{roomInvitesEnabled:true}:{})}:{})},headers);
       else if(url.pathname.endsWith('/operations') && req.method==='POST') {
         const store=getPostgresStore();if(!store?.encryptedOperation)throw Object.assign(new Error(),{status:503,code:'encrypted_store_unavailable'});
         const operation=await collectBody(req,{maxBytes:262144});measuredAction=operation?.action;
-        const result=await store.encryptedOperation({owner:user.username,token:session.token,deviceId:session.sessionId},operation);
+        const result=await store.encryptedOperation({owner:user.username,token:session.token,deviceId:session.sessionId,ip:clientIp(req)},operation);
         record(200);sendJson(res,200,result,headers);
       } else sendJson(res,405,{code:'method_not_allowed'},headers);
     }catch(error){

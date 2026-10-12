@@ -71,6 +71,7 @@ function isAppShellRoute(pathname = "/") {
   return normalizedPath === "/"
     || normalizedPath === "/index.html"
     || normalizedPath === "/feed"
+    || /^\/invite\/[^/]+\/?$/.test(normalizedPath)
     || /^\/product\/[^/]+\/?$/i.test(normalizedPath);
 }
 
@@ -287,7 +288,7 @@ async function streamFeedPage(request, env, ctx) {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Referrer-Policy": new URL(request.url).pathname.startsWith('/invite/') ? 'no-referrer' : "strict-origin-when-cross-origin",
       "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
       "Strict-Transport-Security": STRICT_TRANSPORT_SECURITY_HEADER,
       "Content-Security-Policy": buildContentSecurityPolicy({ origin, scriptNonce, styleNonce }),
@@ -446,7 +447,7 @@ function hardenResponseHeaders(response, env, options = {}) {
   }));
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Referrer-Policy", headers.get('Referrer-Policy')==='no-referrer'?'no-referrer':"strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   headers.set("Strict-Transport-Security", STRICT_TRANSPORT_SECURITY_HEADER);
   return new Response(response.body, {

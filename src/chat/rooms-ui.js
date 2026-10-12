@@ -46,7 +46,7 @@
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
     state.comparison=state.comparison||new Map();const orderReads=new Map();
-    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
+    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='',invitationCapabilities=null;const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -79,6 +79,48 @@
     async function addMembers(room){const view=modal(t('rooms.addMembers','Add members')),names=input(view.form,t('rooms.usernames','Member usernames'),'members',{area:true,max:1536});
       const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,await resolveMembers(names.value));if(!current())return view.d.close();names.disabled=true;review.remove();identities(view.form,selected);
         submit(view.form,t('rooms.addMembers','Add members'),async()=>{await call('change',room.id,selected,'');view.d.close();});});}
+    async function invitationLinks(room){
+      const view=modal(t('growth.roomInviteTitle','Help me choose between these products'));
+      view.form.append(element('p',t('growth.invitePreviewScope','Only selected public products appear in the invitation preview. Joining needs room approval.'),'empty-copy'));
+      const board=state.boards.get(room.id),products=[...new Map((board?.products || []).map(p=>[p.productId,p])).values()],selected=new Set();
+      for(const product of products){const label=element('label','','room-invite-product-option'),check=document.createElement('input');check.type='checkbox';
+        const item=state.catalog.get(product.productId)?.product;
+        label.append(check,element('span',item?.name || product.snapshot?.name || product.productId));
+        check.onchange=()=>{if(check.checked){if(selected.size>=4){check.checked=false;return;}selected.add(product.productId);}else selected.delete(product.productId);create.disabled=!selected.size;};
+        view.form.append(label);}
+      if(!products.length)view.form.append(element('p',t('growth.inviteAddProducts','Add products to this room before creating an invitation.'),'empty-copy'));
+      const inviteId=crypto.randomUUID(),create=submit(view.form,t('growth.createInvitation','Create invitation link'),async()=>{
+        const result=await call('createInvite',room.id,[...selected],inviteId);if(!current())return view.d.close();
+        create.remove();for(const check of view.form.querySelectorAll('input[type="checkbox"]'))check.disabled=true;
+        invitationLinkControls(view.form,room,result);
+      });create.disabled=true;
+      readyControls.set(create,()=>{create.disabled=!selected.size;});
+      const existing=await call('createdInvites',room.id);if(!current())return view.d.close();
+      for(const invite of existing){const row=element('section','','room-invite-existing');
+        if(invite.revoked||invite.expiresAt&&Date.parse(invite.expiresAt)<=Date.now())continue;
+        if(invite.token)invitationLinkControls(row,room,invite);
+        else row.append(button(t('inbox.retry','Try again'),async()=>{const result=await call('createInvite',room.id,JSON.parse(invite.payload.previewProducts),invite.payload.inviteId);row.replaceChildren();invitationLinkControls(row,room,result);}));
+        view.form.append(row);}
+    }
+    function invitationLinkControls(parent,room,invite){
+      const target=globalThis.WingaModules?.growth?.contract.destination('SHOPPING_ROOM',invite.token);if(!target)return;
+      const url=new URL(target.path,location.origin).href,field=document.createElement('input');field.type='text';field.readOnly=true;field.value=url;
+      field.setAttribute('aria-label',t('growth.invitationLink','Invitation link'));parent.append(field);
+      parent.append(button(t('growth.copyLink','Copy link'),async()=>{await navigator.clipboard.writeText(url);status.textContent=t('growth.linkCopied','Link copied.');}));
+      if(navigator.share)parent.append(button(t('growth.shareInvitation','Share invitation'),async()=>{try{await navigator.share({title:t('growth.roomInviteTitle','Help me choose between these products'),text:t('growth.roomInviteTitle','Help me choose between these products'),url});}catch(error){if(error.name!=='AbortError')throw error;}}));
+      parent.append(button(t('growth.shareWhatsApp','Share on WhatsApp'),async()=>{window.open('https://wa.me/?text='+encodeURIComponent(t('growth.roomInviteTitle','Help me choose between these products')+' '+url),'_blank','noopener,noreferrer');}));
+      parent.append(button(t('growth.revokeInvitation','Revoke invitation'),async()=>{await call('revokeInvite',room.id,invite.inviteId);parent.replaceChildren(element('p',t('growth.invitationRevoked','Invitation revoked.')));}));
+    }
+    async function invitationRequests(room){const view=modal(t('growth.joinRequests','Room join requests')),requests=await call('invitationRequests',room.id);if(!current())return view.d.close();
+      if(!requests.length)view.form.append(element('p',t('growth.noJoinRequests','No pending join requests.'),'empty-copy'));
+      for(const request of requests){const row=element('section','','room-invite-request');row.append(element('strong',memberName(request.username)));
+        row.append(button(t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,[request.username]),review=modal(t('rooms.review','Review devices'));identities(review.form,selected);
+          submit(review.form,t('growth.approveRoomRequest','Approve room request'),async()=>{await call('change',room.id,selected,'');review.d.close();view.d.close();});}));
+        row.append(button(t('growth.declineRoomRequest','Decline request'),async()=>{await call('declineInvite',room.id,request.inviteId,request.username);row.remove();}));view.form.append(row);}
+    }
+    async function invitationPreferences(){const view=modal(t('growth.invitationPreferences','Invitation preferences')),preferences=await dataLayer.roomInvitePreferences();if(!current())return view.d.close();
+      const label=element('label',t('growth.allowRoomInvites','Allow room invitations')),check=document.createElement('input');check.type='checkbox';check.checked=preferences.allowInvites===true;label.append(check);view.form.append(label);
+      submit(view.form,t('common.save','Save'),async()=>{await dataLayer.roomInvitePreferences(check.checked);view.d.close();});}
     async function members(room){const view=modal(t('chat.roomMembers','Room members')),i=JSON.parse(room.transition.intent),roles=JSON.parse(i.roles),ul=element('ul','','room-members-list');
       const admin=roles.some(r=>r.owner===owner&&r.role==='admin');
       for(const r of roles){const li=element('li');li.append(element('strong',memberName(r.owner)),element('small',r.role==='admin'?t('chat.roomAdmin','Admin'):t('rooms.member','Member')));
@@ -104,6 +146,7 @@
       submit(confirm.form,t('rooms.leave','Leave chatroom'),async()=>{await call('leave',room.id);confirm.d.close();parent?.d.close();});}
     function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',state.showArchived?t('chat.archived','Archived chats'):t('inbox.rooms','Chatrooms')),
       iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));
+      if(invitationCapabilities?.enabled)toolbar.append(iconButton('ellipsis',t('growth.invitationPreferences','Invitation preferences'),invitationPreferences));
       if(rooms.some(r=>r.preferences)){const archived=iconButton('archive',t('chat.archived','Archived chats'),async()=>{state.showArchived=!state.showArchived;state.selected='';});
         archived.setAttribute('aria-pressed',String(Boolean(state.showArchived)));toolbar.append(archived);}list.append(toolbar);
       const search=scope.querySelector('[data-inbox-search]');if(search){search.value=state.query;search.oninput=()=>{state.query=search.value;listView();};}
@@ -187,7 +230,7 @@
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
-        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>actions.openProduct?.(p.id)));
+        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed').catch(()=>{});return actions.openProduct?.(p.id);}));
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
@@ -259,6 +302,10 @@
       if(room.transition?.status==='accepted')identity.append(element('p',t('chat.roomMemberCount','{count} members',{count:JSON.parse(JSON.parse(room.transition.intent).roles).length})));
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);
       if(room.status!=='removed'){head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));
+        const roles=JSON.parse(JSON.parse(room.transition.intent).roles);
+        if(invitationCapabilities?.enabled&&room.transition?.status==='accepted'&&roles.some(r=>r.owner===owner&&r.role==='admin')){
+          head.append(iconButton('users',t('growth.inviteToRoom','Invite to room'),()=>invitationLinks(room)),iconButton('bell',t('growth.joinRequests','Room join requests'),()=>invitationRequests(room)));
+        }
         if(room.preferences)head.append(iconButton('ellipsis',t('menu.settings','Settings'),()=>roomSettings(room)));}detail.append(head);
       if(room.status==='removed'){
         detail.append(element('p',room.rotationPending?t('rooms.leftRotationPending','You left. Key rotation is pending.'):t('rooms.removed','Access ended'),'empty-copy'));
@@ -314,6 +361,7 @@
     }
     async function refresh(force=false){if(!current())return;try{
       roomLimits=await call('limits');if(!current())return;
+      if(invitationCapabilities===null){try{invitationCapabilities=await call('invitationCapabilities');}catch{invitationCapabilities={enabled:false};}if(!current())return;}
       const next=await call('sync');if(!current())return;rooms=next;
       for(const [id,update]of preferenceViews){const room=rooms.find(r=>r.id===id);if(room?.preferences)update(room.preferences);}
       pendingTransitions=await call('pendingTransitions');if(!current())return;

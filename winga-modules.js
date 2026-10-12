@@ -53,8 +53,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog'];
   const events = ['product_share_opened', 'shared_product_viewed', 'shared_product_saved',
     'shared_product_message_started', 'shared_product_order_started'];
+  const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
+    if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
     if (type !== 'PRODUCT' || !id(contentId)) return null;
     return { type, id: contentId, path: '/product/' + encodeURIComponent(contentId) };
   }
@@ -63,7 +66,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const url = new URL(input, origin);
       if (url.origin !== origin || url.username || url.password || url.hash) return null;
       const match = /^\/product\/([^/]+)\/?$/i.exec(url.pathname);
-      return match ? destination('PRODUCT', decodeURIComponent(match[1])) : null;
+      if (match) return destination('PRODUCT', decodeURIComponent(match[1]));
+      const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
+      return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
   }
   function shareUrl(origin, contentId, shareId = '') {
@@ -77,11 +82,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'follow-person', 'go-upload', 'go-profile'];
+    'follow-person', 'go-upload', 'go-profile','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
+    if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(value.type)) {
+      if (!inviteToken(value.token)) return null;
+      return {...result,token:value.token};
+    }
     if (Number.isInteger(value.initialImageIndex) && value.initialImageIndex >= 0 && value.initialImageIndex <= 50)
       result.initialImageIndex = value.initialImageIndex;
     if (value.type === 'follow-person') {
@@ -95,7 +104,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return result;
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
-  return Object.freeze({ version, uuid, id, surfaces, events, destination, parseDestination, shareUrl, authIntent, crawler });
+  const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
+  return Object.freeze({ version, uuid, id, surfaces, events, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });
 
 
@@ -118,13 +128,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let sessionId = storage('sessionStorage', 'getItem', 'winga-growth-session');
     if (!contract.uuid(sessionId)) { sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId); }
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
-    queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
+    queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     let dead = read('localStorage', 'winga-growth-dead-v1', []);
     dead = Array.isArray(dead) ? dead.filter(x => x && now()-x.failedAt < 7*86400000).slice(-50) : [];
     let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
     if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
-    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && contract.id(t?.productId)
+    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || t?.destinationType==='SHOPPING_ROOM' && t.destinationId===t.shareId)
       && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
+    journey.touches = journey.touches.map(t => t.destinationType==='SHOPPING_ROOM'
+      ? {shareId:t.shareId,destinationType:'SHOPPING_ROOM',destinationId:t.shareId,at:t.at}
+      : {shareId:t.shareId,productId:t.productId,at:t.at});
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
@@ -206,7 +219,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       try {
         const target = contract.parseDestination(input, win.location.origin), url = new URL(input, win.location.origin);
         const shareId = url.searchParams.get('share');
-        if (!target || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
+        if (target?.type!=='PRODUCT' || !contract.uuid(shareId)) { routeTiming = null; initialCapture = false; return; }
         if (!routeTiming || routeTiming.shareId !== shareId || routeTiming.productId !== target.id) {
           routeTiming = { productId: target.id, shareId,
             startedAt: initialCapture && win.performance?.now && input === win.location.href ? 0 : timingNow(),
@@ -235,6 +248,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           parentShareId:parent?.shareId || '',schemaVersion:1 });
       } };
     }
+    function roomInviteTouch(inviteId) {
+      syncIdentity();
+      if (!measurement() || !contract.uuid(inviteId) || journey.lastTouch?.shareId===inviteId) return;
+      const touch={shareId:inviteId,destinationType:'SHOPPING_ROOM',destinationId:inviteId,at:now()};
+      journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+      journey.firstTouch=journey.firstTouch || touch;journey.lastTouch=touch;
+      storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+    }
+    function roomEvent(eventType, invite, extra={}) {
+      syncIdentity();
+      if (!measurement() || !contract.roomEvents.includes(eventType) || !contract.uuid(invite?.inviteId)
+        || typeof invite.tokenHash!=='string' || !/^[a-f0-9]{64}$/.test(invite.tokenHash)) return;
+      enqueue('room-events',{eventId:contract.uuid(extra.eventId)?extra.eventId:randomId(),shareId:invite.inviteId,
+        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1});
+      return true;
+    }
     function productVisible(productId) {
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
@@ -258,7 +287,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,
+    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -273,6 +302,93 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     };
   }
   window.WingaModules.growth.createRuntime = createRuntime;
+})();
+
+
+// src/growth/invite-ui.js
+(() => {
+  function createInviteUi(deps) {
+    const win=deps.window || window,contract=win.WingaModules.growth.contract;
+    const t=(key,fallback)=>deps.translate?.(key,fallback)||fallback;
+    const element=(tag,text='',className='')=>{const node=win.document.createElement(tag);node.textContent=text;node.className=className;return node;};
+    let active=null,epoch=0;
+    function close(){epoch++;active?.dialog.close();active?.dialog.remove();active=null;}
+    function button(text,action){const node=element('button',text,'action-btn action-btn-secondary');node.type='button';node.onclick=action;return node;}
+    async function open(token,{requestAfterAuth=false,safetyAction=''}={}) {
+      const account=deps.getAccount?.() || '';
+      if(active?.token===token&&active.account===account&&!requestAfterAuth&&!safetyAction)return;
+      close();const currentEpoch=epoch;
+      const dialog=element('dialog','','chat-security-dialog room-invitation-preview'),heading=element('h2',t('growth.roomInviteTitle','Help me choose between these products'));
+      heading.id='room-invite-heading';dialog.setAttribute('aria-labelledby',heading.id);
+      const dismiss=button(t('common.close','Close'),close),content=element('div','','room-invite-products'),status=element('p',t('growth.inviteLoading','Loading invitation…'),'empty-copy');status.setAttribute('role','status');
+      dialog.append(dismiss,heading,content,status);win.document.body.append(dialog);dialog.showModal();active={token,account,dialog};
+      dialog.addEventListener('close',()=>{dialog.remove();if(active?.dialog===dialog)active=null;},{once:true});
+      const current=()=>active?.dialog===dialog&&epoch===currentEpoch&&account===(deps.getAccount?.() || '');
+      const unavailable=()=>{if(!current())return;content.replaceChildren();status.textContent=t('growth.inviteUnavailable','This invitation is no longer available.');
+        dialog.append(button(t('growth.exploreProducts','Explore products'),()=>{close();deps.explore?.();}));};
+      if(!contract.inviteToken(token)){unavailable();return;}
+      let busy=false;
+      const safety=element('div','','room-invite-safety');
+      async function safetyRequest(action){
+        if(!current()||busy)return;
+        if(!account){close();deps.requireAuth?.({type:action==='block'?'block-room-inviter':'report-room-invite',token});return;}
+        busy=true;
+        try{const result=await deps.dataLayer.roomInviteSafety(token,action,action==='report'?'spam':undefined);if(!current())return;
+          if(action==='block'&&result.blocked===true){content.replaceChildren();safety.replaceChildren();status.textContent=t('growth.inviterBlocked','Inviter blocked.');dialog.querySelector('[data-room-join]')?.remove();}
+          else if(action==='report'&&result.reported===true)status.textContent=t('growth.invitationReported','Invitation reported.');
+          else throw new Error('growth_invite_safety_invalid');
+          return true;
+        }catch{if(current())status.textContent=t('growth.inviteSafetyFailed','Unable to finish. Please try again.');}finally{busy=false;}
+      }
+      safety.append(button(t('growth.blockInviter','Block inviter'),()=>safetyRequest('block')),button(t('growth.reportInvitation','Report invitation'),()=>safetyRequest('report')));dialog.append(safety);
+      let safetyCompleted=false;
+      if(safetyAction&&account){safetyCompleted=await safetyRequest(safetyAction);if(safetyAction==='block'&&safetyCompleted)return;}
+      let invite;
+      try{invite=await deps.dataLayer.resolveRoomInvite(token);}catch{unavailable();return;}
+      if(!current())return;
+      if(invite?.version!==1||!contract.uuid(invite.inviteId)||invite.purpose!=='choose_products'||!Array.isArray(invite.productIds)
+        ||invite.productIds.length>4||!invite.productIds.every(contract.id)||!Number.isFinite(Date.parse(invite.expiresAt))){unavailable();return;}
+      if(!safetyCompleted)status.textContent='';
+      try{deps.getGrowth?.().roomInviteTouch(invite.inviteId);}catch{}
+      let hash=invite.joinContext?.tokenHash || '';
+      if(!hash&&win.WINGA_CONFIG?.growthMeasurement===true)try{
+        hash=Array.from(new Uint8Array(await win.crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))),b=>b.toString(16).padStart(2,'0')).join('');
+      }catch{}
+      if(!current())return;
+      try{deps.getGrowth?.().roomEvent('room_invite_opened',{inviteId:invite.inviteId,tokenHash:hash});}catch{}
+      const products=await Promise.allSettled(invite.productIds.map(id=>deps.dataLayer.loadSharedProduct(id)));
+      if(!current())return;
+      for(const result of products){const product=result.status==='fulfilled'?result.value:null;
+        if(!product)continue;const card=element('article','','room-invite-product');
+        const image=deps.image?.(product);if(image){const img=element('img');img.src=image;img.alt='';img.loading='lazy';img.referrerPolicy='no-referrer';card.append(img);}
+        card.append(element('h3',String(product.name||product.id)),element('p',deps.price?.(product.price)||String(product.price||'')));
+        card.append(button(t('growth.viewProduct','View product'),async()=>{if(!current())return;close();await deps.openProduct?.(product.id);}));content.append(card);}
+      if(!content.children.length)content.append(element('p',t('growth.inviteProductsUnavailable','These products are no longer available.'),'empty-copy'));
+      dialog.append(element('p',t('growth.invitePreviewScope','This preview includes these products. Joining the room needs approval.'),'empty-copy'));
+      if(!invite.joiningEnabled){status.textContent=t('growth.roomInvitesPaused','Room invitations are temporarily paused.');return;}
+      const join=button(t('growth.requestRoomJoin','Ask to join'),async()=>{
+        if(!current()||busy)return;
+        if(!account){close();deps.requireAuth?.({type:'join-room-invite',token});return;}
+        if(!contract.uuid(invite.joinContext?.conversationId)||!/^[a-f0-9]{64}$/.test(invite.joinContext?.tokenHash)){unavailable();return;}
+        busy=true;join.disabled=true;status.textContent=t('growth.roomJoinRequesting','Sending your request…');
+        try{
+          const result=await deps.dataLayer.shoppingRoom('requestInvite',[invite.joinContext,invite.inviteId]);if(!current())return;
+          if(!['requested','accepted'].includes(result?.status)){throw new Error('growth_invite_invalid');}
+          status.textContent=result.status==='accepted'?t('growth.roomMembershipReady','Room membership is ready.'):
+            t('growth.roomJoinPending','Request sent. The room admin needs to approve.');
+          join.remove();dialog.append(button(t('growth.openRooms','Open chatrooms'),()=>{close();deps.openRoom?.(result.conversationId);}));
+        }catch(error){if(!current())return;
+          if(error.status===404){unavailable();join.remove();return;}
+          status.textContent=error.code==='growth_invitations_disabled'?t('growth.invitationsDisabled','Invitations are disabled in your preferences.'):
+            t('growth.roomRequestFailed','Unable to send the request. Please try again.');join.disabled=false;
+        }finally{busy=false;}
+      });
+      join.dataset.roomJoin='true';
+      dialog.append(join);if(requestAfterAuth&&account)await join.onclick();
+    }
+    return {open,close};
+  }
+  window.WingaModules.growth.createInviteUi=createInviteUi;
 })();
 
 
@@ -1445,6 +1561,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           onChange:change=>encryptionChanged(change),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
+          roomInvitesEnabled:capabilities.roomInvitesEnabled===true,
           roomLimits:capabilities.roomLimits,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}
@@ -5757,6 +5874,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const getBaseContext = typeof deps.getBaseContext === "function"
       ? deps.getBaseContext
       : () => ({});
+    const redactPath = typeof deps.redactTelemetryPath === 'function' ? deps.redactTelemetryPath
+      : value => String(value).replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
     const noisyProductionEvents = new Set([
       "boot_phase",
       "app_boot_started",
@@ -5883,14 +6002,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           return;
         }
         if (typeof value === "string") {
-          safeContext[key] = value.slice(0, 120);
+          safeContext[key] = redactPath(value).slice(0, 120);
           return;
         }
         if (typeof value === "number" || typeof value === "boolean") {
           safeContext[key] = value;
           return;
         }
-        safeContext[key] = JSON.stringify(value).slice(0, 120);
+        safeContext[key] = redactPath(JSON.stringify(value)).slice(0, 120);
       });
       return safeContext;
     }
@@ -5918,6 +6037,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     function reportEvent(level, event, message, context = {}) {
+      message=redactPath(String(message || ''));
       const safeLevel = ["info", "warn", "error"].includes(level) ? level : "error";
       const safeEvent = String(event || "unknown_event").slice(0, 80);
       const safeContext = sanitizeContext(context);
@@ -19422,7 +19542,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomInvitesEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -19487,7 +19607,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     try {
       if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
-        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,historyRecoveryEnabled:multiDeviceEnabled,
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,roomInvitesEnabled,historyRecoveryEnabled:multiDeviceEnabled,
           verifyArchiveProof:async(p,action)=>{const pin=(await pins()).find(v=>v.id===p.actorId&&v.owner===p.owner&&v.status==='active');return pin?verifyProof(p,action,pin):null;},
           mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
             const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
@@ -20074,7 +20194,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia','invitationCapabilities','createInvite','createdInvites','revokeInvite','invitationRequests','declineInvite','requestInvite','inviteEvent'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(async()=>{
           const result=await syncInternal();await resumeSavedIntents();return result;
         }),
@@ -20128,14 +20248,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const decode=text=>Uint8Array.from(atob(text.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
   const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   async function transferHash(t){return hash(new TextEncoder().encode(JSON.stringify(['winga-mls-room-transfer',1,t.intent,t.epoch,...await Promise.all(['commit','welcome','tree'].map(k=>hash(t[k])))])));}
-  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,verifyArchiveProof=verifyProof,mediaFactory,historyRecoveryEnabled=false,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
+  function createRoomSession({owner,runtime,vault,operation,verifyPackage,verifyProof,verifyArchiveProof=verifyProof,mediaFactory,contentLoader=()=>import('/src/chat/shopping-room-content.mjs'),historyRecoveryEnabled=false,roomInvitesEnabled=false,roomLimits={maxOwners:12,maxDevices:24},onChange=()=>{}}){
     if(!roomLimits||typeof roomLimits!=='object'||Array.isArray(roomLimits)||Object.keys(roomLimits).sort().join(',')!=='maxDevices,maxOwners'
       ||!Number.isInteger(roomLimits.maxOwners)||roomLimits.maxOwners<3||roomLimits.maxOwners>12
       ||!Number.isInteger(roomLimits.maxDevices)||roomLimits.maxDevices<roomLimits.maxOwners||roomLimits.maxDevices>24)fail('encrypted_room_limits_invalid');
     const limits=()=>({maxOwners:roomLimits.maxOwners,maxDevices:roomLimits.maxDevices});
     roomLimits=Object.freeze(limits());
-    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map(),epochCache=new Map();
-    const module=()=>content||(content=import('/src/chat/shopping-room-content.mjs'));
+    let rooms=[],directory=[],content;const mediaClients=new Map(),sellerCache=new Map(),epochCache=new Map(),acceptedNotes=new Set();
+    const module=()=>content||(content=contentLoader());
     const need=(ok,code='encrypted_room_transport_rejected')=>{if(!ok)fail(code);};
     function preference(value){need(value&&Object.keys(value).sort().join(',')==='archived,muted,revision'
       &&typeof value.revision==='string'&&/^(0|[1-9][0-9]{0,18})$/.test(value.revision)
@@ -20232,6 +20352,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         await accept(room);
         const current=await vault.snapshot();if(!current.values[`mls:group:${room.id}`]?.confirmed)continue;
         if(room.transition.status!=='accepted')continue;
+        const invite=current.values[`room:invite:${room.id}`];
+        if(invite&&!acceptedNotes.has(invite.inviteId))try{
+          if(globalThis.WingaGrowth?.roomEvent('room_invite_accepted',invite,{eventId:invite.acceptedEventId})===true)acceptedNotes.add(invite.inviteId);
+        }catch{}
         for(const m of room.messages){const proof=m.proof,p=proof?.payload;
           need(proof?.action==='room-send'&&p?.id===m.id&&p.conversationId===room.id&&p.deviceId===m.sender_device
             &&proof.actorId===m.sender_device&&p.hash===m.hash&&p.ciphertext===m.ciphertext&&p.epoch===m.epoch&&(p.mediaId||null)===(m.media_id||null),'mls_envelope_binding_rejected');
@@ -20412,9 +20536,51 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       return codec.projectRoomContent(items,{conversationId:id,epochs:await runtime().room.epochs(id),sellerEvidence:evidence});}
     async function send(id,message,clientMessageId=crypto.randomUUID()){
       await list();const room=rooms.find(r=>r.id===id);need(room&&room.status!=='removed'&&!room.departures?.length,'encrypted_room_departure_pending');
-      const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();return result;
+      const result=await runtime().room.send({conversationId:id,message,clientMessageId});onChange();
+      if(result.status!=='pending'&&typeof message==='string'&&message.trim()&&!message.startsWith('WINGA-ROOM/1\n'))void inviteEvent(id,'first_comment',result.id);
+      return result;
     }
-    async function command(id,type,data,clientMessageId){const codec=await module();return send(id,codec.encodeRoomContent(type,data),clientMessageId);}
+    async function command(id,type,data,clientMessageId){const codec=await module(),result=await send(id,codec.encodeRoomContent(type,data),clientMessageId);
+      if(result.status!=='pending'){
+        const event=type==='product-share'?'first_product_added':type==='poll-vote'&&data.optionId?'first_vote':type==='shortlist'&&data.selected?'room_shortlist_created':type==='poll-close'?'room_poll_closed':null;
+        if(event)void inviteEvent(id,event,result.id);
+      }return result;}
+    async function inviteEvent(id,eventType,eventId){try{
+      const saved=await vault.snapshot(),invite=saved.values[`room:invite:${id}`];
+      if(invite)globalThis.WingaGrowth?.roomEvent(eventType,invite,{eventId});
+    }catch{}}
+    function invitationCapabilities(){return {enabled:roomInvitesEnabled===true};}
+    async function createInvite(id,productIds,inviteId=crypto.randomUUID()){
+      need(roomInvitesEnabled,'growth_room_invites_disabled');
+      const contract=globalThis.WingaModules?.growth?.contract;
+      need(contract?.uuid(inviteId)&&contract.uuid(id)&&Array.isArray(productIds)&&productIds.length>=1&&productIds.length<=4&&productIds.every(contract.id),'growth_invite_invalid');
+      const payload={conversationId:id,inviteId,previewProducts:JSON.stringify([...new Set(productIds)]),purpose:'choose_products',ttlHours:24};
+      const key=`room:invite-created:${inviteId}`,saved=await vault.snapshot(),prior=saved.values[key];
+      need(!prior||JSON.stringify(prior.payload)===JSON.stringify(payload),'growth_invite_conflict');
+      if(!prior)await vault.write({expectedRevision:saved.revision,values:{[key]:{payload}}});
+      const result=await operation('room-invite-create',payload,inviteId);
+      need(result.version===1&&result.inviteId===inviteId&&contract.inviteToken(result.token)&&Number.isFinite(Date.parse(result.expiresAt)),'growth_invite_invalid');
+      const next=await vault.snapshot();await vault.write({expectedRevision:next.revision,values:{[key]:{payload,...result}}});
+      return result;
+    }
+    async function createdInvites(id){const saved=await vault.snapshot();return Object.entries(saved.values)
+      .filter(([key,v])=>key.startsWith('room:invite-created:')&&v.payload.conversationId===id)
+      .map(([,v])=>structuredClone(v)).slice(-50);}
+    async function revokeInvite(id,inviteId){const result=await operation('room-invite-revoke',{conversationId:id,inviteId});
+      need(result?.revoked===true,'growth_invite_invalid');const saved=await vault.snapshot(),key=`room:invite-created:${inviteId}`,prior=saved.values[key];
+      if(prior)await vault.write({expectedRevision:saved.revision,values:{[key]:{...prior,revoked:true}}});return result;}
+    async function invitationRequests(id){const result=await operation('room-invite-requests',{conversationId:id});
+      need(result?.version===1&&Array.isArray(result.requests)&&result.requests.length<=50,'growth_invite_invalid');return result.requests;}
+    async function declineInvite(id,inviteId,recipient){return operation('room-invite-decline',{conversationId:id,inviteId,recipient});}
+    async function requestInvite(context,inviteId){const contract=globalThis.WingaModules?.growth?.contract;
+      need(roomInvitesEnabled&&contract?.uuid(inviteId)&&contract.uuid(context?.conversationId)&&/^[a-f0-9]{64}$/.test(context?.tokenHash),'growth_invite_invalid');
+      const key=`room:invite:${context.conversationId}`,saved=await vault.snapshot(),prior=saved.values[key];
+      const invite=prior?.inviteId===inviteId?prior:{...context,inviteId,sessionId:globalThis.WingaGrowth?.getSessionId()||crypto.randomUUID(),acceptedEventId:crypto.randomUUID(),requestId:crypto.randomUUID()};
+      if(!prior||prior.inviteId!==inviteId)await vault.write({expectedRevision:saved.revision,values:{[key]:invite}});
+      const result=await operation('room-invite-request',{conversationId:context.conversationId,inviteId,tokenHash:context.tokenHash,sessionId:invite.sessionId},invite.requestId);
+      need(result?.version===1&&['requested','accepted'].includes(result.status)&&result.conversationId===context.conversationId,'growth_invite_invalid');
+      return result;
+    }
     async function markRead(id,ids){if(document.visibilityState!=='visible'||!document.hasFocus())return;
       const detail=[...document.querySelectorAll('[data-room-id]')].find(el=>el.dataset.roomId===id&&el.getClientRects().length),thread=detail?.querySelector('.room-thread');
       if(!thread||typeof globalThis.visibleIncomingMessageIds!=='function')return;
@@ -20431,7 +20597,8 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function pendingTransitions(){const saved=await vault.snapshot();return Object.entries(saved.values)
       .filter(([key])=>['room:create:','room:change:','room:leave:'].some(prefix=>key.startsWith(prefix)))
       .map(([key,value])=>({id:key.split(':')[2],kind:key.split(':')[1],name:value.name||value.payload.name})).sort((a,b)=>a.id.localeCompare(b.id));}
-    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,transferAdmin,leave,resumeLeave,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia};
+    return {authorization,historyGroups,validateHistoryMembership,validateHistory,limits,preferences,setPreference,sync,list,pendingTransitions,inspectOwners,create,resumeCreate,join,inspectChange,change,resumeChange,transferAdmin,leave,resumeLeave,history,board,send,command,markRead,sendMedia,retryMedia,downloadMedia,pendingMedia,
+      invitationCapabilities,createInvite,createdInvites,revokeInvite,invitationRequests,declineInvite,requestInvite,inviteEvent};
   }
   globalThis.WingaRoomSession={createRoomSession};
 })();
@@ -20486,7 +20653,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const src=actions.sanitizeImage?.(actions.getMemberProfile?.(id)?.profileImage||'','');
       if(src){const image=document.createElement('img');image.src=src;image.alt='';image.loading='lazy';image.addEventListener('error',fallback,{once:true});wrap.append(image);}else fallback();return wrap;}
     state.comparison=state.comparison||new Map();const orderReads=new Map();
-    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='';const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
+    let rooms=[],roomLimits={maxOwners:12,maxDevices:24},busy=false,stopped=false,signature='',timer,pendingFiles=[],pendingTransitions=[],pendingQuestions=[],readQueued=false,lastError='',invitationCapabilities=null;const urls=new Set(),dialogs=new Set(),readyControls=new Map(),preferenceViews=new Map();
     function visibleRead(){if(readQueued||!current()||state.tab!=='chat')return;const id=state.selected,history=state.history.get(id)||[];
       if(!history.some(m=>m.owner!==owner&&m.status!=='read'))return;readQueued=true;
       requestAnimationFrame(async()=>{try{if(current()&&state.selected===id&&state.tab==='chat')await call('markRead',id,history.slice(-state.shown).map(m=>m.id));}catch{}finally{readQueued=false;}});}
@@ -20519,6 +20686,48 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function addMembers(room){const view=modal(t('rooms.addMembers','Add members')),names=input(view.form,t('rooms.usernames','Member usernames'),'members',{area:true,max:1536});
       const review=submit(view.form,t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,await resolveMembers(names.value));if(!current())return view.d.close();names.disabled=true;review.remove();identities(view.form,selected);
         submit(view.form,t('rooms.addMembers','Add members'),async()=>{await call('change',room.id,selected,'');view.d.close();});});}
+    async function invitationLinks(room){
+      const view=modal(t('growth.roomInviteTitle','Help me choose between these products'));
+      view.form.append(element('p',t('growth.invitePreviewScope','Only selected public products appear in the invitation preview. Joining needs room approval.'),'empty-copy'));
+      const board=state.boards.get(room.id),products=[...new Map((board?.products || []).map(p=>[p.productId,p])).values()],selected=new Set();
+      for(const product of products){const label=element('label','','room-invite-product-option'),check=document.createElement('input');check.type='checkbox';
+        const item=state.catalog.get(product.productId)?.product;
+        label.append(check,element('span',item?.name || product.snapshot?.name || product.productId));
+        check.onchange=()=>{if(check.checked){if(selected.size>=4){check.checked=false;return;}selected.add(product.productId);}else selected.delete(product.productId);create.disabled=!selected.size;};
+        view.form.append(label);}
+      if(!products.length)view.form.append(element('p',t('growth.inviteAddProducts','Add products to this room before creating an invitation.'),'empty-copy'));
+      const inviteId=crypto.randomUUID(),create=submit(view.form,t('growth.createInvitation','Create invitation link'),async()=>{
+        const result=await call('createInvite',room.id,[...selected],inviteId);if(!current())return view.d.close();
+        create.remove();for(const check of view.form.querySelectorAll('input[type="checkbox"]'))check.disabled=true;
+        invitationLinkControls(view.form,room,result);
+      });create.disabled=true;
+      readyControls.set(create,()=>{create.disabled=!selected.size;});
+      const existing=await call('createdInvites',room.id);if(!current())return view.d.close();
+      for(const invite of existing){const row=element('section','','room-invite-existing');
+        if(invite.revoked||invite.expiresAt&&Date.parse(invite.expiresAt)<=Date.now())continue;
+        if(invite.token)invitationLinkControls(row,room,invite);
+        else row.append(button(t('inbox.retry','Try again'),async()=>{const result=await call('createInvite',room.id,JSON.parse(invite.payload.previewProducts),invite.payload.inviteId);row.replaceChildren();invitationLinkControls(row,room,result);}));
+        view.form.append(row);}
+    }
+    function invitationLinkControls(parent,room,invite){
+      const target=globalThis.WingaModules?.growth?.contract.destination('SHOPPING_ROOM',invite.token);if(!target)return;
+      const url=new URL(target.path,location.origin).href,field=document.createElement('input');field.type='text';field.readOnly=true;field.value=url;
+      field.setAttribute('aria-label',t('growth.invitationLink','Invitation link'));parent.append(field);
+      parent.append(button(t('growth.copyLink','Copy link'),async()=>{await navigator.clipboard.writeText(url);status.textContent=t('growth.linkCopied','Link copied.');}));
+      if(navigator.share)parent.append(button(t('growth.shareInvitation','Share invitation'),async()=>{try{await navigator.share({title:t('growth.roomInviteTitle','Help me choose between these products'),text:t('growth.roomInviteTitle','Help me choose between these products'),url});}catch(error){if(error.name!=='AbortError')throw error;}}));
+      parent.append(button(t('growth.shareWhatsApp','Share on WhatsApp'),async()=>{window.open('https://wa.me/?text='+encodeURIComponent(t('growth.roomInviteTitle','Help me choose between these products')+' '+url),'_blank','noopener,noreferrer');}));
+      parent.append(button(t('growth.revokeInvitation','Revoke invitation'),async()=>{await call('revokeInvite',room.id,invite.inviteId);parent.replaceChildren(element('p',t('growth.invitationRevoked','Invitation revoked.')));}));
+    }
+    async function invitationRequests(room){const view=modal(t('growth.joinRequests','Room join requests')),requests=await call('invitationRequests',room.id);if(!current())return view.d.close();
+      if(!requests.length)view.form.append(element('p',t('growth.noJoinRequests','No pending join requests.'),'empty-copy'));
+      for(const request of requests){const row=element('section','','room-invite-request');row.append(element('strong',memberName(request.username)));
+        row.append(button(t('rooms.review','Review devices'),async()=>{const selected=await call('inspectChange',room.id,[request.username]),review=modal(t('rooms.review','Review devices'));identities(review.form,selected);
+          submit(review.form,t('growth.approveRoomRequest','Approve room request'),async()=>{await call('change',room.id,selected,'');review.d.close();view.d.close();});}));
+        row.append(button(t('growth.declineRoomRequest','Decline request'),async()=>{await call('declineInvite',room.id,request.inviteId,request.username);row.remove();}));view.form.append(row);}
+    }
+    async function invitationPreferences(){const view=modal(t('growth.invitationPreferences','Invitation preferences')),preferences=await dataLayer.roomInvitePreferences();if(!current())return view.d.close();
+      const label=element('label',t('growth.allowRoomInvites','Allow room invitations')),check=document.createElement('input');check.type='checkbox';check.checked=preferences.allowInvites===true;label.append(check);view.form.append(label);
+      submit(view.form,t('common.save','Save'),async()=>{await dataLayer.roomInvitePreferences(check.checked);view.d.close();});}
     async function members(room){const view=modal(t('chat.roomMembers','Room members')),i=JSON.parse(room.transition.intent),roles=JSON.parse(i.roles),ul=element('ul','','room-members-list');
       const admin=roles.some(r=>r.owner===owner&&r.role==='admin');
       for(const r of roles){const li=element('li');li.append(element('strong',memberName(r.owner)),element('small',r.role==='admin'?t('chat.roomAdmin','Admin'):t('rooms.member','Member')));
@@ -20544,6 +20753,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       submit(confirm.form,t('rooms.leave','Leave chatroom'),async()=>{await call('leave',room.id);confirm.d.close();parent?.d.close();});}
     function listView(){list.replaceChildren();const toolbar=element('div','','rooms-list-toolbar');toolbar.append(element('strong',state.showArchived?t('chat.archived','Archived chats'):t('inbox.rooms','Chatrooms')),
       iconButton('plus',t('rooms.create','New chatroom'),createRoom),iconButton('refresh-cw',t('inbox.retry','Try again'),()=>refresh(true)));
+      if(invitationCapabilities?.enabled)toolbar.append(iconButton('ellipsis',t('growth.invitationPreferences','Invitation preferences'),invitationPreferences));
       if(rooms.some(r=>r.preferences)){const archived=iconButton('archive',t('chat.archived','Archived chats'),async()=>{state.showArchived=!state.showArchived;state.selected='';});
         archived.setAttribute('aria-pressed',String(Boolean(state.showArchived)));toolbar.append(archived);}list.append(toolbar);
       const search=scope.querySelector('[data-inbox-search]');if(search){search.value=state.query;search.oninput=()=>{state.query=search.value;listView();};}
@@ -20627,7 +20837,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
-        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>actions.openProduct?.(p.id)));
+        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed').catch(()=>{});return actions.openProduct?.(p.id);}));
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
@@ -20699,6 +20909,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(room.transition?.status==='accepted')identity.append(element('p',t('chat.roomMemberCount','{count} members',{count:JSON.parse(JSON.parse(room.transition.intent).roles).length})));
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);
       if(room.status!=='removed'){head.append(iconButton('info',t('chat.roomMembers','Room members'),()=>members(room)));
+        const roles=JSON.parse(JSON.parse(room.transition.intent).roles);
+        if(invitationCapabilities?.enabled&&room.transition?.status==='accepted'&&roles.some(r=>r.owner===owner&&r.role==='admin')){
+          head.append(iconButton('users',t('growth.inviteToRoom','Invite to room'),()=>invitationLinks(room)),iconButton('bell',t('growth.joinRequests','Room join requests'),()=>invitationRequests(room)));
+        }
         if(room.preferences)head.append(iconButton('ellipsis',t('menu.settings','Settings'),()=>roomSettings(room)));}detail.append(head);
       if(room.status==='removed'){
         detail.append(element('p',room.rotationPending?t('rooms.leftRotationPending','You left. Key rotation is pending.'):t('rooms.removed','Access ended'),'empty-copy'));
@@ -20754,6 +20968,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     async function refresh(force=false){if(!current())return;try{
       roomLimits=await call('limits');if(!current())return;
+      if(invitationCapabilities===null){try{invitationCapabilities=await call('invitationCapabilities');}catch{invitationCapabilities={enabled:false};}if(!current())return;}
       const next=await call('sync');if(!current())return;rooms=next;
       for(const [id,update]of preferenceViews){const room=rooms.find(r=>r.id===id);if(room?.preferences)update(room.preferences);}
       pendingTransitions=await call('pendingTransitions');if(!current())return;

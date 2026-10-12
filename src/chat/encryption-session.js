@@ -13,7 +13,7 @@
     }).catch(error=>{bundle=null;throw error;});
     return bundle;
   }
-  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
+  async function createEncryptionSession({getSession,deviceRequest,packageRequest,operationRequest,initialSync=true,mediaEnabled=false,multiDeviceEnabled=false,roomsEnabled=false,roomInvitesEnabled=false,roomLimits,mediaRequest,onChange=()=>{}}) {
     await loadRuntime();
     const initial={...getSession()},owner=initial.username;
     let closed=false,runtime,media,nativeHistory,roomSession,historyTask,groups=[],tail=Promise.resolve(),lastSnapshot='';
@@ -78,7 +78,7 @@
     }
     try {
       if(roomsEnabled){if(!globalThis.WingaRoomSession)fail('encrypted_rooms_disabled');
-        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,historyRecoveryEnabled:multiDeviceEnabled,
+        roomSession=WingaRoomSession.createRoomSession({owner,runtime:()=>runtime,vault,operation,verifyPackage,verifyProof,onChange,roomLimits,roomInvitesEnabled,historyRecoveryEnabled:multiDeviceEnabled,
           verifyArchiveProof:async(p,action)=>{const pin=(await pins()).find(v=>v.id===p.actorId&&v.owner===p.owner&&v.status==='active');return pin?verifyProof(p,action,pin):null;},
           mediaFactory:mediaEnabled&&globalThis.WingaEncryptedMedia&&typeof mediaRequest==='function'?async id=>{
             const peer='room:'+id,requirePeer=p=>{if(p&&p!==peer)fail('encrypted_group_scope_rejected');};
@@ -665,7 +665,7 @@
       }
       const service={
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
-        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
+        shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia','invitationCapabilities','createInvite','createdInvites','revokeInvite','invitationRequests','declineInvite','requestInvite','inviteEvent'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
         inspect,enable,replace,resumeReplacement,admitDevice,verifyAdmission,changeDevice,sync:()=>serialize(async()=>{
           const result=await syncInternal();await resumeSavedIntents();return result;
         }),

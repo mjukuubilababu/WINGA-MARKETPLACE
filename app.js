@@ -5486,6 +5486,10 @@ async function resumePendingGuestIntent() {
   const intent = window.WingaModules.growth.contract.authIntent(pendingGuestIntent);
   clearPendingGuestIntent();
   if (!intent) return;
+  if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(intent.type)) {
+    await getRoomInviteUi().open(intent.token,{requestAfterAuth:intent.type==='join-room-invite',safetyAction:intent.type==='block-room-inviter'?'block':intent.type==='report-room-invite'?'report':''});
+    return;
+  }
   if (intent.productId) {
     const returningUser = currentUser;
     let availableProduct = null;
@@ -15377,6 +15381,7 @@ let recentMessagedProductIds = [];
 let sharedCollectionIntentEntries = [];
 let homeContinuousDiscoveryRuntime = createHomeContinuousDiscoveryRuntime();
 const observability = createObservabilityModule({
+  redactTelemetryPath:window.WingaModules.growth.contract.telemetryPath,
   emitClientEvent: (payload) => window.WingaDataLayer?.logClientEvent?.(payload),
   consoleObject: console,
   shouldLogToConsole: () => !isProductionClientRuntime() || isExperienceMetricDebugEnabled(),
@@ -16040,7 +16045,8 @@ function canonicalizeProductDetailPath(pathname = window.location.pathname) {
 }
 
 function getDeepLinkedProductIdFromRoute() {
-  return window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin)?.id || '';
+  const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
+  return target?.type==='PRODUCT'?target.id:'';
 }
 
 function getProductDetailPath(productId) {
@@ -16561,6 +16567,10 @@ function tryOpenPendingDeepLinkProductRoute() {
 }
 
 function openDeepLinkedProductRouteIfNeeded(options = {}) {
+  if (String(window.location.pathname || '').startsWith('/invite/')) {
+    const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
+    void getRoomInviteUi().open(target?.type==='SHOPPING_ROOM'?target.id:'');return true;
+  }
   try { window.WingaGrowth?.capture(); } catch {}
   const { skipHomeRender = false } = options;
   const pathname = String(window.location.pathname || "").trim();
@@ -24231,6 +24241,21 @@ function getGrowthRuntime() {
   }
   return window.WingaGrowth;
 }
+let roomInviteUi=null;
+function getRoomInviteUi(){
+  if(!roomInviteUi)roomInviteUi=window.WingaModules.growth.createInviteUi({window,dataLayer:window.WingaDataLayer,
+    getAccount:()=>currentUser || '',getGrowth:getGrowthRuntime,
+    translate:(key,fallback)=>translateUi(key,{},fallback),image:product=>getMarketplacePrimaryImage(product),price:formatPrice,
+    requireAuth:intent=>promptGuestAuth({intent}),
+    explore:()=>{safeReplaceState(window.history.state || {},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
+    openProduct:async id=>{let product;try{product=await window.WingaDataLayer.loadSharedProduct(id);}catch{}
+      if(!product){showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),body:translateUi('growth.exploreOtherProducts',{},'Explore other products on Winga.'),variant:'warning'});return;}
+      refreshProductsFromStore();if(getProductById(id))openProductDetailModal(id);},
+    openRoom:roomId=>{openProfileSection('profile-messages-panel');WingaShoppingRoomsUi.select(currentUser,roomId);
+      chatUiState.activeContext=null;chatUiState.profileMessagesMode='list';chatUiState.conversationsView='rooms';chatUiState.profileHasSelection=false;renderProfile();void refreshMessagesState();}
+  });
+  return roomInviteUi;
+}
 
 function handleAccessRouteChange() {
   if (isAdminLoginRoute()) {
@@ -25792,6 +25817,10 @@ async function bootApp() {
   }
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
+  if(String(window.location.pathname || '').startsWith('/invite/')){
+    const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
+    void getRoomInviteUi().open(target?.type==='SHOPPING_ROOM'?target.id:'');
+  }
   document.body.classList.add("app-ready");
   hideLifecycleFallbackShell();
   completeBootOverlay();

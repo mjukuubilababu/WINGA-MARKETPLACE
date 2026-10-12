@@ -53,6 +53,7 @@
           onChange:change=>encryptionChanged(change),
           mediaEnabled:capabilities.mediaEnabled===true,multiDeviceEnabled:capabilities.multiDeviceEnabled===true,mediaRequest:api.cryptoMediaRequest,
           roomsEnabled:capabilities.roomsEnabled===true,
+          roomInvitesEnabled:capabilities.roomInvitesEnabled===true,
           roomLimits:capabilities.roomLimits,
         });
         if(encryptionOwner !== key) {service.close();throw new Error('mls_session_changed');}

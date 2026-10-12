@@ -1,28 +1,7 @@
-const crypto = require('node:crypto');
 const contract = require('../src/growth/contract');
-const fail = (status, code) => { throw Object.assign(new Error(code), { status, code }); };
-const key = value => crypto.createHash('sha256').update(value).digest('hex');
-const fields = (value, allowed) => value && typeof value === 'object' && !Array.isArray(value)
-  && Object.keys(value).every(k => allowed.includes(k));
+const {fail, key, fields, publicProduct, quota, insertEvent} = require('./growth-infrastructure');
 
 function createGrowthStore({ query, withTransaction }) {
-  // One privacy/safety predicate for share creation, resolution and events. No owner/staff bypass.
-  async function publicProduct(client, productId, viewer = '', sharer = '') {
-    const result = await client.query(`SELECT p.id FROM products p JOIN users u ON u.username=p.uploaded_by
-      WHERE p.id=$1 AND p.status='approved' AND u.status='active'
-      AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='product' AND content_id=p.id),'public')='public'
-      AND ($2='' OR NOT EXISTS (SELECT 1 FROM user_blocks
-        WHERE (blocker_username=$2 AND blocked_username IN (p.uploaded_by,$3))
-          OR (blocked_username=$2 AND blocker_username IN (p.uploaded_by,$3))))`, [productId, viewer, sharer]);
-    return !!result.rows.length;
-  }
-  async function quota(client, bucket, limit, windowSeconds = 60) {
-    const result = await client.query(`INSERT INTO growth_rate_buckets(bucket_key,window_start,count)
-      VALUES($1,to_timestamp(floor(extract(epoch FROM NOW())/$3)*$3),1)
-      ON CONFLICT(bucket_key,window_start) DO UPDATE SET count=growth_rate_buckets.count+1
-      WHERE growth_rate_buckets.count<$2 RETURNING count`, [bucket, limit, windowSeconds]);
-    if (!result.rows.length) fail(429, 'growth_rate_limited');
-  }
   function identity(context, sessionId) {
     if (!contract.uuid(sessionId)) fail(400, 'growth_session_invalid');
     // A tab journey survives guest -> authenticated transition without joining unrelated devices.
@@ -33,25 +12,14 @@ function createGrowthStore({ query, withTransaction }) {
     if (!contract.uuid(shareId)) fail(404, 'growth_share_unavailable');
     const share = (await client.query(`SELECT * FROM growth_shares WHERE id=$1
       AND revoked_at IS NULL AND expires_at>NOW()`, [shareId])).rows[0];
-    if (!share || !await publicProduct(client, share.content_id, context.username || '', share.owner_username || ''))
+    if (!share || share.content_type !== 'PRODUCT' || !await publicProduct(client, share.content_id, context.username || '', share.owner_username || ''))
       fail(404, 'growth_share_unavailable');
     return share;
-  }
-  async function insertEvent(client, eventId, shareId, actorKey, eventType, verification, durationMs = null) {
-    const result = await client.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification,client_duration_ms)
-      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING event_id`,
-    [eventId, shareId, actorKey, eventType, verification, durationMs]);
-    if (!result.rows.length) {
-      const existing = (await client.query('SELECT share_id,actor_key,event_type FROM growth_events WHERE event_id=$1',[eventId])).rows[0];
-      if (existing && (existing.share_id !== shareId || existing.actor_key !== actorKey || existing.event_type !== eventType))
-        fail(409,'growth_event_conflict');
-    }
-    return result.rows.length > 0;
   }
   async function createGrowthShare(payload, context) {
     if (context.growthCohort && !context.growthCohort.allowsCreation(context.username || '')) fail(403, 'growth_cohort_excluded');
     if (!fields(payload, ['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion'])
-      || payload.schemaVersion !== 1 || !contract.uuid(payload.shareId)
+      || payload.schemaVersion !== 1 || payload.contentType !== 'PRODUCT' || !contract.uuid(payload.shareId)
       || !contract.destination(payload.contentType, payload.contentId) || !contract.surfaces.includes(payload.sourceSurface)
       || (payload.parentShareId && !contract.uuid(payload.parentShareId))) fail(400, 'growth_share_invalid');
     const actorKey = identity(context, payload.sessionId);
@@ -149,7 +117,8 @@ function createGrowthStore({ query, withTransaction }) {
   }
   async function readGrowthHealth() {
     const result = await query(`SELECT e.event_type,e.verification,COUNT(*)::int AS count FROM growth_events e
-      WHERE e.created_at>=NOW()-INTERVAL '30 days' GROUP BY e.event_type,e.verification`);
+      JOIN growth_shares s ON s.id=e.share_id
+      WHERE s.content_type='PRODUCT' AND e.created_at>=NOW()-INTERVAL '30 days' GROUP BY e.event_type,e.verification`);
     const counts = Object.fromEntries(result.rows.map(r => [r.event_type,Number(r.count)]));
     const created = counts.product_share_created || 0, opened = counts.product_share_opened || 0;
     const viewed = counts.shared_product_viewed || 0, saved = counts.shared_product_saved || 0;
@@ -161,7 +130,7 @@ function createGrowthStore({ query, withTransaction }) {
         MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_product_saved','shared_product_order_started')) AS value_at,
         BOOL_OR(e.event_type='shared_product_reshared') AS continued
       FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
-      WHERE s.created_at>=NOW()-INTERVAL '30 days' AND e.actor_key<>s.actor_key
+      WHERE s.content_type='PRODUCT' AND s.created_at>=NOW()-INTERVAL '30 days' AND e.actor_key<>s.actor_key
       GROUP BY e.share_id,e.actor_key
     ) SELECT COUNT(*) FILTER(WHERE opened_at IS NOT NULL)::int AS opens,
       COUNT(DISTINCT share_id) FILTER(WHERE opened_at IS NOT NULL)::int AS opened_shares,
@@ -173,11 +142,12 @@ function createGrowthStore({ query, withTransaction }) {
         GROUP BY actor_key HAVING COUNT(*)>1) repeated) AS repeat_recipients
       FROM journeys`)).rows[0] || {};
     const sharesInCohort = Number((await query(`SELECT COUNT(*)::int AS count FROM growth_shares
-      WHERE created_at>=NOW()-INTERVAL '30 days'`)).rows[0]?.count || 0);
+      WHERE content_type='PRODUCT' AND created_at>=NOW()-INTERVAL '30 days'`)).rows[0]?.count || 0);
     const ratio = (a,b) => Number(b) ? Number(a)/Number(b) : null;
-    const timing = (await query(`SELECT COUNT(*)::int AS samples, AVG(client_duration_ms)::float8 AS average,
-      percentile_cont(0.95) WITHIN GROUP (ORDER BY client_duration_ms)::float8 AS p95
-      FROM growth_events WHERE client_duration_ms IS NOT NULL AND created_at>=NOW()-INTERVAL '30 days'`)).rows[0] || {};
+    const timing = (await query(`SELECT COUNT(*)::int AS samples, AVG(e.client_duration_ms)::float8 AS average,
+      percentile_cont(0.95) WITHIN GROUP (ORDER BY e.client_duration_ms)::float8 AS p95
+      FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
+      WHERE s.content_type='PRODUCT' AND e.client_duration_ms IS NOT NULL AND e.created_at>=NOW()-INTERVAL '30 days'`)).rows[0] || {};
     // Recipient-per-share metrics can exceed 1; these are not unique-user funnel percentages.
     return { schemaVersion: 1, loop: 'product_share', windowDays: 30, counts,
       shares: created, recipientOpens: opened, meaningfulViews: viewed, confirmedSaves: saved, confirmedOrderStarts: orders,

@@ -9,7 +9,7 @@ function operationBytes(context, operation) {
   return Buffer.from(JSON.stringify(['winga-crypto-transport', 1, context.owner, context.deviceId,
     operation.action, operation.actorId, operation.requestId, operation.issuedAt, digest(JSON.stringify(operation.payload,Object.keys(operation.payload).sort()))]));
 }
-function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20, metrics=require('./conversation-metrics').conversationMetrics }) {
+function createEncryptedConversationStore({ withTransaction, now = Date.now, enqueuePush = async()=>{}, mediaEnabled=false, multiDeviceEnabled=false, roomsEnabled=false, roomLimits, newConversationLimitPerHour=20, roomInvitesEnabled=process.env.WINGA_GROWTH_ROOM_INVITES_ENABLED==='true', inviteMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true',inviteSecret=process.env.WINGA_GROWTH_INVITE_SECRET || '', inviteCohort, inviteEventWriter, metrics=require('./conversation-metrics').conversationMetrics }) {
   if(typeof multiDeviceEnabled!=='boolean')throw new TypeError('Invalid encrypted device feature gate');
   if(typeof roomsEnabled!=='boolean')throw new TypeError('Invalid encrypted room feature gate');
   const newConversationLimit=Number(newConversationLimitPerHour);
@@ -24,6 +24,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     access:async(client,g,actor,owner,options)=>{if(g?.kind==='shopping-room'){assert(roomsEnabled,503,'encrypted_rooms_disabled');return rooms.access(client,{owner},actor,g,{pending:false});}return access(client,g,actor,owner,options);},
     membershipFrozen:async(client,id)=>roomsEnabled&&await rooms.frozen(client,id)||await frozen(client,id),historyRecoveryEnabled:multiDeviceEnabled});
   const rooms=require('./encrypted-shopping-rooms').createShoppingRooms({packages,consumeQuota:consumeNewConversationQuota,enqueuePush,media,mediaEnabled,multiDeviceEnabled,roomLimits});
+  const loopInvites=require('./growth-loop-invites').createLoopInvites({withTransaction,authorizeRoom:rooms.access,enabled:roomsEnabled&&roomInvitesEnabled,measurementEnabled:inviteMeasurementEnabled,secret:inviteSecret,
+    cohort:inviteCohort,eventWriter:inviteEventWriter,onEventFailure:()=>{try{metrics.record('growth-invite-event-failure',503,0);}catch{}}});
   const sellers=require('./encrypted-room-sellers').createRoomSellers({rooms,access,consumeQuota:consumeNewConversationQuota,frozen});
   async function consumeNewConversationQuota(client, owner) {
     const release=require('./conversation-release-policy');
@@ -70,7 +72,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     const release=require('./conversation-release-policy');
     release.assertCompatibleProtocol(release.readConversationReleasePolicy());
     assert(['directory','reserve','transfer','accept','send','receipt','receipt-ack','reject','poll','media-reserve','replace-reserve','replace-transfer','replace-accept','replace-retire',
-      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields),...Object.keys(require('./encrypted-room-sellers').fields)].includes(op?.action));
+      'device-reserve','device-transfer','device-accept','device-retire','device-change-reserve','device-change-transfer','device-change-accept','device-change-retire','sync-ack','media-history-grant','archive-read','archive-read-ack',...Object.keys(require('./encrypted-native-history').fields),...Object.keys(require('./encrypted-shopping-rooms').fields),...Object.keys(require('./growth-loop-invites').fields),...Object.keys(require('./encrypted-room-sellers').fields)].includes(op?.action));
     if(op.action.startsWith('room-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
     if(op.action.startsWith('seller-'))assert(roomsEnabled,503,'encrypted_rooms_disabled');
     if(op.action.startsWith('device-') || op.action.startsWith('history-') || op.action.startsWith('archive-read') || op.action==='sync-ack' || op.action==='media-history-grant')assert(multiDeviceEnabled,503,'encrypted_multidevice_disabled');
@@ -100,6 +102,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     fields['archive-read-ack']=[...fields.receipt,'receiptDeviceId'];
     Object.assign(fields,require('./encrypted-native-history').fields);
     Object.assign(fields,require('./encrypted-shopping-rooms').fields);
+    Object.assign(fields,require('./growth-loop-invites').fields);
     Object.assign(fields,require('./encrypted-room-sellers').fields);
     if(op.action==='history-tasks' && Object.hasOwn(p,'after'))fields['history-tasks']=['after'];
     if(op.action==='send' && Object.hasOwn(p,'mediaId'))fields.send=[...fields.send,'mediaId'];
@@ -113,6 +116,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     const result=await withTransaction(async client => withTransportLocks(client,scopes,async()=>{
       // Scope before the actor lock; proof expiry is still checked after waiting.
       await authorize(client, context, op);
+      if(op.action.startsWith('room-invite-'))return loopInvites.handle(client,context,op);
       if(op.action.startsWith('seller-'))return sellers.handle(client,context,op);
       if(op.action.startsWith('room-'))return rooms.handle(client,context,op);
       if(op.action==='history-tasks') {
@@ -349,6 +353,8 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
     });
   }
   return { encryptedOperation, readEncryptedConversationMode,
+    resolveLoopInvite:loopInvites.resolveLoopInvite,recordRoomGrowthEvent:loopInvites.recordRoomGrowthEvent,invitePreferences:loopInvites.invitePreferences,readRoomLoopHealth:loopInvites.readRoomLoopHealth,
+    resolveInviteSafetyTarget:loopInvites.resolveInviteSafetyTarget,recordInviteSafetyEvent:loopInvites.recordInviteSafetyEvent,
     pruneEncryptedNativeHistory:({batchSize=100}={})=>multiDeviceEnabled?withTransaction(async client=>{
       await client.query("SELECT pg_advisory_xact_lock(hashtext('winga-encrypted-transport'))");return nativeHistory.prune(client,batchSize);
     }):Promise.resolve({pruned:0}),

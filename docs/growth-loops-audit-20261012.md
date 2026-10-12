@@ -17,7 +17,7 @@ implementation and does not authorize enabling every loop together.
 | Generic invites | MISSING | No shared expiring/revocable external invitation lifecycle. The existing product-share envelope is not a private invitation or membership grant. |
 | Referral links / seller referral | MISSING | No canonical referral lifecycle, first-value cohort or incentives. Utility sharing exists; do not add generic reward invites first. |
 | Conversations sharing | IMPLEMENTED / PARTIAL | `src/chat/rich-content.js` and `backend/conversation-references.js` resolve live product, Reel/Short, collection and authorized order/payment/delivery cards. Recent-contact share picker and complete growth journey attribution are absent. |
-| Shopping Room invitations | PARTIAL | `backend/encrypted-shopping-rooms.js`, `src/chat/room-session.js` and `src/chat/rooms-ui.js` own MLS roster transitions, device proofs, acceptance, membership, polls and blocks. External bearer invites, scoped guest previews, revocation/expiry and room-growth reporting are missing. Token acceptance must never substitute for MLS admission. |
+| Shopping Room invitations | PARTIAL | `backend/encrypted-shopping-rooms.js`, `src/chat/room-session.js` and `src/chat/rooms-ui.js` own MLS roster transitions, device proofs, acceptance, membership, polls and blocks. Scoped opaque invitations, guest previews, expiry/revocation, signed join requests and aggregate reporting now reuse the canonical MLS/growth owners. Source flags default off; production canary, event reconciliation and load/chaos evidence remain outstanding. Token acceptance never substitutes for MLS admission. |
 | Product cards in chat / rooms | IMPLEMENTED | Rich-reference authorization and existing encrypted room product operations are canonical; do not create another card or membership model. |
 | Demand / Opportunity | PARTIAL | The baseline withheld search-gap candidates below two audiences and the canonical normalizer rejected fewer than three signals. The N=1 remediation below separates search-gap eligibility from corroborated aggregate reports. Growth events must not inflate search demand. |
 | Demand → response → product linkage | PARTIAL | `backend/db.js:recordSupplyResponse` links opportunity, response, product and rediscovery audiences; commerce exposure/action/outcome tables exist. A complete per-buyer resolution chain and loop dashboard remain incomplete. |
@@ -64,7 +64,7 @@ defects here. Current regression and production evidence must still be checked.
 | Attribution contract | Product envelope/events implemented; broader loop attribution PARTIAL. |
 | Guest-first product / auth return | Existing browser regression coverage; current run results must be recorded. |
 | Product Sharing Loop end-to-end | Existing synthetic SQL/browser rehearsal; real production cohort/value evidence remains pending. |
-| Shopping Room Invite Loop end-to-end | External invite lifecycle and metrics MISSING. |
+| Shopping Room Invite Loop end-to-end | Lifecycle and scoped reporting implemented and tested locally; production cohort/operational evidence outstanding. |
 | Demand → Opportunity → Supply | Existing response linkage and verified N=1 search-gap SQL; full resolution chain and production value evidence incomplete. |
 | Seller liquidity metrics | Complete category/region liquidity dashboard MISSING. |
 | Anti-spam / rate limits | Product share/event quotas implemented; external-invite controls not implemented. |

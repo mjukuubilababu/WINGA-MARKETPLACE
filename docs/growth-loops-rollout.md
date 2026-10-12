@@ -113,3 +113,64 @@ An open is not a signup or value event. A save/order start is not a purchase. Sa
 | Whole-system definition of done | Full per-loop dashboards and activation/value definitions, retention/cohorts, regional/category liquidity, notification frequency/dedupe verification, meaningful conversation/room value, load/chaos/security acceptance and production rollback drills |
 
 No later-phase loop or full-spec checkbox is represented as complete simply because Phase 1 code/tests exist. Referral incentives, contact-list access, automatic invites, reminder fan-out and reward attribution are intentionally absent.
+
+## Phase 2 — scoped Shopping Room invitations (12 October 2026)
+
+The canonical destination contract now also accepts `/invite/<opaque-token>`.
+The frontend Worker runs first for this path and serves the existing app shell
+with `Referrer-Policy: no-referrer`; telemetry redacts tokens. UUID room IDs are
+not public invitation destinations. Old product links remain supported.
+
+Room admins explicitly select one to four public products and create a
+24-hour invitation (server limit seven days). The additive migration
+`202610121301_growth_loop_invites_v1` extends the existing growth envelope/events;
+it does not introduce another room membership or message store. Server HMAC
+links store only token hashes. Stable invitation IDs deduplicate retries;
+expiry, revocation, active admin/device/room status, public product safety and
+symmetric blocks are rechecked. Guest previews expose selected public products,
+not private room names, history, messages or members.
+
+Ask to join preserves the opaque invitation context through authentication.
+The recipient submits a device-signed request. An admin must use the existing
+MLS roster-change flow, and native members must complete canonical acceptance
+before membership is reported ready. A link is never membership authority.
+Block/report use existing safety owners; invitation preferences are self-scoped.
+No contacts are read and no notification or reminder is generated. Creation
+limits are five/user/minute, five/device/minute, twenty/IP/minute and
+fifty/user/day; requests are limited and deduplicated per invite/recipient.
+
+`WINGA_GROWTH_ROOM_INVITES_ENABLED` defaults false. Creation/request/confirmation
+require this independent flag and the existing cohort policy. Keep it false
+until the approved canary and operational checks are complete. Configure
+`WINGA_GROWTH_INVITE_SECRET` with at least 32 random characters, server only;
+do not put it in frontend config or Git. Measurement uses the existing
+`WINGA_GROWTH_MEASUREMENT_ENABLED` and cohort/guest controls. Disabling creation
+preserves valid previews, revocation, preferences and safety actions. Disabling
+measurement preserves sharing and canonical membership actions.
+
+Admin reporting at `/api/admin/growth/rooms` separates human opens, signed join
+requests, canonical accepted memberships, meaningful participation and value
+(shortlists/poll closure). First product views do not activate the room loop.
+Vote/comment/product-add/shortlist/poll events require a canonical encrypted
+message ID from the recipient after the request. Event type remains
+client-observed E2EE metadata; no ciphertext or private message body is read
+by growth analytics. Existing members and source/self opens are excluded from
+acquisition. Invitations delivered and viral coefficient remain unknown rather
+than inferred from copy/share actions.
+
+Validation: three invitation SQL/real-MLS scenarios, the full shopping-room
+suite, 145 frontend checks, product/room growth contracts and five Chromium
+scenarios (guest value, exact product/room auth return and expired invite).
+Browser invitation responses and request transport are controlled fixtures;
+canonical MLS admission and ledger evidence are tested separately against the
+database fixture. Optional analytics SQL failure is injected to prove invitation
+state survives. These are pre-production checks, not a real acquisition cohort.
+
+Outstanding Phase 2 gates include opted-in production recipients, regional
+performance/load/chaos evidence, server event reconciliation after optional
+measurement failure, recent-contact internal share UX, continuation/order
+attribution, operational dashboards and cohort retention. Do not mark the
+full specification production-ready or enable a broad rollout from these tests.
+Rollback: disable room invitation creation and measurement; leave additive
+schema and existing MLS rooms intact. Do not drop tables or invalidate legacy
+public product links to roll back UI code.

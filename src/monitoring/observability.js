@@ -14,6 +14,8 @@
     const getBaseContext = typeof deps.getBaseContext === "function"
       ? deps.getBaseContext
       : () => ({});
+    const redactPath = typeof deps.redactTelemetryPath === 'function' ? deps.redactTelemetryPath
+      : value => String(value).replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
     const noisyProductionEvents = new Set([
       "boot_phase",
       "app_boot_started",
@@ -140,14 +142,14 @@
           return;
         }
         if (typeof value === "string") {
-          safeContext[key] = value.slice(0, 120);
+          safeContext[key] = redactPath(value).slice(0, 120);
           return;
         }
         if (typeof value === "number" || typeof value === "boolean") {
           safeContext[key] = value;
           return;
         }
-        safeContext[key] = JSON.stringify(value).slice(0, 120);
+        safeContext[key] = redactPath(JSON.stringify(value)).slice(0, 120);
       });
       return safeContext;
     }
@@ -175,6 +177,7 @@
     }
 
     function reportEvent(level, event, message, context = {}) {
+      message=redactPath(String(message || ''));
       const safeLevel = ["info", "warn", "error"].includes(level) ? level : "error";
       const safeEvent = String(event || "unknown_event").slice(0, 80);
       const safeContext = sanitizeContext(context);
