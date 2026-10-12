@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { randomUUID } = require('node:crypto');
 const apiBaseUrl = 'http://127.0.0.1:43080/api';
 
-async function guest(browser, request) {
+async function guest(browser, request, flags = {}) {
   const response = await request.get(apiBaseUrl+'/products?limit=50');
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
@@ -10,11 +10,11 @@ async function guest(browser, request) {
   const product = [...products].reverse().find(p => p.status==='approved' && p.availability==='available' && p.image && Number(p.price)>0);
   expect(product).toBeTruthy();
   const context = await browser.newContext();
-  await context.addInitScript(base => {
-    window.__WINGA_CONFIG_OVERRIDE__ = {provider:'api',apiBaseUrl:base,growthProductSharing:true,growthMeasurement:true,disableServiceWorker:true};
+  await context.addInitScript(({base,flags}) => {
+    window.__WINGA_CONFIG_OVERRIDE__ = {provider:'api',apiBaseUrl:base,growthProductSharing:true,growthMeasurement:true,disableServiceWorker:true,...flags};
     Object.defineProperty(navigator,'share',{value:undefined,configurable:true});
     Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copiedGrowthLink=text;}},configurable:true});
-  },apiBaseUrl);
+  },{base:apiBaseUrl,flags});
   // Simulate measurement outage, while all canonical content/auth APIs remain real.
   await context.route('**/api/growth/**',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({code:'growth_unavailable'})}));
   const page = await context.newPage();
@@ -161,14 +161,16 @@ test('internal product sharing uses rich canonical transports and stable retry I
 });
 
 test('failed-search notification request preserves exact query through authentication',async({browser,request})=>{
-  const {context,page}=await guest(browser,request);
-  await context.addInitScript(()=>{window.__WINGA_CONFIG_OVERRIDE__.growthDemandResolution=true;});
+  const {context,page}=await guest(browser,request,{growthDemandResolution:true});
   await context.route('**/api/search-demand/subscriptions',route=>{
     const body=route.request().postDataJSON();
     return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({goalId:'goal_search_fixture',status:'looking',queryReceived:body.query})});
   });
   await page.goto('/');
   await expect(page.locator('#search-input')).toBeVisible({timeout:30000});
+  await expect(page.locator('body')).toHaveClass(/app-ready/);
+  // Exercise the common auth-return contract with a previously selected Search context.
+  // Canonical Search itself remains members-only. Wait for boot to finish before an action.
   const pending=page.waitForRequest('**/api/search-demand/subscriptions');
   await page.evaluate(()=>notifySearchDemand('unfindable purple walking moon boots'));
   await expect(page.locator('#auth-container')).toBeVisible();
@@ -177,4 +179,62 @@ test('failed-search notification request preserves exact query through authentic
   await expect(page.locator('#search-input')).toHaveValue('unfindable purple walking moon boots');
   expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();
   await context.close();
+});
+
+async function collectionPreview(context,product,{unavailable=false}={}){
+  const id='collection_fixture_'+randomUUID();
+  await context.route('**/api/social/collections/'+id,route=>route.fulfill({status:unavailable?404:200,contentType:'application/json',body:JSON.stringify(unavailable?{code:'collection_unavailable'}:{id,title:'Help choose a gift',description:'A public shortlist',ownerUsername:'market_seller',status:'published',visibility:'public',items:[{productId:product.id,name:product.name}],itemCount:1})}));
+  await context.route('**/api/social/follows/market_seller',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({updated:true,following:true,followedUsername:'market_seller'})}));
+  return id;
+}
+
+test('public collection links show exact products, share canonical identity and preserve follow auth context',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request),id=await collectionPreview(context,product);
+  await page.goto('/collection/'+id);
+  const preview=page.locator('[data-collection-id="'+id+'"]');
+  await expect(preview.getByRole('heading')).toHaveText('Help choose a gift',{timeout:30000});
+  await expect(preview.getByRole('button',{name:product.name,exact:true})).toBeVisible();
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await preview.getByRole('button',{name:/^(Share|Shiriki)$/}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/collection/'+id);
+  await preview.locator('[data-follow-collection-owner]').click();
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(preview).toBeVisible({timeout:30000});await expect(page).toHaveURL('/collection/'+id);
+  expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();
+  await context.close();
+});
+
+test('unavailable collection falls back without forcing signup',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request),id=await collectionPreview(context,product,{unavailable:true});
+  await page.goto('/collection/'+id);
+  await expect(page.locator('[data-collection-id] [role=status]')).toContainText('no longer available',{timeout:30000});
+  await expect(page.locator('#auth-container')).toBeHidden();await context.close();
+});
+
+test('public profile remains visible when optional collections are unavailable',async({browser,request})=>{
+  const {context,page}=await guest(browser,request);
+  await context.route('**/api/social/users/market_seller',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({profile:{username:'market_seller',fullName:'Gift Curator',status:'active',publicContent:{products:1,reels:0,collections:0},followers:0,following:0,viewerFollows:false}})}));
+  let releaseCollections;const collectionDelay=new Promise(resolve=>{releaseCollections=resolve;});
+  await context.route('**/api/social/users/market_seller/collections?*',async route=>{await collectionDelay;await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({code:'collections_unavailable'})});});
+  await page.goto('/profile/market_seller');
+  await expect(page.locator('#person-profile-modal')).toBeVisible({timeout:30000});
+  await expect(page.locator('#person-profile-modal')).toContainText('Gift Curator');
+  releaseCollections();
+  await expect(page.locator('#auth-container')).toBeHidden();await context.close();
+});
+
+test('member failed Search exposes an explicit notification action',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request,{growthDemandResolution:true});
+  let subscribed='';await context.route('**/api/search-demand/subscriptions',route=>{subscribed=route.request().postDataJSON().query;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({goalId:'goal_search_member_fixture',status:'looking'})});});
+  await page.goto('/product/'+product.id);await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+  await page.locator('#product-detail-modal [data-buy-product]').first().click();await page.locator('#auth-gate-login').click();
+  await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  await page.evaluate(()=>closeProductDetailModal({skipHistoryBack:true}));
+  await page.locator('#search-input').fill('unfindable green underwater snow shoes');
+  await expect(page.locator('[data-search-notify]')).toBeVisible({timeout:30000});
+  await page.locator('[data-search-notify]').click();
+  await expect.poll(()=>subscribed).toBe('unfindable green underwater snow shoes');
+  await expect(page.locator('#auth-container')).toBeHidden();await context.close();
 });

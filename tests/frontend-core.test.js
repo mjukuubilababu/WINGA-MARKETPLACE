@@ -3879,7 +3879,7 @@ test("production frontend routes same-domain API requests to the backend origin"
   assert.match(apiProxySource, /HOP_BY_HOP_HEADERS/);
   assert.match(apiProxySource, /headers\["x-winga-proxy"\] = "vercel-api"/);
   const workerFirstRoutes = JSON.parse(wranglerSource.match(/run_worker_first = (\[[^\]]*\])/)[1]);
-  for (const route of ['/', '/index.html', '/build-version.json', '/feed', '/product/*', '/invite/*', '/api/*', '/uploads/*', '/__winga-image__']) assert.ok(workerFirstRoutes.includes(route), route);
+  for (const route of ['/', '/index.html', '/build-version.json', '/feed', '/product/*', '/profile/*', '/collection/*', '/reel/*', '/short/*', '/invite/*', '/api/*', '/uploads/*', '/__winga-image__']) assert.ok(workerFirstRoutes.includes(route), route);
   assert.match(workerSource, /function isAppShellRoute\(pathname = "\/"\)/);
 });
 

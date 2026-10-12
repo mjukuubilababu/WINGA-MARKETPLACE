@@ -90,6 +90,7 @@ const bundledModuleSources = [
   "src/growth/runtime.js",
   "src/growth/invite-ui.js",
   "src/growth/internal-share.js",
+  "src/growth/content-ui.js",
   "src/api/runtime.js",
   "src/api/products.js",
   "src/api/feed-state.js",

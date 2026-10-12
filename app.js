@@ -4153,7 +4153,7 @@ function closeAuthModal() {
 }
 
 function promptGuestAuth(options = {}) {
-  pendingGuestIntent = window.WingaModules.growth.contract.authIntent({ ...options.intent, createdAt: Date.now() });
+  pendingGuestIntent = window.WingaModules.growth.contract.authIntent({ ...options.intent, returnTo:options.intent?.returnTo||(options.intent?.type==='follow-person'?window.location.pathname:undefined),createdAt: Date.now() });
   savePendingGuestIntent(pendingGuestIntent);
   openAuthModal(options.preferredMode || "signup", {
     gated: true,
@@ -5521,7 +5521,8 @@ async function resumePendingGuestIntent() {
   }
   if (intent.type === 'follow-person' && intent.username) {
     if (!isPersonFollowed(intent.username)) toggleFollowPerson(intent.username);
-    if (!intent.productId) openPersonProfile(intent.username);
+    if(intent.returnTo){const target=window.WingaModules.growth.contract.parseDestination(intent.returnTo,window.location.origin);if(target)await openCanonicalContentDestination(target);}
+    else if (!intent.productId) openPersonProfile(intent.username);
     return;
   }
 
@@ -10397,6 +10398,7 @@ function renderProfileCollectionsSection() {
             <button class="action-btn action-btn-secondary" type="button" data-add-profile-collection-item="${escapeHtml(collection.id || "")}">${escapeHtml(translateUi("collections.add", {}, "Add"))}</button>
           </div>
         ` : ""}
+        ${collection.status==='published'&&collection.visibility==='public'?`<button class="action-btn action-btn-secondary" type="button" data-share-canonical-collection="${escapeHtml(collection.id)}">${escapeHtml(translateUi('common.share',{},'Share'))}</button>`:''}
         ${canPublish ? `<button class="action-btn buy-btn" type="button" data-publish-profile-collection="${escapeHtml(collection.id || "")}" data-row-version="${Number(collection.rowVersion || 1)}">${escapeHtml(translateUi("collections.publish", {}, "Publish"))}</button>` : ""}
       </article>
     `;
@@ -11111,6 +11113,7 @@ function renderPersonProfileModal() {
             <span class="product-meta">${escapeHtml(translateUi("collections.itemCount", { count: Number(collection.itemCount || 0) }, `${Number(collection.itemCount || 0)} products`))}</span>
           </div>
           ${collection.description ? `<p class="product-meta">${escapeHtml(collection.description)}</p>` : ""}
+          ${collection.visibility==='public'?`<button type="button" class="action-btn action-btn-secondary" data-share-canonical-collection="${escapeHtml(collection.id)}">${escapeHtml(translateUi('common.share',{},'Share'))}</button>`:''}
           ${items ? `<div class="person-profile-products">${items}</div>` : ""}
         </article>
       `;
@@ -11235,11 +11238,10 @@ async function loadPersonProfile(username, options = {}) {
   personProfileState.error = "";
   renderPersonProfileModal();
   try {
-    const [profileResult, collectionPage] = await Promise.all([
-      window.WingaDataLayer.loadSocialProfile(safeUsername, { source: personProfileState.source }),
-      window.WingaDataLayer.loadUserCollections(safeUsername, { limit: 12 })
-    ]);
-    if (requestId !== personProfileState.requestId) return;
+    const viewer=currentUser;
+    const collectionRead=Promise.resolve().then(()=>window.WingaDataLayer.loadUserCollections(safeUsername, { limit: 12 })).catch(()=>null);
+    const profileResult=await window.WingaDataLayer.loadSocialProfile(safeUsername, { source: personProfileState.source });
+    if (requestId !== personProfileState.requestId || currentUser!==viewer) return;
     personProfileState.profile = profileResult?.profile || null;
     if (!personProfileState.profile) {
       throw new Error(translateUi("personProfile.missingData", {}, "Public profile data is unavailable."));
@@ -11250,9 +11252,14 @@ async function loadPersonProfile(username, options = {}) {
       else followedIds.delete(personProfileState.profile.username);
       persistFollowedSellerIds();
     }
-    personProfileState.collections = Array.isArray(collectionPage?.items) ? collectionPage.items : [];
+    personProfileState.collections=[];
     personProfileState.status = "ready";
     renderPersonProfileModal();
+    void collectionRead.then(collectionPage=>{
+      if(requestId!==personProfileState.requestId||currentUser!==viewer)return;
+      personProfileState.collections = Array.isArray(collectionPage?.items) ? collectionPage.items : [];
+      renderPersonProfileModal();
+    });
   } catch (error) {
     if (requestId !== personProfileState.requestId) return;
     personProfileState.status = "error";
@@ -11316,7 +11323,9 @@ async function handleShareSellerShop(username) {
     fallback: seller?.fullName || seller?.username || "Seller"
   });
   const shareText = `See more from ${sellerName} on Winga. Start with ${latestProduct.name}.`;
-  const shareUrl = `${window.location.origin}${getProductDetailPath(latestProduct.id)}`;
+  const target=window.WingaModules.growth.contract.destination('PROFILE',username);
+  if(!target)return;
+  const shareUrl=new URL(target.path,window.location.origin).href;
 
   if (navigator.share) {
     try {
@@ -11426,6 +11435,8 @@ function applySharedCollectionRoute(options = {}) {
 }
 
 async function handleShareCollection(options = {}) {
+  let collection=null;
+  if(options.collectionId){collection=await window.WingaDataLayer.loadSharedCollection(options.collectionId);if(collection.visibility!=='public'||collection.status!=='published')return;}
   const fallbackProduct = getProductById(options.productId || "");
   const shareCategory = getRestorableCategory(
     options.category
@@ -11436,16 +11447,17 @@ async function handleShareCollection(options = {}) {
   const shareTopCategory = isTopCategoryValue(options.topCategory)
     ? options.topCategory
     : (expandedBrowseCategory || inferTopCategoryValue(shareCategory));
-  const title = String(options.title || "").trim()
+  const title = String(options.title || collection?.title || "").trim()
     || (shareCategory !== "all" ? getCategoryLabel(shareCategory) : "Collection");
-  const subtitle = String(options.subtitle || "").trim()
+  const subtitle = String(options.subtitle || collection?.description || "").trim()
     || "Discover products selected for this collection on Winga.";
   const heading = String(options.heading || "").trim() || "Marketplace Picks";
   const shareText = `${heading}: ${title}. ${subtitle}`;
-  const shareUrl = buildCollectionShareUrl({
-    category: shareCategory,
-    topCategory: shareTopCategory
-  });
+  let shareUrl;
+  if(options.collectionId){
+    const target=window.WingaModules.growth.contract.destination('COLLECTION',collection.id);
+    if(!target)return;shareUrl=new URL(target.path,window.location.origin).href;
+  }else shareUrl = buildCollectionShareUrl({category:shareCategory,topCategory:shareTopCategory});
 
   if (navigator.share) {
     try {
@@ -12704,6 +12716,8 @@ function bindTrustReportEntryActions() {
       return;
     }
 
+    const canonicalCollectionShare=event.target.closest('[data-share-canonical-collection]');
+    if(canonicalCollectionShare){handleShareCollection({collectionId:canonicalCollectionShare.dataset.shareCanonicalCollection}).catch(error=>captureClientError('collection_share_failed',error));return;}
     const shareCollectionButton = event.target.closest("[data-share-collection-title]");
     if (shareCollectionButton) {
       event.preventDefault();
@@ -16580,6 +16594,7 @@ function tryOpenPendingDeepLinkProductRoute() {
 }
 
 function openDeepLinkedProductRouteIfNeeded(options = {}) {
+  if(openPublicContentRouteIfNeeded())return true;
   if (String(window.location.pathname || '').startsWith('/invite/')) {
     const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
     void getRoomInviteUi().open(target?.type==='SHOPPING_ROOM'?target.id:'');return true;
@@ -19878,6 +19893,7 @@ initialProductsErrorRetryButton?.addEventListener("click", () => {
 });
 
 registerAppEvent(window, "popstate", (event) => {
+  if(openPublicContentRouteIfNeeded()){closeProductDetailModal({skipHistoryBack:true,skipContextRestore:true});return;}
   const state = event?.state;
   if (!state || state.wingaProductDetail || !state.wingaAppShell) {
     if (applySharedCollectionRoute({ clearUrl: false }) && appContainer?.style.display !== "none") {
@@ -25831,6 +25847,7 @@ async function bootApp() {
   }
   scheduleChromeOffsetSync();
   document.body.classList.remove("app-booting");
+  openPublicContentRouteIfNeeded();
   if(String(window.location.pathname || '').startsWith('/invite/')){
     const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
     void getRoomInviteUi().open(target?.type==='SHOPPING_ROOM'?target.id:'');
@@ -25961,3 +25978,30 @@ document.addEventListener('click',async event=>{
   const stop=event.target.closest('[data-stop-demand]');if(!stop||stop.disabled)return;stop.disabled=true;
   if(await stopDemandRequest(stop.dataset.stopDemand))stop.remove();else stop.disabled=false;
 });
+
+let canonicalContentUi;
+function getCanonicalContentUi(){
+  canonicalContentUi ||= window.WingaModules.growth.createContentUi({window,dataLayer:window.WingaDataLayer,getAccount:()=>currentUser||'',translate:(key,fallback)=>translateUi(key,{},fallback),
+    isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
+    shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
+    explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
+    openProduct:async id=>{const product=await window.WingaDataLayer.loadSharedProduct(id);if(product){refreshProductsFromStore();openProductDetailModal(id);}else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
+  });return canonicalContentUi;
+}
+function openPublicContentRouteIfNeeded(){
+  if(!/^\/(?:profile|collection|reel|short)\//i.test(window.location.pathname))return false;
+  const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
+  if(target)void openCanonicalContentDestination(target);else void getCanonicalContentUi().openCollection('');
+  return true;
+}
+async function openCanonicalContentDestination(target){
+  if(target.type==='PROFILE'){await loadPersonProfile(target.id,{source:'public_deep_link'});return;}
+  if(target.type==='COLLECTION'){await getCanonicalContentUi().openCollection(target.id);return;}
+  if(['REEL','SHORT'].includes(target.type)){
+    const account=currentUser;let product;try{product=await window.WingaDataLayer.loadSharedProduct(target.id);}catch{}
+    if(currentUser!==account)return;
+    const ready=product?.mediaItems?.some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected');
+    if(!ready){showInAppNotification({title:translateUi('growth.videoUnavailable',{},'This video is no longer available.'),variant:'info'});return;}
+    refreshProductsFromStore();openProductDetailModal(product.id);
+  }
+}

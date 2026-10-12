@@ -72,7 +72,7 @@ function isAppShellRoute(pathname = "/") {
     || normalizedPath === "/index.html"
     || normalizedPath === "/feed"
     || /^\/invite\/[^/]+\/?$/.test(normalizedPath)
-    || /^\/product\/[^/]+\/?$/i.test(normalizedPath);
+    || /^\/(?:product|profile|collection|reel|short)\/[^/]+\/?$/i.test(normalizedPath);
 }
 
 async function forwardIntelligenceQueueBatch(batch, env) {

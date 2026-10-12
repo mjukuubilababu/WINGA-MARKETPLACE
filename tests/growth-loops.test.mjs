@@ -12,7 +12,7 @@ const { createGrowthPolicy } = require('../backend/growth-policy');
 test('canonical product links reject redirects, traversal, malformed encoding and gated private domains', () => {
   for (const path of ['https://evil.test/product/p1','//evil.test/product/p1','/product/%2fsecret','/product/%ZZ','/product/p1/extra','/product/..','/product/p1#private'])
     assert.equal(contract.parseDestination(path,'https://winga.test'),null,path);
-  for (const type of ['SHOPPING_ROOM','CONVERSATION','OPPORTUNITY','PROFILE','COLLECTION','REEL','SHORT'])
+  for (const type of ['SHOPPING_ROOM','CONVERSATION','OPPORTUNITY'])
     assert.equal(contract.destination(type,'private-id'),null);
   assert.deepEqual(contract.parseDestination('/product/p1?share=invalid','https://winga.test'),{type:'PRODUCT',id:'p1',path:'/product/p1'});
   const url = new URL(contract.shareUrl('https://winga.test','p1',randomUUID()));
@@ -266,4 +266,36 @@ test('search notification auth intent stores only explicitly requested local con
   assert.deepEqual(contract.authIntent({type:'notify-search',query:' white dress ',createdAt:now,redirect:'https://evil.test',searchHistory:['private']},now),{type:'notify-search',query:'white dress',createdAt:now});
   for(const query of ['', 'x','a'.repeat(161),'private\nquery'])assert.equal(contract.authIntent({type:'notify-search',query,createdAt:now},now),null);
   assert.equal(contract.authIntent({type:'notify-search',query:'white dress',createdAt:now-1800001},now),null);
+});
+
+test('canonical collection destinations preserve existing visibility, seller safety and blocks',async t=>{
+  const f=await fixture(t),{createPostgresStore}=require('../backend/db'),{MIGRATIONS}=require('../backend/migrations');
+  await f.db.exec(`ALTER TABLE products ADD COLUMN name TEXT DEFAULT 'Product';ALTER TABLE products ADD COLUMN image TEXT DEFAULT '';ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';
+    CREATE TABLE user_follows(follower_username TEXT,followed_username TEXT,status TEXT);`);
+  const migration=MIGRATIONS.find(m=>m.id==='2026091503_public_collections');
+  for(const sql of migration.statements)if(sql.includes('CREATE TABLE')||sql.includes('CREATE INDEX'))await f.db.exec(sql);
+  await f.db.exec(`INSERT INTO public_collections(id,owner_username,title,status) VALUES('public-picks','sender','Public picks','published'),('draft-picks','sender','Private draft','draft'),('private-picks','sender','Private picks','published');
+    INSERT INTO public_content_visibility VALUES('collection','private-picks','private');
+    INSERT INTO public_collection_items(collection_id,product_id) VALUES('public-picks','p1'),('public-picks','private');`);
+  const store=createPostgresStore({databaseUrl:'postgres://test.invalid/winga',queryClient:f.db});
+  const collection=await store.readConversationCollection('public-picks','');
+  assert.equal(collection.title,'Public picks');assert.deepEqual(collection.items.map(p=>p.productId),['p1']);
+  assert.equal(await store.readConversationCollection('private-picks',''),null);assert.equal(await store.readConversationCollection('draft-picks',''),null);
+  await f.db.exec("UPDATE users SET status='suspended' WHERE username='seller'");
+  assert.equal((await store.readConversationCollection('public-picks','')).itemCount,0);
+  await f.db.exec("UPDATE users SET status='active';INSERT INTO user_blocks VALUES('sender','recipient')");
+  assert.equal(await store.readConversationCollection('public-picks','recipient'),null);
+  await f.db.exec("DELETE FROM user_blocks;UPDATE users SET status='suspended' WHERE username='sender'");
+  assert.equal(await store.readConversationCollection('public-picks',''),null);
+});
+
+test('public content routing rejects redirects and keeps safe follow context through authentication',()=>{
+  for(const type of ['PROFILE','COLLECTION','REEL','SHORT']){
+    const target=contract.destination(type,'public-content');assert.equal(contract.parseDestination(target.path,'https://winga.test').type,type);
+    assert.equal(contract.parseDestination('https://evil.test'+target.path,'https://winga.test'),null);
+    assert.equal(contract.parseDestination(target.path+'?redirect=https://evil.test','https://winga.test'),null);
+  }
+  const now=Date.now();
+  assert.deepEqual(contract.authIntent({type:'follow-person',username:'curator',returnTo:'/collection/public-picks',createdAt:now}),{type:'follow-person',username:'curator',returnTo:'/collection/public-picks',createdAt:now});
+  assert.equal(contract.authIntent({type:'follow-person',username:'curator',returnTo:'https://evil.test',createdAt:now}).returnTo,undefined);
 });

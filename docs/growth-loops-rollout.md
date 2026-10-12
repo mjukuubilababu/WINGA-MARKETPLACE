@@ -289,3 +289,51 @@ services, processor latency/queue visibility and regional load/chaos evidence.
 Enable creation/processing gradually; disabling the flag stops new resolution
 alerts while existing goals, notifications and cancellation remain accessible.
 No historical demand is declared fulfilled by this rollout.
+
+## Phase 4 — canonical public content destinations
+
+The same validated destination contract now supports PROFILE, COLLECTION, REEL
+and SHORT alongside PRODUCT and opaque Room invitations. Worker shell routing
+runs first for those paths. Existing public product and legacy category-browse
+links remain valid. Unsupported private conversation/seller-opportunity routes
+remain rejected until their canonical authorization/admission handlers exist.
+
+`/collection/<id>` resolves the exact existing collection through the canonical
+collection reader. The additive read endpoint uses current session authorization
+and `private, no-store`; guests see only published public collections. Current
+collection-owner and item-seller status are now checked in the canonical reader.
+Private/draft collections, blocked viewers and suspended content owners cannot
+leak through shared previews. Products open through fresh canonical public reads.
+Empty/deleted/unavailable collections offer an Explore fallback before signup.
+
+Published public collections now share their own identity and title instead of
+category browse state. Legacy category share controls retain their old behavior.
+Following the curator preserves the exact collection/profile return context
+through the existing expiring auth intent, with destination validation and
+external-redirect rejection. Source identity is a public profile handle; private
+room/member/message context is not encoded in these links.
+
+`/profile/<handle>` reuses the canonical public person UI. Seller utility sharing
+now lands on that person, rather than an arbitrary latest listing. Public profile
+value renders independently of optional collection reads; an unavailable or
+stalled collection service cannot block it. Reel/Short destinations require an
+approved public product with a ready, nonrejected video before opening the
+existing product/video presentation. These routes do not create another creator
+or content store.
+
+SQL tests verify collection visibility, block and suspended owner/seller rules.
+Browser tests verify exact guest collection value, canonical copy links, follow
+auth return, unavailable fallback and public-profile rendering while collections
+remain deliberately pending and then fail. All eleven growth browser scenarios
+pass, including an actual authenticated failed-Search Notify me control. Search
+itself retains its existing members-only policy. The guest Search auth-return
+scenario exercises a previously selected context after app readiness; its flags
+are initialized in one script so browser init-script ordering cannot race.
+Frontend 145/145, growth SQL/contracts, pagination, localization and synchronized
+98-module checks pass.
+
+This release wires destination value and source sharing. Generalized
+collection/profile/creator attribution, utility seller-referral cohorts and the
+multi-loop operations dashboard are subsequent work. It does not certify live
+creator acquisition, D1/D7/D30 retention or regional performance. Keep measurement
+rollout under the existing cohort controls and retain the production-canary gate.

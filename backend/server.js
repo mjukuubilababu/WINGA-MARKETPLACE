@@ -8254,6 +8254,16 @@ const server = http.createServer(async (req, res) => {
       }, { "Cache-Control": "private, no-store" });
       return;
     }
+    const collectionDestination=/^\/api\/social\/collections\/([A-Za-z0-9._:-]{1,128})$/.exec(url.pathname);
+    if(req.method==='GET' && collectionDestination){
+      const session=findSession(store,readAuthToken(req));
+      if(session&&!ensureMarketplaceUser(store,session,res,{allowStaff:true}))return;
+      if(!postgresStore?.readConversationCollection){sendJson(res,503,{code:'collections_unavailable'});return;}
+      const collection=await postgresStore.readConversationCollection(collectionDestination[1],session?.username||'');
+      if(!collection){sendJson(res,404,{code:'collection_unavailable'});return;}
+      sendJson(res,200,collection,{'Cache-Control':'private, no-store'});return;
+    }
+
     const socialCollectionsReadMatch = url.pathname.match(/^\/api\/social\/users\/([^/]+)\/collections$/);
     if (req.method === "GET" && socialCollectionsReadMatch) {
       res.setHeader("X-Winga-Collections-Schema", "public-collections-v1");

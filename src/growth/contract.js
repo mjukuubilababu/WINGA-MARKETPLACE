@@ -17,15 +17,16 @@
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
-    if (type !== 'PRODUCT' || !id(contentId)) return null;
-    return { type, id: contentId, path: '/product/' + encodeURIComponent(contentId) };
+    const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short'};
+    if (!paths[type] || !id(contentId) || type==='PROFILE'&&contentId.length>40) return null;
+    return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
   }
   function parseDestination(input, origin) {
     try {
       const url = new URL(input, origin);
       if (url.origin !== origin || url.username || url.password || url.hash) return null;
-      const match = /^\/product\/([^/]+)\/?$/i.exec(url.pathname);
-      if (match) return destination('PRODUCT', decodeURIComponent(match[1]));
+      const match = /^\/(product|profile|collection|reel|short)\/([^/]+)\/?$/i.exec(url.pathname);
+      if (match && (!url.search || match[1].toLowerCase()==='product' || [...url.searchParams.keys()].every(k=>k==='share')&&uuid(url.searchParams.get('share')))) return destination(match[1].toUpperCase(), decodeURIComponent(match[2]));
       const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
@@ -56,6 +57,8 @@
     if (value.type === 'follow-person') {
       if (!id(value.username) || value.username.length > 40) return null;
       result.username = value.username;
+      const returnTo=parseDestination(value.returnTo,'https://winga.invalid');
+      if(['PROFILE','COLLECTION'].includes(returnTo?.type))result.returnTo=returnTo.path;
       if (id(value.productId)) result.productId = value.productId;
     } else if (!['go-upload', 'go-profile'].includes(value.type)) {
       if (!id(value.productId)) return null;

@@ -9304,6 +9304,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          c.published_at AS "publishedAt",
          c.row_version AS "rowVersion"
        FROM public_collections c
+       JOIN users collection_owner ON collection_owner.username=c.owner_username AND collection_owner.status='active'
        WHERE c.owner_username = $1
          AND ${collectionAccess}
          ${cursorClause}
@@ -9329,6 +9330,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
            collection_item.note
          FROM public_collection_items collection_item
          JOIN products product ON product.id = collection_item.product_id
+         JOIN users product_seller ON product_seller.username=product.uploaded_by AND product_seller.status='active'
          WHERE collection_item.collection_id = ANY($1::text[])
            AND product.status = 'approved'
            AND ${productAccess}
