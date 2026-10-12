@@ -216,3 +216,18 @@ test('restored telemetry strips arbitrary private payloads and future scheduling
   const dead=JSON.parse(f.local.get('winga-growth-dead-v1'));assert.equal(dead[0].reason,'context_expired');
   assert.equal(dead[0].payload.privateBody,undefined);assert.equal(dead[0].payload.orderId,undefined);
 });
+
+test('Room order attribution requires recent product context and never crosses accounts',async()=>{
+  const sent=[],f=fixture({request:async(kind,payload)=>sent.push({kind,payload})});f.setAccount('recipient');
+  const invite={inviteId:randomUUID(),tokenHash:'a'.repeat(64)};
+  assert.equal(f.runtime.roomOrderStarted('p1','order-1'),undefined);
+  f.runtime.roomEvent('first_product_viewed',invite,{productId:'p1'});
+  assert.equal(f.runtime.roomOrderStarted('p2','order-1'),undefined);
+  assert.equal(f.runtime.roomOrderStarted('p1','order-1'),true);
+  await f.advance(300);await f.runtime.flush();
+  const order=sent.find(item=>item.payload.eventType==='first_order_started');assert.equal(order.payload.orderId,'order-1');
+  assert.equal(order.payload.productId,undefined);assert.equal(order.payload.conversationId,undefined);
+  f.setAccount('other');assert.equal(f.runtime.roomOrderStarted('p1','order-2'),undefined);
+  f.runtime.roomEvent('first_product_viewed',invite,{productId:'p1'});await f.advance(1800001);
+  assert.equal(f.runtime.roomOrderStarted('p1','order-3'),undefined);f.runtime.close();
+});

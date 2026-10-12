@@ -15,7 +15,7 @@
   const publicTypes=['PRODUCT','PROFILE','COLLECTION','REEL','SHORT'];
   const contentEvents=['content_share_opened','shared_content_viewed','shared_content_saved','shared_content_followed'];
   const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
-  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
+  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','first_order_started','new_room_created_from_invited_user','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
@@ -51,6 +51,10 @@
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
     if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
+    if(value.type==='share-to-winga'&&value.contentId!==undefined){
+      if(!['PRODUCT','REEL','SHORT','COLLECTION'].includes(value.contentType)||!id(value.contentId))return null;
+      return {...result,contentType:value.contentType,contentId:value.contentId};
+    }
     if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(value.type)) {
       if (!inviteToken(value.token)) return null;
       return {...result,token:value.token};

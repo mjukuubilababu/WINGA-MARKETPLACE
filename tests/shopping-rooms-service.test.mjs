@@ -17,6 +17,7 @@ async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits
   if(invites){
     await db.exec(`CREATE TABLE products(id TEXT PRIMARY KEY,uploaded_by TEXT,status TEXT);
       CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
+      CREATE TABLE orders(id TEXT PRIMARY KEY,product_id TEXT,buyer_username TEXT,seller_username TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
       INSERT INTO products VALUES('public-product','bob','approved'),('private-product','bob','approved'),('suspended-product','bob','suspended');
       INSERT INTO public_content_visibility VALUES('product','private-product','private');`);
     for(const name of ['growth-loops','growth-event-timing','growth-loop-invites','growth-event-jobs','growth-cohorts'])for(const sql of require(`../backend/migrations/${name}`).statements)await db.exec(sql);
@@ -836,11 +837,23 @@ test('Room invitation preview exposes selected public products and requires cano
   const productShare=await sessions[0].command(f.id,'product-share',{productId:'public-product',note:'',snapshot:null});await sessions[3].sync();
   const shortlist=await sessions[3].command(f.id,'shortlist',{shareId:productShare.id,selected:true});
   await f.store.recordRoomGrowthEvent({...event('room_shortlist_created'),eventId:shortlist.id},{username:'dave'});
+  await f.db.query("INSERT INTO orders(id,product_id,buyer_username,seller_username,status) VALUES('invite-order','public-product','dave','bob','placed')");
+  await assert.rejects(f.store.recordRoomGrowthEvent({...event('first_order_started'),orderId:'missing'},{username:'dave'}),{code:'growth_value_unconfirmed'});
+  await f.db.query("INSERT INTO orders(id,product_id,buyer_username,seller_username,status,created_at) VALUES('old-order','public-product','dave','bob','placed',NOW()-INTERVAL '1 day')");
+  await assert.rejects(f.store.recordRoomGrowthEvent({...event('first_order_started'),orderId:'old-order'},{username:'dave'}),{code:'growth_value_unconfirmed'});
+  await f.store.recordRoomGrowthEvent({...event('first_order_started'),orderId:'invite-order'},{username:'dave'});
+  await assert.rejects(f.store.recordRoomGrowthEvent({...event('new_room_created_from_invited_user'),newRoomHash:hash(Buffer.from('room:'+f.id))},{username:'dave'}),{code:'growth_value_unconfirmed'});
+  for(const person of f.people)await person.runtime.prepareKeyPackage();
+  const continuedRoom=await sessions[3].create('Another useful decision',await sessions[3].inspectOwners(['alice','bob']));
+  await sessions[0].join(continuedRoom);await sessions[1].join(continuedRoom);
+  for(let n=0;n<3;n++)for(const s of [sessions[0],sessions[1],sessions[3]])await s.sync();
+  await f.store.recordRoomGrowthEvent({...event('new_room_created_from_invited_user'),newRoomHash:hash(Buffer.from('room:'+continuedRoom))},{username:'dave'});
   await f.store.processGrowthEventJobs();
   const report=await f.store.readRoomLoopHealth();
   assert.equal(report.cohort.canonicalAcceptCount,1);
   assert.equal(report.cohort.activationCount,1);
   assert.equal(report.cohort.valueCount,1);
+  assert.equal(report.cohort.continuationCount,1);
   assert.equal(report.invitationsDelivered,null);
   assert.ok(!JSON.stringify(report).includes('dave'));
   assert.ok(!JSON.stringify(report).includes(f.id));

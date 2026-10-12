@@ -215,7 +215,8 @@ pgTest('canonical runner rolls back failed DDL and serializes concurrent retries
   // migration through the unmodified canonical runner, not copied runner code.
   await f.db.exec('CREATE TABLE schema_migrations(migration_id TEXT PRIMARY KEY,applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
   const timingMigration = require('../backend/migrations/growth-event-timing');
-  for (const m of MIGRATIONS.filter(m => ![migration.id,timingMigration.id].includes(m.id)))
+  const cohortMigration = require('../backend/migrations/growth-cohorts');
+  for (const m of MIGRATIONS.filter(m => ![migration.id,timingMigration.id,cohortMigration.id].includes(m.id)))
     await f.db.query('INSERT INTO schema_migrations(migration_id) VALUES($1)', [m.id]);
   const before = await rows(f.db, 'schema_migrations');
   const failingPool = { query: (...args) => f.db.query(...args), connect: async () => {
@@ -250,8 +251,8 @@ pgTest('canonical runner rolls back failed DDL and serializes concurrent retries
     assert.equal(await rows(f.db, 'schema_migrations'), before);
   } finally { unblock(); }
   const results = await Promise.all([first, second]);
-  assert.deepEqual(results.flatMap(r => r.applied), [migration.id,timingMigration.id]);
-  assert.equal(await rows(f.db, 'schema_migrations'), before + 2);
+  assert.deepEqual(results.flatMap(r => r.applied), [migration.id,timingMigration.id,cohortMigration.id]);
+  assert.equal(await rows(f.db, 'schema_migrations'), before + 3);
   assert.deepEqual((await runSchemaMigrations({ pool: f.db.pool, logger: {} })).applied, []);
   await f.store.createGrowthShare(f.payload, f.source);
   // Actual checks, uniqueness, FK/cascade and indexes survived runner commit.

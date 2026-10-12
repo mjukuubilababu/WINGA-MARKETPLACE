@@ -112,6 +112,13 @@
         if(invite&&!acceptedNotes.has(invite.inviteId))try{
           if(globalThis.WingaGrowth?.roomEvent('room_invite_accepted',invite,{eventId:invite.acceptedEventId})===true)acceptedNotes.add(invite.inviteId);
         }catch{}
+        const continuation=current.values[`room:growth-created:${room.id}`];
+        if(continuation)try{
+          const newRoomHash=await hash(new TextEncoder().encode('room:'+room.id));
+          if(globalThis.WingaGrowth?.roomEvent('new_room_created_from_invited_user',continuation.invite,{eventId:continuation.eventId,newRoomHash})===true){
+            const latest=await vault.snapshot();await vault.write({expectedRevision:latest.revision,values:{},deleted:[`room:growth-created:${room.id}`]});
+          }
+        }catch{}
         for(const m of room.messages){const proof=m.proof,p=proof?.payload;
           need(proof?.action==='room-send'&&p?.id===m.id&&p.conversationId===room.id&&p.deviceId===m.sender_device
             &&proof.actorId===m.sender_device&&p.hash===m.hash&&p.ciphertext===m.ciphertext&&p.epoch===m.epoch&&(p.mediaId||null)===(m.media_id||null),'mls_envelope_binding_rejected');
@@ -201,7 +208,11 @@
       const {payload,selected}=draft,i=JSON.parse(payload.intent),reserved=await operation('room-reserve',payload,i.id);need(reserved?.room?.transition?.intent===payload.intent);
       const transfer=await runtime().room.create(i,new Map(selected.filter(p=>p.deviceId!==i.actorDeviceId).map(p=>[p.deviceId,decode(p.keyPackage)])));
       await operation('room-transfer',WingaMlsCandidate.encodeRoomTransferPayload(transfer),i.id);
-      saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true},deleted:[`room:create:${id}`]});
+      saved=await vault.snapshot();
+      const sourceInvite=Object.entries(saved.values).filter(([key,value])=>key.startsWith('room:invite:')&&acceptedNotes.has(value.inviteId)&&Number.isFinite(value.requestedAt))
+        .map(([,value])=>value).sort((a,b)=>b.requestedAt-a.requestedAt)[0];
+      await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true,
+        ...(sourceInvite?{[`room:growth-created:${id}`]:{invite:{inviteId:sourceInvite.inviteId,tokenHash:sourceInvite.tokenHash},eventId:crypto.randomUUID()}}:{})},deleted:[`room:create:${id}`]});
       await sync();return id;
     }
     async function join(id){await list();const room=rooms.find(r=>r.id===id);need(room&&room.status!=='removed');
@@ -301,9 +312,9 @@
         const event=type==='product-share'?'first_product_added':type==='poll-vote'&&data.optionId?'first_vote':type==='shortlist'&&data.selected?'room_shortlist_created':type==='poll-close'?'room_poll_closed':null;
         if(event)void inviteEvent(id,event,result.id);
       }return result;}
-    async function inviteEvent(id,eventType,eventId){try{
+    async function inviteEvent(id,eventType,eventId,extra={}){try{
       const saved=await vault.snapshot(),invite=saved.values[`room:invite:${id}`];
-      if(invite)globalThis.WingaGrowth?.roomEvent(eventType,invite,{eventId});
+      if(invite)globalThis.WingaGrowth?.roomEvent(eventType,invite,{...extra,eventId});
     }catch{}}
     function invitationCapabilities(){return {enabled:roomInvitesEnabled===true};}
     async function createInvite(id,productIds,inviteId=crypto.randomUUID()){
@@ -331,7 +342,7 @@
     async function requestInvite(context,inviteId){const contract=globalThis.WingaModules?.growth?.contract;
       need(roomInvitesEnabled&&contract?.uuid(inviteId)&&contract.uuid(context?.conversationId)&&/^[a-f0-9]{64}$/.test(context?.tokenHash),'growth_invite_invalid');
       const key=`room:invite:${context.conversationId}`,saved=await vault.snapshot(),prior=saved.values[key];
-      const invite=prior?.inviteId===inviteId?prior:{...context,inviteId,sessionId:globalThis.WingaGrowth?.getSessionId()||crypto.randomUUID(),acceptedEventId:crypto.randomUUID(),requestId:crypto.randomUUID()};
+      const invite=prior?.inviteId===inviteId?prior:{...context,inviteId,requestedAt:Date.now(),sessionId:globalThis.WingaGrowth?.getSessionId()||crypto.randomUUID(),acceptedEventId:crypto.randomUUID(),requestId:crypto.randomUUID()};
       if(!prior||prior.inviteId!==inviteId)await vault.write({expectedRevision:saved.revision,values:{[key]:invite}});
       const result=await operation('room-invite-request',{conversationId:context.conversationId,inviteId,tokenHash:context.tokenHash,sessionId:invite.sessionId},invite.requestId);
       need(result?.version===1&&['requested','accepted'].includes(result.status)&&result.conversationId===context.conversationId,'growth_invite_invalid');

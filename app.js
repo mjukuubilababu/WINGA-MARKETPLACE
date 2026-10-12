@@ -5492,6 +5492,7 @@ async function resumePendingGuestIntent() {
     return;
   }
   if(intent.type==='notify-search'){await notifySearchDemand(intent.query);return;}
+  if(intent.type==='share-to-winga'&&intent.contentId){await openCanonicalContentDestination(window.WingaModules.growth.contract.destination(intent.contentType,intent.contentId));await openInternalProductShare(intent.contentId,intent.contentType);return;}
   if (intent.productId) {
     const returningUser = currentUser;
     let availableProduct = null;
@@ -25929,9 +25930,12 @@ bootApp().catch((error) => {
 });
 
 let internalProductShareUi;
-function openInternalProductShare(productId) {
+function openInternalProductShare(productId,contentType) {
+  if(!contentType){const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
+    contentType=window.WINGA_CONFIG?.growthInternalContentSharing===true?
+      (['REEL','SHORT'].includes(target?.type)&&target.id===productId?target.type:getProductById(productId)?.category==='reels'?'REEL':'PRODUCT'):'PRODUCT';}
   internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent})});
-  return internalProductShareUi.open(productId);
+  return internalProductShareUi.open(productId,contentType);
 }
 
 function syncSearchNotifyAction(){
@@ -25997,6 +26001,7 @@ function getCanonicalContentUi(){
   canonicalContentUi ||= window.WingaModules.growth.createContentUi({window,dataLayer:window.WingaDataLayer,getGrowth:getGrowthRuntime,getAccount:()=>currentUser||'',translate:(key,fallback)=>translateUi(key,{},fallback),
     isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
     shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
+    shareInternally:(type,id)=>{canonicalContentUi.close();openInternalProductShare(id,type);},
     explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
     openProduct:async id=>{const product=await window.WingaDataLayer.loadSharedProduct(id);if(product){refreshProductsFromStore();openProductDetailModal(id);}else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
   });return canonicalContentUi;

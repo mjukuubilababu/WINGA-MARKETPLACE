@@ -25,6 +25,7 @@
         follow.onclick=()=>{if(!current())return;const following=deps.follow(collection.ownerUsername);if(typeof following==='boolean')follow.textContent=following?t('personProfile.following','Following'):t('personProfile.follow','Follow');};dialog.append(follow);
         if(collection.visibility==='public'&&collection.status==='published'){
           const share=el('button',t('common.share','Share'));share.type='button';share.onclick=()=>deps.shareCollection(collection);dialog.append(share);
+          if(win.WINGA_CONFIG?.growthInternalContentSharing===true){const internal=el('button',t('growth.shareToWinga','Share to Winga'));internal.type='button';internal.onclick=()=>deps.shareInternally('COLLECTION',id);dialog.append(internal);}
         }
       }catch{if(!current())return;status.textContent=t('growth.collectionUnavailable','This collection is no longer available.');
         const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);

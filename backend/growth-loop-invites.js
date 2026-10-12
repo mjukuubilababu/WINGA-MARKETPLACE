@@ -12,7 +12,7 @@ const fields = Object.freeze({
 });
 const tokenValid = token => typeof token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(token);
 const hashValid = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const participationEvents = ['room_participation_started', 'first_vote', 'first_comment', 'first_product_added', 'first_product_viewed', 'room_shortlist_created', 'room_poll_closed'];
+const participationEvents = ['room_participation_started', 'first_vote', 'first_comment', 'first_product_added', 'first_product_viewed', 'first_order_started','new_room_created_from_invited_user','room_shortlist_created', 'room_poll_closed'];
 
 function createLoopInvites({withTransaction, authorizeRoom, enabled = false, measurementEnabled=false, secret = '', cohort = require('./growth-policy').createGrowthPolicy(process.env), eventWriter = require('./growth-event-jobs').enqueueGrowthEvent, onEventFailure = () => {}}) {
   const actor = username => key('user:' + username);
@@ -178,10 +178,12 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
     });
   }
   async function recordRoomGrowthEvent(payload, context) {
-    if (!payload || Object.keys(payload).some(k => !['eventId', 'shareId', 'tokenHash', 'sessionId', 'eventType', 'schemaVersion'].includes(k))
+    if (!payload || Object.keys(payload).some(k => !['eventId', 'shareId', 'tokenHash', 'sessionId', 'eventType', 'schemaVersion','orderId','newRoomHash'].includes(k))
       || payload.schemaVersion !== 1 || !contract.uuid(payload.eventId) || !contract.uuid(payload.sessionId)
       || !contract.uuid(payload.shareId) || !hashValid(payload.tokenHash)
       || !['room_invite_opened','room_invite_accepted', ...participationEvents].includes(payload.eventType)) fail(400, 'growth_invite_event_invalid');
+    if(payload.eventType==='first_order_started'?!contract.id(payload.orderId):payload.orderId!==undefined)fail(400,'growth_invite_event_invalid');
+    if(payload.eventType==='new_room_created_from_invited_user'?!hashValid(payload.newRoomHash):payload.newRoomHash!==undefined)fail(400,'growth_invite_event_invalid');
     if (context.bot) return {ignored: 'crawler'};
     if (!measurementEnabled) return {ignored:'measurement_disabled'};
     return withTransaction(async client => {
@@ -197,6 +199,21 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
         const info = await load(client, payload.shareId, context, payload.tokenHash, {admission: false});
         if (!info.info.owners.includes(context.username)) fail(403, 'growth_invite_membership_required');
         actorKey = actor(context.username);
+        if(payload.eventType==='first_order_started'){
+          const order=(await client.query(`SELECT product_id FROM orders WHERE id=$1 AND buyer_username=$2
+            AND seller_username<>$2 AND created_at>=$3::timestamptz AND status NOT IN ('cancelled','refunded')
+            AND product_id=ANY($4::text[])`,[payload.orderId,context.username,request.accepted_at||new Date().toISOString(),invite.preview_products])).rows[0];
+          if(!order||!await publicProduct(client,order.product_id,context.username,invite.owner_username))fail(409,'growth_value_unconfirmed');
+        }
+        if(payload.eventType==='new_room_created_from_invited_user'){
+          const candidates=(await client.query(`SELECT id,creator_device FROM encrypted_conversations WHERE creator=$1
+            AND kind='shopping-room' AND status='active' AND created_at>=$2::timestamptz AND id<>$3
+            ORDER BY created_at DESC LIMIT 100`,[context.username,request.accepted_at||new Date().toISOString(),invite.content_id])).rows;
+          const created=candidates.find(row=>key('room:'+row.id)===payload.newRoomHash);
+          if(!created)fail(409,'growth_value_unconfirmed');
+          const confirmed=await authority(client,created.id,context.username,created.creator_device);
+          if(!admin(confirmed.info,context.username))fail(409,'growth_value_unconfirmed');
+        }
         if(['first_vote','first_comment','first_product_added','room_shortlist_created','room_poll_closed'].includes(payload.eventType)){
           const message=(await client.query(`SELECT 1 FROM encrypted_conversation_messages m
             JOIN encrypted_conversation_epoch_devices d ON d.conversation_id=m.conversation_id AND d.epoch=m.epoch AND d.device_id=m.sender_device
@@ -210,8 +227,8 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
       }
       await quota(client, 'invite-event:actor:' + actorKey, 60);
       await quota(client, 'invite-event:ip:' + key(context.ip || 'unknown'), 120);
-      const inserted = await eventWriter(client, payload.eventId, payload.shareId, actorKey, payload.eventType, 'client_observed');
-      if (['first_vote','first_comment','first_product_added','room_shortlist_created','room_poll_closed'].includes(payload.eventType))
+      const inserted = await eventWriter(client, payload.eventId, payload.shareId, actorKey, payload.eventType, ['first_order_started','new_room_created_from_invited_user'].includes(payload.eventType)?'server':'client_observed');
+      if (['first_vote','first_comment','first_product_added','room_shortlist_created','room_poll_closed','first_order_started'].includes(payload.eventType))
         await eventWriter(client, 'participated:' + payload.shareId + ':' + actorKey, payload.shareId, actorKey, 'room_participation_started', 'client_observed');
       return {accepted: true, duplicate: !inserted};
     });
@@ -267,7 +284,8 @@ function createLoopInvites({withTransaction, authorizeRoom, enabled = false, mea
           activationRate:ratio(summary.activations,summary.accepts),valueRate:ratio(summary.values,summary.activations),
           continuationRate:ratio(summary.continuations,summary.values),timeToValueSeconds:summary.time_to_value_seconds ?? null,
           repeatRecipients:Number(summary.repeat_recipients || 0),viralCoefficient:null},
-        limitations:['Membership acceptance is server verified; E2EE participation and shortlist/poll events are client observed.',
+        limitations:['Membership, order starts and new-Room continuation are server verified; E2EE participation and shortlist/poll events are client observed.',
+          'Attributed orders must belong to the invitee, follow accepted membership and match an explicitly previewed public product; order/payment details never enter the loop ledger.',
           'Guest preview reveals only explicitly selected, currently public products; no room history or private message bodies enter analytics.',
           'Existing members, source-user touches and known preview crawlers do not count as acquired participation.',
           'No external recipient delivery is known; no delivered-invite count, purchase claim or K-factor is inferred.',

@@ -56,7 +56,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const publicTypes=['PRODUCT','PROFILE','COLLECTION','REEL','SHORT'];
   const contentEvents=['content_share_opened','shared_content_viewed','shared_content_saved','shared_content_followed'];
   const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
-  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','room_shortlist_created','room_poll_closed'];
+  const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','first_order_started','new_room_created_from_invited_user','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
@@ -92,6 +92,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
     if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
+    if(value.type==='share-to-winga'&&value.contentId!==undefined){
+      if(!['PRODUCT','REEL','SHORT','COLLECTION'].includes(value.contentType)||!id(value.contentId))return null;
+      return {...result,contentType:value.contentType,contentId:value.contentId};
+    }
     if (['open-room-invite','join-room-invite','block-room-inviter','report-room-invite'].includes(value.type)) {
       if (!inviteToken(value.token)) return null;
       return {...result,token:value.token};
@@ -137,13 +141,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
-      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
       if(field==='contentType')return contract.publicTypes.includes(value);
       if(field==='sourceSurface')return contract.surfaces.includes(value);
       if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents].includes(value);
-      if(field==='tokenHash')return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+      if(['tokenHash','newRoomHash'].includes(field))return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
       if(['contentId','orderId'].includes(field))return contract.id(value);
       return field==='parentShareId'&&value===''||contract.uuid(value);
     }));
@@ -162,12 +166,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
     let previousAccount = account();
     let routeTiming = null, initialCapture = true;
+    const roomProductContexts=new Map();
     function syncIdentity() {
       const current = account();
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
+        roomProductContexts.clear();
         storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
       previousAccount = current;
@@ -302,10 +308,20 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       syncIdentity();
       if (!measurement() || !contract.roomEvents.includes(eventType) || !contract.uuid(invite?.inviteId)
         || typeof invite.tokenHash!=='string' || !/^[a-f0-9]{64}$/.test(invite.tokenHash)) return;
+      if(eventType==='first_order_started'&&!contract.id(extra.orderId))return;
+      if(eventType==='new_room_created_from_invited_user'&&!/^[a-f0-9]{64}$/.test(extra.newRoomHash||''))return;
+      if(eventType==='first_product_viewed'&&contract.id(extra.productId)&&account()){
+        if(roomProductContexts.size>=20)roomProductContexts.delete(roomProductContexts.keys().next().value);
+        roomProductContexts.set(extra.productId,{invite:{inviteId:invite.inviteId,tokenHash:invite.tokenHash},owner:account(),at:now()});
+      }
       enqueue('room-events',{eventId:contract.uuid(extra.eventId)?extra.eventId:randomId(),shareId:invite.inviteId,
-        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1});
+        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1,
+        ...(eventType==='first_order_started'?{orderId:extra.orderId}:{}),
+        ...(eventType==='new_room_created_from_invited_user'?{newRoomHash:extra.newRoomHash}:{})});
       return true;
     }
+    function roomOrderStarted(productId,orderId){syncIdentity();const context=roomProductContexts.get(productId);
+      if(context&&context.owner===account()&&now()-context.at<1800000)return roomEvent('first_order_started',context.invite,{orderId});}
     function productVisible(productId) {
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
@@ -329,7 +345,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -440,10 +456,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const win=deps.window||window,t=(key,fallback)=>deps.translate?.(key,fallback)||fallback;
     let active=null;
     const el=(tag,text='')=>{const n=win.document.createElement(tag);n.textContent=text;return n;};
-    async function open(productId) {
+    async function open(productId,contentType='PRODUCT') {
+      const contract=win.WingaModules.growth.contract;
+      if(!contract.id(productId)||!['PRODUCT','REEL','SHORT','COLLECTION'].includes(contentType))return;
+      if(contentType!=='PRODUCT'&&win.WINGA_CONFIG?.growthInternalContentSharing!==true)return;
       active?.close();
       const owner=deps.getAccount();
-      if(!owner){deps.requireAuth({type:'share-to-winga',productId});return;}
+      if(!owner){deps.requireAuth(contentType==='PRODUCT'?{type:'share-to-winga',productId}:{type:'share-to-winga',contentId:productId,contentType});return;}
       const dialog=el('dialog');dialog.className='chat-security-dialog';
       const heading=el('h2',t('growth.shareToWinga','Share to Winga')),status=el('p',t('inbox.loading','Loading...')),list=el('div');
       status.setAttribute('role','status');dialog.append(heading,status,list);
@@ -462,8 +481,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           for(const b of list.querySelectorAll('button'))b.disabled=true;
           status.textContent=t('chat.secureWorking','Working...');
           try {
-            const product=await deps.dataLayer.loadSharedProduct(productId);
+            const product=contentType==='COLLECTION'?await deps.dataLayer.loadSharedCollection(productId):
+              contentType==='PRODUCT'?await deps.dataLayer.loadSharedProduct(productId):await deps.dataLayer.readConversationReference(contentType.toLowerCase(),productId);
             if(!product||!current())throw new Error('growth_share_unavailable');
+            if(contentType==='COLLECTION'&&(product.status!=='published'||product.visibility!=='public'||!product.items?.length))throw new Error('growth_share_unavailable');
             await send(actionId);
             if(current()){status.textContent=t('growth.internalShareSent','Shared.');button.remove();}
           }catch{if(current())status.textContent=t('growth.internalShareFailed','Unable to share. Try again to retry the same message.');}
@@ -480,11 +501,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(results[0].status==='fulfilled')for(const row of results[0].value?.items||[]) {
         if(!row.encrypted||!win.WingaModules.growth.contract.id(row.withUser)||row.withUser===owner||peers.has(row.withUser))continue;
         peers.add(row.withUser);
-        choice(row.withUser,id=>deps.dataLayer.sendRichMessage(row.withUser,win.WingaRichContent.create('product','',{ids:[productId]}),{clientMessageId:id}));
+        choice(row.withUser,id=>deps.dataLayer.sendRichMessage(row.withUser,win.WingaRichContent.create(contentType.toLowerCase(),'',{ids:[productId]}),{clientMessageId:id}));
       }
       if(results[1].status==='fulfilled')for(const room of results[1].value||[]) {
         if(room.status!=='active'||room.transition?.status!=='accepted'||room.departures?.length||room.preferences?.archived)continue;
-        choice(room.name||t('rooms.title','Shopping Room'),id=>deps.dataLayer.shoppingRoom('command',[room.id,'product-share',{productId,note:'',snapshot:null},id]));
+        choice(room.name||t('rooms.title','Shopping Room'),id=>contentType==='PRODUCT'?
+          deps.dataLayer.shoppingRoom('command',[room.id,'product-share',{productId,note:'',snapshot:null},id]):
+          deps.dataLayer.shoppingRoom('send',[room.id,win.WingaRichContent.encode(win.WingaRichContent.create(contentType.toLowerCase(),'',{ids:[productId]})),id]));
       }
       status.textContent=list.children.length?t('growth.chooseShareDestination','Choose a conversation or room.'):
         t('growth.noShareDestinations','No ready conversations or rooms. Open chat to start one.');
@@ -524,6 +547,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         follow.onclick=()=>{if(!current())return;const following=deps.follow(collection.ownerUsername);if(typeof following==='boolean')follow.textContent=following?t('personProfile.following','Following'):t('personProfile.follow','Follow');};dialog.append(follow);
         if(collection.visibility==='public'&&collection.status==='published'){
           const share=el('button',t('common.share','Share'));share.type='button';share.onclick=()=>deps.shareCollection(collection);dialog.append(share);
+          if(win.WINGA_CONFIG?.growthInternalContentSharing===true){const internal=el('button',t('growth.shareToWinga','Share to Winga'));internal.type='button';internal.onclick=()=>deps.shareInternally('COLLECTION',id);dialog.append(internal);}
         }
       }catch{if(!current())return;status.textContent=t('growth.collectionUnavailable','This collection is no longer available.');
         const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);
@@ -20511,6 +20535,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(invite&&!acceptedNotes.has(invite.inviteId))try{
           if(globalThis.WingaGrowth?.roomEvent('room_invite_accepted',invite,{eventId:invite.acceptedEventId})===true)acceptedNotes.add(invite.inviteId);
         }catch{}
+        const continuation=current.values[`room:growth-created:${room.id}`];
+        if(continuation)try{
+          const newRoomHash=await hash(new TextEncoder().encode('room:'+room.id));
+          if(globalThis.WingaGrowth?.roomEvent('new_room_created_from_invited_user',continuation.invite,{eventId:continuation.eventId,newRoomHash})===true){
+            const latest=await vault.snapshot();await vault.write({expectedRevision:latest.revision,values:{},deleted:[`room:growth-created:${room.id}`]});
+          }
+        }catch{}
         for(const m of room.messages){const proof=m.proof,p=proof?.payload;
           need(proof?.action==='room-send'&&p?.id===m.id&&p.conversationId===room.id&&p.deviceId===m.sender_device
             &&proof.actorId===m.sender_device&&p.hash===m.hash&&p.ciphertext===m.ciphertext&&p.epoch===m.epoch&&(p.mediaId||null)===(m.media_id||null),'mls_envelope_binding_rejected');
@@ -20600,7 +20631,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const {payload,selected}=draft,i=JSON.parse(payload.intent),reserved=await operation('room-reserve',payload,i.id);need(reserved?.room?.transition?.intent===payload.intent);
       const transfer=await runtime().room.create(i,new Map(selected.filter(p=>p.deviceId!==i.actorDeviceId).map(p=>[p.deviceId,decode(p.keyPackage)])));
       await operation('room-transfer',WingaMlsCandidate.encodeRoomTransferPayload(transfer),i.id);
-      saved=await vault.snapshot();await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true},deleted:[`room:create:${id}`]});
+      saved=await vault.snapshot();
+      const sourceInvite=Object.entries(saved.values).filter(([key,value])=>key.startsWith('room:invite:')&&acceptedNotes.has(value.inviteId)&&Number.isFinite(value.requestedAt))
+        .map(([,value])=>value).sort((a,b)=>b.requestedAt-a.requestedAt)[0];
+      await vault.write({expectedRevision:saved.revision,values:{[`room:approved:${i.id}`]:true,
+        ...(sourceInvite?{[`room:growth-created:${id}`]:{invite:{inviteId:sourceInvite.inviteId,tokenHash:sourceInvite.tokenHash},eventId:crypto.randomUUID()}}:{})},deleted:[`room:create:${id}`]});
       await sync();return id;
     }
     async function join(id){await list();const room=rooms.find(r=>r.id===id);need(room&&room.status!=='removed');
@@ -20700,9 +20735,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         const event=type==='product-share'?'first_product_added':type==='poll-vote'&&data.optionId?'first_vote':type==='shortlist'&&data.selected?'room_shortlist_created':type==='poll-close'?'room_poll_closed':null;
         if(event)void inviteEvent(id,event,result.id);
       }return result;}
-    async function inviteEvent(id,eventType,eventId){try{
+    async function inviteEvent(id,eventType,eventId,extra={}){try{
       const saved=await vault.snapshot(),invite=saved.values[`room:invite:${id}`];
-      if(invite)globalThis.WingaGrowth?.roomEvent(eventType,invite,{eventId});
+      if(invite)globalThis.WingaGrowth?.roomEvent(eventType,invite,{...extra,eventId});
     }catch{}}
     function invitationCapabilities(){return {enabled:roomInvitesEnabled===true};}
     async function createInvite(id,productIds,inviteId=crypto.randomUUID()){
@@ -20730,7 +20765,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     async function requestInvite(context,inviteId){const contract=globalThis.WingaModules?.growth?.contract;
       need(roomInvitesEnabled&&contract?.uuid(inviteId)&&contract.uuid(context?.conversationId)&&/^[a-f0-9]{64}$/.test(context?.tokenHash),'growth_invite_invalid');
       const key=`room:invite:${context.conversationId}`,saved=await vault.snapshot(),prior=saved.values[key];
-      const invite=prior?.inviteId===inviteId?prior:{...context,inviteId,sessionId:globalThis.WingaGrowth?.getSessionId()||crypto.randomUUID(),acceptedEventId:crypto.randomUUID(),requestId:crypto.randomUUID()};
+      const invite=prior?.inviteId===inviteId?prior:{...context,inviteId,requestedAt:Date.now(),sessionId:globalThis.WingaGrowth?.getSessionId()||crypto.randomUUID(),acceptedEventId:crypto.randomUUID(),requestId:crypto.randomUUID()};
       if(!prior||prior.inviteId!==inviteId)await vault.write({expectedRevision:saved.revision,values:{[key]:invite}});
       const result=await operation('room-invite-request',{conversationId:context.conversationId,inviteId,tokenHash:context.tokenHash,sessionId:invite.sessionId},invite.requestId);
       need(result?.version===1&&['requested','accepted'].includes(result.status)&&result.conversationId===context.conversationId,'growth_invite_invalid');
@@ -20992,7 +21027,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(p)body.append(element('span',actions.formatPrice?.(p.price)||String(p.price)),element('small',p.availability==='sold_out'?t('rooms.soldOut','Sold out'):t('rooms.current','Current product')));
         else body.append(element('small',t('rooms.productUnavailable','Current product unavailable')));
         const controls=element('div','','room-product-actions');controls.append(iconButton(share.shortlistedBy.includes(owner)?'bookmark-check':'bookmark',t('rooms.shortlist','Shortlist'),()=>call('command',room.id,'shortlist',{shareId:share.shareId,selected:!share.shortlistedBy.includes(owner)})));
-        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed').catch(()=>{});return actions.openProduct?.(p.id);}));
+        if(p){controls.append(button(t('rooms.viewProduct','View product'),async()=>{void call('inviteEvent',room.id,'first_product_viewed',undefined,{productId:p.id}).catch(()=>{});return actions.openProduct?.(p.id);}));
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
@@ -21097,6 +21132,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             if(JSON.parse(i.roles).some(r=>r.owner===m.owner&&r.role==='admin'))author.append(element('span',t('chat.roomAdmin','Admin')));bubble.append(author);}
           const attachment=globalThis.WingaEncryptedMedia?.attachment(m);
           if(attachment){bubble.append(button(attachment.attachment.name||t('rooms.attachment','Attachment'),()=>openFile(room,m)));if(attachment.text)bubble.append(element('p',attachment.text));}
+          else if(globalThis.WingaRichContent?.parse(m.message)&&['product','reel','short','collection'].includes(globalThis.WingaRichContent.parse(m.message).type)){
+            const content=globalThis.WingaRichContent.parse(m.message);
+            if(content.text)bubble.append(element('p',content.text));
+            for(const id of content.data.ids){const card=element('div','','chat-rich-card');card.dataset.richReferenceId=id;card.dataset.richReferenceKind=content.type;bubble.append(card);}
+          }
           else if(m.message.startsWith('WINGA-ROOM/')){
             const q=(board.sellerQuestions||[]).find(q=>q.messageId===m.id||q.answer?.sharedMessageId===m.id);
             if(q){bubble.append(element('strong',m.message.includes('seller-response')?t('rooms.sellerResponse','Seller response'):t('rooms.sellerQuestion','Seller question')),
@@ -21117,7 +21157,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         if(keepPosition){const restored=[...thread.querySelectorAll('[data-room-message]')].find(row=>row.dataset.roomMessage===anchorId);
           thread.scrollTop=restored?restored.getBoundingClientRect().top-thread.getBoundingClientRect().top-anchorOffset:oldScroll;
         }else thread.scrollTop=thread.scrollHeight;
-        thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();}
+        thread.addEventListener('scroll',visibleRead,{passive:true});visibleRead();
+        globalThis.WingaRichUi?.bind(detail,{peer:room.id,getPeer:()=>state.selected,dataLayer,getSession,translate:t,
+          actions:{referencesOnly:true,openProduct:actions.openProduct}});}
       if(room.departures?.length){for(const control of detail.querySelectorAll('button,input,textarea')){
         if(head.contains(control)||tabs.contains(control))continue;control.disabled=true;delete control.dataset.roomBusyDisabled;}}
     }
@@ -21996,6 +22038,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         for(const [card,load] of [...references].filter(([card])=>{const r=card.getBoundingClientRect();return card.isConnected&&r.bottom>0&&r.top<innerHeight;}).slice(0,12))load();
       },30000);
     }else observer?.disconnect();
+    if(actions.referencesOnly)return;
     const footer=scope.querySelector('.chat-compose-footer');if(!footer||footer.querySelector('[data-rich-composer]'))return;
     const menu=button(t('chat.richAttach','Attach'),'plus',()=>{
       const view=dialog(t('chat.richAttach','Attach'));

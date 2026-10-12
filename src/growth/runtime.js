@@ -18,13 +18,13 @@
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
-      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
       if(field==='contentType')return contract.publicTypes.includes(value);
       if(field==='sourceSurface')return contract.surfaces.includes(value);
       if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents].includes(value);
-      if(field==='tokenHash')return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+      if(['tokenHash','newRoomHash'].includes(field))return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
       if(['contentId','orderId'].includes(field))return contract.id(value);
       return field==='parentShareId'&&value===''||contract.uuid(value);
     }));
@@ -43,12 +43,14 @@
     let flushing = false, retryTimer = null, viewTimer = null, activeProduct = '', closed = false;
     let previousAccount = account();
     let routeTiming = null, initialCapture = true;
+    const roomProductContexts=new Map();
     function syncIdentity() {
       const current = account();
       if (previousAccount && previousAccount !== current) {
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
+        roomProductContexts.clear();
         storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
       previousAccount = current;
@@ -183,10 +185,20 @@
       syncIdentity();
       if (!measurement() || !contract.roomEvents.includes(eventType) || !contract.uuid(invite?.inviteId)
         || typeof invite.tokenHash!=='string' || !/^[a-f0-9]{64}$/.test(invite.tokenHash)) return;
+      if(eventType==='first_order_started'&&!contract.id(extra.orderId))return;
+      if(eventType==='new_room_created_from_invited_user'&&!/^[a-f0-9]{64}$/.test(extra.newRoomHash||''))return;
+      if(eventType==='first_product_viewed'&&contract.id(extra.productId)&&account()){
+        if(roomProductContexts.size>=20)roomProductContexts.delete(roomProductContexts.keys().next().value);
+        roomProductContexts.set(extra.productId,{invite:{inviteId:invite.inviteId,tokenHash:invite.tokenHash},owner:account(),at:now()});
+      }
       enqueue('room-events',{eventId:contract.uuid(extra.eventId)?extra.eventId:randomId(),shareId:invite.inviteId,
-        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1});
+        tokenHash:invite.tokenHash,sessionId,eventType,schemaVersion:1,
+        ...(eventType==='first_order_started'?{orderId:extra.orderId}:{}),
+        ...(eventType==='new_room_created_from_invited_user'?{newRoomHash:extra.newRoomHash}:{})});
       return true;
     }
+    function roomOrderStarted(productId,orderId){syncIdentity();const context=roomProductContexts.get(productId);
+      if(context&&context.owner===account()&&now()-context.at<1800000)return roomEvent('first_order_started',context.invite,{orderId});}
     function productVisible(productId) {
       activeProduct = productId;
       if (viewTimer) win.clearTimeout(viewTimer);
@@ -210,7 +222,7 @@
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {

@@ -215,6 +215,7 @@
         for(const [card,load] of [...references].filter(([card])=>{const r=card.getBoundingClientRect();return card.isConnected&&r.bottom>0&&r.top<innerHeight;}).slice(0,12))load();
       },30000);
     }else observer?.disconnect();
+    if(actions.referencesOnly)return;
     const footer=scope.querySelector('.chat-compose-footer');if(!footer||footer.querySelector('[data-rich-composer]'))return;
     const menu=button(t('chat.richAttach','Attach'),'plus',()=>{
       const view=dialog(t('chat.richAttach','Attach'));

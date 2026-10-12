@@ -160,6 +160,34 @@ test('internal product sharing uses rich canonical transports and stable retry I
   await context.close();
 });
 
+test('public collection internal sharing uses live rich cards and stable encrypted Room sends',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request,{growthInternalContentSharing:true});
+  const id=await collectionPreview(context,product);await page.goto('/collection/'+id);
+  const preview=page.locator('[data-collection-id="'+id+'"]');
+  await expect(preview.getByRole('heading')).toHaveText('Help choose a gift',{timeout:30000});
+  await preview.getByRole('button',{name:'Share to Winga',exact:true}).click();
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  await page.evaluate(()=>{
+    window.__contentShares=[];WingaDataLayer.loadInboxPage=async()=>({items:[{withUser:'market_seller',encrypted:true}]});
+    WingaDataLayer.shoppingRoom=async(action,args)=>action==='list'?[{id:'11111111-1111-4111-8111-111111111111',name:'Choose together',status:'active',transition:{status:'accepted'}}]:
+      (window.__contentShares.push({action,args}),{id:args[2]});
+    WingaDataLayer.sendRichMessage=async(peer,content,options)=>(window.__contentShares.push({peer,content,options}),{id:options.clientMessageId});
+  });
+  await page.evaluate(id=>openInternalProductShare(id,'COLLECTION'),id);
+  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:'Share to Winga'})});
+  await dialog.getByRole('button',{name:'market_seller',exact:true}).click();
+  await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
+  await dialog.getByRole('button',{name:'Choose together',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__contentShares.length)).toBe(2);
+  const sent=await page.evaluate(()=>window.__contentShares);
+  expect(sent[0].content.type).toBe('collection');expect(sent[0].content.data.ids).toEqual([id]);
+  expect(sent[1].action).toBe('send');expect(sent[1].args[1]).toContain('WINGA-CONTENT/1\n');
+  expect(JSON.parse(sent[1].args[1].split('\n')[1]).data.ids).toEqual([id]);
+  expect(sent[1].args[2]).toMatch(/^[a-f0-9-]{36}$/);await context.close();
+});
+
 test('failed-search notification request preserves exact query through authentication',async({browser,request})=>{
   const {context,page}=await guest(browser,request,{growthDemandResolution:true});
   await context.route('**/api/search-demand/subscriptions',route=>{

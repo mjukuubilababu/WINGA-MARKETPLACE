@@ -4521,8 +4521,12 @@ async loadAdminPayments() {
       },
     async createOrder(payload) {
       assertBuyerCapableAccess();
+      const actor=state.adapter?.loadSession?.()?.username;
       const result = state.adapter.createOrder ? await state.adapter.createOrder(payload) : null;
-      try { if (result?.id) window.WingaGrowth?.event('shared_product_order_started', payload.productId, { orderId: result.id }); } catch {}
+      if(actor&&state.adapter?.loadSession?.()?.username===actor){
+        try { if (result?.id) window.WingaGrowth?.event('shared_product_order_started', payload.productId, { orderId: result.id }); } catch {}
+        try { if (result?.id) window.WingaGrowth?.roomOrderStarted(payload.productId,result.id); } catch {}
+      }
       return result;
     },
     async updateOrderStatus(orderId, payload) {
