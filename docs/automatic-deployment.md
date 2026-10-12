@@ -5,6 +5,17 @@ Push production changes to `master`.
 Render's existing services are configured to deploy automatically from `master`:
 the backend services, Phoenix conversations service, intelligence worker, and
 video background worker. These deployments start independently of GitHub checks.
+All four services use `autoDeployTrigger: commit` on `master`. Backend (`WINGA`)
+and Phoenix retain their service root directories but explicitly include `**/*`
+in Render's build filters, with no ignored paths. This allows changes anywhere
+in the repository to trigger those services too, including shared files and
+deployment configuration outside their root directories. The two background
+workers already use the repository root and have no restrictive build filters.
+
+To restore these settings in Render, use Settings → Build & Deploy: select
+On Commit, link `master`, and set Included Paths to `**/*` with no Ignored Paths
+for `WINGA` and `winga-phoenix`. Build filter paths are relative to the repository
+root ([Render monorepo documentation](https://render.com/docs/monorepo-support)).
 
 Cloudflare deployment runs after the `Winga Conversation Acceptance And Security`
 workflow completes for a push to `master`, provided its `functional`,
