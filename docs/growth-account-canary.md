@@ -78,9 +78,12 @@ names, share/session/message/Room IDs, message bodies or private order details.
 Counts begin with new shares in the selected window; anonymous and out-of-scope
 recipients are excluded. A successful read does not certify a completed canary.
 
-Rollback: disable `WINGA_GROWTH_ACCOUNT_ROLLOUT_ENABLED` or the existing Product
-Sharing/Measurement flags. Server writes stop immediately; clients follow the
-capability within one minute plus the bounded transport deadline. Preserve valid
+Rollback: use the existing `WINGA_GROWTH_PRODUCT_SHARING_ENABLED=false` and
+`WINGA_GROWTH_MEASUREMENT_ENABLED=false` flags for an immediate stop to creation
+and recipient-event intake once the backend configuration is running. Disabling
+`WINGA_GROWTH_ACCOUNT_ROLLOUT_ENABLED` alone stops new client activation and makes
+clients follow the disabled capability within one minute plus the bounded
+transport deadline; it is not an independent server-write kill switch. Preserve valid
 link routes and schema. Restore the private pre-change cohort snapshot if reversing
 new enrollments, without removing unrelated already-consented accounts.
 
