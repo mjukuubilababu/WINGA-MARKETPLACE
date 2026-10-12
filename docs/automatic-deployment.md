@@ -7,9 +7,12 @@ the backend services, Phoenix conversations service, intelligence worker, and
 video background worker. These deployments start independently of GitHub checks.
 
 Cloudflare deployment runs after the `Winga Conversation Acceptance And Security`
-workflow succeeds for a push to `master`. It deploys the exact tested commit,
-skips commits already superseded on `master`, and serializes deployments. Failed
-acceptance checks prevent Cloudflare deployment.
+workflow completes for a push to `master`, provided its `functional`,
+`dependencies`, and `beam` jobs all succeeded. CodeQL findings and the
+`static-analysis` job do not block Cloudflare deployment; they remain visible in
+the acceptance workflow. It deploys the exact tested commit, skips commits
+already superseded on `master`, and serializes deployments. Failed, cancelled,
+skipped, or missing required jobs prevent Cloudflare deployment.
 
 The workflow updates the five existing Workers: `mkubwa`,
 `winga-intelligence-worker`, `winga-session-security-relay`,

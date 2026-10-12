@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: winga-production-deployment
@@ -16,13 +17,31 @@ concurrency:
 jobs:
   cloudflare:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'master' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Require functional, dependency, and Phoenix acceptance checks
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+              filter: 'latest',
+              per_page: 100
+            });
+            const required = ['functional', 'dependencies', 'beam'];
+            for (const name of required) {
+              const matches = jobs.filter(job => job.name === name);
+              if (matches.length !== 1 || matches[0].conclusion !== 'success') {
+                throw new Error(`Required acceptance job ${name} did not succeed.`);
+              }
+            }
+            core.info('Required acceptance checks passed. CodeQL results do not block deployment.');
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
@@ -31,14 +50,14 @@ jobs:
         id: revision
         env:
           GH_TOKEN: ${{ github.token }}
-          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           current_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/master" --jq .sha)
-          if [ "$current_sha" = "$TESTED_SHA" ]; then
+          if [ "$current_sha" = "$DEPLOY_SHA" ]; then
             echo 'current=true' >> "$GITHUB_OUTPUT"
           else
             echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo 'A newer master commit exists; its successful checks will deploy it.'
+            echo 'A newer master commit exists; its required acceptance checks will deploy it.'
           fi
       - name: Validate deployment credentials
         if: steps.revision.outputs.current == 'true'
