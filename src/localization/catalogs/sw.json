@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "sw",
     "messages":  {
+        "growth.shareOutside": "Shiriki nje ya Winga",
+        "growth.shareToWinga": "Shiriki ndani ya Winga",
         "growth.internalShareQueued": "Imewekwa kwenye foleni ya kutumwa; delivery haijathibitishwa.",
         "growth.dashboard.conversation": "Conversation response",
         "growth.dashboard.trust": "Reviews na trust",

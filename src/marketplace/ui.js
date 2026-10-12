@@ -520,7 +520,7 @@
         && product.uploadedBy !== deps.getCurrentUser?.()
         && deps.canUseBuyerFeatures?.()
       );
-      const canShareSeller = Boolean(product?.uploadedBy);
+      const canShareProduct = Boolean(product?.id);
       const isOwnerSeller = Boolean(
         deps.canUseSellerFeatures?.()
         && deps.getCurrentUser?.()
@@ -588,13 +588,13 @@
         }
         badgeRow.appendChild(followButton);
       }
-      if (canShareSeller) {
+      if (canShareProduct) {
         badgeRow.appendChild(createElement("button", {
           className: "product-seller-inline-action",
           textContent: t("common.share", "Share"),
           attributes: {
             type: "button",
-            "data-share-seller-shop": product.uploadedBy || ""
+            "data-share-product": product.id
           }
         }));
       }
@@ -911,7 +911,7 @@
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-product], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;

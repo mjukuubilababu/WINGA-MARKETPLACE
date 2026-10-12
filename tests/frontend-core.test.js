@@ -19,9 +19,15 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
-test("frontend deployment preserves dashboard variables", () => {
+test("frontend deployment preserves dashboard variables", async () => {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname,"../package.json"),"utf8"));
-  assert.match(manifest.scripts['deploy:worker:frontend'], /wrangler deploy --config wrangler\.toml --keep-vars(?:\s|$)/);
+  const entry = /^node (scripts\/[a-z-]+\.js)$/.exec(manifest.scripts['deploy:worker:frontend']);
+  assert.ok(entry, 'Frontend deployment uses a repository command');
+  const {deployFrontend} = require(path.resolve(__dirname, '..', entry[1]));
+  let deployed = false;
+  assert.equal(await deployFrontend({build: () => ({status: 0}), readVersion: () => '20261012232922',
+    deploy: async args => {deployed = true; assert.ok(args.includes('--keep-vars')); return 0;}}), 0);
+  assert.equal(deployed, true);
 });
 
 test("home feed reserves stable media and deferred section geometry", () => {
@@ -3701,7 +3707,7 @@ test("backend intelligence uses durable queue hooks when PostgreSQL is available
   assert.equal(packageJson.scripts["worker:intelligence"], "node backend/intelligence-queue-worker.js");
   assert.equal(packageJson.scripts["worker:intelligence:once"], "node backend/intelligence-queue-worker.js --once");
   assert.equal(packageJson.scripts["monitor:intelligence"], "node scripts/check-intelligence-health.js");
-  assert.equal(packageJson.scripts["deploy:worker:frontend"], "npm run build:vercel && npx wrangler deploy --config wrangler.toml --keep-vars");
+  assert.equal(typeof packageJson.scripts["deploy:worker:frontend"], 'string');
   assert.equal(packageJson.scripts["deploy:worker:intelligence"], "npx wrangler deploy --config wrangler.intelligence.toml");
   assert.equal(packageJson.scripts["ops:intelligence:list"], "node scripts/intelligence-ops.js list");
   assert.equal(packageJson.scripts["ops:intelligence:retry"], "node scripts/intelligence-ops.js retry");

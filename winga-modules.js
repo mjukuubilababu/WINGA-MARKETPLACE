@@ -13567,9 +13567,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           || saveButton.getAttribute?.("aria-pressed") === "true";
         return alreadySaved ? "" : "video_save";
       }
-      if (target.closest("[data-share-seller-shop]")) return "video_share";
+      if (target.closest("[data-share-product], [data-share-seller-shop]")) return "video_share";
       if (target.closest(
-        ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], [data-video-playback], [data-stream-player], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+        ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-product], [data-share-seller-shop], [data-like-product], [data-video-playback], [data-stream-player], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
       )) return "";
       return "video_product_click";
     }
@@ -15160,7 +15160,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         && product.uploadedBy !== deps.getCurrentUser?.()
         && deps.canUseBuyerFeatures?.()
       );
-      const canShareSeller = Boolean(product?.uploadedBy);
+      const canShareProduct = Boolean(product?.id);
       const isOwnerSeller = Boolean(
         deps.canUseSellerFeatures?.()
         && deps.getCurrentUser?.()
@@ -15228,13 +15228,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         badgeRow.appendChild(followButton);
       }
-      if (canShareSeller) {
+      if (canShareProduct) {
         badgeRow.appendChild(createElement("button", {
           className: "product-seller-inline-action",
           textContent: t("common.share", "Share"),
           attributes: {
             type: "button",
-            "data-share-seller-shop": product.uploadedBy || ""
+            "data-share-product": product.id
           }
         }));
       }
@@ -15551,7 +15551,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-product], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
           return;
@@ -31847,6 +31847,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         reviewStack.appendChild(deps.createFragmentFromMarkup(markup));
       });
       copy.appendChild(reviewStack);
+
+      copy.appendChild(deps.createElement('button', {
+        className: 'action-btn action-btn-secondary',
+        textContent: t('common.share', 'Share'),
+        attributes: {type: 'button', 'data-share-product': product.id}
+      }));
 
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
         extraClass: "product-detail-actions",

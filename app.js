@@ -7671,9 +7671,9 @@ function ensureMediaActionSheetRoot() {
     }
 
     if(action==='share-winga'){closeMediaActionSheet();openInternalProductShare(product.id);return;}
-    if (['share','share-copy','share-whatsapp'].includes(action)) {
+    if (['share','share-copy','share-whatsapp','share-external'].includes(action)) {
       closeMediaActionSheet();
-      handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : 'native' }).catch((error) => {
+      handleShareProduct(product,{ channel: action === 'share-copy' ? 'copy' : action === 'share-whatsapp' ? 'whatsapp' : action === 'share-external' ? 'native' : undefined }).catch((error) => {
         captureClientError("media_sheet_share_failed", error, {
           productId: product.id
         });
@@ -7806,6 +7806,7 @@ function ensureImageLightboxRoot() {
     }
 
     if (action === "share") {
+      closeImageLightbox();
       handleShareProduct(product).catch((error) => {
         captureClientError("lightbox_share_failed", error, {
           productId: product.id
@@ -7962,7 +7963,7 @@ function openMediaActionSheet(product, options = {}) {
 
   const copy = createElement("div", { className: "media-action-copy" });
   copy.append(
-    createElement("p", { className: "media-action-kicker eyebrow", textContent: translateUi("legacy.app.1810407f5ab7", {}, "Quick actions") }),
+    createElement("p", { className: "media-action-kicker eyebrow", textContent: options.shareOnly ? translateUi('common.share', {}, 'Share') : translateUi("legacy.app.1810407f5ab7", {}, "Quick actions") }),
     createElement("h3", { textContent: product.name || translateUi("common.product", {}, "Product"), attributes: { id: "media-action-title" } }),
     createElement("p", {
       className: "media-action-subtitle",
@@ -7971,7 +7972,13 @@ function openMediaActionSheet(product, options = {}) {
   );
 
   const actions = createElement("div", { className: "media-action-buttons" });
-  [
+  const shareActions = [
+    { action: 'share-winga', label: translateUi('growth.shareToWinga', {}, 'Share to Winga') },
+    { action: 'share-copy', label: translateUi('detail.copyDeepLink', {}, 'Copy Deep Link') },
+    { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
+    ...(typeof navigator.share === 'function' ? [{ action: 'share-external', label: translateUi('growth.shareOutside', {}, 'Share outside Winga') }] : [])
+  ];
+  (options.shareOnly ? shareActions : [
     { action: "save", label: saved ? "Remove saved" : "Save" },
     { action: "share", label: translateUi("common.share", {}, "Share") },
     { action: 'share-winga', label: translateUi('growth.shareToWinga', {}, 'Share to Winga') },
@@ -7979,7 +7986,7 @@ function openMediaActionSheet(product, options = {}) {
     { action: 'share-whatsapp', label: translateUi('growth.whatsapp', {}, 'WhatsApp') },
     { action: "download", label: translateUi("common.download", {}, "Download") },
     { action: "open", label: translateUi("ui.label.2147b4d78f0d", {}, "Open product") }
-  ].forEach((item) => {
+  ]).forEach((item) => {
     actions.appendChild(createElement("button", {
       className: `media-action-btn${item.action === "save" && saved ? " is-active" : ""}`,
       textContent: item.label,
@@ -12722,6 +12729,15 @@ function bindTrustReportEntryActions() {
         return;
       }
       openProductDetailModal(latestProduct.id);
+      return;
+    }
+
+    const shareProductButton = event.target.closest('[data-share-product]');
+    if (shareProductButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const product = getProductById(shareProductButton.dataset.shareProduct);
+      if (product) handleShareProduct(product).catch(error => captureClientError('product_share_failed', error, {productId: product.id}));
       return;
     }
 
@@ -22693,7 +22709,7 @@ function renderSellerCardInlineActions(product) {
   if (sellerId !== currentUser && canUseBuyerFeatures()) {
     actions.push(`<button class="product-seller-inline-action${isPersonFollowed(sellerId) ? " is-active" : ""}" type="button" data-follow-person="${escapeHtml(sellerId)}">${isPersonFollowed(sellerId) ? "Following" : "Follow"}</button>`);
   }
-  actions.push(`<button class="product-seller-inline-action" type="button" data-share-seller-shop="${escapeHtml(sellerId)}">Share</button>`);
+  actions.push(`<button class="product-seller-inline-action" type="button" data-share-product="${escapeHtml(String(product.id || ''))}">${escapeHtml(translateUi('common.share', {}, 'Share'))}</button>`);
   if (currentUser && canUseSellerFeatures() && sellerId === currentUser) {
     actions.push(renderSellerCardPromoteChip(product));
   }
@@ -22950,7 +22966,7 @@ function bindShowcaseCardClicks(scope) {
       }
         if (
           event.target.closest(
-            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
+            ".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-promote-product], [data-follow-person], [data-follow-seller], [data-share-product], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions"
           )
         ) {
         return;
@@ -23129,7 +23145,7 @@ function enhanceShowcaseTracks(scope = document) {
       if (isInteractiveTarget(targetElement)) {
         return;
       }
-      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-person], [data-follow-seller], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
+      if (targetElement.closest(".product-menu, .product-menu-popup, .product-menu-toggle, [data-menu-toggle], [data-menu-popup], [data-product-caption-toggle], [data-request-product], [data-chat-product], [data-open-own-messages], [data-open-product-whatsapp], [data-buy-product], [data-detail-repost], [data-follow-person], [data-follow-seller], [data-share-product], [data-share-seller-shop], [data-like-product], .product-actions, .showcase-actions, .seller-product-actions, .product-seller-inline-actions")) {
         return;
       }
 
@@ -24251,6 +24267,11 @@ function getProductDownloadName(product) {
 
 async function handleShareProduct(product, options = {}) {
   if (!product) {
+    return;
+  }
+
+  if (!options.channel) {
+    openMediaActionSheet(product, {shareOnly: true});
     return;
   }
 

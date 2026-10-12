@@ -3,6 +3,8 @@
     "version":  "2026.09.09.3",
     "locale":  "en",
     "messages":  {
+        "growth.shareOutside": "Share outside Winga",
+        "growth.shareToWinga": "Share to Winga",
         "growth.internalShareQueued": "Queued for sending; delivery is not confirmed.",
         "growth.dashboard.conversation": "Conversation response",
         "growth.dashboard.trust": "Review and trust",

@@ -121,7 +121,9 @@ test('internal product sharing uses rich canonical transports and stable retry I
   const {context,page,product}=await guest(browser,request);
   await page.goto('/product/'+product.id);
   await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
-  await page.evaluate(id=>openMediaActionSheet(getProductById(id)),product.id);
+  await page.locator('#product-detail-modal [data-share-product="'+product.id+'"]').first().click();
+  await expect(page.locator('#media-action-sheet')).toBeVisible();
+  expect(await page.evaluate(()=>window.__copiedGrowthLink||'')).toBe('');
   await page.locator('[data-media-action="share-winga"]').click();
   await expect(page.locator('#auth-container')).toBeVisible();
   await page.locator('#auth-gate-login').click();
@@ -141,7 +143,7 @@ test('internal product sharing uses rich canonical transports and stable retry I
     };
   });
   await page.evaluate(id=>openInternalProductShare(id),product.id);
-  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:'Share to Winga'})});
+  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
   await expect(dialog.getByRole('button',{name:'market_seller',exact:true})).toBeVisible();
   await expect(dialog.getByRole('button',{name:'legacy_peer',exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>window.__internalShares.length)).toBe(0);
@@ -160,12 +162,68 @@ test('internal product sharing uses rich canonical transports and stable retry I
   await context.close();
 });
 
+test('product Share keeps Winga and external choices explicit and returns internal sharing after auth',async({browser,request})=>{
+  const {context,page,product}=await guest(browser,request);
+  await context.addInitScript(()=>{
+    window.__nativeShareCalls=[];
+    Object.defineProperty(navigator,'share',{value:async value=>{window.__nativeShareCalls.push(value);},configurable:true});
+  });
+  await page.goto('/product/'+product.id);
+  await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+  const share=page.locator('#product-detail-modal [data-share-product="'+product.id+'"]').first();
+  await share.click();
+  const sheet=page.locator('#media-action-sheet');
+  await expect(sheet.locator('[data-media-action="share-winga"]')).toBeVisible();
+  await expect(sheet.locator('[data-media-action="share-whatsapp"]')).toBeVisible();
+  await expect(sheet.locator('[data-media-action="share-external"]')).toBeVisible();
+  expect(await page.evaluate(()=>window.__nativeShareCalls.length)).toBe(0);
+  expect(await page.evaluate(()=>window.__copiedGrowthLink||'')).toBe('');
+  await sheet.locator('[data-media-action="share-copy"]').click();
+  await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/product/'+product.id+'?share=');
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await share.click();await sheet.locator('[data-media-action="share-external"]').click();
+  await expect.poll(()=>page.evaluate(()=>window.__nativeShareCalls.length)).toBe(1);
+  const native=await page.evaluate(()=>window.__nativeShareCalls[0]);
+  expect(new URL(native.url).pathname).toBe('/product/'+product.id);
+  await share.click();await sheet.locator('[data-media-action="share-winga"]').click();
+  await expect(page.locator('#auth-container')).toBeVisible();
+  await page.evaluate(()=>{
+    WingaDataLayer.loadInboxPage=async()=>({items:[{withUser:'market_seller',encrypted:true}]});
+    WingaDataLayer.shoppingRoom=async()=>[];
+  });
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');
+  await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  const internal=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
+  await expect(internal.getByRole('button',{name:'market_seller',exact:true})).toBeVisible();
+  await expect(page.locator('#product-detail-title')).toHaveText(product.name);
+  await expect(page).toHaveURL(new RegExp('/product/'+product.id+'(?:\\?|$)'));
+  await context.close();
+});
+
+test('visible feed Share opens Winga choices and copies the selected product rather than its seller profile',async({browser,request})=>{
+  const {context,page}=await guest(browser,request);
+  await page.goto('/');
+  const share=page.locator('#products-container [data-share-product]').first();
+  await expect(share).toBeVisible({timeout:30000});
+  const id=await share.getAttribute('data-share-product');
+  await share.click();
+  const sheet=page.locator('#media-action-sheet');
+  await expect(sheet.locator('[data-media-action="share-winga"]')).toBeVisible();
+  expect(await page.evaluate(()=>window.__copiedGrowthLink||'')).toBe('');
+  await sheet.locator('[data-media-action="share-copy"]').click();
+  await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/product/'+id);
+  expect(await page.evaluate(()=>window.__copiedGrowthLink)).not.toContain('/profile/');
+  await expect(page.locator('#auth-container')).toBeHidden();
+  await context.close();
+});
+
 test('public collection internal sharing uses live rich cards and stable encrypted Room sends',async({browser,request})=>{
   const {context,page,product}=await guest(browser,request,{growthInternalContentSharing:true});
   const id=await collectionPreview(context,product);await page.goto('/collection/'+id);
   const preview=page.locator('[data-collection-id="'+id+'"]');
   await expect(preview.getByRole('heading')).toHaveText('Help choose a gift',{timeout:30000});
-  await preview.getByRole('button',{name:'Share to Winga',exact:true}).click();
+  await preview.getByRole('button',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/,exact:true}).click();
   await expect(page.locator('#auth-container')).toBeVisible();
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
@@ -176,7 +234,7 @@ test('public collection internal sharing uses live rich cards and stable encrypt
     WingaDataLayer.sendRichMessage=async(peer,content,options)=>(window.__contentShares.push({peer,content,options}),{id:options.clientMessageId});
   });
   await page.evaluate(id=>openInternalProductShare(id,'COLLECTION'),id);
-  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:'Share to Winga'})});
+  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
   await dialog.getByRole('button',{name:'market_seller',exact:true}).click();
   await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
   await dialog.getByRole('button',{name:'Choose together',exact:true}).click();

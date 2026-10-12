@@ -471,6 +471,12 @@
       });
       copy.appendChild(reviewStack);
 
+      copy.appendChild(deps.createElement('button', {
+        className: 'action-btn action-btn-secondary',
+        textContent: t('common.share', 'Share'),
+        attributes: {type: 'button', 'data-share-product': product.id}
+      }));
+
       const actionsMarkup = deps.renderProductActionGroup?.(product, {
         extraClass: "product-detail-actions",
         includeBuyButton: true,
