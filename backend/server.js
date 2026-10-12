@@ -1437,7 +1437,7 @@ async function processIntelligenceQueueOnce(options = {}) {
       intelligenceQueueWorkerState.lastDemandResolutionAt=Date.now();
       try{await postgresStore.processDemandResolutions({batchSize:50});}catch{console.warn('[WINGA] Demand resolution processing deferred.');}
     }
-    if(postgresStore.processGrowthEventJobs)try{await postgresStore.reconcileRoomGrowthEvents({batchSize:50});await postgresStore.processGrowthEventJobs({batchSize:50});}catch{console.warn('[WINGA] Growth metadata processing deferred.');}
+    if(postgresStore.processGrowthEventJobs)try{await postgresStore.reconcileRoomGrowthEvents({batchSize:50});await postgresStore.reconcileSellerReferralEvents?.({batchSize:50});await postgresStore.processGrowthEventJobs({batchSize:50});}catch{console.warn('[WINGA] Growth metadata processing deferred.');}
     const jobs = await postgresStore.claimIntelligenceQueueBatch({
       limit: INTELLIGENCE_QUEUE_BATCH_SIZE,
       workerId: INTELLIGENCE_QUEUE_WORKER_ID
@@ -6936,7 +6936,7 @@ function getRateLimitRule(pathname, method = "GET") {
   if (pathname.startsWith('/api/growth/shares/') || pathname.startsWith('/api/admin/growth/')) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: '/api/growth/read' };
   }
-  if (pathname.startsWith('/api/growth/invites/')) {
+  if (pathname.startsWith('/api/growth/invites/') || pathname.startsWith('/api/growth/referrals/')) {
     return {limit: 120,windowMs:RATE_LIMIT_WINDOW_MS,key:'/api/growth/invite-preview'};
   }
   if (pathname === '/api/growth/room-events' || pathname === '/api/growth/invite-preferences') {
@@ -8099,11 +8099,12 @@ const server = http.createServer(async (req, res) => {
         isAdminSession, clientIp: getClientIp, getStore: () => postgresStore,
         reportInvite:(reporterUserId,targetUserId,reason)=>{
           if(!postgresStore?.createReport)throw Object.assign(new Error('growth_unavailable'),{status:503});
-          return postgresStore.createReport(normalizeReportRecord({reporterUserId,targetUserId,targetType:'user',reason,description:'Unwanted Shopping Room invitation.'}));
+          return postgresStore.createReport(normalizeReportRecord({reporterUserId,targetUserId,targetType:'user',reason,description:'Unwanted shared content or invitation.'}));
         },
         cohort: require('./growth-policy').createGrowthPolicy(process.env),
         productSharingEnabled: process.env.WINGA_GROWTH_PRODUCT_SHARING_ENABLED === 'true',
         collectionSharingEnabled:process.env.WINGA_GROWTH_COLLECTION_SHARING_ENABLED==='true',profileSharingEnabled:process.env.WINGA_GROWTH_PROFILE_SHARING_ENABLED==='true',creatorSharingEnabled:process.env.WINGA_GROWTH_CREATOR_SHARING_ENABLED==='true',
+        sellerReferralEnabled:process.env.WINGA_GROWTH_SELLER_REFERRAL_ENABLED==='true',
         measurementEnabled: process.env.WINGA_GROWTH_MEASUREMENT_ENABLED === 'true' });
       if (await growthApi.handle(req, res, url)) return;
     }

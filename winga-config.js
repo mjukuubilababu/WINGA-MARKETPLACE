@@ -28,6 +28,7 @@ const WINGA_DEFAULT_CONFIG = {
   growthProductSharing: false,
   growthCollectionSharing: false,
   growthInternalContentSharing: false,
+  growthSellerReferral: false,
   growthProfileSharing: false,
   growthCreatorSharing: false,
   growthMeasurement: false,

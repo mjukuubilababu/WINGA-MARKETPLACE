@@ -1897,6 +1897,8 @@ async loadAdminPayments(filters) {
         if (!window.WingaModules.growth.contract.inviteToken(token)) throw Object.assign(new Error('growth_invite_unavailable'),{status:404}); // i18n-gate: allow -- internal routing contract
         return fetchJson(`${baseUrl}/growth/invites/${token}`,{headers:createAuthHeaders(),timeoutMs:3000});
       },
+      async resolveSellerReferral(id){return fetchJson(`${baseUrl}/growth/referrals/${encodeURIComponent(id)}`,{headers:createAuthHeaders(),timeoutMs:3000});},
+      async growthShareSafety(id,action){return fetchJson(`${baseUrl}/growth/shares/${encodeURIComponent(id)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json',...createAuthHeaders()},body:JSON.stringify({reason:'spam'}),timeoutMs:3000});},
       async roomInvitePreferences(allowInvites) {
         return fetchJson(`${baseUrl}/growth/invite-preferences`,allowInvites===undefined?{headers:createAuthHeaders()}:
           {method:'PUT',headers:{'Content-Type':'application/json',...createAuthHeaders()},body:JSON.stringify({allowInvites})});
@@ -3571,6 +3573,8 @@ async loadAdminPayments() {
       if (!state.adapter.growthRequest) throw Object.assign(new Error('growth_unavailable'), { status: 503 }); // i18n-gate: allow -- internal availability diagnostic
       return state.adapter.growthRequest(kind, payload);
     },
+    async resolveSellerReferral(id){ensureAdapter();if(!window.WingaModules.growth.contract.uuid(id)||!state.adapter.resolveSellerReferral)throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});return state.adapter.resolveSellerReferral(id);},
+    async growthShareSafety(id,action){assertPersonAccess();ensureAdapter();if(!window.WingaModules.growth.contract.uuid(id)||!['block','report'].includes(action)||!state.adapter.growthShareSafety)throw Object.assign(new Error('growth_unavailable'),{code:'growth_unavailable'});return state.adapter.growthShareSafety(id,action);},
     async resolveRoomInvite(token) {
       ensureAdapter();
       if(!state.adapter.resolveRoomInvite)throw Object.assign(new Error('growth_invite_unavailable'),{status:503}); // i18n-gate: allow -- internal availability diagnostic

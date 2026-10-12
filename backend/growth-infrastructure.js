@@ -25,7 +25,8 @@ async function insertEvent(client, eventId, shareId, actorKey, eventType, verifi
   // Native Room actions use a server-derived account hash. Public open events
   // use tab identities and acquire account identity only from authenticated intake.
   const roomAccountEvent=eventType.startsWith('room_')&&eventType!=='room_invite_opened'||['first_vote','first_comment','first_product_added','first_product_viewed','first_order_started','new_room_created_from_invited_user'].includes(eventType);
-  const accountKey=authenticatedActorKey||(roomAccountEvent?actorKey:null);
+  const sellerAccountEvent=['seller_signup','seller_first_product','seller_first_value_event'].includes(eventType);
+  const accountKey=authenticatedActorKey||(roomAccountEvent||sellerAccountEvent?actorKey:null);
   const result = await client.query(`INSERT INTO growth_events(event_id,share_id,actor_key,event_type,verification,client_duration_ms,authenticated_actor_key)
     VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING event_id`,
   [eventId, shareId, actorKey, eventType, verification, durationMs,accountKey]);

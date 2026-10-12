@@ -41,6 +41,7 @@ if [[ "$growth_mode" == canary ]]; then
 else
   node tests/growth-loops.test.mjs
   node tests/growth-postgres.test.mjs
+  node tests/growth-seller-referrals.test.mjs
   node --test --test-name-pattern='Room invitation|Room invite measurement|Room measurement' tests/shopping-rooms-service.test.mjs
 fi
 # Every fixture must have removed its schema before container cleanup.

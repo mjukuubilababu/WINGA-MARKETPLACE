@@ -63,7 +63,7 @@ async function runMaintenance() {
   });
   state.recovered += Number(recovery?.recovered || 0);
 
-  if(store.processGrowthEventJobs)try{await store.reconcileRoomGrowthEvents({batchSize:50});await store.processGrowthEventJobs({batchSize:50});}catch{console.warn('[WINGA] Growth metadata processing deferred.');}
+  if(store.processGrowthEventJobs)try{await store.reconcileRoomGrowthEvents({batchSize:50});await store.reconcileSellerReferralEvents?.({batchSize:50});await store.processGrowthEventJobs({batchSize:50});}catch{console.warn('[WINGA] Growth metadata processing deferred.');}
   const now = Date.now();
   if(store.processDemandResolutions && now-(state.lastDemandResolutionAt||0)>=30000){
     state.lastDemandResolutionAt=now;

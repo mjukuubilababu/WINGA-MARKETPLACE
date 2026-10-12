@@ -45,6 +45,11 @@ function createGrowthApi(deps) {
         if(!store?.readGrowthCohorts){send(503,{code:'growth_unavailable'});return true;}
         send(200,await store.readGrowthCohorts());return true;
       }
+      if(path==='/api/admin/growth/referrals'&&req.method==='GET'){
+        if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
+        if(!store?.readSellerReferralHealth){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.readSellerReferralHealth());return true;
+      }
       if(path === '/api/admin/growth/marketplace' && req.method === 'GET'){
         if(!session||!deps.isAdminSession(session)){send(403,{code:'growth_admin_required'});return true;}
         if(!store?.readMarketplaceLoopHealth){send(503,{code:'growth_unavailable'});return true;}
@@ -61,6 +66,28 @@ function createGrowthApi(deps) {
         send(200,await store.pruneGrowthRecords()); return true;
       }
       if (session && !deps.ensureUser(session, res)) return true;
+      const shareSafety=/^\/api\/growth\/shares\/([0-9a-f-]+)\/(block|report)$/.exec(path);
+      if(shareSafety&&uuid(shareSafety[1])&&req.method==='POST'){
+        if(!session){send(403,{code:'growth_auth_required'});return true;}
+        if(!store?.resolveGrowthShareSafetyTarget){send(503,{code:'growth_unavailable'});return true;}
+        const payload=await deps.collectBody(req,{maxBytes:1024});
+        if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(key=>key!=='reason')||payload.reason!==undefined&&!['spam','harassment'].includes(payload.reason)){send(400,{code:'growth_invite_safety_invalid'});return true;}
+        const target=await store.resolveGrowthShareSafetyTarget(shareSafety[1],context);
+        if(shareSafety[2]==='block'){
+          if(!store.setUserBlock){send(503,{code:'growth_unavailable'});return true;}
+          const result=await store.setUserBlock(context.username,target.username,true);
+          if(!result.updated){send(404,{code:'growth_share_unavailable'});return true;}send(200,{blocked:true});return true;
+        }
+        if(!deps.reportInvite){send(503,{code:'growth_unavailable'});return true;}
+        const result=await deps.reportInvite(context.username,target.username,payload.reason||'spam');
+        if(!result?.created&&result?.code!=='duplicate_report'){send(503,{code:'growth_unavailable'});return true;}
+        send(200,{reported:true,duplicate:result?.code==='duplicate_report'});return true;
+      }
+      const referralMatch=/^\/api\/growth\/referrals\/([0-9a-f-]+)$/.exec(path);
+      if(referralMatch&&uuid(referralMatch[1])&&req.method==='GET'){
+        if(!store?.resolveSellerReferral){send(503,{code:'growth_unavailable'});return true;}
+        send(200,await store.resolveSellerReferral(referralMatch[1],context));return true;
+      }
       const inviteMatch = /^\/api\/growth\/invites\/([A-Za-z0-9_-]{43})$/.exec(path);
       if (inviteMatch && req.method === 'GET') {
         if (!store?.resolveLoopInvite) { send(503, {code: 'growth_unavailable'}); return true; }
@@ -115,7 +142,7 @@ function createGrowthApi(deps) {
       if (path === '/api/growth/shares' && req.method === 'POST') {
         if (!cohort.allowsCreation(context.username)) { send(403, { code: 'growth_cohort_excluded' }); return true; }
         const payload = await deps.collectBody(req, { maxBytes: 4096 });
-        const allowed=payload?.contentType==='PRODUCT'?deps.productSharingEnabled:payload?.contentType==='COLLECTION'?deps.collectionSharingEnabled:payload?.contentType==='PROFILE'?deps.profileSharingEnabled:['REEL','SHORT'].includes(payload?.contentType)?deps.creatorSharingEnabled:false;
+        const allowed=payload?.contentType==='SELLER_REFERRAL'?deps.sellerReferralEnabled:payload?.contentType==='PRODUCT'?deps.productSharingEnabled:payload?.contentType==='COLLECTION'?deps.collectionSharingEnabled:payload?.contentType==='PROFILE'?deps.profileSharingEnabled:['REEL','SHORT'].includes(payload?.contentType)?deps.creatorSharingEnabled:false;
         if (!allowed) { send(404, { code: 'growth_sharing_disabled' }); return true; }
         if (context.bot) { send(400, { code: 'growth_crawler_rejected' }); return true; }
         if (!store?.createGrowthShare) { send(503, { code: 'growth_unavailable' }); return true; }

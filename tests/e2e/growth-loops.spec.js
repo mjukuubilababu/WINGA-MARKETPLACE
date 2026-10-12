@@ -303,3 +303,36 @@ test('authorized Opportunity link preserves exact context and reveals details on
   await expect(page).toHaveURL('/opportunity/'+id);expect(reads).toBeGreaterThan(0);
   expect(await page.evaluate(()=>localStorage.getItem('winga-pending-guest-intent'))).toBeNull();await context.close();
 });
+
+test('utility seller referral delivers a privacy-safe guest preview and exact authenticated opportunity',async({browser,request})=>{
+  const {context,page}=await guest(browser,request),id=randomUUID();
+  await context.route('**/api/growth/referrals/'+id,route=>{
+    const authorized=/winga_auth=/.test(route.request().headers().cookie||'')||Boolean(route.request().headers().authorization);
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({schemaVersion:1,referralId:id,purpose:'supply_for_real_demand',category:'dress',evidenceLevel:'single_signal',measurementEnabled:true,opportunityDestination:authorized?'/opportunity/opp_referred':null})});
+  });
+  await context.route('**/api/opportunities/opp_referred',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({opportunityId:'opp_referred',queryKey:'white-maxi-dress',category:'dress',demandScore:1,evidenceCount:1})}));
+  await page.goto('/seller-referral/'+id);
+  const preview=page.locator('[data-seller-referral-id="'+id+'"]');
+  await expect(preview).toContainText(/single demand signal|demand signal moja/,{timeout:30000});await expect(page.locator('#auth-container')).toBeHidden();
+  await expect.poll(()=>page.evaluate(id=>JSON.parse(localStorage.getItem('winga-growth-outbox-v1')||'[]').some(e=>e.payload.shareId===id&&e.payload.eventType==='seller_referral_opened'),id)).toBe(true);
+  await preview.getByRole('button',{name:/^(Sign in|Ingia)$/i}).click();await expect(page.locator('#auth-container')).toBeVisible();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await expect(preview).toBeVisible({timeout:30000});await expect(page).toHaveURL('/seller-referral/'+id);
+  await preview.getByRole('button',{name:/^(Supply opportunities|Fursa za bidhaa)$/}).click();
+  await expect(page.locator('[data-opportunity-id="opp_referred"]')).toContainText('white maxi dress');await expect(page).toHaveURL('/opportunity/opp_referred');
+  await context.close();
+});
+
+test('seller utility referral waits for canonical creation and shares only its opaque ID',async({browser,request})=>{
+  const {context,page}=await guest(browser,request,{growthSellerReferral:true}),canonicalId=randomUUID();let posted;
+  await context.route('**/api/opportunities/opp_source',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({opportunityId:'opp_source',queryKey:'white-maxi-dress',category:'dress',demandScore:1,evidenceCount:1})}));
+  await context.route('**/api/growth/shares',route=>{posted=route.request().postDataJSON();return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({shareId:canonicalId,duplicate:true})});});
+  await page.goto('/opportunity/opp_source');await page.locator('[data-opportunity-id] button').filter({hasText:/^Sign in$/i}).click();
+  await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  const opportunity=page.locator('[data-opportunity-id="opp_source"]');await expect(opportunity).toContainText('white maxi dress',{timeout:30000});
+  await opportunity.getByRole('button',{name:/^(Share this supply opportunity|Shiriki supply opportunity hii)$/}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__copiedGrowthLink||'')).toContain('/seller-referral/'+canonicalId);
+  expect(posted.contentType).toBe('SELLER_REFERRAL');expect(posted.contentId).toBe('opp_source');
+  const copied=await page.evaluate(()=>window.__copiedGrowthLink);expect(copied).not.toContain('opp_source');
+  const url=new URL(copied.split('\n').at(-1));expect(url.search).toBe('');await context.close();
+});

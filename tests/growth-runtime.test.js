@@ -231,3 +231,15 @@ test('Room order attribution requires recent product context and never crosses a
   f.runtime.roomEvent('first_product_viewed',invite,{productId:'p1'});await f.advance(1800001);
   assert.equal(f.runtime.roomOrderStarted('p1','order-3'),undefined);f.runtime.close();
 });
+
+test('seller referral creation uses a durable canonical ID before handoff and strips private destination context',async()=>{
+  const calls=[],canonicalId=randomUUID(),f=fixture({request:async(kind,payload)=>{calls.push({kind,payload});return {shareId:canonicalId};}});
+  f.win.WINGA_CONFIG.growthSellerReferral=true;f.setAccount('seller');
+  const prepared=await f.runtime.prepareSellerReferral('opp_private_context');
+  assert.equal(prepared.url,'https://winga.test/seller-referral/'+canonicalId);assert.equal(prepared.url.includes('opp_private_context'),false);
+  assert.equal(calls[0].kind,'shares');assert.equal(calls[0].payload.contentType,'SELLER_REFERRAL');
+  f.runtime.referralVisible(canonicalId);await f.advance(300);
+  const event=calls.find(call=>call.payload.eventType==='seller_referral_opened');assert.ok(event);assert.equal(event.payload.contentId,undefined);
+  assert.equal(f.runtime.getJourney().lastTouch.destinationId,canonicalId);
+  f.setAccount('other');assert.equal(f.runtime.getSessionId()===calls[0].payload.sessionId,false);assert.equal(f.runtime.getJourney().touches.length,0);f.runtime.close();
+});

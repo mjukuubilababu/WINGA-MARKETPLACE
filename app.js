@@ -5493,6 +5493,7 @@ async function resumePendingGuestIntent() {
   }
   if(intent.type==='notify-search'){await notifySearchDemand(intent.query);return;}
   if(intent.type==='open-opportunity'){await getCanonicalContentUi().openOpportunity(intent.opportunityId);return;}
+  if(intent.type==='open-seller-referral'){await getCanonicalContentUi().openSellerReferral(intent.referralId,intent.safetyAction);return;}
   if(intent.type==='share-to-winga'&&intent.contentId){await openCanonicalContentDestination(window.WingaModules.growth.contract.destination(intent.contentType,intent.contentId));await openInternalProductShare(intent.contentId,intent.contentType);return;}
   if (intent.productId) {
     const returningUser = currentUser;
@@ -13165,8 +13166,21 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsVie
     else openProfileSection(action === "orders" ? "profile-orders-panel" : action === "messages" ? "profile-messages-panel" : "profile-products-panel");
   },
   captureError: (...args) => captureClientError(...args),
-  onSellerOpportunityAction: handleSellerOpportunityAction
+  onSellerOpportunityAction: handleSellerOpportunityAction,
+  onSellerReferral:handleSellerReferral
 });
+
+async function handleSellerReferral(opportunity){
+  if(!canUseSellerFeatures()||window.WINGA_CONFIG?.growthSellerReferral!==true)return;
+  const owner=currentUser,prepared=await getGrowthRuntime().prepareSellerReferral(opportunity.opportunityId);
+  if(currentUser!==owner)return;
+  const title=translateUi('growth.referralTitle',{},'A useful supply opportunity');
+  const text=translateUi('growth.referralShareText',{category:getCategoryLabel(opportunity.category)||opportunity.category},'I saw demand for {category} on Winga. See whether it matches products you sell.');
+  if(navigator.share){try{await navigator.share({title,text,url:prepared.url});return;}catch(error){if(error.name==='AbortError')return;}}
+  if(currentUser!==owner)return;
+  if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text+'\n'+prepared.url);if(currentUser===owner)showInAppNotification({title:translateUi('share.linkCopied',{},'Link copied'),variant:'success'});}
+  else window.prompt(translateUi('growth.copyReferralLink',{},'Copy this referral link'),prepared.url);
+}
 
 async function handleSellerOpportunityAction(action, opportunity) {
   const opportunityId = String(opportunity?.opportunityId || "").trim();
@@ -26004,17 +26018,21 @@ function getCanonicalContentUi(){
     shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
     shareInternally:(type,id)=>{canonicalContentUi.close();openInternalProductShare(id,type);},
     canUseSellerFeatures,renderOpportunity:createSellerOpportunityItem,requireOpportunityAuth:id=>{canonicalContentUi.close();promptGuestAuth({intent:{type:'open-opportunity',opportunityId:id}});},
+    getCategoryLabel,requireReferralAuth:(id,safetyAction)=>{canonicalContentUi.close();promptGuestAuth({intent:{type:'open-seller-referral',referralId:id,...(safetyAction?{safetyAction}:{})}});},
+    openOpportunityDestination:path=>{const target=window.WingaModules.growth.contract.parseDestination(path,window.location.origin);if(target?.type==='OPPORTUNITY'){canonicalContentUi.close();safePushState(window.history.state||{},target.path);openCanonicalContentDestination(target);}},
+    startSellerSupply:()=>{canonicalContentUi.close();if(isAuthenticatedUser())handleMobileShellAction('create');else promptGuestAuth({intent:{type:'go-upload'}});},
     explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
     openProduct:async id=>{const product=await window.WingaDataLayer.loadSharedProduct(id);if(product){refreshProductsFromStore();openProductDetailModal(id);}else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
   });return canonicalContentUi;
 }
 function openPublicContentRouteIfNeeded(){
-  if(!/^\/(?:profile|collection|reel|short|opportunity)\//i.test(window.location.pathname))return false;
+  if(!/^\/(?:profile|collection|reel|short|opportunity|seller-referral)\//i.test(window.location.pathname))return false;
   const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
   if(target)void openCanonicalContentDestination(target);else void getCanonicalContentUi().openCollection('');
   return true;
 }
 async function openCanonicalContentDestination(target){
+  if(target.type==='SELLER_REFERRAL'){await getCanonicalContentUi().openSellerReferral(target.id);return;}
   if(target.type==='OPPORTUNITY'){await getCanonicalContentUi().openOpportunity(target.id);return;}
   if(target.type==='PROFILE'){await loadPersonProfile(target.id,{source:'public_deep_link'});return;}
   if(target.type==='COLLECTION'){await getCanonicalContentUi().openCollection(target.id);return;}

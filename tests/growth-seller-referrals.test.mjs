@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createRequire} from 'node:module';
+import {growthFixture} from './helpers/growth-database.mjs';
+const require=createRequire(import.meta.url);
+const {createGrowthStore}=require('../backend/growth-store');
+const {createGrowthEventJobs}=require('../backend/growth-event-jobs');
+const {MIGRATIONS}=require('../backend/migrations');
+async function fixture(t){
+ const f=await growthFixture(t);
+ await f.db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'buyer';ALTER TABLE users ADD COLUMN primary_category TEXT DEFAULT 'dress';ALTER TABLE users ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();
+   ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();
+   CREATE TABLE conversation_crypto_devices(id TEXT PRIMARY KEY);
+   CREATE TABLE supply_responses(response_id TEXT,opportunity_id TEXT,seller_id TEXT,action_type TEXT,status TEXT);
+   ALTER TABLE orders ADD COLUMN seller_username TEXT;ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'placed';`);
+ for(const name of ['growth-loop-invites','growth-event-jobs','growth-public-content','growth-seller-referrals'])for(const sql of require('../backend/migrations/'+name).statements)await f.db.exec(sql);
+ await f.db.exec(MIGRATIONS.flatMap(m=>m.statements||[]).find(sql=>sql.includes('CREATE TABLE IF NOT EXISTS commerce_opportunities')));
+ await f.db.exec("INSERT INTO commerce_opportunities(opportunity_id,type,category,expires_at,metadata) VALUES('opp_ref','zero_result','dress',NOW()+INTERVAL '2 days','{\"evidenceLevel\":\"single_signal\"}')");
+ const options={query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(work)};
+ const store=createGrowthStore({...options,referralMeasurementEnabled:true}),jobs=createGrowthEventJobs({...options,enabled:true});
+ const payload={...f.payload,contentType:'SELLER_REFERRAL',contentId:'opp_ref',sourceSurface:'opportunity'};
+ const event=(sessionId=randomUUID())=>({eventId:randomUUID(),shareId:payload.shareId,sessionId,eventType:'seller_referral_opened',schemaVersion:1});
+ return {...f,store,jobs,payload,event};
+}
+test('utility seller referrals reuse opaque envelopes, source authorization and short-window dedupe',async t=>{
+ const f=await fixture(t);
+ assert.equal((await f.store.createGrowthShare(f.payload,f.source)).duplicate,false);
+ assert.equal((await f.store.createGrowthShare(f.payload,f.source)).duplicate,true);
+ assert.equal((await f.store.createGrowthShare({...f.payload,shareId:randomUUID()},f.source)).shareId,f.payload.shareId);
+ assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_shares')).rows[0].count,1);
+ const guest=await f.store.resolveSellerReferral(f.payload.shareId,{});
+ assert.equal(guest.category,'dress');assert.equal(guest.evidenceLevel,'single_signal');assert.equal(guest.opportunityDestination,null);
+ assert.equal(JSON.stringify(guest).includes('opp_ref'),false);assert.equal(JSON.stringify(guest).includes('sender'),false);
+ assert.equal((await f.store.resolveSellerReferral(f.payload.shareId,f.recipient)).opportunityDestination,'/opportunity/opp_ref');
+ await f.db.exec("UPDATE users SET primary_category='phone' WHERE username='recipient'");
+ assert.equal((await f.store.resolveSellerReferral(f.payload.shareId,f.recipient)).opportunityDestination,null);
+ await f.db.exec("INSERT INTO user_blocks VALUES('sender','recipient')");await assert.rejects(f.store.resolveSellerReferral(f.payload.shareId,f.recipient),{code:'growth_referral_unavailable'});
+ await f.db.exec('DELETE FROM user_blocks');await f.store.revokeGrowthShare(f.payload.shareId,f.source);
+ await assert.rejects(f.store.resolveSellerReferral(f.payload.shareId,{}),{code:'growth_referral_unavailable'});
+ await f.db.exec("UPDATE users SET primary_category='phone' WHERE username='sender'");
+ await assert.rejects(f.store.createGrowthShare({...f.payload,shareId:randomUUID()},f.source),{code:'growth_referral_unavailable'});
+});
+test('seller activation requires observed signup context, canonical approval and nonself marketplace value',async t=>{
+ const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+ assert.equal((await f.store.recordGrowthEvent(f.event(),{...f.recipient,bot:true})).reason,'crawler');
+ assert.equal((await f.store.recordGrowthEvent(f.event(),f.source)).reason,'self_touch');
+ const session=randomUUID();await f.store.recordGrowthEvent(f.event(session),{...f.recipient,username:''});
+ await f.db.query("INSERT INTO users(username,status,created_at) VALUES('new_seller','active',clock_timestamp())");
+ const recipient={...f.recipient,username:'new_seller'};await f.store.recordGrowthEvent(f.event(session),recipient);
+ await f.store.recordGrowthEvent(f.event(session),recipient);
+ assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_referral_receipts')).rows[0].count,1);
+ await f.jobs.processGrowthEventJobs();
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS count FROM growth_events WHERE event_type='seller_signup'")).rows[0].count,1);
+ await f.db.query("INSERT INTO products(id,uploaded_by,status) VALUES('new_product','new_seller','pending')");
+ assert.equal((await f.store.reconcileSellerReferralEvents()).queued,0);
+ await f.db.exec("UPDATE products SET status='approved' WHERE id='new_product'");
+ const approval=(await f.db.query("SELECT first_approved_at FROM products WHERE id='new_product'")).rows[0].first_approved_at;assert.ok(approval);
+ await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('new_product','new_seller')");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS count FROM growth_events WHERE event_type='seller_first_product'")).rows[0].count,1);
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS count FROM growth_events WHERE event_type='seller_first_value_event'")).rows[0].count,0);
+ await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('new_product','other')");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS count FROM growth_events WHERE event_type='seller_first_value_event'")).rows[0].count,1);
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS count FROM growth_events WHERE event_type='seller_first_value_event'")).rows[0].count,1);
+ await f.db.exec("UPDATE products SET first_approved_at=clock_timestamp()+INTERVAL '1 day' WHERE id='new_product'");
+ assert.equal(new Date((await f.db.query("SELECT first_approved_at FROM products WHERE id='new_product'")).rows[0].first_approved_at).getTime(),new Date(approval).getTime());
+ const events=JSON.stringify((await f.db.query('SELECT event_type,actor_key,verification FROM growth_events')).rows);assert.equal(events.includes('new_seller'),false);
+ const health=await f.store.readSellerReferralHealth();assert.equal(health.entryCount,1);assert.equal(health.cohort.activationCount,1);assert.equal(health.cohort.valueCount,1);
+ assert.equal(JSON.stringify(health).includes('new_seller'),false);assert.equal(health.cohort.viralCoefficient,null);
+});
+
+test('referral destination survives analytics SQL failure and creation reconciliation preserves source time',async t=>{
+ const f=await fixture(t);
+ const failing=createGrowthStore({query:(...args)=>f.db.query(...args),referralMeasurementEnabled:true,
+   withTransaction:work=>f.db.transaction(client=>work({query:(sql,params)=>sql.includes('INSERT INTO growth_event_jobs')?client.query('SELECT deliberately_missing_referral_event_column'):client.query(sql,params)}))});
+ await failing.createGrowthShare(f.payload,f.source);
+ assert.equal((await f.store.resolveSellerReferral(f.payload.shareId,{})).category,'dress');
+ assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_event_jobs')).rows[0].count,0);
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
+ const saved=(await f.db.query("SELECT e.created_at=s.created_at AS preserved FROM growth_events e JOIN growth_shares s ON s.id=e.share_id WHERE e.event_type='seller_referral_created'")).rows[0];assert.equal(saved.preserved,true);
+});

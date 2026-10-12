@@ -1,7 +1,8 @@
 const contract = require('../src/growth/contract');
 const {fail, key, fields, publicProduct, publicContent, quota, insertEvent} = require('./growth-infrastructure');
 
-function createGrowthStore({ query, withTransaction }) {
+function createGrowthStore({ query, withTransaction, referralMeasurementEnabled=process.env.WINGA_GROWTH_MEASUREMENT_ENABLED==='true' }) {
+  const referrals=require('./growth-seller-referrals').createSellerReferrals({query,withTransaction,measurementEnabled:referralMeasurementEnabled});
   function identity(context, sessionId) {
     if (!contract.uuid(sessionId)) fail(400, 'growth_session_invalid');
     // A tab journey survives guest -> authenticated transition without joining unrelated devices.
@@ -17,6 +18,7 @@ function createGrowthStore({ query, withTransaction }) {
     return share;
   }
   async function createGrowthShare(payload, context) {
+    if(payload?.contentType==='SELLER_REFERRAL')return referrals.createSellerReferral(payload,context);
     if (context.growthCohort && !context.growthCohort.allowsCreation(context.username || '')) fail(403, 'growth_cohort_excluded');
     if (!fields(payload, ['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion'])
       || payload.schemaVersion !== 1 || !contract.publicTypes.includes(payload.contentType) || !contract.uuid(payload.shareId)
@@ -69,6 +71,7 @@ function createGrowthStore({ query, withTransaction }) {
       createdAt: new Date(share.created_at).toISOString(), expiresAt: new Date(share.expires_at).toISOString(), metadataVersion: 1 };
   }
   async function recordGrowthEvent(payload, context) {
+    if(contract.referralEvents.includes(payload?.eventType))return referrals.recordSellerReferralEvent(payload,context);
     if (!fields(payload, ['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs'])
       || payload.schemaVersion !== 1 || !contract.uuid(payload.eventId)
       || !contract.uuid(payload.shareId) || ![...contract.events,...contract.contentEvents].includes(payload.eventType)
@@ -125,6 +128,13 @@ function createGrowthStore({ query, withTransaction }) {
       WHERE id=$1 AND owner_username=$2 RETURNING id`, [shareId,context.username]);
     if (!result.rows.length) fail(404, 'growth_share_unavailable');
     return { revoked: true };
+  }
+  async function resolveGrowthShareSafetyTarget(shareId,context){
+    if(!context.username||!contract.uuid(shareId))fail(403,'growth_auth_required');
+    const row=(await query("SELECT owner_username FROM growth_shares WHERE id=$1 AND content_type<>'SHOPPING_ROOM'",[shareId])).rows[0];
+    if(!row?.owner_username)fail(404,'growth_share_unavailable');
+    if(row.owner_username===context.username)fail(400,'growth_invite_self_action');
+    return {username:row.owner_username};
   }
   async function readGrowthHealth() {
     const result = await query(`SELECT e.event_type,e.verification,COUNT(*)::int AS count FROM growth_events e
@@ -209,6 +219,6 @@ function createGrowthStore({ query, withTransaction }) {
     const result = await query(`DELETE FROM growth_shares WHERE created_at<NOW()-INTERVAL '90 days' RETURNING id`);
     return { deleted: result.rows.length };
   }
-  return { createGrowthShare, resolveGrowthShare, recordGrowthEvent, revokeGrowthShare, readGrowthHealth, readContentGrowthHealth, pruneGrowthRecords };
+  return { ...referrals,createGrowthShare, resolveGrowthShare, recordGrowthEvent, revokeGrowthShare, resolveGrowthShareSafetyTarget,readGrowthHealth, readContentGrowthHealth, pruneGrowthRecords };
 }
 module.exports = { createGrowthStore };

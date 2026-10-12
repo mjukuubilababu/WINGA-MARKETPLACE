@@ -51,7 +51,45 @@
         status.textContent='';dialog.append(deps.renderOpportunity(opportunity));
       }catch{if(current())unavailable();}
     }
-    return {openCollection,openOpportunity,close};
+    async function openSellerReferral(id,safetyAfterAuth){
+      if(active?.dataset.sellerReferralId===id&&active.owner===deps.getAccount()&&!safetyAfterAuth)return;
+      close();const account=deps.getAccount(),revision=epoch,dialog=el('dialog');
+      dialog.className='chat-security-dialog';dialog.dataset.sellerReferralId=id;dialog.owner=account;
+      const status=el('p',t('inbox.loading','Loading...'));status.setAttribute('role','status');
+      const dismiss=el('button',t('common.close','Close'));dismiss.type='button';dismiss.onclick=close;
+      dialog.append(dismiss,el('h2',t('growth.referralTitle','A useful supply opportunity')),status);
+      win.document.body.append(dialog);dialog.showModal();active=dialog;
+      const current=()=>active===dialog&&epoch===revision&&deps.getAccount()===account;
+      const timer=win.setInterval(()=>{if(!current())dialog.close();},250);
+      dialog.addEventListener('close',()=>{win.clearInterval(timer);dialog.remove();if(active===dialog)active=null;},{once:true});
+      let busy=false;
+      const safety=async action=>{
+        if(!current()||busy)return;
+        if(!account){deps.requireReferralAuth(id,action);return;}
+        busy=true;
+        try{const result=await deps.dataLayer.growthShareSafety(id,action);if(!current())return;
+          if(action==='block'&&result?.blocked!==true||action==='report'&&result?.reported!==true)throw new Error('growth_unavailable');
+          status.textContent=action==='block'?t('growth.referralBlocked','Sender blocked.'):t('growth.referralReported','Report received.');
+        }catch{if(current())status.textContent=t('growth.referralSafetyFailed','Unable to complete the action. Please try again.');}finally{busy=false;}
+      };
+      try{const referral=await deps.dataLayer.resolveSellerReferral(id);if(!current())return;
+        if(referral?.referralId!==id||referral.purpose!=='supply_for_real_demand')throw new Error('growth_referral_unavailable');
+        status.textContent=t('growth.referralReason','Someone shared a real supply opportunity in this category.');
+        dialog.append(el('strong',deps.getCategoryLabel(referral.category)||referral.category||t('growth.referralTitle','A useful supply opportunity')),
+          el('p',referral.evidenceLevel==='single_signal'?t('growth.referralSingleSignal','This is a single demand signal, not a proven trend.'):t('growth.referralEvidence','Demand evidence is a signal, not a guaranteed sale.')));
+        if(referral.measurementEnabled!==false)try{deps.getGrowth?.().referralVisible(id);}catch{}
+        if(!account){const login=el('button',t('auth.signIn','Sign in'));login.type='button';login.onclick=()=>{if(current())deps.requireReferralAuth(id);};dialog.append(login);}
+        else if(referral.opportunityDestination){const open=el('button',t('commerceOpportunity.sectionTitle','Supply opportunities'));open.type='button';open.onclick=()=>{if(current())deps.openOpportunityDestination(referral.opportunityDestination);};dialog.append(open);}
+        if(account&&deps.canUseSellerFeatures()){const publish=el('button',t('commerceOpportunity.createSupply','Create supply'));publish.type='button';publish.onclick=()=>{if(current())deps.startSellerSupply();};dialog.append(publish);}
+      }catch{if(!current())return;status.textContent=t('growth.referralUnavailable','This referral is expired or no longer available.');}
+      if(!current())return;
+      const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);
+      for(const [action,label]of [['block',t('growth.blockInviter','Block sender')],['report',t('growth.reportInvite','Report invitation')]]){
+        const button=el('button',label);button.type='button';button.onclick=()=>safety(action);dialog.append(button);
+      }
+      if(safetyAfterAuth)await safety(safetyAfterAuth);
+    }
+    return {openCollection,openOpportunity,openSellerReferral,close};
   }
   window.WingaModules.growth.createContentUi=createContentUi;
 })();

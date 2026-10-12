@@ -12,9 +12,9 @@ function createGrowthCohorts({query}) {
     ), first_touch AS (SELECT actor,created_at AS acquired_at,content_type FROM ranked WHERE position=1),
     milestones AS (
       SELECT f.*,EXISTS(SELECT 1 FROM recipient_events e WHERE e.actor=f.actor AND e.created_at>=f.acquired_at
-        AND e.event_type IN ('shared_product_viewed','shared_product_saved','shared_product_order_started','shared_content_viewed','shared_content_saved','shared_content_followed','room_participation_started')) AS activated,
+        AND e.event_type IN ('shared_product_viewed','shared_product_saved','shared_product_order_started','shared_content_viewed','shared_content_saved','shared_content_followed','room_participation_started','seller_first_product')) AS activated,
         EXISTS(SELECT 1 FROM recipient_events e WHERE e.actor=f.actor AND e.created_at>=f.acquired_at
-        AND e.event_type IN ('shared_product_saved','shared_product_order_started','shared_content_saved','shared_content_followed','room_shortlist_created','room_poll_closed','first_order_started')) AS received_value,
+        AND e.event_type IN ('shared_product_saved','shared_product_order_started','shared_content_saved','shared_content_followed','room_shortlist_created','room_poll_closed','first_order_started','seller_first_value_event')) AS received_value,
         EXISTS(SELECT 1 FROM recipient_events e WHERE e.actor=f.actor AND e.created_at>=f.acquired_at+INTERVAL '1 day' AND e.created_at<f.acquired_at+INTERVAL '2 days') AS d1,
         EXISTS(SELECT 1 FROM recipient_events e WHERE e.actor=f.actor AND e.created_at>=f.acquired_at+INTERVAL '7 days' AND e.created_at<f.acquired_at+INTERVAL '8 days') AS d7,
         EXISTS(SELECT 1 FROM recipient_events e WHERE e.actor=f.actor AND e.created_at>=f.acquired_at+INTERVAL '30 days' AND e.created_at<f.acquired_at+INTERVAL '31 days') AS d30

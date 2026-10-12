@@ -50,16 +50,19 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   const version = 1;
   const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
   const id = value => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) && !['.', '..'].includes(value);
-  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog','profile','collection','creator'];
+  const surfaces = ['product_detail', 'feed', 'conversation', 'room', 'catalog','profile','collection','creator','opportunity'];
   const events = ['product_share_opened', 'shared_product_viewed', 'shared_product_saved',
     'shared_product_message_started', 'shared_product_order_started'];
   const publicTypes=['PRODUCT','PROFILE','COLLECTION','REEL','SHORT'];
+  const shareTypes=[...publicTypes,'SELLER_REFERRAL'];
+  const referralEvents=['seller_referral_opened','seller_referral_created','seller_signup','seller_first_product','seller_first_value_event'];
   const contentEvents=['content_share_opened','shared_content_viewed','shared_content_saved','shared_content_followed'];
   const inviteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
   const roomEvents = ['room_invite_opened','room_invite_accepted','room_participation_started','first_vote','first_comment','first_product_added','first_product_viewed','first_order_started','new_room_created_from_invited_user','room_shortlist_created','room_poll_closed'];
   // Extend only when the corresponding canonical public/authorized UI handler exists.
   function destination(type, contentId) {
     if (type === 'SHOPPING_ROOM' && inviteToken(contentId)) return {type,id:contentId,path:'/invite/' + contentId};
+    if(type==='SELLER_REFERRAL'&&uuid(contentId))return {type,id:contentId,path:'/seller-referral/'+contentId};
     const paths={PRODUCT:'product',PROFILE:'profile',COLLECTION:'collection',REEL:'reel',SHORT:'short',OPPORTUNITY:'opportunity'};
     if (!Object.hasOwn(paths,type) || !id(contentId) || type==='PROFILE'&&contentId.length>40 || type==='OPPORTUNITY'&&contentId.length>100) return null;
     return { type, id: contentId, path: '/'+paths[type]+'/' + encodeURIComponent(contentId) };
@@ -72,27 +75,30 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(match?.[1].toLowerCase()==='opportunity')return !url.search?destination('OPPORTUNITY',decodeURIComponent(match[2])):null;
       if (match && (!url.search || match[1].toLowerCase()==='product' || [...url.searchParams.keys()].every(k=>k==='share')&&uuid(url.searchParams.get('share')))) return destination(match[1].toUpperCase(), decodeURIComponent(match[2]));
       const invitation = /^\/invite\/([A-Za-z0-9_-]{43})\/?$/.exec(url.pathname);
+      const referral=/^\/seller-referral\/([0-9a-f-]+)\/?$/.exec(url.pathname);
+      if(referral&&!url.search)return destination('SELLER_REFERRAL',referral[1]);
       return invitation && !url.search ? destination('SHOPPING_ROOM', invitation[1]) : null;
     } catch { return null; }
   }
   function shareUrl(origin, contentId, shareId = '', type='PRODUCT') {
-    if(!publicTypes.includes(type))return null;
-    const target = destination(type, contentId);
+    if(!shareTypes.includes(type))return null;
+    const target = destination(type, type==='SELLER_REFERRAL'?shareId:contentId);
     if (!target) return null;
     try {
       const url = new URL(target.path, origin);
       if (!['https:', 'http:'].includes(url.protocol)) return null;
-      if (uuid(shareId)) url.searchParams.set('share', shareId);
+      if (type!=='SELLER_REFERRAL'&&uuid(shareId)) url.searchParams.set('share', shareId);
       return url.href;
     } catch { return null; }
   }
   const intentTypes = ['open-chat', 'open-whatsapp', 'add-request', 'focus-product', 'save-product',
-    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-opportunity','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
+    'notify-search', 'notify-restock', 'share-to-winga', 'follow-person', 'go-upload', 'go-profile','open-opportunity','open-seller-referral','open-room-invite','join-room-invite','block-room-inviter','report-room-invite'];
   function authIntent(value, now = Date.now()) {
     if (!value || typeof value !== 'object' || !intentTypes.includes(value.type)) return null;
     if (!Number.isFinite(value.createdAt) || value.createdAt > now + 60000 || now - value.createdAt > 30 * 60 * 1000) return null;
     const result = { type: value.type, createdAt: value.createdAt };
     if(value.type==='open-opportunity'){if(!destination('OPPORTUNITY',value.opportunityId))return null;return {...result,opportunityId:value.opportunityId};}
+    if(value.type==='open-seller-referral'){if(!uuid(value.referralId)||value.safetyAction!==undefined&&!['block','report'].includes(value.safetyAction))return null;return {...result,referralId:value.referralId,...(value.safetyAction?{safetyAction:value.safetyAction}:{})};}
     if(value.type==='notify-search'){if(typeof value.query!=='string'||value.query.trim().length<2||value.query.length>160||/[\u0000-\u001f]/.test(value.query))return null;return {...result,query:value.query.trim()};}
     if(value.type==='share-to-winga'&&value.contentId!==undefined){
       if(!['PRODUCT','REEL','SHORT','COLLECTION'].includes(value.contentType)||!id(value.contentId))return null;
@@ -118,7 +124,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
   }
   const crawler = ua => !ua || /bot\b|crawler|spider|preview|facebookexternalhit|facebot|whatsapp|slackbot|telegrambot|discordbot|headless/i.test(ua);
   const telemetryPath = value => String(value || '').replace(/(\/(?:api\/growth\/invites|invite)\/)[^/?#]+/gi,'$1[redacted]');
-  return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
+  return Object.freeze({ version, uuid, id, surfaces, events, contentEvents, publicTypes, shareTypes, referralEvents, roomEvents, inviteToken, destination, parseDestination, shareUrl, authIntent, crawler, telemetryPath });
 });
 
 
@@ -129,7 +135,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const now = deps.now || Date.now;
     const timingNow = () => win.performance?.now ? win.performance.now() : now();
     const randomId = () => win.crypto.randomUUID();
-    const enabled = (type='PRODUCT') => win.WINGA_CONFIG?.[type==='COLLECTION'?'growthCollectionSharing':type==='PROFILE'?'growthProfileSharing':['REEL','SHORT'].includes(type)?'growthCreatorSharing':'growthProductSharing']===true;
+    const enabled = (type='PRODUCT') => win.WINGA_CONFIG?.[type==='SELLER_REFERRAL'?'growthSellerReferral':type==='COLLECTION'?'growthCollectionSharing':type==='PROFILE'?'growthProfileSharing':['REEL','SHORT'].includes(type)?'growthCreatorSharing':'growthProductSharing']===true;
     const measurement = () => win.WINGA_CONFIG?.growthMeasurement === true;
     const account = () => deps.getAccount?.() || '';
     const freshRecord = item => Number.isFinite(item?.createdAt)
@@ -146,9 +152,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
-      if(field==='contentType')return contract.publicTypes.includes(value);
+      if(field==='contentType')return contract.shareTypes.includes(value);
       if(field==='sourceSurface')return contract.surfaces.includes(value);
-      if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents].includes(value);
+      if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents,...contract.referralEvents].includes(value);
       if(['tokenHash','newRoomHash'].includes(field))return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
       if(['contentId','orderId'].includes(field))return contract.id(value);
       return field==='parentShareId'&&value===''||contract.uuid(value);
@@ -158,10 +164,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     dead = Array.isArray(dead) ? dead.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion===1 && now()-x.failedAt < 7*86400000).slice(-50).map(item=>({...item,payload:safePayload(item.kind,item.payload)})) : [];
     let journey = read('sessionStorage', 'winga-growth-journey-v1', { firstTouch: null, lastTouch: null, touches: [] });
     if (!journey || !Array.isArray(journey.touches)) journey = { firstTouch: null, lastTouch: null, touches: [] };
-    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || t?.destinationType==='SHOPPING_ROOM' && t.destinationId===t.shareId || contract.publicTypes.includes(t?.destinationType)&&contract.id(t.destinationId))
-      && Number.isFinite(t?.at) && now()-t.at < 30*86400000).slice(-20);
-    journey.touches = journey.touches.map(t => t.destinationType==='SHOPPING_ROOM'
-      ? {shareId:t.shareId,destinationType:'SHOPPING_ROOM',destinationId:t.shareId,at:t.at}
+    journey.touches = journey.touches.filter(t => contract.uuid(t?.shareId) && (contract.id(t?.productId) || ['SHOPPING_ROOM','SELLER_REFERRAL'].includes(t?.destinationType) && t.destinationId===t.shareId || contract.publicTypes.includes(t?.destinationType)&&contract.id(t.destinationId))
+      && Number.isFinite(t?.at) && t.at<=now() && now()-t.at < 30*86400000).slice(-20);
+    journey.touches = journey.touches.map(t => ['SHOPPING_ROOM','SELLER_REFERRAL'].includes(t.destinationType)
+      ? {shareId:t.shareId,destinationType:t.destinationType,destinationId:t.shareId,at:t.at}
       : t.destinationType&&t.destinationType!=='PRODUCT'?{shareId:t.shareId,destinationType:t.destinationType,destinationId:t.destinationId,...(contract.id(t.creatorRef)?{creatorRef:t.creatorRef}:{}),at:t.at}:{shareId:t.shareId,productId:t.productId,at:t.at});
     journey.firstTouch = journey.touches[0] || null;
     journey.lastTouch = journey.touches.at(-1) || null;
@@ -298,6 +304,22 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
     function contentFollowed(username){syncIdentity();for(const touch of [...journey.touches].reverse())if(touch.creatorRef===username){contentEvent('shared_content_followed',touch);break;}}
     function contentSaved(productId){syncIdentity();for(const touch of [...journey.touches].reverse())if(['REEL','SHORT'].includes(touch.destinationType)&&touch.destinationId===productId){contentEvent('shared_content_saved',touch);break;}}
+    async function prepareSellerReferral(opportunityId){
+      syncIdentity();const owner=account(),preparedSession=sessionId;
+      if(!owner||!enabled('SELLER_REFERRAL')||!contract.destination('OPPORTUNITY',opportunityId))throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});
+      const result=await deps.request('shares',{shareId:randomId(),sessionId:preparedSession,contentType:'SELLER_REFERRAL',contentId:opportunityId,sourceSurface:'opportunity',parentShareId:'',schemaVersion:1});
+      if(account()!==owner||!contract.uuid(result?.shareId))throw Object.assign(new Error('growth_referral_unavailable'),{code:'growth_referral_unavailable'});
+      return {url:contract.shareUrl(win.location.origin,opportunityId,result.shareId,'SELLER_REFERRAL'),shareId:result.shareId};
+    }
+    function referralVisible(referralId){
+      syncIdentity();if(!measurement()||!contract.uuid(referralId))return;
+      if(!journey.touches.some(t=>t.destinationType==='SELLER_REFERRAL'&&t.shareId===referralId)){
+        const touch={shareId:referralId,destinationType:'SELLER_REFERRAL',destinationId:referralId,at:now()};
+        journey.touches=journey.touches.length>=20?[journey.touches[0],...journey.touches.slice(-18),touch]:[...journey.touches,touch];
+        journey.firstTouch=journey.firstTouch||touch;journey.lastTouch=touch;storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
+      }
+      enqueue('events',{eventId:randomId(),shareId:referralId,sessionId,eventType:'seller_referral_opened',schemaVersion:1});
+    }
     function roomInviteTouch(inviteId) {
       syncIdentity();
       if (!measurement() || !contract.uuid(inviteId) || journey.lastTouch?.shareId===inviteId) return;
@@ -347,7 +369,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { prepareShare,prepareSellerReferral,referralVisible,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {
@@ -575,7 +597,45 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         status.textContent='';dialog.append(deps.renderOpportunity(opportunity));
       }catch{if(current())unavailable();}
     }
-    return {openCollection,openOpportunity,close};
+    async function openSellerReferral(id,safetyAfterAuth){
+      if(active?.dataset.sellerReferralId===id&&active.owner===deps.getAccount()&&!safetyAfterAuth)return;
+      close();const account=deps.getAccount(),revision=epoch,dialog=el('dialog');
+      dialog.className='chat-security-dialog';dialog.dataset.sellerReferralId=id;dialog.owner=account;
+      const status=el('p',t('inbox.loading','Loading...'));status.setAttribute('role','status');
+      const dismiss=el('button',t('common.close','Close'));dismiss.type='button';dismiss.onclick=close;
+      dialog.append(dismiss,el('h2',t('growth.referralTitle','A useful supply opportunity')),status);
+      win.document.body.append(dialog);dialog.showModal();active=dialog;
+      const current=()=>active===dialog&&epoch===revision&&deps.getAccount()===account;
+      const timer=win.setInterval(()=>{if(!current())dialog.close();},250);
+      dialog.addEventListener('close',()=>{win.clearInterval(timer);dialog.remove();if(active===dialog)active=null;},{once:true});
+      let busy=false;
+      const safety=async action=>{
+        if(!current()||busy)return;
+        if(!account){deps.requireReferralAuth(id,action);return;}
+        busy=true;
+        try{const result=await deps.dataLayer.growthShareSafety(id,action);if(!current())return;
+          if(action==='block'&&result?.blocked!==true||action==='report'&&result?.reported!==true)throw new Error('growth_unavailable');
+          status.textContent=action==='block'?t('growth.referralBlocked','Sender blocked.'):t('growth.referralReported','Report received.');
+        }catch{if(current())status.textContent=t('growth.referralSafetyFailed','Unable to complete the action. Please try again.');}finally{busy=false;}
+      };
+      try{const referral=await deps.dataLayer.resolveSellerReferral(id);if(!current())return;
+        if(referral?.referralId!==id||referral.purpose!=='supply_for_real_demand')throw new Error('growth_referral_unavailable');
+        status.textContent=t('growth.referralReason','Someone shared a real supply opportunity in this category.');
+        dialog.append(el('strong',deps.getCategoryLabel(referral.category)||referral.category||t('growth.referralTitle','A useful supply opportunity')),
+          el('p',referral.evidenceLevel==='single_signal'?t('growth.referralSingleSignal','This is a single demand signal, not a proven trend.'):t('growth.referralEvidence','Demand evidence is a signal, not a guaranteed sale.')));
+        if(referral.measurementEnabled!==false)try{deps.getGrowth?.().referralVisible(id);}catch{}
+        if(!account){const login=el('button',t('auth.signIn','Sign in'));login.type='button';login.onclick=()=>{if(current())deps.requireReferralAuth(id);};dialog.append(login);}
+        else if(referral.opportunityDestination){const open=el('button',t('commerceOpportunity.sectionTitle','Supply opportunities'));open.type='button';open.onclick=()=>{if(current())deps.openOpportunityDestination(referral.opportunityDestination);};dialog.append(open);}
+        if(account&&deps.canUseSellerFeatures()){const publish=el('button',t('commerceOpportunity.createSupply','Create supply'));publish.type='button';publish.onclick=()=>{if(current())deps.startSellerSupply();};dialog.append(publish);}
+      }catch{if(!current())return;status.textContent=t('growth.referralUnavailable','This referral is expired or no longer available.');}
+      if(!current())return;
+      const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);
+      for(const [action,label]of [['block',t('growth.blockInviter','Block sender')],['report',t('growth.reportInvite','Report invitation')]]){
+        const button=el('button',label);button.type='button';button.onclick=()=>safety(action);dialog.append(button);
+      }
+      if(safetyAfterAuth)await safety(safetyAfterAuth);
+    }
+    return {openCollection,openOpportunity,openSellerReferral,close};
   }
   window.WingaModules.growth.createContentUi=createContentUi;
 })();
@@ -3032,7 +3092,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
     async function loadGrowthLoopReports() {
       requireFetcher();
-      const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],
+      const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],['referral','referrals'],
         ...['PROFILE','COLLECTION','REEL','SHORT'].map(type=>[type.toLowerCase(),'content?type='+type])];
       const settled=await Promise.allSettled(sources.map(([,path])=>fetchJson(`${baseUrl}/admin/growth/${path}`,{headers:authHeaders()})));
       return sources.map(([loop],index)=>({loop,available:settled[index].status==='fulfilled',
@@ -25330,6 +25390,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
       actions.append(createButton, dismissButton);
+      if(window.WINGA_CONFIG?.growthSellerReferral===true&&opportunity.category&&deps.onSellerReferral){
+        const referral=deps.createElement('button',{className:'action-btn action-btn-secondary',textContent:t('growth.inviteRelevantSeller','Share this supply opportunity'),attributes:{type:'button'}});
+        referral.onclick=async()=>{if(referral.disabled)return;referral.disabled=true;
+          try{await deps.onSellerReferral(opportunity);}catch{item.append(createMetaCopyForReferral());}finally{referral.disabled=false;}};
+        actions.append(referral);
+      }
       item.append(
         deps.createElement("strong", { textContent: title }),
         deps.createElement("p", { className: "product-meta", textContent: [context, demand].filter(Boolean).join(" | ") }),
@@ -25337,6 +25403,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       );
       return item;
     }
+    function createMetaCopyForReferral(){return deps.createElement('p',{className:'product-meta',textContent:t('growth.referralFailed','Unable to create the referral. The opportunity remains available.')});}
 
     let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", windowDays: 30, sequence: 0 };
     const el = (tag, className, text, attributes) => deps.createElement(tag, { className, textContent: text, attributes });
@@ -25939,7 +26006,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       Promise.resolve().then(()=>deps.loadGrowthLoopReports()).then(reports=>{
         if(sequence!==growthSequence||!section.isConnected||deps.getCurrentUser?.()!==owner||!deps.isAdminUser()||deps.isAdminAnalyticsContext?.()===false)return;
         section.replaceChildren(el('h3','',t('growth.dashboard.title','Growth loop health')));
-        const labels={product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
+        const labels={referral:t('growth.dashboard.referral','Utility seller referrals'),product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
         for(const report of Array.isArray(reports)?reports:[]){
           if(!Object.hasOwn(labels,report.loop))continue;
           const card=el('article','analytics-list-item',undefined,{'data-growth-loop':report.loop});
@@ -25947,7 +26014,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           if(!report.available||!report.data){card.append(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));section.append(card);continue;}
           const data=report.data,cohort=data.cohort||{},grid=el('div','analytics-grid');
           const metric=(label,value,percentage=false)=>grid.append(createAnalyticsCard(label,percentage?rate(value):count(value)));
-          if(['product','room','profile','collection','reel','short'].includes(report.loop)){
+          if(['product','room','profile','collection','reel','short','referral'].includes(report.loop)){
             metric(t('growth.dashboard.entries','Entries'),data.entryCount??cohort.entryCount);
             metric(t('growth.dashboard.opened','Recipient journeys'),cohort.recipientJourneys??cohort.humanOpenJourneys);
             metric(t('growth.dashboard.activation','Activation rate'),cohort.activationRate,true);
@@ -25955,6 +26022,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             metric(t('growth.dashboard.continuation','Continuation rate'),cohort.continuationRate,true);
             metric(t('growth.dashboard.time','Time to value (seconds)'),cohort.timeToValueSeconds);
             metric(t('growth.dashboard.repeat','Repeat recipients'),cohort.repeatRecipients);
+            if(data.creationGaps){metric(t('growth.dashboard.gaps','Missing source events'),data.creationGaps.missing);metric(t('growth.dashboard.expired','Expired source gaps'),data.creationGaps.expired);}
           }else if(report.loop==='delivery'){
             for(const state of ['pending','completed','dead'])metric(state,(data.states||[]).find(row=>row.status===state)?.count??0);
             metric(t('growth.dashboard.gaps','Missing source events'),data.reconciliationGaps?.missing);

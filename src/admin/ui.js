@@ -58,6 +58,12 @@
         }
       });
       actions.append(createButton, dismissButton);
+      if(window.WINGA_CONFIG?.growthSellerReferral===true&&opportunity.category&&deps.onSellerReferral){
+        const referral=deps.createElement('button',{className:'action-btn action-btn-secondary',textContent:t('growth.inviteRelevantSeller','Share this supply opportunity'),attributes:{type:'button'}});
+        referral.onclick=async()=>{if(referral.disabled)return;referral.disabled=true;
+          try{await deps.onSellerReferral(opportunity);}catch{item.append(createMetaCopyForReferral());}finally{referral.disabled=false;}};
+        actions.append(referral);
+      }
       item.append(
         deps.createElement("strong", { textContent: title }),
         deps.createElement("p", { className: "product-meta", textContent: [context, demand].filter(Boolean).join(" | ") }),
@@ -65,6 +71,7 @@
       );
       return item;
     }
+    function createMetaCopyForReferral(){return deps.createElement('p',{className:'product-meta',textContent:t('growth.referralFailed','Unable to create the referral. The opportunity remains available.')});}
 
     let sellerState = { owner: "", data: null, loading: false, error: false, tab: "overview", trendTab: "demand", windowDays: 30, sequence: 0 };
     const el = (tag, className, text, attributes) => deps.createElement(tag, { className, textContent: text, attributes });
@@ -667,7 +674,7 @@
       Promise.resolve().then(()=>deps.loadGrowthLoopReports()).then(reports=>{
         if(sequence!==growthSequence||!section.isConnected||deps.getCurrentUser?.()!==owner||!deps.isAdminUser()||deps.isAdminAnalyticsContext?.()===false)return;
         section.replaceChildren(el('h3','',t('growth.dashboard.title','Growth loop health')));
-        const labels={product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
+        const labels={referral:t('growth.dashboard.referral','Utility seller referrals'),product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
         for(const report of Array.isArray(reports)?reports:[]){
           if(!Object.hasOwn(labels,report.loop))continue;
           const card=el('article','analytics-list-item',undefined,{'data-growth-loop':report.loop});
@@ -675,7 +682,7 @@
           if(!report.available||!report.data){card.append(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));section.append(card);continue;}
           const data=report.data,cohort=data.cohort||{},grid=el('div','analytics-grid');
           const metric=(label,value,percentage=false)=>grid.append(createAnalyticsCard(label,percentage?rate(value):count(value)));
-          if(['product','room','profile','collection','reel','short'].includes(report.loop)){
+          if(['product','room','profile','collection','reel','short','referral'].includes(report.loop)){
             metric(t('growth.dashboard.entries','Entries'),data.entryCount??cohort.entryCount);
             metric(t('growth.dashboard.opened','Recipient journeys'),cohort.recipientJourneys??cohort.humanOpenJourneys);
             metric(t('growth.dashboard.activation','Activation rate'),cohort.activationRate,true);
@@ -683,6 +690,7 @@
             metric(t('growth.dashboard.continuation','Continuation rate'),cohort.continuationRate,true);
             metric(t('growth.dashboard.time','Time to value (seconds)'),cohort.timeToValueSeconds);
             metric(t('growth.dashboard.repeat','Repeat recipients'),cohort.repeatRecipients);
+            if(data.creationGaps){metric(t('growth.dashboard.gaps','Missing source events'),data.creationGaps.missing);metric(t('growth.dashboard.expired','Expired source gaps'),data.creationGaps.expired);}
           }else if(report.loop==='delivery'){
             for(const state of ['pending','completed','dead'])metric(state,(data.states||[]).find(row=>row.status===state)?.count??0);
             metric(t('growth.dashboard.gaps','Missing source events'),data.reconciliationGaps?.missing);

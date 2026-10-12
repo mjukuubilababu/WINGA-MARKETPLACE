@@ -6,11 +6,14 @@ let db, store;
 
 before(async () => {
   db = new PGlite();
+  // PostgreSQL's simple protocol accepts migration batches. PGlite.query uses
+  // prepared statements, so dispatch parameter-free batches through exec.
+  const query=async(sql,params)=>params?.length?db.query(sql,params):(await db.exec(sql)).at(-1)||{rows:[]};
   store = createPostgresStore({
     databaseUrl: "postgres://isolated/inventory",
     queryClient: {
-      query: (sql, params) => db.query(sql, params),
-      connect: async () => ({ query: (sql, params) => db.query(sql, params), release() {} })
+      query,
+      connect: async () => ({ query, release() {} })
     }
   });
   await store.init();

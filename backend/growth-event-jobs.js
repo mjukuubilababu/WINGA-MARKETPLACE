@@ -1,6 +1,6 @@
 const {fail,key,insertEvent}=require('./growth-infrastructure');
 const contract=require('../src/growth/contract');
-const allowed=new Set([...contract.events,...contract.contentEvents,...contract.roomEvents,'content_share_created','shared_content_reshared','product_share_created','shared_product_reshared','room_invite_created','room_invite_requested','room_invite_reported','room_inviter_blocked']);
+const allowed=new Set([...contract.events,...contract.contentEvents,...contract.referralEvents,...contract.roomEvents,'content_share_created','shared_content_reshared','product_share_created','shared_product_reshared','room_invite_created','room_invite_requested','room_invite_reported','room_inviter_blocked']);
 async function enqueueGrowthEvent(client,eventId,shareId,actorKey,eventType,verification,durationMs=null,occurredAt=null){
   if(typeof eventId!=='string'||!/^[A-Za-z0-9:_-]{1,160}$/.test(eventId)||!contract.uuid(shareId)||!/^[a-f0-9]{64}$/.test(actorKey)
     ||!allowed.has(eventType)||!['server','client_observed'].includes(verification)
@@ -21,14 +21,14 @@ function createGrowthEventJobs({query,withTransaction,enabled=false,eventWriter=
     return withTransaction(async client=>{
       await client.query(`WITH expired AS (SELECT event_id FROM growth_event_jobs WHERE status='pending' AND deadline_at<=clock_timestamp() ORDER BY deadline_at LIMIT $1 FOR UPDATE SKIP LOCKED)
         UPDATE growth_event_jobs j SET status='dead',last_error='expired',updated_at=clock_timestamp() FROM expired e WHERE j.event_id=e.event_id`,[limit]);
-      const jobs=(await client.query(`SELECT * FROM growth_event_jobs WHERE status='pending' AND available_at<=clock_timestamp()
+      const jobs=(await client.query(`SELECT *,occurred_at::text AS occurred_at_text FROM growth_event_jobs WHERE status='pending' AND available_at<=clock_timestamp()
         AND deadline_at>clock_timestamp() ORDER BY available_at,created_at,event_id LIMIT $1 FOR UPDATE SKIP LOCKED`,[limit])).rows;
       let processed=0,failed=0;
       for(const job of jobs){
         await client.query('SAVEPOINT growth_event_delivery');
         try{
           const inserted=await eventWriter(client,job.event_id,job.share_id,job.actor_key,job.event_type,job.verification,job.client_duration_ms);
-          if(inserted)await client.query('UPDATE growth_events SET created_at=$2 WHERE event_id=$1',[job.event_id,job.occurred_at]);
+          if(inserted)await client.query('UPDATE growth_events SET created_at=$2 WHERE event_id=$1',[job.event_id,job.occurred_at_text]);
           await client.query("UPDATE growth_event_jobs SET status='completed',last_error='',updated_at=clock_timestamp() WHERE event_id=$1",[job.event_id]);
           await client.query('RELEASE SAVEPOINT growth_event_delivery');processed++;
         }catch(error){
@@ -47,23 +47,23 @@ function createGrowthEventJobs({query,withTransaction,enabled=false,eventWriter=
     if(!enabled)return {queued:0,disabled:true};
     const limit=Math.max(1,Math.min(50,Math.trunc(Number(batchSize)||50)));
     return withTransaction(async client=>{
-      const invitations=(await client.query(`SELECT s.id,s.owner_username,s.created_at FROM growth_shares s
+      const invitations=(await client.query(`SELECT s.id,s.owner_username,s.created_at::text AS source_created_at FROM growth_shares s
         JOIN growth_loop_invites i ON i.share_id=s.id AND i.measurement_enabled
         WHERE s.created_at>=NOW()-INTERVAL '24 hours' AND s.owner_username IS NOT NULL
           AND NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='invite-created:'||s.id)
         ORDER BY s.created_at LIMIT $1`,[limit])).rows;
       let queued=0;
       for(const invite of invitations)if(cohort.allowsCreation(invite.owner_username)){
-        if(await enqueueGrowthEvent(client,'invite-created:'+invite.id,invite.id,key('user:'+invite.owner_username),'room_invite_created','server',null,invite.created_at))queued++;
+        if(await enqueueGrowthEvent(client,'invite-created:'+invite.id,invite.id,key('user:'+invite.owner_username),'room_invite_created','server',null,invite.source_created_at))queued++;
       }else await client.query('UPDATE growth_loop_invites SET measurement_enabled=FALSE WHERE share_id=$1',[invite.id]);
-      const requests=(await client.query(`SELECT r.*,s.owner_username FROM growth_invite_requests r JOIN growth_shares s ON s.id=r.invite_id
+      const requests=(await client.query(`SELECT r.*,r.created_at::text AS source_created_at,r.accepted_at::text AS source_accepted_at,s.owner_username FROM growth_invite_requests r JOIN growth_shares s ON s.id=r.invite_id
         WHERE r.measurement_enabled AND NOT r.existing_member AND r.created_at>=NOW()-INTERVAL '24 hours'
           AND (NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='invite-requested:'||r.invite_id||':'||r.actor_key)
             OR (r.status='accepted' AND r.accepted_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='invite-accepted:'||r.invite_id||':'||r.actor_key)))
         ORDER BY r.created_at LIMIT $1`,[limit])).rows;
       for(const r of requests)if(cohort.allowsMeasurement(r.owner_username||'',r.recipient_username)){
-        if(await enqueueGrowthEvent(client,'invite-requested:'+r.invite_id+':'+r.actor_key,r.invite_id,r.actor_key,'room_invite_requested','server',null,r.created_at))queued++;
-        if(r.status==='accepted'&&r.accepted_at&&await enqueueGrowthEvent(client,'invite-accepted:'+r.invite_id+':'+r.actor_key,r.invite_id,r.actor_key,'room_invite_accepted','server',null,r.accepted_at))queued++;
+        if(await enqueueGrowthEvent(client,'invite-requested:'+r.invite_id+':'+r.actor_key,r.invite_id,r.actor_key,'room_invite_requested','server',null,r.source_created_at))queued++;
+        if(r.status==='accepted'&&r.accepted_at&&await enqueueGrowthEvent(client,'invite-accepted:'+r.invite_id+':'+r.actor_key,r.invite_id,r.actor_key,'room_invite_accepted','server',null,r.source_accepted_at))queued++;
       }else await client.query('UPDATE growth_invite_requests SET measurement_enabled=FALSE WHERE invite_id=$1 AND recipient_username=$2',[r.invite_id,r.recipient_username]);
       return {queued,hasMore:invitations.length===limit||requests.length===limit};
     });
