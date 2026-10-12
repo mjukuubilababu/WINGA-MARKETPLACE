@@ -451,3 +451,24 @@ Rich product/Reel/Short/collection cards keep the existing E2EE wire format. Opt
 Recipients open canonical product value first. A separate native signed operation resolves the opaque share context only for an active device belonging to both the message epoch and current native membership. Cookie/session identity alone is insufficient. Existing Room authorization rejects pending/closed transitions, departures, revoked devices, blocks and nonmembers. Old/new devices without historical epoch entitlement cannot use attribution to recover encrypted context. Resolver failures leave product access intact; self-product saves/orders cannot manufacture verified recipient value. Known pending sends display queued rather than confirmed delivery.
 
 Validation: actual native MLS Room tests verify signed lookup, forged-proof rejection, session-only denial, nonmembers, duplicate mapping, canonical timestamps, blocks and immediate leave denial. Disposable PostgreSQL exercises those same cases. All 16 browser scenarios, runtime/growth SQL suites and frontend checks pass. Internal views/content type are client observed after canonical membership and message acceptance; signup and delivery are not inferred. Backend measurement kill switch rejects new internal contexts while preserving core message sending and existing destinations.
+
+## Final bounded acceptance and requirement map
+
+See [growth-loops-spec-evidence-20261012.md](growth-loops-spec-evidence-20261012.md)
+for every numbered requirement, the Definition of Done and the ten final product
+questions for each loop. [Local synthetic rehearsal](evidence/growth-canary-local-20261012.json)
+uses an owned disposable PostgreSQL 18.6 database, two guest→auth value journeys,
+a disabled control and 24 simultaneous canonical share resolutions. These are
+local correctness/latency samples, not production capacity or real organic growth.
+
+Timing diagnostics reuse the existing bounded runtime metric windows and expose
+only six fixed metric names with at most 100 numeric samples each. The measurement
+kill switch suppresses them; no content, user, message, token or Room identifier
+is a metric label. Room join-request latency is separate from confirmed acceptance;
+a pending admin request must never be reported as membership acceptance.
+
+Final source flags are not a claim that live flags are all off: the last read-only
+backend inspection showed product sharing and measurement enabled for an existing
+two-account allowlist, guest measurement off, and no Room signing secret. Do not
+expand the cohort, enable new loops or activate invite reminders without the
+explicit opt-in/security/operations rollout gates recorded in the evidence map.

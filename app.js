@@ -5477,6 +5477,12 @@ function updateMarketplaceActionChrome() {
 }
 
 async function resumePendingGuestIntent() {
+  const intended=window.WingaModules.growth.contract.authIntent(pendingGuestIntent||getPendingGuestIntent());
+  const started=performance.now();
+  await resumePendingGuestIntentContext();
+  if(intended)try{getGrowthRuntime().recordTiming('auth_return_to_destination_ms',performance.now()-started);}catch{}
+}
+async function resumePendingGuestIntentContext() {
   if (!pendingGuestIntent) {
     pendingGuestIntent = getPendingGuestIntent();
   }
@@ -7923,6 +7929,7 @@ function closeImageLightbox() {
 }
 
 function openMediaActionSheet(product, options = {}) {
+  const shareSheetStarted=performance.now();
   if (!product) {
     return;
   }
@@ -7983,6 +7990,7 @@ function openMediaActionSheet(product, options = {}) {
   content.replaceChildren(preview, copy, actions);
   root.classList.add("open");
   document.body.classList.add("media-action-sheet-open");
+  try{getGrowthRuntime().recordTiming('share_sheet_open_ms',performance.now()-shareSheetStarted);}catch{}
   syncBodyScrollLockState();
 }
 
@@ -24294,6 +24302,7 @@ async function handleShareProduct(product, options = {}) {
 function getGrowthRuntime() {
   if (!window.WingaGrowth) {
     window.WingaGrowth = window.WingaModules.growth.createRuntime({ window,
+      recordTiming:(metric,duration)=>recordRuntimeMetricWindow(metric,duration),
       getAccount: () => currentUser || '', request: (kind,payload) => window.WingaDataLayer.growthRequest(kind,payload),
       resolveInternalShare:(messageId,type,id)=>window.WingaDataLayer.resolveInternalGrowthShare(messageId,type,id) });
   }

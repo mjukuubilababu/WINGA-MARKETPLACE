@@ -342,6 +342,8 @@ test('public-content envelopes share canonical safety, dedupe, distinct funnels 
   await f.store.recordGrowthEvent(event('shared_content_followed'),f.recipient);
   await f.store.createGrowthShare({...payload,shareId:randomUUID(),sessionId,parentShareId:payload.shareId},f.recipient);
   const report=await f.store.readContentGrowthHealth('COLLECTION');assert.equal(report.cohort.recipientJourneys,1);assert.equal(report.cohort.activationCount,1);assert.equal(report.cohort.valueCount,1);assert.equal(report.cohort.continuationCount,1);
+  await f.db.query("UPDATE growth_events SET created_at=NOW()-INTERVAL '1 hour' WHERE share_id=$1 AND event_type='shared_content_viewed'",[payload.shareId]);
+  const unordered=await f.store.readContentGrowthHealth('COLLECTION');assert.equal(unordered.cohort.activationCount,0);assert.equal(unordered.cohort.valueCount,0);assert.equal(unordered.cohort.continuationCount,0);assert.equal(unordered.cohort.timeToValueSeconds,null);
   assert.equal((await f.store.readGrowthHealth()).shares,0);
   await assert.rejects(f.store.recordGrowthEvent(event('shared_product_saved'),f.recipient),{code:'growth_event_invalid'});
   await f.db.exec("INSERT INTO user_blocks VALUES('seller','recipient')");await assert.rejects(f.store.resolveGrowthShare(payload.shareId,f.recipient),{code:'growth_share_unavailable'});

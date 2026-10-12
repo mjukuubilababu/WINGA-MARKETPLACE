@@ -63,9 +63,11 @@
         if(!account){close();deps.requireAuth?.({type:'join-room-invite',token});return;}
         if(!contract.uuid(invite.joinContext?.conversationId)||!/^[a-f0-9]{64}$/.test(invite.joinContext?.tokenHash)){unavailable();return;}
         busy=true;join.disabled=true;status.textContent=t('growth.roomJoinRequesting','Sending your request…');
+        const requestStarted=win.performance?.now?.()??Date.now();
         try{
           const result=await deps.dataLayer.shoppingRoom('requestInvite',[invite.joinContext,invite.inviteId]);if(!current())return;
           if(!['requested','accepted'].includes(result?.status)){throw new Error('growth_invite_invalid');}
+          try{deps.getGrowth?.().recordTiming(result.status==='accepted'?'room_invite_accept_ms':'room_invite_request_ms',(win.performance?.now?.()??Date.now())-requestStarted);}catch{}
           status.textContent=result.status==='accepted'?t('growth.roomMembershipReady','Room membership is ready.'):
             t('growth.roomJoinPending','Request sent. The room admin needs to approve.');
           join.remove();dialog.append(button(t('growth.openRooms','Open chatrooms'),()=>{close();deps.openRoom?.(result.conversationId);}));

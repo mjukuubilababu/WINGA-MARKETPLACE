@@ -18,6 +18,7 @@ const db = new pg.Pool({ connectionString: databaseUrl });
 const startedAt = new Date().toISOString();
 const contexts = [], failures = [], requests = [], checks = [], healthSignals = [];
 let server, browser, log = '';
+const latencies = { share_link_creation_ms: [], deep_link_to_content_ms: [] };
 const report = { scope: 'synthetic_local_rehearsal', liveCanaryRun: false, startedAt,
   cohort: { syntheticAccounts: 3, recipientJourneys: 2, controlBrowsers: 1 }, simulatedHumanUserAgent: true, checks, failures };
 async function until(check, label, timeout = 45000) {
@@ -104,15 +105,33 @@ try {
   await source.goto(site + '/product/' + productId);
   await source.locator('#product-detail-title').waitFor({ timeout: 30000 });
   await source.locator('#header-user-trigger').waitFor({ state: 'visible', timeout: 30000 });
+  const shareStarted = performance.now();
   const url = await copy(source, productId); await drained(source);
+  latencies.share_link_creation_ms.push(Math.round(performance.now() - shareStarted));
   const shareId = new URL(url).searchParams.get('share'); assert.ok(shareId);
   checks.push('source copied an opaque share; durable envelope/outbox confirmed');
+
+  // Bounded anonymous reads against the owned disposable server, not a production capacity claim.
+  const burstStarted = performance.now();
+  const readSamples = await Promise.all(Array.from({ length: 24 }, async () => {
+    const started = performance.now();
+    const response = await fetch(api + '/growth/shares/' + shareId);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).destinationId, productId);
+    return Math.round(performance.now() - started);
+  }));
+  report.boundedLoad = { scope: 'localhost_disposable_only', concurrentReads: 24,
+    elapsedMs: Math.round(performance.now() - burstStarted), errors: 0,
+    latencyMs: readSamples, productionCapacityEstablished: false };
+  checks.push('24 concurrent canonical share resolutions preserve the exact public destination');
 
   const recipientPages = [];
   for (let i = 0; i < 2; i++) {
     const c = await context(), page = await c.newPage(); recipientPages.push(page);
+    const openStarted = performance.now();
     await page.goto(url);
     await page.locator('#product-detail-title').waitFor({ timeout: 30000 });
+    latencies.deep_link_to_content_ms.push(Math.round(performance.now() - openStarted));
     assert.equal(await page.locator('#auth-container').isVisible(), false);
     await until(async () => (await db.query("SELECT COUNT(*)::int AS n FROM growth_events WHERE event_type='shared_product_viewed'")).rows[0].n === i + 1, 'meaningful detail dwell');
     await drained(page);
@@ -181,6 +200,7 @@ try {
   const after = await canonicalSnapshot();
   assert.equal(after.products, baseline.products); assert.equal(after.orders, baseline.orders + 1); assert.equal(after.saves, baseline.saves + 1);
   report.canonicalDeltas = { products: 0, syntheticOrders: 1, saves: 1 };
+  report.latencySamples = { environment: 'single_localhost_region', samples: latencies, regionalSloEstablished: false };
   report.ok = true;
 } catch (error) {
   report.ok = false; failures.push(error.stack || error.message); process.exitCode = 1;
@@ -190,7 +210,7 @@ try {
     server.kill('SIGTERM'); await until(() => server.exitCode !== null || server.signalCode !== null, 'local server cleanup', 10000).catch(() => server.kill('SIGKILL'));
   }
   await db.end(); report.finishedAt = new Date().toISOString();
-  const reportPath = root + 'docs/evidence/growth-canary-local-20261008.json';
+  const reportPath = root + 'docs/evidence/growth-canary-local-20261012.json';
   await mkdir(root + 'docs/evidence', { recursive: true }); await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ ok: report.ok, scope: report.scope, checks: checks.length, failures, reportPath }));
 }

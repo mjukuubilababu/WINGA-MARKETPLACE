@@ -1,6 +1,6 @@
 module.exports=Object.freeze({id:'202610121602_growth_event_jobs_v1',statements:Object.freeze([
-  `ALTER TABLE growth_loop_invites ADD COLUMN measurement_enabled BOOLEAN NOT NULL DEFAULT FALSE;
-   ALTER TABLE growth_invite_requests ADD COLUMN measurement_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE growth_loop_invites ADD COLUMN measurement_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE growth_invite_requests ADD COLUMN measurement_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
   `CREATE TABLE growth_event_jobs (
     event_id TEXT PRIMARY KEY CHECK(length(event_id) BETWEEN 1 AND 160),
     share_id TEXT NOT NULL REFERENCES growth_shares(id) ON DELETE CASCADE,

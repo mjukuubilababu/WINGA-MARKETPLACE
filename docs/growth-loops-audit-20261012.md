@@ -6,7 +6,7 @@ Classification describes source capabilities, not a production certification.
 The supplied specification requires phased delivery; this assessment precedes
 implementation and does not authorize enabling every loop together.
 
-## Existing capabilities
+## Baseline capabilities before the dated remediations
 
 | Capability | Classification | Current evidence and boundary |
 | --- | --- | --- |
@@ -224,3 +224,13 @@ Rich product/Reel/Short/collection cards keep the existing E2EE wire format. Opt
 Recipients open canonical product value first. A separate native signed operation resolves the opaque share context only for an active device belonging to both the message epoch and current native membership. Cookie/session identity alone is insufficient. Existing Room authorization rejects pending/closed transitions, departures, revoked devices, blocks and nonmembers. Old/new devices without historical epoch entitlement cannot use attribution to recover encrypted context. Resolver failures leave product access intact; self-product saves/orders cannot manufacture verified recipient value. Known pending sends display queued rather than confirmed delivery.
 
 Validation: actual native MLS Room tests verify signed lookup, forged-proof rejection, session-only denial, nonmembers, duplicate mapping, canonical timestamps, blocks and immediate leave denial. Disposable PostgreSQL exercises those same cases. All 16 browser scenarios, runtime/growth SQL suites and frontend checks pass. Internal views/content type are client observed after canonical membership and message acceptance; signup and delivery are not inferred. Backend measurement kill switch rejects new internal contexts while preserving core message sending and existing destinations.
+
+## Consolidated current-source classification
+
+The baseline table above is historical. The final current classification and
+all 106 requirement mappings are in [growth-loops-spec-evidence-20261012.md](growth-loops-spec-evidence-20261012.md). Product, public content, Room/native
+rich-share attribution, seller referrals, Demand resolution and per-loop
+marketplace/network/cohort dashboards are implemented and locally verified.
+Production observation, independent current security review, regional SLOs and
+large-scale operational exercises remain explicit gates, not missing features
+to fill with synthetic conversion claims.

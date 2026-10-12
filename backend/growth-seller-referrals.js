@@ -161,7 +161,7 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
       WHERE r.measurement_enabled AND s.created_at>=NOW()-INTERVAL '30 days' GROUP BY r.share_id,r.recipient_username,r.created_at
     ) SELECT COUNT(*)::int AS recipients,COUNT(*) FILTER(WHERE activated_at>=opened_at)::int AS activations,
       COUNT(*) FILTER(WHERE value_at>=activated_at AND activated_at>=opened_at)::int AS values,
-      COUNT(*) FILTER(WHERE value_at>=activated_at AND EXISTS(SELECT 1 FROM growth_shares continued WHERE continued.content_type='SELLER_REFERRAL' AND continued.owner_username=journeys.recipient_username AND continued.created_at>=journeys.value_at))::int AS continuations,
+      COUNT(*) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at AND EXISTS(SELECT 1 FROM growth_shares continued WHERE continued.content_type='SELLER_REFERRAL' AND continued.owner_username=journeys.recipient_username AND continued.created_at>=journeys.value_at))::int AS continuations,
       AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE value_at>=activated_at AND activated_at>=opened_at)::float8 AS seconds FROM journeys`)).rows[0]||{};
     const ratio=(a,b)=>Number(b)?Number(a)/Number(b):null;
     return {schemaVersion:1,loop:'seller_referral',windowDays:30,entryCount:entries,counts,

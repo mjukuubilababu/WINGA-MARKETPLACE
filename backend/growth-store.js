@@ -177,18 +177,18 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
     const cohort = (await query(`WITH journeys AS (
       SELECT e.share_id,e.actor_key,
         MIN(e.created_at) FILTER(WHERE e.event_type='product_share_opened') AS opened_at,
-        BOOL_OR(e.event_type IN ('shared_product_viewed','shared_product_saved','shared_product_order_started')) AS activated,
+        MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_product_viewed','shared_product_saved','shared_product_order_started')) AS activated_at,
         MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_product_saved','shared_product_order_started')) AS value_at,
-        BOOL_OR(e.event_type='shared_product_reshared') AS continued
+        MAX(e.created_at) FILTER(WHERE e.event_type='shared_product_reshared') AS continued_at
       FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
       WHERE s.content_type='PRODUCT' AND s.created_at>=NOW()-INTERVAL '30 days' AND e.actor_key<>s.actor_key
       GROUP BY e.share_id,e.actor_key
     ) SELECT COUNT(*) FILTER(WHERE opened_at IS NOT NULL)::int AS opens,
       COUNT(DISTINCT share_id) FILTER(WHERE opened_at IS NOT NULL)::int AS opened_shares,
-      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND activated)::int AS activations,
-      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND activated AND value_at IS NOT NULL)::int AS values,
-      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND activated AND value_at IS NOT NULL AND continued)::int AS continuations,
-      AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE opened_at IS NOT NULL AND value_at>=opened_at)::float8 AS time_to_value_seconds,
+      COUNT(*) FILTER(WHERE activated_at>=opened_at)::int AS activations,
+      COUNT(*) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at)::int AS values,
+      COUNT(*) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at AND continued_at>=value_at)::int AS continuations,
+      AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at)::float8 AS time_to_value_seconds,
       (SELECT COUNT(*)::int FROM (SELECT actor_key FROM journeys WHERE opened_at IS NOT NULL
         GROUP BY actor_key HAVING COUNT(*)>1) repeated) AS repeat_recipients
       FROM journeys`)).rows[0] || {};
@@ -227,14 +227,14 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
       SELECT e.share_id,e.actor_key,MIN(e.created_at) FILTER(WHERE e.event_type='content_share_opened') AS opened_at,
         MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_content_viewed','shared_content_followed','shared_content_saved')) AS activated_at,
         MIN(e.created_at) FILTER(WHERE e.event_type IN ('shared_content_followed','shared_content_saved')) AS value_at,
-        BOOL_OR(e.event_type='shared_content_reshared') AS continued
+        MAX(e.created_at) FILTER(WHERE e.event_type='shared_content_reshared') AS continued_at
       FROM growth_events e JOIN growth_shares s ON s.id=e.share_id
       WHERE s.content_type=$1 AND s.created_at>=NOW()-INTERVAL '30 days' AND e.actor_key<>s.actor_key GROUP BY e.share_id,e.actor_key
     ) SELECT COUNT(*) FILTER(WHERE opened_at IS NOT NULL)::int AS opens,
       COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND activated_at>=opened_at)::int AS activations,
-      COUNT(*) FILTER(WHERE opened_at IS NOT NULL AND value_at>=opened_at)::int AS values,
-      COUNT(*) FILTER(WHERE value_at>=opened_at AND continued)::int AS continuations,
-      AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE value_at>=opened_at)::float8 AS seconds
+      COUNT(*) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at)::int AS values,
+      COUNT(*) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at AND continued_at>=value_at)::int AS continuations,
+      AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at)::float8 AS seconds
       FROM journey`,[type])).rows[0]||{};
     const entries=Number((await query("SELECT COUNT(*)::int AS count FROM growth_shares WHERE content_type=$1 AND created_at>=NOW()-INTERVAL '30 days'",[type])).rows[0]?.count||0);
     const rate=(n,d)=>Number(d)?Number(n)/Number(d):null;

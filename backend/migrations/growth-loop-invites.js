@@ -1,12 +1,12 @@
 module.exports = Object.freeze({
   id: '202610121301_growth_loop_invites_v1',
   statements: Object.freeze([
-    `ALTER TABLE growth_shares DROP CONSTRAINT growth_shares_content_type_check;
-     ALTER TABLE growth_shares ADD CONSTRAINT growth_shares_content_type_check CHECK(content_type IN ('PRODUCT','SHOPPING_ROOM'));
-     ALTER TABLE growth_shares DROP CONSTRAINT growth_shares_campaign_type_check;
-     ALTER TABLE growth_shares ADD CONSTRAINT growth_shares_campaign_type_check CHECK(campaign_type IN ('organic_share','organic_invite'));`,
-    `ALTER TABLE growth_events DROP CONSTRAINT growth_events_event_type_check;
-     ALTER TABLE growth_events ADD CONSTRAINT growth_events_event_type_check CHECK(event_type IN (
+    `ALTER TABLE growth_shares DROP CONSTRAINT growth_shares_content_type_check;`,
+    `ALTER TABLE growth_shares ADD CONSTRAINT growth_shares_content_type_check CHECK(content_type IN ('PRODUCT','SHOPPING_ROOM'));`,
+    `ALTER TABLE growth_shares DROP CONSTRAINT growth_shares_campaign_type_check;`,
+    `ALTER TABLE growth_shares ADD CONSTRAINT growth_shares_campaign_type_check CHECK(campaign_type IN ('organic_share','organic_invite'));`,
+    `ALTER TABLE growth_events DROP CONSTRAINT growth_events_event_type_check;`,
+    `ALTER TABLE growth_events ADD CONSTRAINT growth_events_event_type_check CHECK(event_type IN (
        'product_share_created','product_share_opened','shared_product_viewed','shared_product_saved',
        'shared_product_message_started','shared_product_order_started','shared_product_reshared',
        'room_invite_created','room_invite_opened','room_invite_requested','room_invite_accepted',

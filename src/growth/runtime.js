@@ -59,6 +59,12 @@
     function health(type, code = '') {
       try { win.dispatchEvent(new win.CustomEvent('winga:growth-health', { detail: { type, code } })); } catch {}
     }
+    const timingMetrics=new Map(), timingNames=new Set(['share_sheet_open_ms','share_link_creation_ms','deep_link_to_content_ms','room_invite_accept_ms','room_invite_request_ms','auth_return_to_destination_ms']);
+    function recordTiming(metric,duration){
+      if(closed||!measurement()||!timingNames.has(metric)||!Number.isFinite(duration)||duration<0||duration>300000)return;
+      const samples=timingMetrics.get(metric)||[];samples.push(Math.round(duration));timingMetrics.set(metric,samples.slice(-100));
+      try{deps.recordTiming?.(metric,Math.round(duration));}catch{}
+    }
     function deadLetter(item, reason) {
       // Keep replayable schema-only records, never private message bodies or arbitrary metadata.
       dead.push({ ...item, reason, failedAt: now() }); dead = dead.slice(-50);
@@ -85,7 +91,9 @@
           if(item.nextAt>now())continue;
           if (item.kind === 'shares' ? !enabled(item.payload.contentType) : !measurement()) continue;
           try {
+            const requestStarted=timingNow();
             await deps.request(item.kind, item.payload);
+            if(item.kind==='shares')recordTiming('share_link_creation_ms',timingNow()-requestStarted);
             queue = queue.filter(x => x !== item);
           } catch (error) {
             item.attempts++;
@@ -236,6 +244,7 @@
       if (!touchFor(productId) || !measurement() || win.document.visibilityState !== 'visible') return;
       if (routeTiming?.productId === productId && routeTiming.eligible && routeTiming.durationMs === null) {
         const duration = Math.round(timingNow() - routeTiming.startedAt);
+        recordTiming('deep_link_to_content_ms',duration);
         if (Number.isInteger(duration) && duration >= 0 && duration <= 300000) routeTiming.durationMs = duration;
       }
       const durationMs = routeTiming?.productId === productId ? routeTiming.durationMs : null;
@@ -253,7 +262,7 @@
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();
-    return { prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { recordTiming,getTimingSamples:()=>Object.fromEntries([...timingMetrics].map(([name,samples])=>[name,[...samples]])),prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {

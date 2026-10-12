@@ -254,3 +254,11 @@ test('internal card attribution uses opaque journal context after independent de
  const outage=fixture({resolveInternalShare:async()=>{throw Error('outage');}});outage.setAccount('recipient');outage.runtime.productVisible('p1');
  await outage.runtime.internalContentOpened(messageId,'PRODUCT','p1');assert.equal(outage.runtime.getJourney().touches.length,0);assert.ok(outage.events.some(e=>e.detail.type==='internal_attribution_unavailable'));outage.runtime.close();
 });
+
+ test('timing diagnostics bound samples, reject private keys and honor the measurement kill switch',()=>{
+  const f=fixture();for(let i=0;i<120;i++)f.runtime.recordTiming('share_sheet_open_ms',i);
+  f.runtime.recordTiming('private-room-secret',1);f.runtime.recordTiming('deep_link_to_content_ms',Infinity);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.runtime.getTimingSamples())),{share_sheet_open_ms:Array.from({length:100},(_,i)=>i+20)});
+  f.win.WINGA_CONFIG.growthMeasurement=false;f.runtime.recordTiming('auth_return_to_destination_ms',5);
+  assert.equal(f.runtime.getTimingSamples().auth_return_to_destination_ms,undefined);f.runtime.close();
+ });
