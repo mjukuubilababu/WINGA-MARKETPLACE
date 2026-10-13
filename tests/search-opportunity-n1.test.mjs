@@ -236,6 +236,20 @@ test('a repeated owned search can subscribe to its latest event and resolve thro
   assert.equal((await db.query('SELECT metadata FROM rediscovery_eligibility')).rows[0].metadata.sourceEventId,'search-one');
 });
 
+test('a request beyond the processing lifetime can renew from fresh owned search evidence without deleting history',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  const first=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await db.exec(`UPDATE commerce_goals SET created_at=NOW()-INTERVAL '91 days';
+    UPDATE search_demand_events SET happened_at=NOW()-INTERVAL '91 days';
+    INSERT INTO search_demand_events(event_id,query_key,detected_category,detected_color,region,audience_type,audience_key,happened_at,zero_result,result_count)
+    VALUES('search-renewal','white-dress','dress','white','mwanza','user','buyer-key',NOW(),true,0);`);
+  const renewed=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  assert.equal(renewed.duplicate,false);assert.notEqual(renewed.goalId,first.goalId);
+  assert.equal((await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'})).goalId,renewed.goalId);
+  assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM commerce_goals')).rows[0].count,2);
+  assert.equal((await db.query('SELECT metadata FROM commerce_goals WHERE goal_id=$1',[first.goalId])).rows[0].metadata.sourceEventId,'search-one');
+});
+
 test('search resolution does not cross audience, query, regional or color context or withdrawn eligibility',async t=>{
   const {db,store}=await resolutionFixture(t);
   await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});

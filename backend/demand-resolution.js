@@ -71,6 +71,7 @@ function createDemandResolution({withTransaction,transitionGoal,insertNotificati
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['demand-subscription:'+userId+':'+queryKey]);
       const existing=(await client.query(`SELECT goal_id AS "goalId",status FROM commerce_goals WHERE user_id=$1
         AND product_id IS NULL AND query_key=$2 AND metadata->>'source'='search_subscription'
+        AND created_at>=NOW()-INTERVAL '90 days'
         AND status IN ('looking','matched','contacted','ordered') ORDER BY created_at LIMIT 1`,[userId,queryKey])).rows[0];
       if(existing)return {...existing,duplicate:true};
       const evidence=(await client.query(`SELECT event_id,query_key,detected_category,detected_color,region FROM search_demand_events
