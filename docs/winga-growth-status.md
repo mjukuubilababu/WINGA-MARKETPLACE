@@ -32,8 +32,9 @@ The verified release immediately before Phase 3 is `c26f2396`, Cloudflare build
 and isolated verification are recorded separately below and in its dedicated report.
 
 The current work performs source inspection, presentation changes, documentation
-and static build/catalog/bundle checks. No live message, Room admission, buyer
-save/order, referral, notification, load or chaos exercise is performed. Existing
+and static build/catalog/bundle checks, plus isolated Phase 3 PostgreSQL retry,
+burst and notification-outage exercises. No live message, Room admission, buyer
+save/order, referral, notification, production load or provider chaos exercise is performed. Existing
 mandatory CI fixtures may run on push; they remain synthetic and do not complete
 live acceptance. No production cohorts, signing secrets, rollout switches or
 notification schedules are changed by this work.
@@ -52,10 +53,10 @@ Presentation work is implemented in source and needs runtime/visual acceptance
 later. A source-prepared status is not a production pass or a successful Room join.
 
 Static checks performed in this work: Room/inspector JavaScript syntax, all 106
-ledger sections/source references/dependency IDs, four catalogs with 1,747 keys,
+ledger sections/source references/dependency IDs, four catalogs with 1,754 keys,
 zero new hard-coded UI debt, workflow YAML parsing and synchronized 98-module
 static build. None of these checks confirms live delivery or Room participation.
-Phase 3 adds 14 isolated SQL, 22 commerce and 3 dashboard contracts, with 149/149
+Phase 3 now has 23 isolated PostgreSQL/PGlite, 22 commerce and 4 dashboard contracts, with 149/149
 frontend core checks. See the Phase 3 report for exact scope and remaining acceptance.
 
 The subsequent exact-source scan of `3f3a0314` produced 54 findings and preserved
@@ -95,7 +96,11 @@ marketplace admin report/dashboard. Existing infrastructure and flags are reused
 
 Isolated SQL/frontend checks verify those contracts; real buyer resolution,
 seller usefulness/return, regional/provider/capacity acceptance and current
-independent review remain LIVE-03/OPS-01/CAP-01/RET-01/SEC-01. Phase 3 does not
+independent review remain LIVE-03/OPS-01/CAP-01/RET-01/SEC-01. Seller paid/delivered
+value and mature repeat-response measurement are implemented; tracked restock
+notices now require the requested active variant to have unreserved stock.
+[Security triage](growth-security-triage-20261013.md) accounts for all 54 findings
+without claiming independent approval. Phase 3 does not
 silently close Phase 2, complete Messages or declare the full specification ready.
 
 ## Current capability audit

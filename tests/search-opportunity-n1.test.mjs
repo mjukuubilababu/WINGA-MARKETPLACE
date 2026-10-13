@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {roomDatabase} from './helpers/shopping-room-database.mjs';
+import {resolutionFixture} from './helpers/demand-resolution.mjs';
 const require = createRequire(import.meta.url);
 const {createPostgresStore} = require('../backend/db');
 const {buildCommerceOpportunities} = require('../backend/commerce-opportunity');
@@ -152,6 +153,13 @@ test('marketplace loop report measures eligible supply and value without raw use
     INSERT INTO rediscovery_eligibility VALUES('resolved','{"sourceEventId":"search"}',NOW()),('legacy','{}',NOW());
     INSERT INTO commerce_order_outcomes VALUES('resolved','created'),('resolved','paid'),('resolved','delivered');`);
   await db.exec("ALTER TABLE products ADD COLUMN price NUMERIC DEFAULT 100;ALTER TABLE products ADD COLUMN first_approved_at TIMESTAMPTZ;UPDATE products SET first_approved_at=created_at;ALTER TABLE search_demand_events ADD COLUMN country TEXT DEFAULT 'tz';INSERT INTO products(id,category,uploaded_by,status,availability,created_at,price,first_approved_at) VALUES('content-only','dress','seller','approved','available',NOW(),0,NOW());");
+  await db.exec(`CREATE TABLE supply_responses(response_id TEXT,seller_id TEXT,opportunity_id TEXT,product_id TEXT,created_at TIMESTAMPTZ,status TEXT,action_type TEXT);
+    CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);
+    ALTER TABLE rediscovery_eligibility ADD COLUMN supply_response_id TEXT;ALTER TABLE rediscovery_eligibility ADD COLUMN product_id TEXT;
+    ALTER TABLE rediscovery_eligibility ADD COLUMN audience_type TEXT;ALTER TABLE rediscovery_eligibility ADD COLUMN audience_key TEXT;
+    ALTER TABLE commerce_order_outcomes ADD COLUMN order_id TEXT;ALTER TABLE commerce_order_outcomes ADD COLUMN seller_id TEXT;
+    ALTER TABLE commerce_order_outcomes ADD COLUMN product_id TEXT;ALTER TABLE commerce_order_outcomes ADD COLUMN audience_key TEXT;
+    ALTER TABLE commerce_order_outcomes ADD COLUMN occurred_at TIMESTAMPTZ;ALTER TABLE orders ADD COLUMN payment_status TEXT;`);
   const {createMarketplaceGrowth}=require('../backend/growth-marketplace');
   const report=await createMarketplaceGrowth({readQuery:(...args)=>db.query(...args)}).readMarketplaceLoopHealth();
   assert.deepEqual(report.categories[0],{category:'dress',listings:2,available:1,sellers:1,searches:2,matches:1,audiences:1,orders:1,delivered:1,failed:0,searchSuccessRate:0.5,deliveryRate:1});
@@ -161,31 +169,6 @@ test('marketplace loop report measures eligible supply and value without raw use
   assert.equal(JSON.stringify(report).includes('buyer'),false);
 });
 
-async function resolutionFixture(t){
-  const db=await roomDatabase(t);
-  await db.exec(`CREATE TABLE users(username TEXT PRIMARY KEY,status TEXT);
-    CREATE TABLE products(id TEXT PRIMARY KEY,status TEXT,uploaded_by TEXT,availability TEXT,created_at TIMESTAMPTZ);
-    CREATE TABLE public_content_visibility(content_type TEXT,content_id TEXT,visibility TEXT);
-    CREATE TABLE user_blocks(blocker_username TEXT,blocked_username TEXT);
-    CREATE TABLE search_demand_events(event_id TEXT,query_key TEXT,detected_category TEXT,detected_color TEXT,region TEXT,audience_type TEXT,audience_key TEXT,happened_at TIMESTAMPTZ,zero_result BOOLEAN,result_count INT);
-    CREATE TABLE notifications(id TEXT PRIMARY KEY,user_id TEXT,actor_username TEXT,type TEXT,message_id TEXT,conversation_id TEXT,title TEXT,body TEXT,is_read BOOLEAN,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ);
-    CREATE TABLE rediscovery_eligibility(product_id TEXT,supply_response_id TEXT,metadata JSONB,expires_at TIMESTAMPTZ);
-    CREATE TABLE supply_responses(response_id TEXT,status TEXT);
-    CREATE TABLE intelligence_recommendations(audience_type TEXT,audience_key TEXT,entity_type TEXT,entity_key TEXT,metadata JSONB);
-    INSERT INTO users VALUES('buyer','active'),('seller','active');
-    INSERT INTO products VALUES('new-dress','approved','seller','available',NOW());
-    INSERT INTO search_demand_events VALUES('search-one','white-dress','dress','white','mwanza','user','buyer-key',NOW(),true,0);
-    INSERT INTO supply_responses VALUES('response-one','active');
-    INSERT INTO rediscovery_eligibility VALUES('new-dress','response-one','{"sourceEventId":"search-one"}',NOW()+INTERVAL '1 day');
-    ALTER TABLE search_demand_events ADD COLUMN location TEXT DEFAULT '';
-    ALTER TABLE rediscovery_eligibility ADD COLUMN audience_type TEXT DEFAULT 'user';
-    ALTER TABLE rediscovery_eligibility ADD COLUMN audience_key TEXT DEFAULT 'buyer-key';
-    ALTER TABLE rediscovery_eligibility ADD COLUMN status TEXT DEFAULT 'eligible';`);
-  for(const migration of [require('../backend/migrations/commerce-goals'),require('../backend/migrations/commerce-goal-transitions')])for(const sql of migration.statements)await db.exec(sql);
-  await db.exec(require('../backend/migrations/growth-loops').statements.find(sql=>sql.includes('CREATE TABLE growth_rate_buckets')));
-  const store=createPostgresStore({databaseUrl:'postgres://test.invalid/winga',queryClient:db,demandResolutionEnabled:true});
-  return {db,store};
-}
 
 test('opt-in search subscriptions resolve once through canonical goals and durable capped notifications',async t=>{
   const {db,store}=await resolutionFixture(t);
@@ -331,6 +314,21 @@ test('demand notifications respect explicit consent, stopped goals and a shared 
   await db.exec("UPDATE notifications SET created_at=NOW()-INTERVAL '2 days'");
   assert.equal((await store.processDemandResolutions()).processed,1);
   assert.equal((await db.query("SELECT status FROM commerce_goals WHERE goal_id='e'")).rows[0].status,'stopped');
+});
+
+test('tracked restock only notifies when the requested variant has unreserved stock',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await store.upsertCommerceGoal({goalId:'variant-request',userId:'buyer',productId:'new-dress',color:'white',size:'M',
+    metadata:{source:'sold_out_demand',notificationConsent:true,notificationMode:'in_app'}});
+  await db.exec(`INSERT INTO product_inventory_variants VALUES
+    ('wrong','new-dress','blue','L',true,10,0),('requested','new-dress','White','m',true,1,1);`);
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE product_inventory_variants SET stock_reserved=0,active=false WHERE id='requested'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE product_inventory_variants SET active=true WHERE id='requested'");
+  assert.equal((await store.processDemandResolutions()).processed,1);
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM notifications')).rows[0].n,1);
 });
 
 test('exact Opportunity destination executes canonical relevance, expiry, dismissal and public-product safety',async t=>{

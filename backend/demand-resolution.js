@@ -96,12 +96,17 @@ function createDemandResolution({withTransaction,transitionGoal,insertNotificati
     return withTransaction(async client=>{
       // One bounded global processor lock keeps recipient caps correct across workers.
       await client.query("SELECT pg_advisory_xact_lock(hashtext('winga-demand-resolutions'))");
-      const candidates=(await client.query(`${searchSupplyMatches} SELECT g.goal_id,g.user_id,g.product_id,g.metadata FROM commerce_goals g
+      const candidates=(await client.query(`${searchSupplyMatches} SELECT g.goal_id,g.user_id,g.product_id,g.color,g.size,g.metadata FROM commerce_goals g
         JOIN users u ON u.username=g.user_id AND u.status='active'
         WHERE g.status='looking' AND g.metadata->>'notificationConsent'='true'
           AND g.metadata->>'notificationMode'='in_app' AND g.created_at>=NOW()-INTERVAL '90 days'
           AND EXISTS(SELECT 1 FROM products p JOIN users seller ON seller.username=p.uploaded_by AND seller.status='active'
             WHERE p.status='approved' AND p.availability='available' AND p.uploaded_by<>g.user_id
+              AND (NOT EXISTS(SELECT 1 FROM product_inventory_variants tracked WHERE tracked.product_id=p.id)
+                OR EXISTS(SELECT 1 FROM product_inventory_variants stock WHERE stock.product_id=p.id AND stock.active
+                  AND stock.stock_on_hand>stock.stock_reserved
+                  AND (g.color='' OR LOWER(TRIM(stock.color))=LOWER(TRIM(g.color)))
+                  AND (g.size='' OR UPPER(TRIM(stock.size))=UPPER(TRIM(g.size)))))
               AND NOT EXISTS(SELECT 1 FROM public_content_visibility v WHERE v.content_type='product' AND v.content_id=p.id AND v.visibility<>'public')
               AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_username=g.user_id AND b.blocked_username=p.uploaded_by) OR (b.blocker_username=p.uploaded_by AND b.blocked_username=g.user_id))
               AND (p.id=g.product_id OR EXISTS(SELECT 1 FROM search_supply_matches matched
@@ -116,11 +121,16 @@ function createDemandResolution({withTransaction,transitionGoal,insertNotificati
         const match=(await client.query(`${searchSupplyMatches} SELECT p.id,p.uploaded_by FROM products p
           JOIN users seller ON seller.username=p.uploaded_by AND seller.status='active'
           WHERE p.status='approved' AND p.availability='available' AND p.uploaded_by<>$1
+            AND (NOT EXISTS(SELECT 1 FROM product_inventory_variants tracked WHERE tracked.product_id=p.id)
+              OR EXISTS(SELECT 1 FROM product_inventory_variants stock WHERE stock.product_id=p.id AND stock.active
+                AND stock.stock_on_hand>stock.stock_reserved
+                AND ($4='' OR LOWER(TRIM(stock.color))=LOWER(TRIM($4)))
+                AND ($5='' OR UPPER(TRIM(stock.size))=UPPER(TRIM($5)))))
             AND NOT EXISTS(SELECT 1 FROM public_content_visibility v WHERE v.content_type='product' AND v.content_id=p.id AND v.visibility<>'public')
             AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_username=$1 AND b.blocked_username=p.uploaded_by) OR (b.blocker_username=p.uploaded_by AND b.blocked_username=$1))
             AND (p.id=$2 OR EXISTS(
             SELECT 1 FROM search_supply_matches matched WHERE matched.product_id=p.id AND matched.request_event_id=$3))
-          ORDER BY (p.id=$2) DESC,p.created_at DESC,p.id LIMIT 5`,[goal.user_id,goal.product_id||'',goal.metadata.sourceEventId||''])).rows;
+          ORDER BY (p.id=$2) DESC,p.created_at DESC,p.id LIMIT 5`,[goal.user_id,goal.product_id||'',goal.metadata.sourceEventId||'',goal.color||'',goal.size||''])).rows;
         let product;
         for(const p of match)if(await publicProduct(client,p.id,goal.user_id)){product=p;break;}
         if(!product)continue;

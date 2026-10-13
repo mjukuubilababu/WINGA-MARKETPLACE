@@ -26,12 +26,12 @@ notification service or public attribution parameter is introduced.
 | Bounded safe product selection | BROKEN → FIXED IN SOURCE | Newer private/unavailable supply could hide a valid match behind the five-product limit. Current safety/blocks now filter before the limit, followed by the canonical safety recheck. |
 | Search-goal product continuity | BROKEN → FIXED IN SOURCE | Subsequent buyer actions could miss a matched query-only goal without a separate recommendation. The canonical supply-match transition now provides product binding for later transitions, including existing ledger history. |
 | Stop/found retry | PARTIAL → HARDENED | A committed same-owner terminal resolution is returned on retry; no second transition is created and another owner cannot read the result. |
-| Product-restock consent | IMPLEMENTED / HARDENED UX | Explicit notification consent remains required; a signal without a confirmed canonical goal is not presented as a saved availability request. Retry remains available. |
+| Product-restock consent / variant fit | IMPLEMENTED / HARDENED | Explicit notification consent and confirmed canonical goal remain required. Tracked products now require an active matching size/color with unreserved stock before a notice; untracked inventory remains a seller declaration to verify. |
 | Seller Opportunities | IMPLEMENTED / HARDENED UX | Early-signal guidance, no guaranteed-sale copy, a requested-product action for restock, existing relevant seller ACL/expiry/dismissal and canonical supply creation retained. |
 | Demand notification opening | PARTIAL → HARDENED | Product access precedes optional read acknowledgement. Failed/hanging acknowledgement cannot block the destination; stale account/session reads cannot open it. |
 | Consent/caps/privacy | IMPLEMENTED IN SOURCE | In-app only, at most two demand notices per recipient/day, stable notice identity, canonical safety/blocks and rollback/retry retained. Current independent review and operating acceptance remain open. |
 | Search/restock request reporting | IMPLEMENTED | Separate 90-day request cohorts added to the existing marketplace admin report/dashboard; unavailable reports remain unavailable. |
-| Seller first value / repeat usefulness | PARTIAL | Existing supply/outcome and seller-activation owners retained. Qualified buyer value and actual seller return require operating observations. |
+| Seller first value / repeat usefulness | IMPLEMENTED MEASUREMENT / OBSERVATION OPEN | Canonical attributed order starts, payments/deliveries and maturity-safe distinct-Opportunity repeat-response cohorts are now reported. Real relevance, seller return and business impact still require observations. |
 
 There is no duplicate infrastructure introduced by this release. A source fix is
 not a real purchase, recipient return, provider delivery or independent approval.
@@ -71,6 +71,20 @@ Its new `demandRequests` field is aggregate-only and contains separate
 | `matchRate` / `notifyRate` | Matching/notified goals divided by the same request cohort. |
 | `timeToSupplyMatchSeconds` | Nonnegative server-ledger interval; not recipient time to value or a regional SLO. |
 
+The new `sellerOpportunity` aggregate measures the first currently eligible active
+response per seller in 90 days, attributed order starts, paid orders and deliveries.
+It joins the canonical response → eligibility → initial order-created evidence →
+order outcome chain, checks matching product/seller/audience and current nonself,
+non-cancelled/non-refunded, active-account, public-inventory and block eligibility.
+No browsing event, synthetic recommendation or new attribution service is added.
+
+`mature7` / `mature30` count sellers whose first paid/delivered value has completed
+the observation window. `repeat7` / `repeat30` require a later response to another
+previously unanswered Opportunity inside that window. Repeat rates are null when
+no cohort is mature. This measures repeat responses, **not page visits, causal
+retention lift or guaranteed relevance**. Historical withdrawn/moderated responses
+may be incomplete; the report says first *currently eligible* response explicitly.
+
 The existing marketplace section continues to report eligible supply, search-result
 proxies, seller first-value cohorts and owned order-outcome lineage separately.
 No private query, buyer identifier, product ID, message body, payment detail or
@@ -79,22 +93,44 @@ human activation or a healthy zero-value loop.
 
 ## Local verification
 
-- Fourteen isolated PGlite SQL contracts passed, including repeated-search matching,
+[Machine-readable evidence](evidence/growth-phase3-isolated-20261013.json) retains
+source hashes, adapter/image provenance, pass counts and the measurement limits.
+
+- Twenty-three Phase 3 contracts passed on both isolated PGlite and disposable
+  **PostgreSQL 18.6**, including repeated-search matching,
   lifetime-aware renewal, context/actor/eligibility rejection, original event preservation, matched-goal
   continuity without recommendations, terminal retry, bounded safe selection, consent/caps/stop, current
-  product privacy/blocks and notification rollback.
+  product privacy/blocks, tracked variant availability and notification rollback.
+  Three seller-report tests check canonical lineage, current safety, no join
+  inflation and immature cohorts. Five resilience tests cover twelve concurrent
+  subscriptions, eight competing workers, sixty independent requests with the
+  shared daily cap, second-notice outage/batch rollback, recovery, stopped retries,
+  withdrawn/expired supply and the kill switch. All disposable schemas and the
+  owned container were removed; no production database was connected.
 - Twenty-two canonical commerce Opportunity/outcome contracts passed.
 - Frontend core: 149/149, including failed/hanging demand-notice acknowledgement,
   account/session change while product resolution is pending, and restock request
   confirmation requiring a canonical goal rather than a signal alone.
-- Three dashboard contracts passed: unavailable remains unknown, text rendering
-  and late-account response isolation.
-- Four localization catalogs contain 1,747 matching keys; zero new hard-coded UI
+- Four dashboard contracts passed: unavailable remains unknown, text rendering,
+  late-account response isolation and paid/delivered/immature seller reporting.
+- Four localization catalogs contain 1,754 matching keys; zero new hard-coded UI
   debt. Syntax, static build and generated module synchronization are checked.
+
+The bounded PostgreSQL retry/worker exercise observed 101 ms; the sixty-request
+burst/recovery fixture observed 331 ms on this local executor. These are whole-test
+diagnostics, not request percentiles, viral capacity or regional SLOs. Reproduce
+with `npm run test:growth:phase3:postgres`; it starts its own loopback-only pinned
+PostgreSQL container and never consults `DATABASE_URL`. `npm run test:growth:phase3`
+runs the same contracts with the selected isolated adapter. Push CI includes them.
+
+[Security triage](growth-security-triage-20261013.md) accounts for all 54 navigation
+entries and names actual authority/URL/file/crypto review boundaries. It is not an
+independent review and changes no waiver, review ledger or release gate.
 
 These are isolated fixtures/static checks. No manual live message, subscription,
 restock, order, notification, referral, Room, load or provider-outage exercise was
-performed. Mandatory push CI remains required and is separate from human value
+performed against production. The local synthetic outage/burst exercises above
+were performed. Mandatory push CI remains required and is separate from human value
 acceptance. No rollout flag, recipient cohort or operational schedule is changed.
 
 ## Remaining operating acceptance and resumption
@@ -116,7 +152,14 @@ Before production acceptance:
 5. Calibrate regional timings, provider/worker recovery, repeated inventory-cycle
    attribution, recipient fatigue and retention from real evidence (OPS-01/RET-01).
    Profile the canonical matching query and execute isolated staging load/outage
-   and race exercises (CAP-01) before scaling.
+   and race exercises (CAP-01) before scaling; the bounded local exercises above
+   do not close full deployed-infrastructure acceptance.
+
+The user supplied three account handles for live checks. Handles alone do not
+provide buyer/seller/admin sessions or identify an isolated staging environment.
+Deployment credentials only authorize Render/Cloudflare administration, not
+impersonating Winga users. Live acceptance remains pending that access and actual
+user activity; no identities, passwords or tokens are published in this report.
 
 These checks can use non-message buyer actions while Messages is incomplete.
 Message-dependent value, Phase 2 Room participation and protocol acceptance remain

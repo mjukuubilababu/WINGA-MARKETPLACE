@@ -7,6 +7,7 @@ Start here when resuming the Growth Loops specification:
 - [Phase 3 implementation, metrics and pending live acceptance](growth-phase3-status-20261013.md)
 - [Operations, security review and deferred validation handoff](growth-operations-handoff.md)
 - [Exact-scan security input index, 13 October](evidence/growth-security-review-input-20261013.json)
+- [Security triage and independent reviewer questions](growth-security-triage-20261013.md)
 - [Historical source/evidence map](growth-loops-spec-evidence-20261012.md)
 - [Canonical Conversations handoff](conversations-spec-handoff.md)
 - [Canonical rollout and rollback](growth-loops-rollout.md)

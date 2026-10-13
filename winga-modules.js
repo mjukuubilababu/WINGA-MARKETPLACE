@@ -26274,6 +26274,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             metric(t('growth.dashboard.linked','Demand responses linked'),data.demandResolution?.linked);
             metric(t('growth.dashboard.orders','Attributed order starts'),data.demandResolution?.ordered);
             metric(t('growth.dashboard.delivered','Canonical delivered orders'),data.demandResolution?.delivered);
+            metric(t('growth.dashboard.opportunityResponders','Opportunity responders'),data.sellerOpportunity?.responders);
+            metric(t('growth.dashboard.sellersPaid','Sellers with attributed paid orders'),data.sellerOpportunity?.withPaidOrder);
+            metric(t('growth.dashboard.sellersDelivered','Sellers with attributed deliveries'),data.sellerOpportunity?.withDeliveredOrder);
+            metric(t('growth.dashboard.sellerRepeat7','Mature seller repeat-response rate (7 days)'),data.sellerOpportunity?.repeat7Rate,true);
+            metric(t('growth.dashboard.sellerRepeat30','Mature seller repeat-response rate (30 days)'),data.sellerOpportunity?.repeat30Rate,true);
+            metric(t('growth.dashboard.time','Time to value (seconds)'),data.sellerOpportunity?.timeToFirstValueSeconds);
+            for(const days of [7,30])card.append(createAnalyticsListItem(
+              t(days===7?'growth.dashboard.sellerRepeat7':'growth.dashboard.sellerRepeat30',days===7?'Mature seller repeat-response rate (7 days)':'Mature seller repeat-response rate (30 days)'),
+              `${t('growth.dashboard.matureSellers','Sellers observed for the full window')}: ${count(data.sellerOpportunity?.['mature'+days])} · ${t('growth.dashboard.repeatSellers','Sellers responding to another Opportunity')}: ${count(data.sellerOpportunity?.['repeat'+days])}`));
             for(const row of (data.demandRequests?.sources||[])){
               const title=row.source==='search_subscription'?t('growth.dashboard.searchRequests','Search requests'):t('growth.dashboard.restockRequests','Restock requests');
               card.append(createAnalyticsListItem(title,
@@ -26283,7 +26292,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               `${t('growth.dashboard.supply','Available supply')}: ${count(row.available)} · ${t('growth.dashboard.search','Search result rate')}: ${rate(row.searchSuccessRate)}`));
           }
           card.append(grid);
-          for(const note of [...(data.limitations||[]),...(data.demandRequests?.limitations||[])].slice(0,13))if(typeof note==='string')card.append(el('p','product-meta',note));
+          for(const note of [...(data.limitations||[]),...(data.demandRequests?.limitations||[]),...(data.sellerOpportunity?.limitations||[])].slice(0,18))if(typeof note==='string')card.append(el('p','product-meta',note));
           section.append(card);
         }
       }).catch(()=>{if(sequence===growthSequence&&section.isConnected)section.replaceChildren(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));});

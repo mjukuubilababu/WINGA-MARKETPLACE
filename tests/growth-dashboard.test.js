@@ -27,3 +27,10 @@ test('late loop responses cannot populate another account dashboard',async()=>{
  const f=uiFixture();f.module.renderAnalyticsPanel({topCategories:[],recentProducts:[]},'Admin','');await settle();f.switchActor();
  f.resolve([{loop:'collection',available:true,data:{entryCount:999}}]);await settle();assert.equal(text(f.panel).includes('999'),false);
 });
+test('marketplace dashboard distinguishes paid/delivered seller value and keeps immature repeat unknown',async()=>{
+ const f=uiFixture();f.module.renderAnalyticsPanel({topCategories:[],recentProducts:[]},'Admin','');await settle();
+ f.resolve([{loop:'marketplace',available:true,data:{sellerOpportunity:{responders:3,withPaidOrder:2,withDeliveredOrder:1,repeat7Rate:null,repeat30Rate:null,limitations:['Repeat is a distinct response, not a page visit.']}}}]);await settle();
+ const rendered=text(f.panel);assert.match(rendered,/Opportunity responders/);assert.match(rendered,/Sellers with attributed paid orders/);
+ assert.match(rendered,/Sellers with attributed deliveries/);assert.match(rendered,/Mature seller repeat-response rate \(7 days\) —/);
+ assert.match(rendered,/Repeat is a distinct response, not a page visit/);
+});

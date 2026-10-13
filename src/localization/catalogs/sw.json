@@ -1,8 +1,15 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.3",
+    "version":  "2026.10.13.4",
     "locale":  "sw",
     "messages":  {
+        "growth.dashboard.matureSellers": "Wauzaji waliotimiza muda wa ufuatiliaji",
+        "growth.dashboard.repeatSellers": "Wauzaji waliojibu Fursa nyingine",
+        "growth.dashboard.opportunityResponders": "Wauzaji waliojibu Fursa",
+        "growth.dashboard.sellersPaid": "Wauzaji wenye oda zilizolipwa kupitia Fursa",
+        "growth.dashboard.sellersDelivered": "Wauzaji wenye oda zilizofikishwa kupitia Fursa",
+        "growth.dashboard.sellerRepeat7": "Kiwango cha wauzaji kujibu tena baada ya kupata thamani (siku 7)",
+        "growth.dashboard.sellerRepeat30": "Kiwango cha wauzaji kujibu tena baada ya kupata thamani (siku 30)",
         "commerceOpportunity.viewRequestedProduct": "Fungua bidhaa iliyoombwa",
         "commerceOpportunity.earlySignal": "Hii ni dalili ya mwanzo. Hakiki hitaji kabla ya kuongeza stock.",
         "commerceOpportunity.validateSupply": "Hakiki maelezo yanayoombwa na upatikanaji kabla ya kuongeza bidhaa.",

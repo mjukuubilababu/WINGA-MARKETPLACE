@@ -1,8 +1,15 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.3",
+    "version":  "2026.10.13.4",
     "locale":  "ar",
     "messages":  {
+        "growth.dashboard.matureSellers": "البائعون الذين أكملوا فترة المتابعة",
+        "growth.dashboard.repeatSellers": "البائعون الذين استجابوا لفرصة أخرى",
+        "growth.dashboard.opportunityResponders": "البائعون الذين استجابوا للفرص",
+        "growth.dashboard.sellersPaid": "البائعون ذوو الطلبات المدفوعة المنسوبة",
+        "growth.dashboard.sellersDelivered": "البائعون ذوو عمليات التسليم المنسوبة",
+        "growth.dashboard.sellerRepeat7": "معدل الاستجابة المتكررة للبائعين بعد اكتمال المدة (7 أيام)",
+        "growth.dashboard.sellerRepeat30": "معدل الاستجابة المتكررة للبائعين بعد اكتمال المدة (30 يوماً)",
         "commerceOpportunity.viewRequestedProduct": "عرض المنتج المطلوب",
         "commerceOpportunity.earlySignal": "إشارة أولية. تحقّق من الحاجة قبل إضافة مخزون.",
         "commerceOpportunity.validateSupply": "تحقّق من التفاصيل المطلوبة والتوفّر قبل إضافة المنتجات.",

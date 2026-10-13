@@ -4,9 +4,9 @@
   "updatedAt": "2026-10-13",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "c26f23960be553ee26554aaf067b34151b6a5959",
-    "cloudflareBuild": "20261013170120",
-    "verification": "Previously verified Render services/frontend assets/health and required CI; no human message or Phase 3 canary acceptance."
+    "commit": "e1e9a41d6db3fc3c6c0e24f083f664f1d78d8b4a",
+    "cloudflareBuild": "20261013195828",
+    "verification": "Previously verified all four Render services and frontend assets/health; functional, dependencies, beam and production verifier passed. Static analysis remained CODEQL_REVIEW_STALE (54 findings, zero independently reviewed). No human message or Phase 3 live value acceptance."
   },
   "overall": {
     "productionReady": false,
@@ -67,13 +67,14 @@
       "status": "needs_hardening",
       "priority": "P0",
       "title": "Current independent CodeQL/crypto review",
-      "evidence": "Exact scan of 3f3a0314 reported 54 findings and CODEQL_REVIEW_STALE; all 54 safe locations/fingerprints and the 90-day SARIF archive are retained. No independent approval is asserted.",
+      "evidence": "Latest start-of-continuation exact scan e1e9a41d reported 54 findings (21 error, 33 warning), zero independent current reviews and CODEQL_REVIEW_STALE. Implementation-side triage accounts for all navigation entries; it is not approval. Final changed source requires a fresh exact scan and actual independent review.",
       "nextAction": "Export exact-SHA SARIF, triage each occurrence, fix confirmed defects and obtain actual independent review bound to current source.",
       "sources": [
         "scripts/check-conversation-codeql.js",
         ".github/codeql-reviewed-findings.v1.json",
         "docs/e2ee-internal-security-review.md",
-        "docs/evidence/growth-security-review-input-20261013.json"
+        "docs/evidence/growth-security-review-input-20261013.json",
+        "docs/growth-security-triage-20261013.md"
       ],
       "dependsOn": [],
       "specSections": [
@@ -289,12 +290,13 @@
       "status": "validation_deferred",
       "priority": "P1",
       "title": "Staging load, outage and abuse acceptance",
-      "evidence": "Earlier bounded fixtures are historical evidence. No viral-scale, provider-outage or real-device exercise performed in this work.",
+      "evidence": "Bounded Phase 3 synthetic PostgreSQL 18.6 exercises passed: concurrent retries/workers, 60 requests, caps, notification failure/rollback/recovery and stop/expiry/withdrawal. Full deployed staging/viral/provider-outage/real-device acceptance remains deferred.",
       "nextAction": "Use approved isolated staging with explicit budgets and cancellation; run replay, cache loss, signed membership races and protection matrix.",
       "sources": [
         "docs/growth-operations-handoff.md",
         "tests/growth-postgres.test.mjs",
-        "tests/e2e/growth-loops.spec.js"
+        "tests/e2e/growth-loops.spec.js",
+        "tests/demand-resolution-resilience.test.mjs"
       ],
       "dependsOn": [
         "MSG-01",
@@ -316,11 +318,12 @@
       "status": "observation_pending",
       "priority": "P2",
       "title": "Mature acquisition, retention and network quality",
-      "evidence": "Per-loop cohorts exist; real D1/D7/D30 windows and causal utility are unknown, not zero.",
+      "evidence": "Per-loop cohorts exist; real D1/D7/D30 windows and causal utility are unknown, not zero. Seller Opportunity paid/delivered value and maturity-safe 7/30-day distinct repeat-response measurement now exists; no actual retention observation asserted.",
       "nextAction": "Observe genuinely acquired cohorts after consented activation; wait for maturity and report value, abuse and opt-outs separately.",
       "sources": [
         "backend/growth-cohorts.js",
-        "backend/growth-network-health.js"
+        "backend/growth-network-health.js",
+        "backend/growth-marketplace.js"
       ],
       "dependsOn": [
         "LIVE-01",
@@ -395,7 +398,7 @@
       "status": "source_prepared",
       "priority": "P1",
       "title": "Phase 3 canonical resolution, request reporting and seller/restock UX",
-      "evidence": "Phase 3 audited and hardened: repeat-event context matching, canonical matched-goal history, terminal retry, notification failure/session isolation, consent confirmation, early-signal copy and separate request cohorts. Isolated SQL/frontend contracts passed; no live value acceptance asserted.",
+      "evidence": "Phase 3 audited and hardened: repeat-event context matching, canonical matched-goal history, terminal retry, notification failure/session isolation, consent confirmation, early-signal copy and separate request cohorts. Isolated SQL/frontend contracts passed; no live value acceptance asserted. Further continuation added canonical attributed seller paid/delivered value and mature distinct-Opportunity repeat-response cohorts; reproduced/fixed tracked restock variant mismatch. 23 Phase 3 contracts pass on PGlite and disposable PostgreSQL 18.6, including 12 subscriptions/8 workers/60 requests and outage/recovery. Four dashboard tests and 1754-key catalogs pass.",
       "nextAction": "Retain source evidence; complete LIVE-03, SEC-01 and operational/capacity/retention acceptance with actual controlled observations. Do not close Phase 2 as a side effect.",
       "sources": [
         "backend/demand-resolution.js",
@@ -404,7 +407,11 @@
         "src/admin/ui.js",
         "src/product-detail/controller.js",
         "tests/search-opportunity-n1.test.mjs",
-        "docs/growth-phase3-status-20261013.md"
+        "docs/growth-phase3-status-20261013.md",
+        "tests/seller-opportunity-health.test.mjs",
+        "tests/demand-resolution-resilience.test.mjs",
+        "tests/helpers/demand-resolution.mjs",
+        "docs/evidence/growth-phase3-isolated-20261013.json"
       ],
       "dependsOn": [],
       "specSections": [
@@ -596,7 +603,7 @@
     {
       "section": 18,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -607,7 +614,7 @@
     {
       "section": 19,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -618,7 +625,7 @@
     {
       "section": 20,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -629,7 +636,7 @@
     {
       "section": 21,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -660,7 +667,7 @@
     {
       "section": 24,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [],
       "liveAcceptance": "not_performed_in_this_work"
@@ -668,7 +675,7 @@
     {
       "section": 25,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [],
       "liveAcceptance": "not_performed_in_this_work"

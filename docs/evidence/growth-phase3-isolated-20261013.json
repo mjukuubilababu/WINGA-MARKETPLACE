@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-13T20:21:07.596977+00:00",
+  "scope": "isolated Phase 3 implementation/measurement/resilience; not live value or independent security acceptance",
+  "sourceBaseline": "e1e9a41d6db3fc3c6c0e24f083f664f1d78d8b4a",
+  "sourceFiles": {
+    "backend/demand-resolution.js": "da3328aa8f080a66d1380a2dea2a69e47911eb3640fd1a0ebb71bf2f098eeffd",
+    "backend/growth-marketplace.js": "5fc0927849181a75cf88703e9c3cad8dc296609489b263c798d90a41404cc9d5",
+    "src/admin/ui.js": "855b723c220038ccb3146b386f4b6f7432a533e33b062cc0d1d6bda7bc41adc1",
+    "winga-modules.js": "0843b6ac4028d13adeaaa394f2bf788c8ca88dee0f2d32e0822b5fe97316a57a",
+    "tests/search-opportunity-n1.test.mjs": "31567e35473e7b9e0ca96f7e90104132ba3f1ea712a14c62d644b3d586c5fb06",
+    "tests/seller-opportunity-health.test.mjs": "a6009bf8b379972873c1a60a7aa5b3b654efb4f49be4f9df221bd2731812876d",
+    "tests/demand-resolution-resilience.test.mjs": "c69442474ce6d553444e0b64d255cc18a3cb7bb087ab078720947d01d4a85a8b",
+    "tests/helpers/demand-resolution.mjs": "ddf6f2b86a269ed17adf1b3efb369efde89a89a1ab3e1079b2759d16052d4d3b",
+    "tests/growth-dashboard.test.js": "41509fe182708285cda5d85288dbecc2ad1633c3e592f4b3250118c15a323593",
+    "scripts/run-local-growth-db-tests.sh": "a713bca9fec7f8a676424640c4656ed6a7326c910e5d5c05fa9c43385a38153c",
+    ".github/workflows/conversation-tests.yml": "fc9ca6658286f4769afd488eefb6b43fbb2af86a5df78cd2161bcf441dfc8832",
+    "package.json": "6bfe638779e66e6e1c5504880366466be929a57c2b355ad0c57e65661b48e0ef",
+    "src/localization/catalogs/en.json": "96fade225c65da493a81a3026774d509412eef7a50b177dbcc9ba287a676e17e",
+    "src/localization/catalogs/sw.json": "a1aa504b4822e6ddc52911bfb3a275f0a5b0859d1a0796d6b966e51760f3855e",
+    "src/localization/catalogs/fr.json": "205507a2affb7c7004d592657622e735ca3d59203c2739fe4eef17306b5280bf",
+    "src/localization/catalogs/ar.json": "06409b288197046e3a7aecf148fef635a0bcee8c6852ae814be8b879a1d48cb1"
+  },
+  "verification": {
+    "phase3Postgres": {
+      "passed": 23,
+      "failed": 0,
+      "version": "PostgreSQL 18.6",
+      "image": "postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+      "schemaAndContainerCleanup": true,
+      "usesProductionDatabase": false
+    },
+    "phase3PGlite": {
+      "passed": 23,
+      "failed": 0
+    },
+    "commerce": {
+      "passed": 22,
+      "failed": 0
+    },
+    "frontend": {
+      "passed": 149,
+      "failed": 0
+    },
+    "dashboard": {
+      "passed": 4,
+      "failed": 0
+    },
+    "growthSuites": "passed",
+    "localization": {
+      "locales": 4,
+      "keys": 1754,
+      "version": "2026.10.13.4",
+      "newHardcodedDebt": 0
+    },
+    "moduleSync": {
+      "modules": 98,
+      "passed": true
+    }
+  },
+  "boundedExercises": {
+    "subscriptionRetries": 12,
+    "competingWorkers": 8,
+    "independentRequests": 60,
+    "recipientCapPerRollingDay": 2,
+    "retryWorkerWholeFixtureMs": 101,
+    "burstRecoveryWholeFixtureMs": 331,
+    "limitations": "Local whole-fixture timings, not production percentiles/viral scale/regional SLO or provider availability."
+  },
+  "reproducedRegression": "Tracked product notified despite requested white/M inventory fully reserved; now active matching unreserved stock is required. Untracked inventory remains a declaration to verify.",
+  "security": "Implementation-side triage of 54 navigation entries; no independent review, waived findings, changed ledger or policy. Obtain exact-source scan after push.",
+  "liveAcceptance": "pending sessions, isolated staging and actual buyer/seller activity; supplied handles are not sessions",
+  "productionReady": false
+}

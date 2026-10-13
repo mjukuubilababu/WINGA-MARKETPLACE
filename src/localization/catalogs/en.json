@@ -1,8 +1,15 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.3",
+    "version":  "2026.10.13.4",
     "locale":  "en",
     "messages":  {
+        "growth.dashboard.matureSellers": "Sellers observed for the full window",
+        "growth.dashboard.repeatSellers": "Sellers responding to another Opportunity",
+        "growth.dashboard.opportunityResponders": "Opportunity responders",
+        "growth.dashboard.sellersPaid": "Sellers with attributed paid orders",
+        "growth.dashboard.sellersDelivered": "Sellers with attributed deliveries",
+        "growth.dashboard.sellerRepeat7": "Mature seller repeat-response rate (7 days)",
+        "growth.dashboard.sellerRepeat30": "Mature seller repeat-response rate (30 days)",
         "commerceOpportunity.viewRequestedProduct": "View requested product",
         "commerceOpportunity.earlySignal": "Early signal. Validate the need before adding stock.",
         "commerceOpportunity.validateSupply": "Check the requested details and availability before adding supply.",

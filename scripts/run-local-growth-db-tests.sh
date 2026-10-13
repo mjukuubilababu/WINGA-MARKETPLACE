@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 growth_mode="${1:-tests}"
-[[ "$growth_mode" == tests || "$growth_mode" == canary ]] || { echo 'Use tests or canary.' >&2; exit 1; }
+[[ "$growth_mode" == tests || "$growth_mode" == canary || "$growth_mode" == phase3 ]] || { echo 'Use tests, canary or phase3.' >&2; exit 1; }
 growth_container="winga-growth-test-$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
 # Pin the verified official PostgreSQL 18.6 image for repeatable acceptance.
 growth_image='postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336'
@@ -38,6 +38,8 @@ growth_docker exec "$growth_container" psql -U winga_test -d winga_test -Atc 'SE
 growth_docker image inspect "$growth_image" --format '{{index .RepoDigests 0}}'
 if [[ "$growth_mode" == canary ]]; then
   WINGA_TEST_GROWTH_CANARY=true node scripts/run-local-growth-canary.mjs
+elif [[ "$growth_mode" == phase3 ]]; then
+  npm run test:growth:phase3
 else
   node tests/growth-loops.test.mjs
   node tests/growth-postgres.test.mjs
