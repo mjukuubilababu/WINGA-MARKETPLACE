@@ -82,8 +82,20 @@ Those levels alone do not establish exploitability. No SARIF workflow artifact
 was listed for that baseline; detailed triage is not completed by this snapshot.
 
 The workflow now preserves `conversation-codeql-<exact SHA>` SARIF artifacts for
-90 days with `if: always()`, including failed review gates. A failed scan that
-produces no complete SARIF remains failed; archive availability is not a pass.
+90 days with `if: always()`, including failed review gates. This was observed for
+commit `3f3a0314ae2b3a14c3ffd8d7a3c53070d4d69de0`,
+[run 38432721903](https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/38432721903),
+job `115418776140`, [artifact 11831752409](https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/38432721903/artifacts/11831752409).
+The scan still reported 54 findings and `CODEQL_REVIEW_STALE`, zero reviewed.
+
+[Safe exact-scan input index](evidence/growth-security-review-input-20261013.json)
+retains all 54 gate-emitted locations/fingerprints and the ZIP digest/expiry.
+It omits raw SARIF messages/snippets and private payloads. It is historical
+navigation evidence; source changes require a new current scan/review. Download
+the actual artifact before its 11 January 2027 expiry if continued retention is
+needed. Do not import this index into the approval manifest or forge approvals.
+A failed scan that produces no complete SARIF remains failed; archive availability
+is not a pass.
 
 Reviewer procedure:
 

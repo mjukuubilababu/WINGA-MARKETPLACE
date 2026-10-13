@@ -16,9 +16,9 @@
     "evidenceRule": "Source present/prepared is not live acceptance; previous synthetic/CI results do not override the current blocker."
   },
   "securitySnapshot": {
-    "sourceCommit": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
-    "workflowRunId": 38423056933,
-    "jobId": 115385159157,
+    "sourceCommit": "3f3a0314ae2b3a14c3ffd8d7a3c53070d4d69de0",
+    "workflowRunId": 38432721903,
+    "jobId": 115418776140,
     "gate": "CODEQL_REVIEW_STALE",
     "reportedFindings": 54,
     "reportedLevels": {
@@ -26,7 +26,16 @@
       "warning": 33
     },
     "independentlyReviewedCurrentFindings": 0,
-    "sarifArtifactAtBaseline": "none listed; preservation added for subsequent runs"
+    "safeInputIndex": "docs/evidence/growth-security-review-input-20261013.json",
+    "artifact": {
+      "id": 11831752409,
+      "url": "https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/38432721903/artifacts/11831752409",
+      "name": "conversation-codeql-3f3a0314ae2b3a14c3ffd8d7a3c53070d4d69de0",
+      "zipSha256": "c33826b7135316b6bd56778132ce2af341bca846002c78bce68b436574411feb",
+      "sizeBytes": 118908,
+      "expiresAt": "2027-01-11T16:42:36Z"
+    },
+    "provenance": "Exact historical source scan, not independent approval or review of subsequent source changes."
   },
   "workItems": [
     {
@@ -58,12 +67,13 @@
       "status": "needs_hardening",
       "priority": "P0",
       "title": "Current independent CodeQL/crypto review",
-      "evidence": "Last known scan reported 54 security findings and CODEQL_REVIEW_STALE. No independent approval is asserted.",
+      "evidence": "Exact scan of 3f3a0314 reported 54 findings and CODEQL_REVIEW_STALE; all 54 safe locations/fingerprints and the 90-day SARIF archive are retained. No independent approval is asserted.",
       "nextAction": "Export exact-SHA SARIF, triage each occurrence, fix confirmed defects and obtain actual independent review bound to current source.",
       "sources": [
         "scripts/check-conversation-codeql.js",
         ".github/codeql-reviewed-findings.v1.json",
-        "docs/e2ee-internal-security-review.md"
+        "docs/e2ee-internal-security-review.md",
+        "docs/evidence/growth-security-review-input-20261013.json"
       ],
       "dependsOn": [],
       "specSections": [
@@ -100,7 +110,7 @@
       "status": "source_prepared",
       "priority": "P1",
       "title": "Preserve security review input",
-      "evidence": "CI now retains exact-commit SARIF for 90 days even when the review gate fails. This preserves evidence, not approval.",
+      "evidence": "Fail-closed review gate retained. Actual exact-source scan of 3f3a0314 archived SARIF for 90 days, artifact 11831752409; safe input index retains all 54 findings without approving them.",
       "nextAction": "Confirm artifact from a completed run and archive the reviewed packet before retention expires.",
       "sources": [
         ".github/workflows/conversation-tests.yml"
@@ -554,7 +564,7 @@
     {
       "section": 18,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03"
@@ -564,7 +574,7 @@
     {
       "section": 19,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03"
@@ -574,7 +584,7 @@
     {
       "section": 20,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03"
@@ -584,7 +594,7 @@
     {
       "section": 21,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03"
@@ -614,7 +624,7 @@
     {
       "section": 24,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [],
       "liveAcceptance": "not_performed_in_this_work"
@@ -622,7 +632,7 @@
     {
       "section": 25,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [],
       "liveAcceptance": "not_performed_in_this_work"
@@ -1412,5 +1422,18 @@
       ],
       "liveAcceptance": "not_performed_in_this_work"
     }
-  ]
+  ],
+  "previousSecuritySnapshot": {
+    "sourceCommit": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
+    "workflowRunId": 38423056933,
+    "jobId": 115385159157,
+    "gate": "CODEQL_REVIEW_STALE",
+    "reportedFindings": 54,
+    "reportedLevels": {
+      "error": 21,
+      "warning": 33
+    },
+    "independentlyReviewedCurrentFindings": 0,
+    "sarifArtifactAtBaseline": "none listed; preservation added for subsequent runs"
+  }
 }

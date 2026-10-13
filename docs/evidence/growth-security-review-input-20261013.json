@@ -1,0 +1,1118 @@
+{
+  "schemaVersion": 1,
+  "scope": "Exact historical scan inputs only; no independent approval, exploitability determination, fixes or production acceptance.",
+  "recordedAt": "2026-10-13",
+  "sourceCommit": "3f3a0314ae2b3a14c3ffd8d7a3c53070d4d69de0",
+  "workflowRunId": 38432721903,
+  "jobId": 115418776140,
+  "gate": {
+    "errorCode": "CODEQL_REVIEW_STALE",
+    "totals": {
+      "reports": 1,
+      "runs": 1,
+      "results": 54,
+      "securityFindings": 54,
+      "levels": {
+        "none": 0,
+        "note": 0,
+        "warning": 33,
+        "error": 21
+      },
+      "reviewedFindings": 0,
+      "unreviewedFindings": 54
+    },
+    "sourceTreeFingerprint": "62db5466c20a13a2427eecc1ae1ab4464030f230aa1bd17e69e007cb1d8d69aa"
+  },
+  "artifact": {
+    "id": 11831752409,
+    "url": "https://github.com/mjukuubilababu/WINGA-MARKETPLACE/actions/runs/38432721903/artifacts/11831752409",
+    "name": "conversation-codeql-3f3a0314ae2b3a14c3ffd8d7a3c53070d4d69de0",
+    "zipSha256": "c33826b7135316b6bd56778132ce2af341bca846002c78bce68b436574411feb",
+    "sizeBytes": 118908,
+    "expiresAt": "2027-01-11T16:42:36Z"
+  },
+  "privacy": "Safe gate-emitted metadata only; no private bodies, SARIF messages/snippets, raw tokens or registry reviewer details.",
+  "reviewPolicy": "For current approval, obtain current exact-SHA SARIF and independent source/crypto review. These records are a navigation snapshot, never importable approval entries. Re-scan after source changes; do not mark findings reviewed from their level or location alone.",
+  "findings": [
+    {
+      "report": 0,
+      "run": 0,
+      "result": 0,
+      "ruleId": "js/request-forgery",
+      "level": "error",
+      "securitySeverity": 9.1,
+      "locations": [
+        {
+          "path": "tmp-bootstrap-integrity-check.mjs",
+          "line": 37,
+          "sourceSha256": "5ce717fdc147306f9f4276cdb8932a79ea704cdc3f2bec09c141eeb561795775"
+        }
+      ],
+      "resultFingerprint": "d1e42ca409210bd3b83153488c81265dce5df24b0ec15a3dd1d3263afbc1150e",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "2ea9f76b3d4c18c7ee1203ab8c1cb411c2ff2ae682ee71218090edffa7471951"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 1,
+      "ruleId": "js/request-forgery",
+      "level": "error",
+      "securitySeverity": 9.1,
+      "locations": [
+        {
+          "path": "tmp-image-viewport-check.mjs",
+          "line": 36,
+          "sourceSha256": "9587b71cf8bd88dc216af15221b78bd16b8215d563e4accdfe15858adc3d1e84"
+        }
+      ],
+      "resultFingerprint": "bd98832f23ca6c8c21c0d57560498369c0e2f7a524d313f0ace5a585735b805b",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "57aa2f51f008200d1624d042ffbf6ccaca4c6a47e2ec9f4e3844770339c35bc8"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 2,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 2546,
+          "sourceSha256": "b1913c810e450ffb0e06dea087adaf085464396e08dd35de8630f3a8bfcdb78a"
+        }
+      ],
+      "resultFingerprint": "d8beedb2855f3e715c7c93840fc412d8e4bf0ac12996d5df43b48ee211786573",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 3,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "src/chat/voice-ui.js",
+          "line": 42,
+          "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37"
+        }
+      ],
+      "resultFingerprint": "d63bcd0cac7857f5c987b9d5a644aaf1a46dfce9fb384025a970a350d8081c57",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "43bf0a10efd66d08266eb3f59fb2ce878bad9a0f637f7248357943defbcfd174"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 4,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "src/chat/voice-ui.js",
+          "line": 45,
+          "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37"
+        }
+      ],
+      "resultFingerprint": "51007d1fd9e1b98da8710391c443a78de0d7d954c81079f9e58a38909037961d",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "43bf0a10efd66d08266eb3f59fb2ce878bad9a0f637f7248357943defbcfd174"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 5,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 22016,
+          "sourceSha256": "9b5938b00ab7fc70e3d7a0bcf9cd232e39eb7f06b43116c02f97676d5b298583"
+        }
+      ],
+      "resultFingerprint": "7234205b7a2db86ccf3a700b08ced380fe3ba79427a4db5cc85bd36e828fa285",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 6,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 22019,
+          "sourceSha256": "9b5938b00ab7fc70e3d7a0bcf9cd232e39eb7f06b43116c02f97676d5b298583"
+        }
+      ],
+      "resultFingerprint": "04a67a507e97dc9d4425973eb5e78b84aa042f7ba0dc532f1433a0afda276da1",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 7,
+      "ruleId": "js/bad-tag-filter",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/message-receipts.test.js",
+          "line": 236,
+          "sourceSha256": "c83c2f4dae7670cd78edf425e88ace5c1c23e4eff3fbfa6ba51ca75cdc9a47a5"
+        }
+      ],
+      "resultFingerprint": "4dc0f4bdf6c40b5a58a4c16d244229d0d36ea2c50a2df887796952e50d5bffc2",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "64f57d32c889c4b6cbc3b35dc190e88ed8208c24ebb848b79326350fa8a848ab"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 8,
+      "ruleId": "js/incomplete-sanitization",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 5104,
+          "sourceSha256": "c0da542f1491325d53634217d05d7211a067ab896dac3b73f88d5494202c8cf4"
+        }
+      ],
+      "resultFingerprint": "1a06fee275379e353c820846d1d46cf5c591646d2c13a9574b145dba6fab338f",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 9,
+      "ruleId": "js/incomplete-sanitization",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 5299,
+          "sourceSha256": "c0da542f1491325d53634217d05d7211a067ab896dac3b73f88d5494202c8cf4"
+        }
+      ],
+      "resultFingerprint": "8d205c2b1264b3159e54cb361b1fbad7b7a99c811b38fd87cefd795d050be92c",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 10,
+      "ruleId": "js/insecure-randomness",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "src/marketplace/video-playback.js",
+          "line": 329,
+          "sourceSha256": "1cf4e5e5eaee8ac041668ef18aa036ee49730d2978e13ac148aff74f66c280ff"
+        }
+      ],
+      "resultFingerprint": "92b728500f964596f237bf1f8353a3858157b06f6097591caa14901bbfad136e",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "4ea0ec895841d8b26db5eb300cb60aab89d71693a0c47b428407b98c19b5927b"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 11,
+      "ruleId": "js/insecure-randomness",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 13666,
+          "sourceSha256": "9b5938b00ab7fc70e3d7a0bcf9cd232e39eb7f06b43116c02f97676d5b298583"
+        }
+      ],
+      "resultFingerprint": "fc36f4ed9d2d08c640d8fc15599dd257613d2103811db00dee29124abee01ba9",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 12,
+      "ruleId": "js/incomplete-url-substring-sanitization",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 3276,
+          "sourceSha256": "c0da542f1491325d53634217d05d7211a067ab896dac3b73f88d5494202c8cf4"
+        }
+      ],
+      "resultFingerprint": "d8b554005728a1e7547fc24997631cd31be9deeaa7c2d89325df0e76c84af2fa",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 13,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "backend/backup-legacy-private-media.js",
+          "line": 122,
+          "sourceSha256": "79ea79700b4af5c590cc447e06dfddd08d6ddf7945ef654d6492007a2c4ed9cc"
+        }
+      ],
+      "resultFingerprint": "a1cef89e822d34cdfdc5500d0b662d46d42171e5b6d25a4399ecf192b5ae423e",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "5ae8a5c733ce37dfceae36675592449b156bcaad1138bf144c601043baca3fb2"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 14,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "backend/legacy-public-media.js",
+          "line": 113,
+          "sourceSha256": "26703465cecf4b9f89055c300e2d7b8be0caaf9b980ac58f7f423e1371c6b3cf"
+        }
+      ],
+      "resultFingerprint": "1bcdb225e8f48fc4e2484893492eef56eb515c06ace1d290b130d81607f8cdec",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "cc582da49d1b7c7e5294a02acf9266d7484db30ad08998e2216643b49ac74411"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 15,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "backend/stable-local-file.js",
+          "line": 14,
+          "sourceSha256": "ebeb859c8fe20eb1cdf1e2b8d471c94329db445f0375fec43ea256999e1be7fb"
+        }
+      ],
+      "resultFingerprint": "a2070456835c312132fe51a0f55b4f539ff22765ea602c7aa66e51244820359f",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "9300c2de69f5377f45717c8005ce9a84660d7b5fc148543a6622338843591fc6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 16,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 619,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "b06d308fed9411c94a67caaed475d3e61073fed6373d64f832aaf44a4f855817",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 17,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/copy-legacy-public-media.test.js",
+          "line": 176,
+          "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032"
+        }
+      ],
+      "resultFingerprint": "afa71ec675008bbef99dfbee62065d7ce8686d42075a9d662b747e3ebf04dcc1",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "f47cb71509aab7280237707196a1f3a8ce3e65ac7f94a25e8a7d25af39643c44"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 18,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/copy-legacy-public-media.test.js",
+          "line": 210,
+          "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032"
+        }
+      ],
+      "resultFingerprint": "ddcb91e06b225e4242f7ec0035fda6f94752c1783d25829a50ca9bec3ae0822c",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "f47cb71509aab7280237707196a1f3a8ce3e65ac7f94a25e8a7d25af39643c44"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 19,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 995,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "d7c9cc420423a587e671b101df24dd6ce723b9dee61d06ce5145cf4aa1a48a87",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 20,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 1035,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "645fa3f54fcfc86d15fbbdb71d538be8bf6642369ad493897c1e0c7af505d066",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 21,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 1383,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "543800da4e8d937a0faec511e70d09bc9f5720a6cbf44238bfa234b9f156f339",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 22,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "securitySeverity": 7.7,
+      "locations": [
+        {
+          "path": "tests/helpers/phoenix-fixture-startup.js",
+          "line": 24,
+          "sourceSha256": "916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8"
+        }
+      ],
+      "resultFingerprint": "6d7fd5f52dca270c9273b1edf8426185235a439f72dfcff86eda3a423a6b301a",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "fb0ce679e0cc461fb044bb196204f4a0b8503452ba4cef9cc49b89caf159e71b"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 23,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "securitySeverity": 7.5,
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 266,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "37f779f7779c385900c3693bf0a347bfbdf49e2fada70ae5f4bd5af437f13b0d",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 24,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "securitySeverity": 7.5,
+      "locations": [
+        {
+          "path": "backend/intelligence-platform.js",
+          "line": 313,
+          "sourceSha256": "60fc5f028f51488e7051b8da107bebe3242826750e3a55e32058d4f8ac39055c"
+        }
+      ],
+      "resultFingerprint": "ebaa6de7e45ba212e762f38e9f829d5d15e450a8d443fc6a4c3af0338ccac71e",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "097998966d0fe99a0e402b063f4784e006e71869aa33831467c0b97184e0adce"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 25,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "securitySeverity": 7.5,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 3847,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "85a702d572fe1cd907a3a46a2c6bc37bab60587497b9feb2a5a114bb89081cf6",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 26,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "securitySeverity": 7.5,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 3849,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "42337d13c325b1ab0d4a02c90188b5717e832170927ca0cd727713b4ceb18e87",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 27,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-native-history.js",
+          "line": 37,
+          "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8"
+        }
+      ],
+      "resultFingerprint": "5e3687615cc03d93e9e19ebdb375c1f05d131b39e79f6acc388405cd5b0dc9c9",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "06ee595bedacaa266f705898c8e9c2244feb69be1d44b610f1c18bef1354985d"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 28,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-native-history.js",
+          "line": 60,
+          "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8"
+        }
+      ],
+      "resultFingerprint": "ef32db92ca121d23d4fb993e2316248d7d3e535264bf30664c0064bbddb3ff0b",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "06ee595bedacaa266f705898c8e9c2244feb69be1d44b610f1c18bef1354985d"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 29,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 108,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "a2ce4285b5c35871e710f68ace7404e226828fa3bb578a29486b87f07dd9ab97",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 30,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 261,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "26ac0a5bd2e0a262fbd52e5b6985ed30e48e06ee1a007a7f80178ab27af7b08d",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 31,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 290,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "a9df97e31986ee4b1e0f3d04f8a2b199cba3e95b37e8e75fac37acdeb28603d2",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 32,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 294,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "9ae0f232dbffbd9a765293ac0ea8177f9117a2761c35355c4553376c8a4d2615",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 33,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 68,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "a787d80702ecd9f6edf8a495c20fa2828b8a715cfca6e16c9adf8aae0cc8f7fb",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "b005d387d0d9195d79fc59e46f7a4a1b6e2859c4be4be1f08d5e9dbf82cc3b11"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 34,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 103,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "ab1ae88860604687b93a7c48dc014d8221c7a9bde38d055f38e92c8fd686f9e7",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "b005d387d0d9195d79fc59e46f7a4a1b6e2859c4be4be1f08d5e9dbf82cc3b11"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 35,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 115,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "c6498f2fd65cf26ea2acfc8a68b6dfc01cce2ea48211acb987eab13ce36d5602",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "b005d387d0d9195d79fc59e46f7a4a1b6e2859c4be4be1f08d5e9dbf82cc3b11"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 36,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 126,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "8e3d6a6bda1a80123c50172546dd903d0e59d0b196684bd269fe20148385eba7",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "b005d387d0d9195d79fc59e46f7a4a1b6e2859c4be4be1f08d5e9dbf82cc3b11"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 37,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 137,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "050e264902a99649918b03dd4ac4b42e7e237c578eb7af43f3817fc540089f70",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "b005d387d0d9195d79fc59e46f7a4a1b6e2859c4be4be1f08d5e9dbf82cc3b11"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 38,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 7968,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "e95c087785877cf76bc892aa200179a7eafe89715d5ecbafec18e5bd5d6b7d4d",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 39,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 19740,
+          "sourceSha256": "b1913c810e450ffb0e06dea087adaf085464396e08dd35de8630f3a8bfcdb78a"
+        }
+      ],
+      "resultFingerprint": "6eddcef87758f58f74ba1edf49f05642b193e61920efc3134095b64cc18cc8cf",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 40,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 10348,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "38aede132fe7897809eac254612c0c3aea8a5e4f9b5e7b7aa3b3239acb5ff0a5",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 41,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 10493,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "7871c5db558cffabb8d52ea98229dae31113ab8c0cbda704f194d6d8eb05959a",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 42,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 11301,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "76ee733c432da1e8d33469fe985e2ace1a5fa8944518a53db7768d8469db104c",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 43,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 24375,
+          "sourceSha256": "b1913c810e450ffb0e06dea087adaf085464396e08dd35de8630f3a8bfcdb78a"
+        }
+      ],
+      "resultFingerprint": "968130d879e916c8d7ffd04eafc8a58f9abd466e3ec2fa27ca21b37b364a9aee",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 44,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 25897,
+          "sourceSha256": "b1913c810e450ffb0e06dea087adaf085464396e08dd35de8630f3a8bfcdb78a"
+        }
+      ],
+      "resultFingerprint": "5593f83d6a65f957cf336cad064fc50e4e23db49e36b2bf75c91b1ed42a508b0",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 45,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 14844,
+          "sourceSha256": "1b0f9265e4be95dce6a49c588c33ec4f330a09006157e60e3e419078ac909681"
+        }
+      ],
+      "resultFingerprint": "c2b66f3f6657fcb51282b4153c20427f99e422d406f67bcba12d4ce48ec86404",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 46,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "securitySeverity": 6.3,
+      "locations": [
+        {
+          "path": "scripts/build-vercel-static.js",
+          "line": 720,
+          "sourceSha256": "dfcbbcc981894abbc82b10b4fc6c526b7dae4c606d088ff798ed1d9df5d6d054"
+        }
+      ],
+      "resultFingerprint": "76005da46dbfc62c92cfd46f845d515e7aefc4a5806bbfceb22cdaabd0bdfaa6",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "7f55066a124fbd17ac613279c67b9a856059b355e938235c405ab5c33273f616"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 47,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "securitySeverity": 6.3,
+      "locations": [
+        {
+          "path": "scripts/build-vercel-static.js",
+          "line": 972,
+          "sourceSha256": "dfcbbcc981894abbc82b10b4fc6c526b7dae4c606d088ff798ed1d9df5d6d054"
+        }
+      ],
+      "resultFingerprint": "6f0bfd294c3ec00de825d7e2614f64e50190e3fd291cdf869a13d09a019d0389",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "7f55066a124fbd17ac613279c67b9a856059b355e938235c405ab5c33273f616"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 48,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "securitySeverity": 6.3,
+      "locations": [
+        {
+          "path": "tests/e2e/start-servers.js",
+          "line": 442,
+          "sourceSha256": "fd1de267c8c1a59d7d028e49f0445830e991c7a38c3ab07b35b36544f4b4551d"
+        }
+      ],
+      "resultFingerprint": "01ea34789d25cebb99102058dbd8477990b2409e12a0510f33548543054977c3",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "d0588b7901362d4ca98f697d94cc213dd7bd7c0c2f6e0f61f0a57ee1ec84c198"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 49,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "src/marketplace/gallery.js",
+          "line": 223,
+          "sourceSha256": "1ec1864ef295ebb822917bf8500308086eab980f08f7b7b3aab46597dc08dba2"
+        }
+      ],
+      "resultFingerprint": "002760eda936d4c902759613504b183f3850cbef5c45fc13ca329199d6f8c533",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "46dfae8ce0313082a210591a6363c418bcbb28f3836ac7f25bd5adfe69a093f5"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 50,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 280,
+          "sourceSha256": "c0da542f1491325d53634217d05d7211a067ab896dac3b73f88d5494202c8cf4"
+        }
+      ],
+      "resultFingerprint": "19e6c96632f0afe1027e2aadb6769391b1e0bc9615760f80afa522bef8e75a50",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 51,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 3355,
+          "sourceSha256": "c0da542f1491325d53634217d05d7211a067ab896dac3b73f88d5494202c8cf4"
+        }
+      ],
+      "resultFingerprint": "a6239301053a27ab93778e2a6968ad680562825e22e18bd267c98dc8e2ac261b",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 52,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "worker.js",
+          "line": 1172,
+          "sourceSha256": "2f02bf3a5030c4dabf2bcafb10f2c8892f6fd31bb4a977a643e517aa4d39c3da"
+        }
+      ],
+      "resultFingerprint": "333779becaae6de759894394cfabf9536b80567aed2cd9c7319a5959da0a11a1",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "aa3f832e6b1bdd730f262aa71be64995425ac00fece07d1fdee089dbb360fb75"
+    },
+    {
+      "report": 0,
+      "run": 0,
+      "result": 53,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "securitySeverity": 7.8,
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 9195,
+          "sourceSha256": "9b5938b00ab7fc70e3d7a0bcf9cd232e39eb7f06b43116c02f97676d5b298583"
+        }
+      ],
+      "resultFingerprint": "d9bf48ac9d5e8ffb58c1a7815c4bcc49276e2ba127d0659d01d265771cec9e69",
+      "status": "unreviewed",
+      "closureVersion": 2,
+      "closureEligible": true,
+      "closureSha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6"
+    }
+  ]
+}

@@ -52,6 +52,13 @@ ledger sections/source references/dependency IDs, four catalogs with 1,734 keys,
 zero new hard-coded UI debt, workflow YAML parsing and synchronized 98-module
 static build. None of these checks confirms live delivery or Room participation.
 
+The subsequent exact-source scan of `3f3a0314` produced 54 findings and preserved
+its SARIF artifact. The [safe security input index](evidence/growth-security-review-input-20261013.json)
+retains all 54 source locations/fingerprints, exact run/job/artifact identifiers,
+archive digest and expiry. Every finding stays unreviewed; the index is a
+historical navigation snapshot, not a current approval ledger. Retrieve a new
+exact-SHA scan before approving source that changed after this snapshot.
+
 ## Current capability audit
 
 Classifications describe current source/product scope, not a production certificate.
@@ -91,7 +98,7 @@ UNSAFE capability is asserted without finding-level evidence; SEC-01 stays open.
 | ID | Priority / status | What remains / finish criterion |
 | --- | --- | --- |
 | MSG-01 | P0 BLOCKED | Finish canonical Messages and trusted native membership/device readiness. Capture real explicit sender/recipient acceptance with stable retries, no downgrade, and meaningful delivery. |
-| SEC-01 | P0 NEEDS HARDENING | Independently review current exact-SHA security/crypto inputs. Last known CodeQL gate: 54 findings (21 error, 33 warning), `CODEQL_REVIEW_STALE`, zero current reviewed findings. Scanner levels are not proof of exploitability or a completed review. |
+| SEC-01 | P0 NEEDS HARDENING | Independently review current exact-SHA security/crypto inputs. Scan of `3f3a0314`: 54 findings (21 error, 33 warning), `CODEQL_REVIEW_STALE`, zero current reviewed findings. Full safe input index and 90-day SARIF archive available. Scanner levels are not proof of exploitability or a completed review. |
 | LIVE-01 | P1 DEFERRED | Consented Product Share open/view/save/message/reshare, exact auth return and privacy. Public-link value and internal-message value are separate transitions. |
 | LIVE-02 | P1 BLOCKED | First real Room, capability/config checks, canonical membership, scoped invitation, expiry/revoke/block and meaningful vote/comment/product participation. |
 | LIVE-03 | P1 OBSERVATION | Legitimate N=1 demand → eligible seller response → relevant supply → actual buyer resolution; quality/fulfillment/fairness and paid/organic separation. |
