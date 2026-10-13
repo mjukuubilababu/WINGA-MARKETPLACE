@@ -1,6 +1,6 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.09.09.3",
+    "version":  "2026.10.13.1",
     "locale":  "fr",
     "messages":  {
         "growth.chooseShareDestination": "Choisissez une personne ou un salon.",

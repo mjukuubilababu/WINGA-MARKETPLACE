@@ -4780,6 +4780,30 @@ test("upload errors distinguish retryable server failures from network timeouts"
   assert.equal(explain({ status: 400, message: "Invalid category" }), "Invalid category");
 });
 
+test("returning browsers load current translations without discarding their catalog cache", async () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/localization/runtime.js"), "utf8");
+  const cache = new Map([["/src/localization/catalogs/en.json", { schemaVersion: 1, version: "old", locale: "en", messages: {} }]]);
+  const requests = [];
+  function create(build) {
+    const target = { WingaModules: {}, setTimeout() {}, localStorage: { getItem: () => null, setItem() {} },
+      document: { documentElement: { dataset: {} }, querySelector: selector => selector === 'meta[name="winga-build"]' ? {content: build} : null, querySelectorAll: () => [] },
+      CustomEvent: class { constructor(type, options) { this.type=type;this.detail=options.detail; } }, dispatchEvent() {},
+      fetch: async url => { requests.push(url);if(!cache.has(url))cache.set(url,{schemaVersion:1,version:build,locale:'en',messages:{'growth.shareHeadline':'Find together '+build}});
+        return {ok:true,json:async()=>cache.get(url)}; }
+    };
+    vm.runInNewContext(source, { window: target, Intl });
+    return target.WingaModules.localization.createRuntime({ window: target });
+  }
+  const first = create('20261013160000');await first.loadCatalog('en');await first.loadCatalog('en');
+  assert.equal(first.translate('growth.shareHeadline'), 'Find together 20261013160000');
+  assert.equal(requests.length, 1, 'Same release reuses its loaded catalog');
+  const next = create('20261013160100');await next.loadCatalog('en');
+  assert.equal(next.translate('growth.shareHeadline'), 'Find together 20261013160100');
+  assert.equal(cache.has('/src/localization/catalogs/en.json'), true, 'Older cache is preserved');
+  const invalid = create('bad&redirect=https://example.invalid');await invalid.loadCatalog('en');
+  assert.equal(requests.at(-1), '/src/localization/catalogs/en.json');
+});
+
 test("global translation catalogs are versioned, validated, cached, and fail soft", () => {
   const runtimeSource = fs.readFileSync(path.join(__dirname, "..", "src", "localization", "runtime.js"), "utf8");
   const indexSource = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");

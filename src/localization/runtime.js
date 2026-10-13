@@ -69,7 +69,9 @@
     const listeners = new Set();
     const fetchCatalog = deps.fetchCatalog || (async (locale) => {
       const language = languageOf(locale) || DEFAULT_LANGUAGE;
-      const response = await targetWindow.fetch(`${CATALOG_BASE_PATH}/${encodeURIComponent(language)}.json`, {
+      const buildVersion = String(targetWindow.document?.querySelector?.('meta[name="winga-build"]')?.content || "").trim();
+      const versionSuffix = /^\d{14}$/.test(buildVersion) ? `?v=${buildVersion}` : "";
+      const response = await targetWindow.fetch(`${CATALOG_BASE_PATH}/${encodeURIComponent(language)}.json${versionSuffix}`, {
         credentials: "same-origin",
         cache: "force-cache",
         headers: { Accept: "application/json" }

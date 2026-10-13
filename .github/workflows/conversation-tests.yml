@@ -41,6 +41,8 @@ jobs:
       - run: npm run test:conversation-rooms
       - run: npm run test:conversation-security
       - run: npm run test:conversation-operations
+      - name: Test frontend presentation and versioned translations
+        run: npm run test:frontend && npm run test:localization && npm run verify:modules-sync
       - name: Test growth runtime, share and isolated SQL contracts
         env:
           WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'

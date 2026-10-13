@@ -63,3 +63,7 @@ The existing 27 sharing browser cases pass with the new presentation, including
 filter continuity. Visual inspection covers 390px mobile, 1280px desktop and
 320px RTL layouts, empty search and native security dialog cleanup. Screenshot
 recipients and Rooms are local fixtures, not live participation evidence.
+
+The canonical localization loader uses the validated deployed build stamp in
+catalog URLs, so returning browsers receive the matching copy without clearing
+their existing cache. Same-release requests remain deduplicated and cached.
