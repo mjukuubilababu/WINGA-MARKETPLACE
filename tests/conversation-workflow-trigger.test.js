@@ -59,7 +59,9 @@ test('unconditional actual scan gate and trigger regressions remain wired into C
   for (const body of jobs.values()) assert.doesNotMatch(body, /^    needs:/m);
   assert.match(workflow, /^permissions:\r?\n  contents: read\r?\nconcurrency:/m);
   assert.match(security, /^    permissions:\r?\n      contents: read\r?\n      security-events: write\r?\n    steps:/m);
-  assert.deepEqual(security.match(/^        if: .+$/gm)?.map(line => line.trim()), ['if: ${{ !cancelled() }}']);
+  assert.deepEqual(security.match(/^        if: .+$/gm)?.map(line => line.trim()),
+    ['if: ${{ !cancelled() }}', 'if: always()']);
+  assert.match(security, /^      - name: Preserve CodeQL review inputs even when the gate fails\r?\n        if: always\(\)\r?\n        uses: actions\/upload-artifact@v4\r?\n        with:/m);
   assert.match(security, /^      - name: Gate actual CodeQL security findings\r?\n        if: \$\{\{ !cancelled\(\) \}\}\r?\n        env:/m);
   assert.match(security, /^      - uses: github\/codeql-action\/init@v4\s*$/m);
   assert.match(workflow, /^        run: node --test tests\/conversation-codeql-gate\.test\.js tests\/conversation-workflow-trigger\.test\.js\s*$/m);

@@ -21241,7 +21241,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const visible=rooms.filter(r=>Boolean(r.preferences?.archived)===Boolean(state.showArchived)&&r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
       for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':draft.kind==='leave'?'resumeLeave':'resumeChange',draft.id);state.tab='chat';}));
       for(const room of visible){const b=button('',async()=>{state.selected=room.id;state.shown=100;state.tab='chat';},'message-thread-item'+(state.selected===room.id?' active':''));
-        b.dataset.roomRow=room.id;b.classList.add('winga-room-row');const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
+        b.dataset.roomRow=room.id;b.className+=' winga-room-row';const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
         const meta=element('span','','message-thread-meta');meta.append(element('strong',room.name));
         const history=state.history.get(room.id)||[],last=history.filter(m=>!m.message.startsWith('WINGA-ROOM/')).at(-1);
         const preview=last?.message.startsWith('WINGA-MEDIA/')?t('rooms.attachment','Attachment'):last?.message;

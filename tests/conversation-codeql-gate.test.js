@@ -633,7 +633,21 @@ test('workflow wires Node 24 and the actual analyze output into an unconditional
   assert.match(job, /CODEQL_REVIEW_MANIFEST: \.github\/codeql-reviewed-findings\.v1\.json/);
   assert.match(job, /run: node scripts\/check-conversation-codeql\.js/);
   assert.match(job, /queries: security-extended/);
-  assert.doesNotMatch(job, /continue-on-error|upload-artifact|secrets\.|actions: write|contents: write|upload: never/);
+  assert.doesNotMatch(job, /continue-on-error|secrets\.|actions: write|contents: write|upload: never/);
+  const archiveStart = job.indexOf('      - name: Preserve CodeQL review inputs even when the gate fails');
+  assert.ok(archiveStart > job.indexOf('        run: node scripts/check-conversation-codeql.js'));
+  assert.doesNotMatch(job.slice(0, archiveStart), /upload-artifact/);
+  // Retaining exact-scan evidence after failure must not waive or replace the gate.
+  assert.equal(job.slice(archiveStart).trim(), [
+    '- name: Preserve CodeQL review inputs even when the gate fails',
+    '        if: always()',
+    '        uses: actions/upload-artifact@v4',
+    '        with:',
+    '          name: conversation-codeql-${{ github.sha }}',
+    '          path: ${{ runner.temp }}/conversation-codeql-sarif/**/*.sarif',
+    '          retention-days: 90',
+    '          if-no-files-found: warn'
+  ].join('\n'));
 });
 
 function fixtureGit(root, args) {
