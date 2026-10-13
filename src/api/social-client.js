@@ -10,6 +10,11 @@
     function headers(json = false) {
       return { ...(json ? { "Content-Type": "application/json" } : {}), ...createAuthHeaders() };
     }
+    async function searchPeople(query,options={}) {
+      requireFetcher();
+      const params=new URLSearchParams({q:String(query||'').trim().slice(0,80),limit:String(Math.max(1,Math.min(Number(options.limit)||20,30)))});
+      return fetchJson(`${baseUrl}/social/people?${params}`,{headers:headers(),timeoutMs:5000});
+    }
     async function loadFollows(options = {}) {
       requireFetcher();
       const query = new URLSearchParams({
@@ -116,6 +121,7 @@
       });
     }
     return {
+      searchPeople,
       loadFollows,
       loadFollowSuggestions,
       loadBlocks,

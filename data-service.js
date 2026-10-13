@@ -1933,6 +1933,7 @@ async loadAdminPayments(filters) {
       async loadFollowSuggestions(options = {}) {
         return getSocialApiClient().loadFollowSuggestions(options);
       },
+      async searchPeople(query,options={}) {return getSocialApiClient().searchPeople(query,options);},
       async loadBlockedUsers(options = {}) {
         return getSocialApiClient().loadBlocks(options);
       },
@@ -4082,6 +4083,11 @@ async loadAdminPayments() {
       return state.adapter.loadSocialProfile
         ? state.adapter.loadSocialProfile(username, options)
         : { profile: null };
+    },
+    async searchPeople(query,options={}) {
+      assertPersonAccess();ensureAdapter();
+      if(!state.adapter.searchPeople)throw new Error('people_search_unavailable'); // i18n-gate: allow -- internal diagnostic, localized by the share picker
+      return state.adapter.searchPeople(query,options);
     },
     async loadUserCollections(username, options = {}) {
       ensureAdapter();

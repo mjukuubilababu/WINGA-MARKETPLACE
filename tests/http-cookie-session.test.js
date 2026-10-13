@@ -99,6 +99,14 @@ test("cookie-only auth responses preserve the current session ID without exposin
   assert.equal(restored.response.status, 200);
   assert.equal(restored.body.sessionId, login.body.sessionId);
   assert.equal(Object.hasOwn(restored.body, 'token'), false);
+  const guestPeople = await request('/social/people?q=rey');
+  assert.ok([401,403].includes(guestPeople.response.status));
+  assert.equal(Object.hasOwn(guestPeople.body,'items'),false);
+  const spoofedPeople = await request('/social/people?q=rey&username=other', {headers:{Cookie:cookie}});
+  assert.equal(spoofedPeople.response.status,400);
+  const unavailablePeople = await request('/social/people?q=rey', {headers:{Cookie:cookie}});
+  assert.equal(unavailablePeople.response.status,503);
+  assert.equal(unavailablePeople.body.code,'people_search_unavailable');
   const browser = { window: {}, AbortController };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'api', 'auth-client.js'), 'utf8'), browser);
   let cachedSession = { username };

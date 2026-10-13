@@ -15,8 +15,8 @@ Share to Winga reuses the canonical encrypted inbox and active, accepted Shoppin
 Rooms. The existing rich product card, stable message IDs, public-content checks,
 recipient selection and transport authorization remain authoritative. Guests see
 the product first; selecting internal sharing authenticates and returns to the
-same product and internal share dialog. Empty destination lists explain that a
-ready conversation or Room is needed. This does not create a second recipient,
+same product and internal share dialog. Recipient discovery now supports empty
+history through [public people search](growth-recipient-search-20261013.md). This does not create a second recipient,
 invite, membership or messaging system.
 
 Product Share controls are excluded from gallery navigation gestures and retain

@@ -46,7 +46,7 @@ jobs:
           WINGA_TEST_SHOPPING_ROOMS_POSTGRES: 'false'
         run: npm run test:growth
       - name: Test file and untrusted-key security regressions
-        run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js tests/loopback-proxy-security.test.js
+        run: node --test tests/stable-local-file.test.js tests/local-security-guards.test.js tests/copy-legacy-public-media.test.js tests/cloudflare-stream.test.js tests/build-vercel-static.test.js tests/loopback-proxy-security.test.js tests/people-search.test.mjs tests/http-cookie-session.test.js
       - run: npm run test:conversation-postgres
       - name: Test single-buyer demand and canonical commerce opportunities
         run: node --test tests/search-opportunity-n1.test.mjs tests/commerce-opportunity.test.js tests/postgres-pagination.test.js tests/growth-event-jobs.test.mjs

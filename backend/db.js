@@ -1,4 +1,5 @@
 const { Client, Pool } = require("pg");
+const peopleSearch = require('./people-search');
 const { runSchemaMigrations } = require("./migrations");
 const { persistIntelligenceEvent, pruneIntelligenceScoreState } = require("./intelligence-score-store");
 const { normalizeProductMediaItems } = require("./product-media");
@@ -9991,6 +9992,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     readUserLocalePreference,
     saveUserLocalePreference,
     readUserFollowSummary,
+    readPeopleSearch: (viewer, options) => peopleSearch.readPeopleSearch(query, viewer, options),
     readUserFollowSuggestions,
     readUserFollowPage,
     readUserBlockedPage,

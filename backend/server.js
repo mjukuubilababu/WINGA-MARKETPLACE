@@ -7027,6 +7027,7 @@ function getRateLimitRule(pathname, method = "GET") {
       key: "/api/media/videos/:providerId/captions"
     };
   }
+  if (normalizedMethod === 'GET' && pathname === '/api/social/people') return {limit:60,windowMs:RATE_LIMIT_WINDOW_MS,key:'/api/social/people'};
   if (normalizedMethod === "GET" && (pathname === "/api/social/follows" || pathname === "/api/social/blocks" || pathname === "/api/social/suggestions" || /^\/api\/social\/users\/[^/]+(?:\/collections)?$/.test(pathname))) {
     return { limit: 120, windowMs: RATE_LIMIT_WINDOW_MS, key: "/api/social/read" };
   }
@@ -8434,6 +8435,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/social/people') {
+      const session=findSession(store,readAuthToken(req));
+      const user=ensureMarketplaceUser(store,session,res);
+      if(!user)return;
+      const query=url.searchParams.get('q')||'';
+      if(!require('./people-search').normalizePeopleQuery(query)||[...url.searchParams.keys()].some(key=>!['q','limit'].includes(key))){sendJson(res,400,{code:'people_search_invalid'});return;}
+      if(!postgresStore?.readPeopleSearch){sendJson(res,503,{code:'people_search_unavailable'});return;}
+      try{sendJson(res,200,await postgresStore.readPeopleSearch(user.username,{query,limit:url.searchParams.get('limit')}),{'Cache-Control':'private, no-store','Vary':'Cookie, Authorization'});}
+      catch{sendJson(res,503,{code:'people_search_unavailable'});}return;
+    }
     if (req.method === "GET" && url.pathname === "/api/social/suggestions") {
       const session = findSession(store, readAuthToken(req));
       const user = ensureMarketplaceUser(store, session, res, { allowStaff: true });

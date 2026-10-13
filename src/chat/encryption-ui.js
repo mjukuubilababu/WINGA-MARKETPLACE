@@ -1,5 +1,5 @@
 (() => {
-  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{},getSession,getPeer,getMessages,actions={}}) {
+  function bind(scope,{dataLayer,translate=(key,fallback)=>fallback,refresh=()=>{},onEncrypted=()=>{},onDialog=()=>{},getSession,getPeer,getMessages,actions={}}) {
     const t=translate;
     globalThis.WingaDeviceManagementUi?.bind(scope,{dataLayer,translate,refresh});
     globalThis.WingaRecoveryUi?.bind(scope,{dataLayer,translate,refresh});
@@ -142,7 +142,7 @@
             state.textContent=t('chat.encryptionNoDevice','Your contact has no available encryption device yet.');
           }
           const close=document.createElement('button');close.type='button';close.className='action-btn action-btn-secondary';close.textContent=t('common.close','Close');close.onclick=()=>dialog.close();dialog.append(close);
-          dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();inputFocus(dialog);
+          dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();onDialog(dialog);inputFocus(dialog);
         }catch{dialog?.remove();button.title=t('chat.encryptionUnavailable','Chat encryption is unavailable');}
         finally{button.disabled=false;}
       });

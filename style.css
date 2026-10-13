@@ -13088,3 +13088,10 @@ body.visual-categories-view #quick-discovery-rail{
 .room-invite-product img { width: 100%; height: 170px; object-fit: cover; border-radius: 12px; }
 .room-invite-safety, .room-invite-existing, .room-invite-request { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
 .room-invite-product-option { display: flex; gap: 8px; align-items: center; margin-block: 8px; }
+
+.internal-share-search{display:flex;gap:8px;align-items:flex-end}
+.internal-share-search label{display:flex;flex:1;flex-direction:column;gap:6px;min-width:0}
+.internal-share-search input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px}
+.internal-share-results{display:grid;gap:12px;max-height:45vh;overflow:auto;margin:12px 0}
+.internal-share-results section{display:grid;gap:8px}
+.internal-share-results h3{margin:0;font-size:1rem}

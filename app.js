@@ -25986,7 +25986,9 @@ function openInternalProductShare(productId,contentType) {
   if(!contentType){const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
     contentType=window.WINGA_CONFIG?.growthInternalContentSharing===true?
       (['REEL','SHORT'].includes(target?.type)&&target.id===productId?target.type:getProductById(productId)?.category==='reels'?'REEL':'PRODUCT'):'PRODUCT';}
-  internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent})});
+  internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,getIdentity:()=>JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']),dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent}),
+    inviteProduct:id=>{const product=getProductById(id);if(product)void handleShareProduct(product,{channel:'native'});},
+    bindSecureShare:(scope,peer,refresh,onDialog)=>window.WingaEncryptedChatUi?.bind(scope,{onDialog,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),refresh,getSession:()=>currentSession,getPeer:()=>peer,getMessages:()=>[]})});
   return internalProductShareUi.open(productId,contentType);
 }
 
