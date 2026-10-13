@@ -138,6 +138,9 @@ test('marketplace loop report measures eligible supply and value without raw use
     CREATE TABLE product_likes(product_id TEXT,user_id TEXT,created_at TIMESTAMPTZ);
     CREATE TABLE rediscovery_eligibility(eligibility_id TEXT,metadata JSONB,eligible_at TIMESTAMPTZ);
     CREATE TABLE commerce_order_outcomes(eligibility_id TEXT,outcome_type TEXT);
+    CREATE TABLE commerce_goals(goal_id TEXT,user_id TEXT,metadata JSONB,created_at TIMESTAMPTZ,status TEXT,resolution TEXT);
+    CREATE TABLE commerce_goal_transitions(goal_id TEXT,user_id TEXT,from_status TEXT,to_status TEXT,source TEXT,source_entity_type TEXT,occurred_at TIMESTAMPTZ);
+    CREATE TABLE notifications(conversation_id TEXT,user_id TEXT,type TEXT);
     INSERT INTO users VALUES('seller','active'),('banned','suspended');
     INSERT INTO products VALUES('one','dress','seller','approved','available',NOW()-INTERVAL '1 day'),
       ('two','dress','seller','approved','sold_out',NOW()),('private','dress','seller','approved','available',NOW()),
@@ -173,7 +176,11 @@ async function resolutionFixture(t){
     INSERT INTO products VALUES('new-dress','approved','seller','available',NOW());
     INSERT INTO search_demand_events VALUES('search-one','white-dress','dress','white','mwanza','user','buyer-key',NOW(),true,0);
     INSERT INTO supply_responses VALUES('response-one','active');
-    INSERT INTO rediscovery_eligibility VALUES('new-dress','response-one','{"sourceEventId":"search-one"}',NOW()+INTERVAL '1 day');`);
+    INSERT INTO rediscovery_eligibility VALUES('new-dress','response-one','{"sourceEventId":"search-one"}',NOW()+INTERVAL '1 day');
+    ALTER TABLE search_demand_events ADD COLUMN location TEXT DEFAULT '';
+    ALTER TABLE rediscovery_eligibility ADD COLUMN audience_type TEXT DEFAULT 'user';
+    ALTER TABLE rediscovery_eligibility ADD COLUMN audience_key TEXT DEFAULT 'buyer-key';
+    ALTER TABLE rediscovery_eligibility ADD COLUMN status TEXT DEFAULT 'eligible';`);
   for(const migration of [require('../backend/migrations/commerce-goals'),require('../backend/migrations/commerce-goal-transitions')])for(const sql of migration.statements)await db.exec(sql);
   await db.exec(require('../backend/migrations/growth-loops').statements.find(sql=>sql.includes('CREATE TABLE growth_rate_buckets')));
   const store=createPostgresStore({databaseUrl:'postgres://test.invalid/winga',queryClient:db,demandResolutionEnabled:true});
@@ -193,7 +200,80 @@ test('opt-in search subscriptions resolve once through canonical goals and durab
   assert.equal((await db.query('SELECT status FROM commerce_goals')).rows[0].status,'matched');
   assert.equal((await db.query("SELECT COUNT(*)::int AS count FROM commerce_goal_transitions WHERE to_status='matched'")).rows[0].count,1);
   const stopped=await store.resolveCommerceGoal(subscribed.goalId,'buyer','stopped');assert.equal(stopped.status,'stopped');
+  const retry=await store.resolveCommerceGoal(subscribed.goalId,'buyer','stopped');assert.equal(retry.status,'stopped');assert.equal(retry.duplicate,true);
+  assert.equal(await store.resolveCommerceGoal(subscribed.goalId,'other','stopped'),null);
+  assert.equal((await db.query("SELECT COUNT(*)::int AS count FROM commerce_goal_transitions WHERE to_status='stopped'")).rows[0].count,1);
   assert.equal((await store.processDemandResolutions()).processed,0);
+});
+
+test('request funnel separates search, restock, canonical delivery and self-reported resolution without private payloads',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  const goal=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await store.processDemandResolutions();
+  await store.advanceCommerceGoalsForInteraction({userId:'buyer',productId:'new-dress',toStatus:'ordered',source:'order_created',sourceEntityType:'order',sourceEntityKey:'order-proof'});
+  await store.advanceCommerceGoalsForInteraction({userId:'buyer',productId:'new-dress',toStatus:'completed',source:'order_delivered',sourceEntityType:'order',sourceEntityKey:'order-proof',resolution:'delivered_order'});
+  await store.upsertCommerceGoal({goalId:'restock',userId:'buyer',productId:'new-dress',metadata:{source:'sold_out_demand',notificationConsent:true,notificationMode:'in_app'}});
+  await store.resolveCommerceGoal('restock','buyer','found');
+  await db.exec(`INSERT INTO commerce_goals(goal_id,user_id,product_id,metadata) VALUES('no-consent','buyer','new-dress','{"source":"sold_out_demand","notificationConsent":false}');`);
+  const {readDemandResolutionHealth}=require('../backend/demand-resolution');
+  const report=await readDemandResolutionHealth({readQuery:(...args)=>db.query(...args)});
+  const search=report.sources.find(row=>row.source==='search_subscription'),restock=report.sources.find(row=>row.source==='sold_out_demand');
+  assert.equal(search.requested,1);assert.equal(search.matched,1);assert.equal(search.notified,1);assert.equal(search.ordered,1);assert.equal(search.delivered,1);
+  assert.equal(search.selfReportedFound,0);assert.equal(search.matchRate,1);assert.equal(search.notifyRate,1);
+  assert.equal(restock.requested,1);assert.equal(restock.selfReportedFound,1);assert.equal(restock.delivered,0);assert.equal(restock.notified,0);assert.equal(restock.timeToSupplyMatchSeconds,null);
+  for(const privateValue of ['buyer-key','white-dress','new-dress','order-proof',goal.goalId])assert.equal(JSON.stringify(report).includes(privateValue),false);
+});
+
+test('a repeated owned search can subscribe to its latest event and resolve through the same-context first supply evidence',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await db.exec(`UPDATE search_demand_events SET happened_at=NOW()-INTERVAL '2 minutes';
+    INSERT INTO search_demand_events(event_id,query_key,detected_category,detected_color,region,audience_type,audience_key,happened_at,zero_result,result_count)
+    VALUES('search-latest','white-dress','dress','white','mwanza','user','buyer-key',NOW(),true,0);`);
+  const goal=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  assert.equal((await db.query('SELECT metadata FROM commerce_goals')).rows[0].metadata.sourceEventId,'search-latest');
+  assert.equal((await store.processDemandResolutions()).processed,1);
+  assert.equal((await db.query('SELECT conversation_id FROM notifications')).rows[0].conversation_id,goal.goalId);
+  assert.equal((await db.query('SELECT metadata FROM rediscovery_eligibility')).rows[0].metadata.sourceEventId,'search-one');
+});
+
+test('search resolution does not cross audience, query, regional or color context or withdrawn eligibility',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await db.exec(`INSERT INTO search_demand_events(event_id,query_key,detected_category,detected_color,region,audience_type,audience_key,happened_at,zero_result,result_count)
+    VALUES('different-source','shirt','dress','white','mwanza','user','buyer-key',NOW(),true,0);
+    UPDATE rediscovery_eligibility SET metadata='{"sourceEventId":"different-source"}';`);
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE search_demand_events SET query_key='white-dress',audience_key='other' WHERE event_id='different-source'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE search_demand_events SET audience_key='buyer-key',region='dar' WHERE event_id='different-source'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE search_demand_events SET region='mwanza',detected_color='blue' WHERE event_id='different-source'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE search_demand_events SET detected_color='white' WHERE event_id='different-source';UPDATE rediscovery_eligibility SET audience_key='other'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE rediscovery_eligibility SET audience_key='buyer-key',status='expired'");
+  assert.equal((await store.processDemandResolutions()).processed,0);
+  await db.exec("UPDATE rediscovery_eligibility SET status='eligible'");assert.equal((await store.processDemandResolutions()).processed,1);
+});
+
+test('matched search goal retains its exact product across subsequent canonical buyer transitions without recommendations',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  const goal=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await store.processDemandResolutions();
+  const transition=(userId,productId,toStatus,sourceEntityKey)=>store.advanceCommerceGoalsForInteraction({
+    userId,productId,toStatus,source:toStatus==='contacted'?'product_message':'order_created',
+    sourceEntityType:toStatus==='contacted'?'message':'order',sourceEntityKey,metadata:{privacy:'self-scoped'}
+  });
+  assert.equal((await transition('other','new-dress','contacted','wrong-owner')).length,0);
+  assert.equal((await transition('buyer','wrong-product','contacted','wrong-product')).length,0);
+  assert.equal((await transition('buyer','new-dress','contacted','canonical-message')).length,1);
+  assert.equal((await transition('buyer','new-dress','ordered','canonical-order')).length,1);
+  assert.equal((await transition('buyer','new-dress','ordered','canonical-order')).length,0);
+  const saved=(await db.query('SELECT product_id,metadata,status FROM commerce_goals WHERE goal_id=$1',[goal.goalId])).rows[0];
+  assert.equal(saved.product_id,null);assert.equal(saved.status,'ordered');
+  assert.equal((await db.query("SELECT source_entity_key FROM commerce_goal_transitions WHERE goal_id=$1 AND source='demand_supply_match'",[goal.goalId])).rows[0].source_entity_key,'new-dress');
+  assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM intelligence_recommendations')).rows[0].count,0);
+  assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM notifications')).rows[0].count,1);
 });
 
 test('resolution blocks private/suspended/blocked products and notification failure rolls back matching for retry',async t=>{

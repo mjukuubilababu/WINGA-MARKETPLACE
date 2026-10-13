@@ -27,6 +27,10 @@ Render services on that commit. That prior turn verified static assets, catalog
 versions and backend health, with 146 frontend and 27 Growth browser cases in CI.
 This is historical release evidence, **not confirmation of human message delivery**.
 
+The verified release immediately before Phase 3 is `c26f2396`, Cloudflare build
+`20261013170120`, with all four Render services on that source. Phase 3 changes
+and isolated verification are recorded separately below and in its dedicated report.
+
 The current work performs source inspection, presentation changes, documentation
 and static build/catalog/bundle checks. No live message, Room admission, buyer
 save/order, referral, notification, load or chaos exercise is performed. Existing
@@ -48,9 +52,11 @@ Presentation work is implemented in source and needs runtime/visual acceptance
 later. A source-prepared status is not a production pass or a successful Room join.
 
 Static checks performed in this work: Room/inspector JavaScript syntax, all 106
-ledger sections/source references/dependency IDs, four catalogs with 1,734 keys,
+ledger sections/source references/dependency IDs, four catalogs with 1,747 keys,
 zero new hard-coded UI debt, workflow YAML parsing and synchronized 98-module
 static build. None of these checks confirms live delivery or Room participation.
+Phase 3 adds 12 isolated SQL, 22 commerce and 3 dashboard contracts, with 149/149
+frontend core checks. See the Phase 3 report for exact scope and remaining acceptance.
 
 The subsequent exact-source scan of `3f3a0314` produced 54 findings and preserved
 its SARIF artifact. The [safe security input index](evidence/growth-security-review-input-20261013.json)
@@ -58,6 +64,39 @@ retains all 54 source locations/fingerprints, exact run/job/artifact identifiers
 archive digest and expiry. Every finding stays unreviewed; the index is a
 historical navigation snapshot, not a current approval ledger. Retrieve a new
 exact-SHA scan before approving source that changed after this snapshot.
+
+## Phase 2 acceptance remains open
+
+Phase 2 (Conversations rich sharing, Shopping Room invites and Room attribution)
+is **not closed**. Sharing/recipient search and Room presentation are implemented
+in source. The following acceptance remains:
+
+1. Complete canonical Messages so structured product/content cards are actually
+   accepted and received by the intended individual (MSG-01).
+2. Create the first real Room; explicitly invite, join and meaningfully vote,
+   comment or add a product (LIVE-02). No user Room has been created here.
+3. Verify invite creation/open/acceptance/participation attribution, distinct from
+   registration or a preview crawler (LIVE-02).
+4. Complete current security/abuse acceptance: privacy, both block directions,
+   expiry/revocation, canonical membership and duplicate protection (SEC-01/CAP-01).
+
+Continue Phase 3 independently: Demand Resolution, Seller Opportunity and Restock
+owners already exist. That work does not close Phase 2 or require a substitute
+messaging/invitation system. Buyer/seller value and provider/staging observations
+still require their own actual evidence before production acceptance.
+
+## Phase 3 implementation completed; live acceptance open
+
+[Phase 3 report](growth-phase3-status-20261013.md) records the canonical source
+audit, repeated-search and goal/product linkage fixes, idempotent resolution,
+notification failure isolation, restock confirmation UX and seller evidence
+guidance. Search/restock request cohorts are separately available in the existing
+marketplace admin report/dashboard. Existing infrastructure and flags are reused.
+
+Isolated SQL/frontend checks verify those contracts; real buyer resolution,
+seller usefulness/return, regional/provider/capacity acceptance and current
+independent review remain LIVE-03/OPS-01/CAP-01/RET-01/SEC-01. Phase 3 does not
+silently close Phase 2, complete Messages or declare the full specification ready.
 
 ## Current capability audit
 

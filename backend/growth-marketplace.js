@@ -55,7 +55,8 @@ function createMarketplaceGrowth({readQuery}) {
       COUNT(DISTINCT r.eligibility_id) FILTER(WHERE c.outcome_type='delivered')::int AS delivered
       FROM rediscovery_eligibility r LEFT JOIN commerce_order_outcomes c ON c.eligibility_id=r.eligibility_id
       WHERE r.eligible_at>=NOW()-INTERVAL '30 days'`);
-    return {schemaVersion:1,windowDays:30,privacy:'aggregate-only',
+    const demandRequests=await require('./demand-resolution').readDemandResolutionHealth({readQuery});
+    return {schemaVersion:1,windowDays:30,privacy:'aggregate-only',demandRequests,
       categories:result.rows.map(r=>({...r,searchSuccessRate:ratio(r.matches,r.searches),deliveryRate:ratio(r.delivered,r.orders)})),
       regions:regions.rows.map(r=>({...r,searchSuccessRate:ratio(r.matches,r.searches)})),
       sellerActivation:{definition:'first_nonself_save_or_non_cancelled_order_after_first_known_currently_eligible_product_approval',windowDays:90,

@@ -7539,10 +7539,15 @@ async function handleNotificationOpen(notificationId) {
   let productId = "";
   const demandNotice=currentNotifications?.find(n=>n.id===safeId&&n.type==='demand');
   if(demandNotice){
-    const product=await window.WingaDataLayer.loadSharedProduct(demandNotice.messageId);
-    await window.WingaDataLayer.markNotificationRead(safeId);await refreshNotificationsState();
+    const identity=JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']);
+    const isCurrent=()=>identity===JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']);
+    let product;try{product=await window.WingaDataLayer.loadSharedProduct(demandNotice.messageId);}catch{}
+    if(!isCurrent())return false;
     if(product){refreshProductsFromStore();openProductDetailModal(product.id);}
     else showInAppNotification({title:translateUi('growth.resolvedProductUnavailable',{},'This product is no longer available.'),variant:'info'});
+    // Destination access takes priority over optional read acknowledgement.
+    void Promise.resolve().then(()=>{if(isCurrent())return window.WingaDataLayer.markNotificationRead(safeId);})
+      .then(()=>{if(isCurrent())return refreshNotificationsState();}).catch(()=>{});
     return true;
   }
   if (safeId.startsWith("followed-seller:")) {
@@ -13234,6 +13239,15 @@ async function handleSellerReferral(opportunity){
 async function handleSellerOpportunityAction(action, opportunity) {
   const opportunityId = String(opportunity?.opportunityId || "").trim();
   if (!opportunityId || !canUseSellerFeatures()) return;
+  if(action==='view'){
+    const owner=currentUser;
+    try{const product=await window.WingaDataLayer.loadSharedProduct(opportunity.productId);
+      if(currentUser!==owner||!canUseSellerFeatures())return;
+      if(product){refreshProductsFromStore();openProductDetailModal(product.id);}
+      else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});
+    }catch{if(currentUser===owner)showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
+    return;
+  }
   if (action === "create") {
     clearUploadForm();
     activeSellerOpportunityAttribution = {
@@ -13250,7 +13264,7 @@ async function handleSellerOpportunityAction(action, opportunity) {
       productCategoryInput.value = activeSellerOpportunityAttribution.category;
     }
     enterProductUploadView("seller_opportunity");
-    setUploadFormStatus("info", translateUi("commerceOpportunity.attributionNotice", {}, "This post will answer verified buyer demand."));
+    setUploadFormStatus("info", translateUi("commerceOpportunity.attributionNotice", {}, "This post can be linked to recorded demand when the product matches. A signal is not a guaranteed sale."));
     reportClientEvent("info", "seller_opportunity_create_started", "Seller opened product creation from an aggregate opportunity.", {
       opportunityId
     });

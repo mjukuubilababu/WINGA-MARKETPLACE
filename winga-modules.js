@@ -25605,6 +25605,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         }
       });
       actions.append(createButton, dismissButton);
+      if(opportunity?.type==='sold_out_restock'&&opportunity.productId){
+        const reviewButton=deps.createElement('button',{className:'action-btn action-btn-secondary',textContent:t('commerceOpportunity.viewRequestedProduct','View requested product'),attributes:{type:'button'}});
+        reviewButton.addEventListener('click',async()=>{reviewButton.disabled=true;try{await deps.onSellerOpportunityAction?.('view',opportunity);}finally{reviewButton.disabled=false;}});
+        actions.append(reviewButton);
+      }
       if(window.WINGA_CONFIG?.growthSellerReferral===true&&opportunity.category&&deps.onSellerReferral){
         const referral=deps.createElement('button',{className:'action-btn action-btn-secondary',textContent:t('growth.inviteRelevantSeller','Share this supply opportunity'),attributes:{type:'button'}});
         referral.onclick=async()=>{if(referral.disabled)return;referral.disabled=true;
@@ -25614,6 +25619,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       item.append(
         deps.createElement("strong", { textContent: title }),
         deps.createElement("p", { className: "product-meta", textContent: [context, demand].filter(Boolean).join(" | ") }),
+        deps.createElement('p',{className:'product-meta',textContent:Number(opportunity?.evidenceCount)===1||opportunity?.metadata?.evidenceLevel==='single_signal'
+          ?t('commerceOpportunity.earlySignal','Early signal. Validate the need before adding stock.')
+          :t('commerceOpportunity.validateSupply','Check the requested details and availability before adding supply.')}),
         actions
       );
       return item;
@@ -26266,11 +26274,16 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             metric(t('growth.dashboard.linked','Demand responses linked'),data.demandResolution?.linked);
             metric(t('growth.dashboard.orders','Attributed order starts'),data.demandResolution?.ordered);
             metric(t('growth.dashboard.delivered','Canonical delivered orders'),data.demandResolution?.delivered);
+            for(const row of (data.demandRequests?.sources||[])){
+              const title=row.source==='search_subscription'?t('growth.dashboard.searchRequests','Search requests'):t('growth.dashboard.restockRequests','Restock requests');
+              card.append(createAnalyticsListItem(title,
+                `${t('growth.dashboard.requests','Requests')}: ${count(row.requested)} · ${t('growth.dashboard.supplyMatches','Supply matches')}: ${count(row.matched)} · ${t('growth.dashboard.inAppNotices','In-app notices')}: ${count(row.notified)} · ${t('growth.dashboard.orders','Attributed order starts')}: ${count(row.ordered)} · ${t('growth.dashboard.delivered','Canonical delivered orders')}: ${count(row.delivered)} · ${t('growth.dashboard.selfReportedFound','Self-reported found')}: ${count(row.selfReportedFound)} · ${t('growth.dashboard.stopped','Stopped requests')}: ${count(row.stopped)}`));
+            }
             for(const row of (data.categories||[]).slice(0,12))card.append(createAnalyticsListItem(String(row.category||'—'),
               `${t('growth.dashboard.supply','Available supply')}: ${count(row.available)} · ${t('growth.dashboard.search','Search result rate')}: ${rate(row.searchSuccessRate)}`));
           }
           card.append(grid);
-          for(const note of (data.limitations||[]).slice(0,8))if(typeof note==='string')card.append(el('p','product-meta',note));
+          for(const note of [...(data.limitations||[]),...(data.demandRequests?.limitations||[])].slice(0,13))if(typeof note==='string')card.append(el('p','product-meta',note));
           section.append(card);
         }
       }).catch(()=>{if(sequence===growthSequence&&section.isConnected)section.replaceChildren(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));});
@@ -32886,13 +32899,18 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           try {
             const selectedColor = product.variantColor || product.color || "";
             const selectedSize = product.size || "";
-            await deps.dataLayer.recordDemand(product.id, {
+            const owner=deps.getCurrentUser?.();
+            const result=await deps.dataLayer.recordDemand(product.id, {
               action,
               sellerId: product.uploadedBy,
               color: selectedColor,
               size: selectedSize,
               source: "product_detail"
             });
+            if(deps.getCurrentUser?.()!==owner)return;
+            if(result?.ok===false)throw new Error(t('demand.failedBody','Unable to save the demand signal.'));
+            const notificationRequested=action==='notify_when_available'&&window.WINGA_CONFIG?.growthDemandResolution===true;
+            const requestSaved=Boolean(result?.commerceGoal?.goalId)&&['looking','matched','contacted','ordered'].includes(result.commerceGoal.status);
             deps.noteDemandStyleSignal?.(product.id, action);
             deps.reportEvent?.("info", "demand_requested", "Buyer recorded demand for a sold out product.", {
               productId: product.id,
@@ -32904,12 +32922,13 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             deps.showInAppNotification?.({
               title: action === "show_similar"
                 ? t("demand.similarTitle", "Similar products")
-                : t("demand.recordedTitle", "Demand recorded"),
+                : notificationRequested&&requestSaved?t('demand.requestSavedTitle','Restock request saved'):t("demand.recordedTitle", "Demand recorded"),
               body: action === "show_similar"
                 ? t("demand.similarRecordedBody", "We will use this signal to show you similar products.")
-                : t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
-              variant: "success"
+                : notificationRequested?(requestSaved?t('demand.requestSavedBody','Manage or stop this request in your product requests.'):t('demand.notificationNotConfirmed','Interest recorded. The availability request could not be confirmed. Please try again.')):t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
+              variant: notificationRequested&&!requestSaved?'warning':"success"
             });
+            if(notificationRequested&&!requestSaved){button.disabled=false;button.classList.remove('is-disabled');}
             if (action === "show_similar") {
               closeProductDetailModal();
               deps.resetHomeBrowseState?.();

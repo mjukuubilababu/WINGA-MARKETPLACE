@@ -4,9 +4,9 @@
   "updatedAt": "2026-10-13",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
-    "cloudflareBuild": "20261013154536",
-    "verification": "historical prior-turn build/source/health evidence; not a current human canary"
+    "commit": "c26f23960be553ee26554aaf067b34151b6a5959",
+    "cloudflareBuild": "20261013170120",
+    "verification": "Previously verified Render services/frontend assets/health and required CI; no human message or Phase 3 canary acceptance."
   },
   "overall": {
     "productionReady": false,
@@ -227,7 +227,7 @@
       "status": "observation_pending",
       "priority": "P1",
       "title": "Marketplace and supply-resolution value",
-      "evidence": "Canonical Demand/Opportunity/response/resolution and liquidity reports exist. Causal production resolution and seller quality value are not observed here.",
+      "evidence": "Phase 3 source/SQL contracts now retain repeat-search context and subsequent goal/product lineage, with separate consent-scoped request metrics. Actual buyer resolution, qualified seller usefulness and restock return remain unobserved.",
       "nextAction": "Verify legitimate N=1 evidence/confidence, nonself seller responses, relevant supply and buyer resolution; keep growth, Search and Ads separate.",
       "sources": [
         "backend/growth-marketplace.js",
@@ -388,6 +388,38 @@
         104,
         105,
         106
+      ]
+    },
+    {
+      "id": "SRC-05",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Phase 3 canonical resolution, request reporting and seller/restock UX",
+      "evidence": "Phase 3 audited and hardened: repeat-event context matching, canonical matched-goal history, terminal retry, notification failure/session isolation, consent confirmation, early-signal copy and separate request cohorts. Isolated SQL/frontend contracts passed; no live value acceptance asserted.",
+      "nextAction": "Retain source evidence; complete LIVE-03, SEC-01 and operational/capacity/retention acceptance with actual controlled observations. Do not close Phase 2 as a side effect.",
+      "sources": [
+        "backend/demand-resolution.js",
+        "backend/db.js",
+        "backend/growth-marketplace.js",
+        "src/admin/ui.js",
+        "src/product-detail/controller.js",
+        "tests/search-opportunity-n1.test.mjs",
+        "docs/growth-phase3-status-20261013.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        18,
+        19,
+        20,
+        21,
+        27,
+        28,
+        64,
+        65,
+        66,
+        76,
+        77,
+        91
       ]
     }
   ],
@@ -567,7 +599,8 @@
       "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -577,7 +610,8 @@
       "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -587,7 +621,8 @@
       "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -597,7 +632,8 @@
       "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -651,7 +687,8 @@
       "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -661,7 +698,8 @@
       "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-03"
+        "LIVE-03",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -998,7 +1036,8 @@
       "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "SRC-04"
+        "SRC-04",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1007,7 +1046,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-05"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -1015,7 +1056,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-05"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -1110,7 +1153,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-05"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -1118,7 +1163,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-05"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -1255,7 +1302,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "OPS-01",
-        "RET-01"
+        "RET-01",
+        "SRC-05"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1435,5 +1483,36 @@
     },
     "independentlyReviewedCurrentFindings": 0,
     "sarifArtifactAtBaseline": "none listed; preservation added for subsequent runs"
-  }
+  },
+  "currentPhase": 3,
+  "phases": [
+    {
+      "id": 2,
+      "title": "Conversations rich sharing, Shopping Room invites and attribution",
+      "sourceStatus": "source_prepared",
+      "acceptanceStatus": "blocked",
+      "report": "docs/winga-growth-status.md",
+      "acceptanceDependsOn": [
+        "MSG-01",
+        "LIVE-01",
+        "LIVE-02",
+        "SEC-01",
+        "CAP-01"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Demand Resolution, Seller Opportunity and Restock",
+      "sourceStatus": "implementation_completed",
+      "acceptanceStatus": "observation_pending",
+      "report": "docs/growth-phase3-status-20261013.md",
+      "acceptanceDependsOn": [
+        "LIVE-03",
+        "SEC-01",
+        "OPS-01",
+        "CAP-01",
+        "RET-01"
+      ]
+    }
+  ]
 }

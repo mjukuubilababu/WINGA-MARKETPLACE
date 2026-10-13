@@ -780,13 +780,18 @@
           try {
             const selectedColor = product.variantColor || product.color || "";
             const selectedSize = product.size || "";
-            await deps.dataLayer.recordDemand(product.id, {
+            const owner=deps.getCurrentUser?.();
+            const result=await deps.dataLayer.recordDemand(product.id, {
               action,
               sellerId: product.uploadedBy,
               color: selectedColor,
               size: selectedSize,
               source: "product_detail"
             });
+            if(deps.getCurrentUser?.()!==owner)return;
+            if(result?.ok===false)throw new Error(t('demand.failedBody','Unable to save the demand signal.'));
+            const notificationRequested=action==='notify_when_available'&&window.WINGA_CONFIG?.growthDemandResolution===true;
+            const requestSaved=Boolean(result?.commerceGoal?.goalId)&&['looking','matched','contacted','ordered'].includes(result.commerceGoal.status);
             deps.noteDemandStyleSignal?.(product.id, action);
             deps.reportEvent?.("info", "demand_requested", "Buyer recorded demand for a sold out product.", {
               productId: product.id,
@@ -798,12 +803,13 @@
             deps.showInAppNotification?.({
               title: action === "show_similar"
                 ? t("demand.similarTitle", "Similar products")
-                : t("demand.recordedTitle", "Demand recorded"),
+                : notificationRequested&&requestSaved?t('demand.requestSavedTitle','Restock request saved'):t("demand.recordedTitle", "Demand recorded"),
               body: action === "show_similar"
                 ? t("demand.similarRecordedBody", "We will use this signal to show you similar products.")
-                : t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
-              variant: "success"
+                : notificationRequested?(requestSaved?t('demand.requestSavedBody','Manage or stop this request in your product requests.'):t('demand.notificationNotConfirmed','Interest recorded. The availability request could not be confirmed. Please try again.')):t("demand.recordedBody", "Thank you. The seller will see this interest in demand analytics."),
+              variant: notificationRequested&&!requestSaved?'warning':"success"
             });
+            if(notificationRequested&&!requestSaved){button.disabled=false;button.classList.remove('is-disabled');}
             if (action === "show_similar") {
               closeProductDetailModal();
               deps.resetHomeBrowseState?.();

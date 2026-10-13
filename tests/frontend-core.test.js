@@ -19,6 +19,53 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
+function demandNotificationHarness(readProduct,markRead){
+  const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
+  const start=source.indexOf('async function handleNotificationOpen(notificationId)'),end=source.indexOf('\nfunction ',start);
+  assert.ok(start>=0&&end>start);
+  const opened=[],notices=[],context=vm.createContext({currentUser:'fixture-owner',currentSession:{sessionId:'fixture-session'},
+    currentNotifications:[{id:'demand-fixture',type:'demand',messageId:'fixture-product'}],
+    window:{WingaDataLayer:{loadSharedProduct:readProduct,markNotificationRead:markRead}},
+    refreshProductsFromStore(){},openProductDetailModal:id=>opened.push(id),showInAppNotification:notice=>notices.push(notice),
+    translateUi:(_key,_args,fallback)=>fallback,refreshNotificationsState:async()=>{},getProductById:()=>null});
+  vm.runInContext(source.slice(start,end),context);
+  return {context,opened,notices,open:()=>vm.runInContext("handleNotificationOpen('demand-fixture')",context)};
+}
+
+test('demand product opens immediately despite failed or hanging notification acknowledgement',async()=>{
+  for(const markRead of [async()=>{throw new Error('fixture_read_ack_down');},()=>new Promise(()=>{})]){
+    const f=demandNotificationHarness(async()=>({id:'fixture-product'}),markRead);
+    assert.equal(await f.open(),true);assert.deepEqual(f.opened,['fixture-product']);
+    await new Promise(resolve=>setImmediate(resolve));
+  }
+});
+
+test('late demand notification reads cannot open products after an account or session change',async()=>{
+  for(const change of [f=>{f.context.currentUser='another-owner';},f=>{f.context.currentSession={sessionId:'new-session'};}]){
+    let complete,marks=0;const f=demandNotificationHarness(()=>new Promise(resolve=>{complete=resolve;}),async()=>{marks++;});
+    const pending=f.open();change(f);complete({id:'fixture-product'});
+    assert.equal(await pending,false);assert.deepEqual(f.opened,[]);assert.equal(marks,0);
+  }
+});
+
+test('restock request confirmation requires a canonical goal and leaves an unconfirmed request retryable',async()=>{
+  const source=fs.readFileSync(path.resolve(__dirname,'../src/product-detail/controller.js'),'utf8');
+  const start=source.indexOf('modal.querySelectorAll("[data-demand-action]")'),end=source.indexOf('\n      bindInlineProductActions',start);
+  assert.ok(start>=0&&end>start);
+  for(const [result,expected] of [[{ok:true,commerceGoal:{goalId:'fixture-goal',status:'looking'}},'success'],[{ok:true,commerceGoal:null},'warning'],[{ok:false},'error']]){
+    let click;const notices=[],classes=new Set(),button={dataset:{demandAction:'notify_when_available'},disabled:false,
+      classList:{add:name=>classes.add(name),remove:name=>classes.delete(name)},addEventListener:(_name,fn)=>{click=fn;}};
+    const context=vm.createContext({modal:{querySelectorAll:()=>[button]},product:{id:'fixture-product',uploadedBy:'fixture-seller'},
+      window:{WINGA_CONFIG:{growthDemandResolution:true}},t:(_key,fallback)=>fallback,
+      deps:{getCurrentUser:()=> 'fixture-owner',dataLayer:{recordDemand:async()=>result},showInAppNotification:notice=>notices.push(notice)}});
+    vm.runInContext(source.slice(start,end),context);await click();
+    assert.equal(notices.at(-1).variant,expected);
+    assert.equal(button.disabled,expected==='success');
+    if(expected==='success')assert.equal(notices.at(-1).title,'Restock request saved');
+    else assert.notEqual(notices.at(-1).title,'Restock request saved');
+  }
+});
+
 test("frontend deployment preserves dashboard variables", async () => {
   const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname,"../package.json"),"utf8"));
   const entry = /^node (scripts\/[a-z-]+\.js)$/.exec(manifest.scripts['deploy:worker:frontend']);

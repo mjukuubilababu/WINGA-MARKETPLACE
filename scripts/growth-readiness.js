@@ -33,6 +33,13 @@ function inspect() {
   for (const requirement of report.requirements) {
     if (!requirement.baselineEvidence || !Array.isArray(requirement.workItems) || requirement.workItems.some(id => !ids.has(id))) throw Error('readiness_requirement_invalid');
   }
+  if(report.phases!==undefined){
+    if(!Array.isArray(report.phases)||new Set(report.phases.map(phase=>phase.id)).size!==report.phases.length)throw Error('readiness_schema_invalid');
+    for(const phase of report.phases){
+      if(!Number.isInteger(phase.id)||phase.id<1||phase.id>4||!['source_prepared','implementation_completed'].includes(phase.sourceStatus)||!['blocked','observation_pending','accepted'].includes(phase.acceptanceStatus)||!Array.isArray(phase.acceptanceDependsOn)||phase.acceptanceDependsOn.some(id=>!ids.has(id)))throw Error('readiness_schema_invalid');
+      if(phase.acceptanceStatus==='accepted'&&phase.acceptanceDependsOn.some(id=>workById.get(id).status!=='accepted'))throw Error('readiness_acceptance_conflict');
+    }
+  }
   const blocking = report.workItems.filter(item => !['accepted','conditional','source_prepared'].includes(item.status));
   if (report.overall?.productionReady === true && (blocking.length || report.overall.messages !== 'accepted' || report.overall.independentSecurityReview !== 'accepted')) throw Error('readiness_acceptance_conflict');
   return {report,blocking};
@@ -46,6 +53,7 @@ try {
     if (process.argv.includes('--verify')) console.log('Readiness ledger valid: all 106 sections covered; source links and dependency IDs exist. This is not runtime or production acceptance.');
     else {
       console.log(`Winga Growth Loops — ${report.updatedAt}\nSource baseline: ${report.sourceBaseline}\nProduction ready: ${report.overall.productionReady}\nMessages: ${report.overall.messages}\nSpecification coverage: 106 sections (coverage is not a pass count)\nOpen acceptance/hardening work items: ${blocking.length}\n`);
+      for(const phase of report.phases||[])console.log(`Phase ${phase.id}: source ${phase.sourceStatus}; acceptance ${phase.acceptanceStatus}`);
       for (const item of report.workItems) console.log(`${item.id} [${item.priority}] ${item.status}: ${item.title}`);
       console.log('\nResume: docs/winga-growth-status.md\nOperations/security: docs/growth-operations-handoff.md');
     }

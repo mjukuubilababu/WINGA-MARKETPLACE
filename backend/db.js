@@ -6641,6 +6641,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          FROM commerce_goals g
          WHERE g.user_id=$1 AND g.status=ANY($6::text[])
            AND ($2='' OR g.product_id=$2 OR EXISTS (
+             SELECT 1 FROM commerce_goal_transitions matched
+             WHERE matched.goal_id=g.goal_id AND matched.user_id=$1
+               AND matched.from_status='looking' AND matched.to_status='matched'
+               AND matched.source='demand_supply_match'
+               AND matched.source_entity_type='product' AND matched.source_entity_key=$2
+           ) OR EXISTS (
              SELECT 1 FROM intelligence_recommendations r
              WHERE r.audience_type='person' AND r.audience_key=$1
                AND r.entity_type='product' AND r.entity_key=$2
@@ -6744,7 +6750,12 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
       metadata: { privacy: "self-scoped" }
     });
     const goal = rows[0] || null;
-    return goal ? { ...goal, resolution } : null;
+    if(goal)return { ...goal, resolution };
+    // A committed terminal resolution remains canonical after an uncertain reply.
+    const duplicate=await query(`SELECT goal_id AS "goalId",status,resolved_at AS "resolvedAt",resolution
+      FROM commerce_goals WHERE goal_id=$1 AND user_id=$2 AND status=$3 AND resolution=$4`,
+      [goalId,userId,resolution==='completed'?'completed':'stopped',resolution]);
+    return duplicate.rows[0]?{...duplicate.rows[0],duplicate:true}:null;
   }
 
   async function completeCommerceGoalsForOrder(userId = "", productId = "", orderId = "") {
