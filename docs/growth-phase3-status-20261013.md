@@ -23,6 +23,7 @@ notification service or public attribution parameter is introduced.
 | Explicit Search subscriptions / auth return | IMPLEMENTED | Owned recent unmet-search evidence, quotas and safe auth intent retained. Real regional discovery and return remain unobserved here. |
 | Repeated-search resolution | BROKEN → FIXED IN SOURCE | A subscription could retain the latest event while supply retained the first event. Matching now joins canonical audience and identical query/category/color/region evidence, retaining both original event IDs. |
 | Expired request renewal | BROKEN → FIXED IN SOURCE | Active requests outside the 90-day processing lifetime could suppress a fresh subscription. Fresh owned evidence now creates a new request; previous history and original source IDs remain intact. |
+| Bounded safe product selection | BROKEN → FIXED IN SOURCE | Newer private/unavailable supply could hide a valid match behind the five-product limit. Current safety/blocks now filter before the limit, followed by the canonical safety recheck. |
 | Search-goal product continuity | BROKEN → FIXED IN SOURCE | Subsequent buyer actions could miss a matched query-only goal without a separate recommendation. The canonical supply-match transition now provides product binding for later transitions, including existing ledger history. |
 | Stop/found retry | PARTIAL → HARDENED | A committed same-owner terminal resolution is returned on retry; no second transition is created and another owner cannot read the result. |
 | Product-restock consent | IMPLEMENTED / HARDENED UX | Explicit notification consent remains required; a signal without a confirmed canonical goal is not presented as a saved availability request. Retry remains available. |
@@ -78,9 +79,9 @@ human activation or a healthy zero-value loop.
 
 ## Local verification
 
-- Thirteen isolated PGlite SQL contracts passed, including repeated-search matching,
+- Fourteen isolated PGlite SQL contracts passed, including repeated-search matching,
   lifetime-aware renewal, context/actor/eligibility rejection, original event preservation, matched-goal
-  continuity without recommendations, terminal retry, consent/caps/stop, current
+  continuity without recommendations, terminal retry, bounded safe selection, consent/caps/stop, current
   product privacy/blocks and notification rollback.
 - Twenty-two canonical commerce Opportunity/outcome contracts passed.
 - Frontend core: 149/149, including failed/hanging demand-notice acknowledgement,

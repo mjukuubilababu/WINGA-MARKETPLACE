@@ -270,6 +270,20 @@ test('search resolution does not cross audience, query, regional or color contex
   await db.exec("UPDATE rediscovery_eligibility SET status='eligible'");assert.equal((await store.processDemandResolutions()).processed,1);
 });
 
+test('newer private supply cannot hide an eligible match behind the bounded product selection',async t=>{
+  const {db,store}=await resolutionFixture(t);
+  await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});
+  await db.exec("UPDATE products SET created_at=NOW()-INTERVAL '2 minutes'");
+  for(let index=0;index<6;index++){
+    await db.query("INSERT INTO products VALUES($1,'approved','seller','available',NOW())",['private-'+index]);
+    await db.query("INSERT INTO public_content_visibility VALUES('product',$1,'private')",['private-'+index]);
+    await db.query(`INSERT INTO rediscovery_eligibility(product_id,supply_response_id,metadata,expires_at)
+      VALUES($1,'response-one','{"sourceEventId":"search-one"}',NOW()+INTERVAL '1 day')`,['private-'+index]);
+  }
+  assert.equal((await store.processDemandResolutions()).processed,1);
+  assert.equal((await db.query('SELECT message_id FROM notifications')).rows[0].message_id,'new-dress');
+});
+
 test('matched search goal retains its exact product across subsequent canonical buyer transitions without recommendations',async t=>{
   const {db,store}=await resolutionFixture(t);
   const goal=await store.subscribeSearchDemand({userId:'buyer',audienceKey:'buyer-key',query:'white dress'});

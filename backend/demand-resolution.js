@@ -114,7 +114,11 @@ function createDemandResolution({withTransaction,transitionGoal,insertNotificati
         const capped=(await client.query("SELECT COUNT(*)::int AS count FROM notifications WHERE user_id=$1 AND type='demand' AND created_at>=NOW()-INTERVAL '1 day'",[goal.user_id])).rows[0];
         if(Number(capped.count)>=2)continue;
         const match=(await client.query(`${searchSupplyMatches} SELECT p.id,p.uploaded_by FROM products p
-          WHERE p.availability='available' AND p.uploaded_by<>$1 AND (p.id=$2 OR EXISTS(
+          JOIN users seller ON seller.username=p.uploaded_by AND seller.status='active'
+          WHERE p.status='approved' AND p.availability='available' AND p.uploaded_by<>$1
+            AND NOT EXISTS(SELECT 1 FROM public_content_visibility v WHERE v.content_type='product' AND v.content_id=p.id AND v.visibility<>'public')
+            AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_username=$1 AND b.blocked_username=p.uploaded_by) OR (b.blocker_username=p.uploaded_by AND b.blocked_username=$1))
+            AND (p.id=$2 OR EXISTS(
             SELECT 1 FROM search_supply_matches matched WHERE matched.product_id=p.id AND matched.request_event_id=$3))
           ORDER BY (p.id=$2) DESC,p.created_at DESC,p.id LIMIT 5`,[goal.user_id,goal.product_id||'',goal.metadata.sourceEventId||''])).rows;
         let product;
