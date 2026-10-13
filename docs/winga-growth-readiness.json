@@ -1,0 +1,1416 @@
+{
+  "schemaVersion": 1,
+  "specification": "WINGA GROWTH LOOPS & NETWORK EFFECTS v1.0",
+  "updatedAt": "2026-10-13",
+  "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
+  "lastVerifiedRelease": {
+    "commit": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
+    "cloudflareBuild": "20261013154536",
+    "verification": "historical prior-turn build/source/health evidence; not a current human canary"
+  },
+  "overall": {
+    "productionReady": false,
+    "messages": "user_reported_incomplete",
+    "liveMessageTests": "deferred",
+    "independentSecurityReview": "pending",
+    "evidenceRule": "Source present/prepared is not live acceptance; previous synthetic/CI results do not override the current blocker."
+  },
+  "securitySnapshot": {
+    "sourceCommit": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
+    "workflowRunId": 38423056933,
+    "jobId": 115385159157,
+    "gate": "CODEQL_REVIEW_STALE",
+    "reportedFindings": 54,
+    "reportedLevels": {
+      "error": 21,
+      "warning": 33
+    },
+    "independentlyReviewedCurrentFindings": 0,
+    "sarifArtifactAtBaseline": "none listed; preservation added for subsequent runs"
+  },
+  "workItems": [
+    {
+      "id": "MSG-01",
+      "status": "blocked",
+      "priority": "P0",
+      "title": "Canonical Messages readiness",
+      "evidence": "User reported Messages incomplete on 2026-10-13. Internal product sharing, native Room participation and confirmed message value are not live-accepted.",
+      "nextAction": "Finish canonical transport, secure membership/device readiness and meaningful sender/recipient acceptance; retain exact-ID retries and no plaintext downgrade.",
+      "sources": [
+        "src/api/communications-client.js",
+        "src/chat/encryption-session.js",
+        "src/chat/room-session.js",
+        "docs/conversations-spec-handoff.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        13,
+        14,
+        68,
+        74,
+        75,
+        82,
+        83
+      ]
+    },
+    {
+      "id": "SEC-01",
+      "status": "needs_hardening",
+      "priority": "P0",
+      "title": "Current independent CodeQL/crypto review",
+      "evidence": "Last known scan reported 54 security findings and CODEQL_REVIEW_STALE. No independent approval is asserted.",
+      "nextAction": "Export exact-SHA SARIF, triage each occurrence, fix confirmed defects and obtain actual independent review bound to current source.",
+      "sources": [
+        "scripts/check-conversation-codeql.js",
+        ".github/codeql-reviewed-findings.v1.json",
+        "docs/e2ee-internal-security-review.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        49,
+        55,
+        89,
+        101,
+        105
+      ]
+    },
+    {
+      "id": "SRC-01",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Shopping Room purpose and decision guidance",
+      "evidence": "Canonical Room UI now has welcome, scoped empty states and comparison guidance matching sharing identity. Runtime/visual acceptance is deferred.",
+      "nextAction": "Review/render when Messages is ready; confirm controls still follow native membership and privacy.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/shopping-room-content.mjs",
+        "style.css"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        8,
+        9,
+        67,
+        68,
+        69
+      ]
+    },
+    {
+      "id": "SRC-02",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Preserve security review input",
+      "evidence": "CI now retains exact-commit SARIF for 90 days even when the review gate fails. This preserves evidence, not approval.",
+      "nextAction": "Confirm artifact from a completed run and archive the reviewed packet before retention expires.",
+      "sources": [
+        ".github/workflows/conversation-tests.yml"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        49,
+        90,
+        101,
+        106
+      ]
+    },
+    {
+      "id": "SRC-03",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Durable status ledger and resumption index",
+      "evidence": "Markdown report, full 106-section machine-readable coverage and static inspector prepared in repository.",
+      "nextAction": "Keep the report current after every meaningful implementation or acceptance change.",
+      "sources": [
+        "docs/winga-growth-status.md",
+        "docs/winga-growth-readiness.json",
+        "scripts/growth-readiness.js"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        1,
+        95,
+        96,
+        104,
+        106
+      ]
+    },
+    {
+      "id": "SRC-04",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Operations and independent security handoff",
+      "evidence": "Runbook identifies canonical reports, replay boundaries, rollback, staged exercise matrix and current review inputs. No monitoring or reminders activated.",
+      "nextAction": "Assign operational ownership and calibrate alerts against real observations.",
+      "sources": [
+        "docs/growth-operations-handoff.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        40,
+        54,
+        64,
+        85,
+        90,
+        102,
+        103,
+        106
+      ]
+    },
+    {
+      "id": "LIVE-01",
+      "status": "observation_pending",
+      "priority": "P1",
+      "title": "Real Product Share loop acceptance",
+      "evidence": "Public links and share UI have prior release evidence. Actual opted-in human opens/views/saves/messages and reshares remain unverified.",
+      "nextAction": "Use the already consented bounded cohort; record canonical value and real observations; do not count opens or synthetic activity as conversions.",
+      "sources": [
+        "docs/growth-account-canary.md",
+        "backend/growth-canary-reader.js",
+        "src/growth/runtime.js"
+      ],
+      "dependsOn": [
+        "MSG-01",
+        "SEC-01"
+      ],
+      "specSections": [
+        4,
+        5,
+        6,
+        7,
+        33,
+        98,
+        100
+      ]
+    },
+    {
+      "id": "LIVE-02",
+      "status": "blocked",
+      "priority": "P1",
+      "title": "First Shopping Room and invite participation",
+      "evidence": "User has no real Room yet. Canonical native invites, scoped preview and participation source exist; production signing/configuration/membership acceptance not established.",
+      "nextAction": "Confirm native readiness and invite capabilities, create a real Room, verify scope/revoke/expiry/block/idempotency, then actual vote/comment/product participation.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "backend/growth-loop-invites.js",
+        "src/chat/room-session.js",
+        "src/chat/rooms-ui.js"
+      ],
+      "dependsOn": [
+        "MSG-01",
+        "SEC-01"
+      ],
+      "specSections": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        45,
+        48,
+        73,
+        83,
+        99
+      ]
+    },
+    {
+      "id": "LIVE-03",
+      "status": "observation_pending",
+      "priority": "P1",
+      "title": "Marketplace and supply-resolution value",
+      "evidence": "Canonical Demand/Opportunity/response/resolution and liquidity reports exist. Causal production resolution and seller quality value are not observed here.",
+      "nextAction": "Verify legitimate N=1 evidence/confidence, nonself seller responses, relevant supply and buyer resolution; keep growth, Search and Ads separate.",
+      "sources": [
+        "backend/growth-marketplace.js",
+        "backend/growth-network-health.js",
+        "backend/commerce-opportunity.js",
+        "backend/db.js"
+      ],
+      "dependsOn": [
+        "SEC-01"
+      ],
+      "specSections": [
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        27,
+        28,
+        56,
+        58,
+        59,
+        60,
+        61,
+        62,
+        71,
+        94
+      ]
+    },
+    {
+      "id": "OPS-01",
+      "status": "observation_pending",
+      "priority": "P1",
+      "title": "Operational routing, metrics and alerts",
+      "evidence": "Canonical admin reports, bounded retries/DLQ/reconciliation and client timings exist. Scrape integration, baselines, alert ownership and regional targets are not accepted.",
+      "nextAction": "Use read-only reports, establish baseline/targets, then approve bounded replay and alerts without private payloads.",
+      "sources": [
+        "backend/growth-api.js",
+        "backend/growth-event-jobs.js",
+        "src/growth/runtime.js",
+        "docs/growth-operations-handoff.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        38,
+        40,
+        52,
+        53,
+        54,
+        80,
+        81,
+        90,
+        91
+      ]
+    },
+    {
+      "id": "CAP-01",
+      "status": "validation_deferred",
+      "priority": "P1",
+      "title": "Staging load, outage and abuse acceptance",
+      "evidence": "Earlier bounded fixtures are historical evidence. No viral-scale, provider-outage or real-device exercise performed in this work.",
+      "nextAction": "Use approved isolated staging with explicit budgets and cancellation; run replay, cache loss, signed membership races and protection matrix.",
+      "sources": [
+        "docs/growth-operations-handoff.md",
+        "tests/growth-postgres.test.mjs",
+        "tests/e2e/growth-loops.spec.js"
+      ],
+      "dependsOn": [
+        "MSG-01",
+        "SEC-01",
+        "OPS-01"
+      ],
+      "specSections": [
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        106
+      ]
+    },
+    {
+      "id": "RET-01",
+      "status": "observation_pending",
+      "priority": "P2",
+      "title": "Mature acquisition, retention and network quality",
+      "evidence": "Per-loop cohorts exist; real D1/D7/D30 windows and causal utility are unknown, not zero.",
+      "nextAction": "Observe genuinely acquired cohorts after consented activation; wait for maturity and report value, abuse and opt-outs separately.",
+      "sources": [
+        "backend/growth-cohorts.js",
+        "backend/growth-network-health.js"
+      ],
+      "dependsOn": [
+        "LIVE-01",
+        "LIVE-02",
+        "LIVE-03"
+      ],
+      "specSections": [
+        36,
+        37,
+        38,
+        39,
+        40,
+        58,
+        91,
+        92,
+        93,
+        94
+      ]
+    },
+    {
+      "id": "OPT-01",
+      "status": "conditional",
+      "priority": "P2",
+      "title": "Future features remain intentionally scoped",
+      "evidence": "Guest votes/comments, incentives, full contacts integration, generic rewards, creator collaborations and A/B systems are not V1 requirements to fabricate.",
+      "nextAction": "Only implement if product policy and an explicit future scope require it; protect consent, review integrity and safety.",
+      "sources": [
+        "docs/growth-loops-spec-evidence-20261012.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        10,
+        22,
+        23,
+        47,
+        55,
+        86,
+        87,
+        88
+      ]
+    },
+    {
+      "id": "REL-01",
+      "status": "blocked",
+      "priority": "P0",
+      "title": "Full Growth Loops production declaration",
+      "evidence": "Source coverage, deployment success and synthetic cases do not satisfy section 106. Messages/security/live/ops/capacity/retention evidence remain open.",
+      "nextAction": "Close actual mandatory acceptance gates and retain rollback evidence before scaling or declaring production-ready.",
+      "sources": [
+        "docs/winga-growth-status.md",
+        "docs/growth-loops-spec-evidence-20261012.md"
+      ],
+      "dependsOn": [
+        "MSG-01",
+        "SEC-01",
+        "LIVE-01",
+        "LIVE-02",
+        "LIVE-03",
+        "OPS-01",
+        "CAP-01",
+        "RET-01"
+      ],
+      "specSections": [
+        95,
+        104,
+        105,
+        106
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "section": 1,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Audit in growth-loops-audit-20261012.md; baseline and remediation distinguished.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 2,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Shared growth contract/store/envelopes, durable jobs and versioned measurable transitions; feature owners retained.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 3,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Shared growth contract/store/envelopes, durable jobs and versioned measurable transitions; feature owners retained.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 4,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 5,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 6,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 7,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 8,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-01",
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 9,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical product routes, native/internal/WhatsApp/copy shares, immediate guest value, no registration conversion; product browser and PostgreSQL evidence.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-01",
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 10,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "Room guest preview is explicit public products only. Guest vote/comment deliberately unavailable; native account membership required.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "LIVE-02",
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 11,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "HMAC hash-only token, TTL/revoke/quota/native MLS admission/blocks; accepted-message metadata proof and separate Room funnel.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 12,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "HMAC hash-only token, TTL/revoke/quota/native MLS admission/blocks; accepted-message metadata proof and separate Room funnel.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 13,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing encrypted rich-reference codec and signed native metadata lookup; product, Reel/Short, Collection, Room and authorized order context keep canonical owners. Private bodies excluded.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 14,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing encrypted rich-reference codec and signed native metadata lookup; product, Reel/Short, Collection, Room and authorized order context keep canonical owners. Private bodies excluded.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 15,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Marketplace report: eligible positive-price inventory, local search-result proxy, first-known approval and nonself signals; actual relevance/fulfillment quality remains observational.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 16,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Marketplace report: eligible positive-price inventory, local search-result proxy, first-known approval and nonself signals; actual relevance/fulfillment quality remains observational.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 17,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Marketplace report: eligible positive-price inventory, local search-result proxy, first-known approval and nonself signals; actual relevance/fulfillment quality remains observational.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 18,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 19,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 20,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 21,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 22,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "Current public Reel/Short/photo Reel/profile sharing and follow/save metrics supported. Future collaboration/brand economics and arbitrary creator Posts not invented.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 23,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "Current public Reel/Short/photo Reel/profile sharing and follow/save metrics supported. Future collaboration/brand economics and arbitrary creator Posts not invented.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 24,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 25,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 26,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 27,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 28,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 29,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 30,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Utility-based category-relevant seller referral reuses canonical envelopes; protected first approval/nonself first value. No generic buyer reward scheme.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 31,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Utility-based category-relevant seller referral reuses canonical envelopes; protected first approval/nonself first value. No generic buyer reward scheme.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 32,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 33,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 34,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 35,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 36,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 37,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 38,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01",
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 39,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 40,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04",
+        "OPS-01",
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 41,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 42,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 43,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 44,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 45,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 46,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "No address-book ingestion. Public projections exclude message/search/order/Room secrets; token scope and native membership protect private contexts.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 47,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "No address-book ingestion. Public projections exclude message/search/order/Room secrets; token scope and native membership protect private contexts.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 48,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Eligibility rechecked after authorization, safe same-origin router, UUID/token validation, expiry/revocation and unavailable-content Explore fallback; legacy product paths preserved.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 49,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Eligibility rechecked after authorization, safe same-origin router, UUID/token validation, expiry/revocation and unavailable-content Explore fallback; legacy product paths preserved.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SEC-01",
+        "SRC-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 50,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Eligibility rechecked after authorization, safe same-origin router, UUID/token validation, expiry/revocation and unavailable-content Explore fallback; legacy product paths preserved.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 51,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 52,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 53,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 54,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04",
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 55,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "No incentive/reward system exists. Self, crawler and duplicate activity excluded; unknown bots/multi-account farms not claimed fully solved.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "SEC-01",
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 56,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical safety/relevance first; no growth-based ranking override, sponsored distribution separate. Marketplace/Conversation/Room/Trust reports express network utility.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 57,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical safety/relevance first; no growth-based ranking override, sponsored distribution separate. Marketplace/Conversation/Room/Trust reports express network utility.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 58,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Canonical safety/relevance first; no growth-based ranking override, sponsored distribution separate. Marketplace/Conversation/Room/Trust reports express network utility.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03",
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 59,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Country/region/category report and distinct local demand audiences; existing category/freshness/discovery remains independent of follower popularity. Future creator quota ranking conditional.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 60,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Country/region/category report and distinct local demand audiences; existing category/freshness/discovery remains independent of follower popularity. Future creator quota ranking conditional.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 61,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Country/region/category report and distinct local demand audiences; existing category/freshness/discovery remains independent of follower popularity. Future creator quota ranking conditional.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 62,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Country/region/category report and distinct local demand audiences; existing category/freshness/discovery remains independent of follower popularity. Future creator quota ranking conditional.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 63,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Country/region/category report and distinct local demand audiences; existing category/freshness/discovery remains independent of follower popularity. Future creator quota ranking conditional.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 64,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 65,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 66,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Existing message push/preferences/mutes plus deduped capped in-app demand resolution and exact destinations. New loops create no email/push/invite reminders or three-channel fan-out.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 67,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit fast external share plus existing recent Conversations/Rooms rich-share picker; safe auth context/navigation retained; no contact auto-open.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 68,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit fast external share plus existing recent Conversations/Rooms rich-share picker; safe auth context/navigation retained; no contact auto-open.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01",
+        "SRC-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 69,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Explicit fast external share plus existing recent Conversations/Rooms rich-share picker; safe auth context/navigation retained; no contact auto-open.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 70,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 71,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 72,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 73,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 74,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 75,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Feed/Search/Ads remain canonical separate domains; metadata-only encrypted messaging analytics, private order boundaries and unchanged native MLS/E2EE wire format.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 76,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 77,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 78,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 79,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 80,
+      "baselineClassification": "SOURCE VERIFIED / LOCAL ONLY",
+      "baselineEvidence": "Allowlisted bounded timing samples for share sheet/server link creation/deep link/auth return and Room request or confirmed acceptance; telemetry failure isolated. Acceptance timing excludes pending admission.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 81,
+      "baselineClassification": "OBSERVATION GATE",
+      "baselineEvidence": "Local direct-content samples captured; no regional production SLO asserted without live measurements and agreed targets.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 82,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Room membership confirmed only by canonical accepted MLS state; duplicate/revoke/close/existing-member races tested with real native fixtures and PostgreSQL.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 83,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Room membership confirmed only by canonical accepted MLS state; duplicate/revoke/close/existing-member races tested with real native fixtures and PostgreSQL.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "MSG-01",
+        "LIVE-02"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 84,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Independent frontend/backend flags and measurement cohort kill switches. Existing share resolution/plain links survive disabled creation; token previews protect native admission.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 85,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Independent frontend/backend flags and measurement cohort kill switches. Existing share resolution/plain links survive disabled creation; token previews protect native admission.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 86,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "No new A/B experiment shipped. Any future experiment requires trust/abuse/opt-out guardrails and real value outcomes; privacy/security never experimental.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 87,
+      "baselineClassification": "SCOPED",
+      "baselineEvidence": "No new A/B experiment shipped. Any future experiment requires trust/abuse/opt-out guardrails and real value outcomes; privacy/security never experimental.",
+      "currentDisposition": "conditional",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 88,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "No deceptive consent/contact/invite patterns; canonical moderation/current seller state/symmetric blocks govern every shared public projection.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPT-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 89,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "No deceptive consent/contact/invite patterns; canonical moderation/current seller state/symmetric blocks govern every shared public projection.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SEC-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 90,
+      "baselineClassification": "SOURCE VERIFIED / OPS GATE",
+      "baselineEvidence": "Existing client error/performance monitoring, growth health retry/DLQ events and admin processing/gap counts. Production alert thresholds, scrape integration and on-call evidence require operations validation.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-02",
+        "SRC-04",
+        "OPS-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 91,
+      "baselineClassification": "SOURCE VERIFIED / OBSERVATION GATE",
+      "baselineEvidence": "Separate loop dashboards and authenticated acquisition cohorts with maturity-safe D1/D7/D30 denominators; live mature retention and causal impact not inferred from synthetic fixtures.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "OPS-01",
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 92,
+      "baselineClassification": "SOURCE VERIFIED / OBSERVATION GATE",
+      "baselineEvidence": "Separate loop dashboards and authenticated acquisition cohorts with maturity-safe D1/D7/D30 denominators; live mature retention and causal impact not inferred from synthetic fixtures.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 93,
+      "baselineClassification": "SOURCE VERIFIED / OBSERVATION GATE",
+      "baselineEvidence": "Separate loop dashboards and authenticated acquisition cohorts with maturity-safe D1/D7/D30 denominators; live mature retention and causal impact not inferred from synthetic fixtures.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 94,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Quality/liquidity/trust dashboard separation, phased flags, measurement-first allowlist, backwards-compatible public product routes; rollback keeps new valid link handlers.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-03",
+        "RET-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 95,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Quality/liquidity/trust dashboard separation, phased flags, measurement-first allowlist, backwards-compatible public product routes; rollback keeps new valid link handlers.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-03",
+        "REL-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 96,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Quality/liquidity/trust dashboard separation, phased flags, measurement-first allowlist, backwards-compatible public product routes; rollback keeps new valid link handlers.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-03"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 97,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Quality/liquidity/trust dashboard separation, phased flags, measurement-first allowlist, backwards-compatible public product routes; rollback keeps new valid link handlers.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 98,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Growth browser/SQL/native/security suites cover guest/auth/deleted/suspended/bot/retry/blocked/expired/revoked/malicious destinations. Cross-device attribution is scoped to verified actor/session, not an invented identity merge.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 99,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Growth browser/SQL/native/security suites cover guest/auth/deleted/suspended/bot/retry/blocked/expired/revoked/malicious destinations. Cross-device attribution is scoped to verified actor/session, not an invented identity merge.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-02",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 100,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Growth browser/SQL/native/security suites cover guest/auth/deleted/suspended/bot/retry/blocked/expired/revoked/malicious destinations. Cross-device attribution is scoped to verified actor/session, not an invented identity merge.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "LIVE-01",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 101,
+      "baselineClassification": "SOURCE VERIFIED",
+      "baselineEvidence": "Growth browser/SQL/native/security suites cover guest/auth/deleted/suspended/bot/retry/blocked/expired/revoked/malicious destinations. Cross-device attribution is scoped to verified actor/session, not an invented identity merge.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SEC-01",
+        "SRC-02",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 102,
+      "baselineClassification": "BOUNDED VERIFIED / CAPACITY GATE",
+      "baselineEvidence": "24 concurrent localhost resolutions and PostgreSQL retry/quota/race bursts pass. Viral production traffic, large native invitation bursts and regional capacity remain staged infrastructure exercises.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 103,
+      "baselineClassification": "BOUNDED VERIFIED / OPS GATE",
+      "baselineEvidence": "Analytics503, storage denial/cache loss, job failure/backoff/DLQ/reconcile and notification rollback tests preserve core actions. Full provider outages/restart exercises require approved staging operations.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-04",
+        "CAP-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 104,
+      "baselineClassification": "PRODUCTION GATED",
+      "baselineEvidence": "Source preserves all invariants and conditional boundaries; success and value-per-loop must be observed. No production-ready claim while release/security/observation gates remain.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-03",
+        "REL-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 105,
+      "baselineClassification": "PRODUCTION GATED",
+      "baselineEvidence": "Source preserves all invariants and conditional boundaries; success and value-per-loop must be observed. No production-ready claim while release/security/observation gates remain.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SEC-01",
+        "REL-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    },
+    {
+      "section": 106,
+      "baselineClassification": "EVIDENCE BELOW",
+      "baselineEvidence": "Definition-of-Done checklist, final ten-question loop contract and explicit residual gates below.",
+      "currentDisposition": "source_reported_acceptance_open",
+      "workItems": [
+        "SRC-02",
+        "SRC-03",
+        "SRC-04",
+        "CAP-01",
+        "REL-01"
+      ],
+      "liveAcceptance": "not_performed_in_this_work"
+    }
+  ]
+}

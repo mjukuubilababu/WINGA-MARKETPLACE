@@ -1,5 +1,10 @@
 # Winga Conversations: spec handoff for 110 onward
 
+> Current continuation status (13 October 2026): the user reports Messages are
+> incomplete. Historical fixtures/operator reports are not current live acceptance.
+> Use [the durable Growth status and blockers](winga-growth-status.md) when resuming.
+
+
 Date: 2026-10-02. Original contract: ARCHITECTURE & SECURITY CONTRACT v1.0.
 
 The original supplied specification is [spec 0-109](winga-conversations-spec-0-109.txt).

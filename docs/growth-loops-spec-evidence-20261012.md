@@ -1,5 +1,10 @@
 # Growth Loops v1.0 — requirement and release evidence
 
+> Current continuation status (13 October 2026): the user reports Messages are
+> incomplete. Historical fixtures/operator reports are not current live acceptance.
+> Use [the durable Growth status and blockers](winga-growth-status.md) when resuming.
+
+
 Date: 2026-10-12. This is an evidence map, not a production-readiness certificate.
 The initial audit predates the remediations in the current branch. Every section
 of the supplied contract is mapped below; SOURCE VERIFIED means implemented and

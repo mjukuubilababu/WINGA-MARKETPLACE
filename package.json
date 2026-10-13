@@ -2,6 +2,8 @@
   "name": "winga-app",
   "private": true,
   "scripts": {
+    "growth:readiness": "node scripts/growth-readiness.js",
+    "verify:growth-readiness": "node scripts/growth-readiness.js --verify",
     "test:growth:postgres": "bash scripts/run-local-growth-db-tests.sh",
     "canary:growth:local": "bash scripts/run-local-growth-db-tests.sh canary",
     "test:growth": "node --test tests/growth-policy.test.js tests/growth-share.test.js && node tests/growth-runtime.test.js && node tests/growth-loops.test.mjs && node tests/growth-event-jobs.test.mjs && node tests/growth-dashboard.test.js && node tests/growth-seller-referrals.test.mjs && node tests/growth-network-health.test.mjs",

@@ -6,6 +6,22 @@
     list.dataset.bound='true';const session=getSession?.(),owner=session?.username;if(!owner)return;
     let state=states.get(owner);if(!state){state={selected:'',tab:'chat',query:'',drafts:{},shown:100,boards:new Map(),history:new Map(),catalog:new Map()};states.set(owner,state);}
     const t=(key,fallback,variables={})=>Object.entries(variables).reduce((text,[name,value])=>text.replaceAll('{'+name+'}',String(value)),translate?.(key,fallback,variables)||fallback);
+    const visuals=globalThis.WingaModules?.growth?.createShareVisuals?.({window,translate:(key,fallback)=>t(key,fallback)});
+    function guidance(title,copy,{icon='people',compact=false}={}){
+      const box=element('section','','winga-room-guidance'+(compact?' is-compact':''));
+      const symbol=element('span','','winga-room-guidance-symbol');if(visuals)symbol.append(visuals.icon(icon));symbol.setAttribute('aria-hidden','true');
+      box.append(symbol,element('h3',title),element('p',copy));return box;
+    }
+    function welcome(){
+      const box=element('div','','conversation-empty-state winga-room-welcome');
+      if(visuals)box.append(visuals.hero(t('rooms.welcomeHeadline','Good choices, made together.'),t('rooms.welcomeCopy','Bring useful finds together. Compare the details. Hear each other’s preferences.')));
+      else box.append(element('h3',t('rooms.welcomeHeadline','Good choices, made together.')));
+      const steps=element('div','','winga-room-steps');
+      for(const [icon,key,label] of [['bag','rooms.guideProducts','Gather your finds'],['search','rooms.guideCompare','Compare what matters'],['people','rooms.guideDecide','Choose together']]){
+        const step=element('div');if(visuals)step.append(visuals.icon(icon));step.append(element('strong',t(key,label)));steps.append(step);
+      }
+      box.append(steps,element('p',t('inbox.selectChat','Select a conversation'),'winga-room-select-hint'));return box;
+    }
     const current=()=>scope.isConnected&&getSession?.()?.username===owner&&getSession?.()?.token===session.token&&getSession?.()?.sessionId===session.sessionId;
     const call=(action,...args)=>dataLayer.shoppingRoom(action,args);
     const fail=(code,member)=>{throw Object.assign(new Error(code),{code,member});};
@@ -153,13 +169,17 @@
       const visible=rooms.filter(r=>Boolean(r.preferences?.archived)===Boolean(state.showArchived)&&r.name?.toLocaleLowerCase().includes(state.query.toLocaleLowerCase()));
       for(const draft of pendingTransitions)list.append(button(t('inbox.retry','Try again')+': '+draft.name,async()=>{state.selected=await call(draft.kind==='create'?'resumeCreate':draft.kind==='leave'?'resumeLeave':'resumeChange',draft.id);state.tab='chat';}));
       for(const room of visible){const b=button('',async()=>{state.selected=room.id;state.shown=100;state.tab='chat';},'message-thread-item'+(state.selected===room.id?' active':''));
-        b.dataset.roomRow=room.id;const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
+        b.dataset.roomRow=room.id;b.classList.add('winga-room-row');const avatar=element('span','','message-thread-avatar');avatar.append(element('span',(room.name||'W').slice(0,1),'conversation-avatar-initial'));
         const meta=element('span','','message-thread-meta');meta.append(element('strong',room.name));
         const history=state.history.get(room.id)||[],last=history.filter(m=>!m.message.startsWith('WINGA-ROOM/')).at(-1);
         const preview=last?.message.startsWith('WINGA-MEDIA/')?t('rooms.attachment','Attachment'):last?.message;
         meta.append(element('small',room.clientError?t('rooms.actionFailed','Unable to finish. Try again.'):room.status==='removed'?t('rooms.removed','Access ended'):room.transition?.status!=='accepted'?t('rooms.pending','Waiting for member approval'):preview||t('rooms.encrypted','Encrypted chatroom'),'inbox-preview'));
         if(room.preferences?.muted)meta.append(element('small',t('chat.muteActive','Alerts muted')));b.append(avatar,meta);list.append(b);}
-      if(!visible.length)list.append(element('p',t('inbox.roomsEmpty','No chatrooms yet.'),'empty-copy'));
+      if(!visible.length){
+        if(state.query.trim())list.append(guidance(t('rooms.searchEmpty','No Rooms match this name.'),t('rooms.searchEmptyHelp','Try another name or clear your search.'),{icon:'search',compact:true}));
+        else if(state.showArchived)list.append(guidance(t('rooms.archivedEmpty','No archived Rooms.'),t('rooms.archivedEmptyHelp','Your archived Rooms will appear here.'),{compact:true}));
+        else list.append(guidance(t('rooms.emptyHeadline','A good find can start a shared choice.'),t('inbox.roomsEmpty','No chatrooms yet.'),{compact:true}));
+      }
     }
     async function productSearch(room){const view=modal(t('chat.productFinder','Find a product')),query=input(view.form,t('chat.productFinder','Find a product'),'query');
       const results=element('div','','room-product-results');view.form.append(results);
@@ -218,6 +238,7 @@
         iconButton('plus',t('rooms.share','Share product'),()=>productSearch(room)));wrap.append(toolbar);
       const selection=(state.comparison.get(room.id)||[]).filter(id=>board.products.some(p=>p.productId===id));state.comparison.set(room.id,selection);
       const compareButton=iconButton('arrow-left-right',t('rooms.compare','Compare products'),()=>compare(room,board));compareButton.disabled=selection.length<2;toolbar.append(compareButton);
+      wrap.append(element('p',t('rooms.compareHint','Select 2–4 products to compare current details.'),'winga-room-compare-hint'));
       const seen=new Set();
       const products=shortlist?board.products.filter(p=>p.shortlistedBy.includes(owner)):board.products;
       for(const share of products.slice(0,state.shown)){const p=state.catalog.get(share.productId)?.product,row=element('article','','room-product-item');
@@ -234,7 +255,8 @@
           const sellerId=p.uploadedBy||p.sellerId;if(sellerId&&sellerId!==owner)controls.append(button(t('rooms.askSeller','Ask seller'),()=>askSeller(room,share,p)));}
         if(share.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin'))controls.append(iconButton('trash-2',t('rooms.remove','Remove'),()=>call('command',room.id,'product-remove',{shareId:share.shareId})));
         body.append(controls);row.append(body);wrap.append(row);}
-      if(!products.length)wrap.append(element('p',t('rooms.noProducts','No products shared yet.'),'empty-copy'));
+      if(!products.length)wrap.append(guidance(shortlist?t('rooms.shortlistHeadline','Keep the choices that matter.'):t('rooms.productsHeadline','Start with a useful find.'),
+        shortlist?t('rooms.shortlistHelp','Shortlist products from this Room to keep your choices together.'):t('rooms.noProducts','No products shared yet.'),{icon:'bag'}));
       for(const q of pendingQuestions.filter(q=>q.roomId===room.id)){const row=element('div','','room-seller-pending');row.append(element('p',q.question),button(t('inbox.retry','Try again'),()=>dataLayer.seller('resume',[q.id])));
         if(actions.openContact)row.append(button(t('rooms.openSellerChat','Open seller chat'),()=>actions.openContact(q.sellerId)));wrap.append(row);}
       wrap.append(sellerCards(room,board));
@@ -249,7 +271,7 @@
         if(poll.open&&(poll.owner===owner||JSON.parse(JSON.parse(room.transition.intent).roles).some(r=>r.owner===owner&&r.role==='admin')))
           section.append(button(t('rooms.closePoll','Close poll'),()=>call('command',room.id,'poll-close',{pollId:poll.id})));
         if(!poll.open)section.append(element('small',t('rooms.pollClosed','Poll closed')));wrap.append(section);}
-      if(!board.polls.length)wrap.append(element('p',t('rooms.noPolls','No polls yet.'),'empty-copy'));
+      if(!board.polls.length)wrap.append(guidance(t('rooms.pollsHeadline','Hear everyone’s preference.'),t('rooms.noPolls','No polls yet.'),{icon:'people'}));
       if(board.polls.length>state.shown)wrap.append(button(t('rooms.more','Load more'),async()=>{state.shown+=100;}));return wrap;
     }
     async function shareOrder(room){const view=modal(t('rooms.shareOrder','Share order reference')),codec=await import('/src/chat/shopping-room-content.mjs'),history=await call('history',room.id);
@@ -297,7 +319,7 @@
       const oldTop=oldThread?.getBoundingClientRect().top,anchor=keepPosition?[...oldThread.querySelectorAll('[data-room-message]')].find(row=>row.getBoundingClientRect().bottom>oldTop):null;
       const anchorId=anchor?.dataset.roomMessage,anchorOffset=anchor?anchor.getBoundingClientRect().top-oldTop:0,oldScroll=oldThread?.scrollTop||0;
       scope.dataset.conversationSelected=String(Boolean(room));scope.querySelector('.messages-shell')?.classList.toggle('compact-detail',Boolean(room));detail.replaceChildren(status);
-      if(!room){detail.append(element('div',t('inbox.selectChat','Select a conversation'),'conversation-empty-state'));return;}
+      if(!room){detail.append(welcome());return;}
       detail.dataset.roomId=room.id;const head=element('div','','messages-thread-head'),identity=element('div','','room-head-identity');identity.append(element('strong',room.name));
       if(room.transition?.status==='accepted')identity.append(element('p',t('chat.roomMemberCount','{count} members',{count:JSON.parse(JSON.parse(room.transition.intent).roles).length})));
       head.append(iconButton('arrow-left',t('inbox.back','Back'),async()=>{state.selected='';delete detail.dataset.roomId;}),identity);

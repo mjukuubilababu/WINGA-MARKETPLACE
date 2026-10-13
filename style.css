@@ -13195,3 +13195,37 @@ body.winga-internal-share-open{overflow:hidden}
   .winga-share-picker .internal-share-results{max-height:28dvh}
 }
 @media(prefers-reduced-motion:reduce){.winga-share-picker *,.winga-share-sheet *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Shopping Room guidance uses the same Winga identity as product sharing. */
+.winga-room-welcome.conversation-empty-state{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:0;padding:24px;min-width:0;box-sizing:border-box;text-align:start}
+.winga-room-welcome .winga-share-hero{border-radius:22px;margin:0 auto;width:min(100%,520px);box-sizing:border-box}
+.winga-room-welcome .winga-share-heading{max-width:380px;font-size:30px}
+.winga-room-welcome .winga-share-orbit{inset-inline-end:25px}
+.winga-room-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:min(100%,520px);margin:18px auto 0}
+.winga-room-steps>div{display:grid;justify-items:start;gap:12px;padding:16px 12px;border:1px solid #e7ebef;border-radius:16px;background:#fff;color:#233749}
+.winga-room-steps .winga-share-icon{color:#c0570c;width:23px;height:23px}
+.winga-room-steps strong{font-size:12px;font-weight:700;line-height:1.45;overflow-wrap:anywhere}
+.winga-room-select-hint{margin:18px auto 0;font-size:13px;line-height:1.5;color:#627585;text-align:center}
+.winga-room-guidance{display:flex;flex-direction:column;align-items:center;gap:12px;padding:30px 18px;margin:16px 0;min-width:0;border:1px solid #edf0f3;border-radius:20px;background:#fbfcfd;color:#233749;text-align:center}
+.winga-room-guidance.is-compact{padding:24px 14px;margin:16px 12px}
+.winga-room-guidance-symbol{display:grid;place-items:center;width:54px;height:54px;border-radius:17px;background:#fff0e3;color:#b7540b}
+.winga-room-guidance h3{margin:0;font-size:18px;line-height:1.3;font-weight:750;text-wrap:balance}
+.winga-room-guidance p{max-width:360px;margin:0;font-size:13px;line-height:1.55;color:#637586}
+.winga-room-compare-hint{margin:12px 4px 16px;font-size:12px;line-height:1.5;color:#637586}
+[data-room-list] .winga-room-row{margin:4px 7px;width:calc(100% - 14px);border:1px solid transparent;border-radius:15px}
+[data-room-list] .winga-room-row.active{border-color:#ffd9bc;background:#fff5ed}
+[data-room-list] .winga-room-row .conversation-avatar-initial{background:#192736;color:#ffba87;border-radius:14px}
+.room-detail .room-view-tab[aria-selected="true"]{border-bottom-color:#ff6a00;color:#a94806}
+.room-detail .room-product-item{padding:14px;margin-bottom:12px;border:1px solid #e7ebef;border-radius:18px;background:#fff}
+.room-detail .room-product-item>img{border-radius:12px}
+.room-detail .room-poll{padding:16px;border:1px solid #e7ebef;border-radius:18px;background:#fff}
+.room-dialog .room-comparison-scroll{border-radius:16px;border-color:#e2e8ed}
+.room-dialog .room-comparison-table thead{background:#fff4ec;color:#273b4c}
+.room-dialog .room-comparison-table th,.room-dialog .room-comparison-table td{padding:12px}
+@media(max-width:560px){
+  .winga-room-welcome.conversation-empty-state{padding:16px}
+  .winga-room-welcome .winga-share-heading{font-size:27px}
+  .winga-room-steps{gap:7px}
+  .winga-room-steps>div{padding:13px 10px}
+  .winga-room-steps strong{font-size:11px}
+}
