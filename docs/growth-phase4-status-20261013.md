@@ -101,9 +101,9 @@ source hashes, adapter provenance, pass counts and scope limits.
   verified. New creator fields render as text; unavailable remains unknown.
 - Phase 3's 23 isolated demand/restock/seller checks remain a regression gate.
 
-Recorded local checks: 28/28 full sharing/auth Chromium scenarios (46.6s),
+Recorded local checks: 28/28 full sharing/auth Chromium scenarios (48.4s),
 63 Phase 4 contracts on disposable PostgreSQL 18.6,
-152/152 frontend core, 5/5 dashboard and four catalogs with 1,759 matching keys
+153/153 frontend core, 5/5 dashboard and four catalogs with 1,759 matching keys
 (version `2026.10.13.5`, zero new hard-coded debt). The final membership-removal
 guard and private Collection exclusion are explicit contracts. Source hashes and
 adapter provenance are retained in the accompanying machine-readable evidence.
@@ -113,6 +113,24 @@ Run `npm run test:growth:phase4` for the isolated adapter, or
 container. The runner does not read `DATABASE_URL`; it drops fixture schemas and
 removes its owned container. Full Growth CI includes the new UI/SQL/runtime checks
 and browser scenario; existing Messages/security checks remain mandatory.
+
+## Post-CI auth-return hardening
+
+The first Phase 4 CI run exposed a timing race in the existing member Search
+scenario: login started a product return read, the user closed that product and
+started a new Search, and the delayed read reopened the product over the Search
+notification action. Product auth return now snapshots account/session, URL,
+view and Search input and abandons an obsolete response after the context changes.
+An unchanged context still resumes the original destination/action.
+
+The browser regression deliberately holds the canonical product response during
+login, starts Search, then releases it and observes auth-return completion before
+asserting the notification action stays accessible. Reopening the internal Share
+picker now removes the previous closed dialog synchronously, so queued native
+close events cannot leave duplicate recipient selectors/heading IDs. Its browser
+scenario asserts one picker after consecutive opens. These checks use ordinary clicks,
+without forcing click-through or increasing the timeout. Frontend behavior checks
+cover changed Search/navigation/view/session and a successful unchanged return.
 
 ## Full-spec completion boundary
 

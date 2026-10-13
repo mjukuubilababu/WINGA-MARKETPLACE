@@ -64,6 +64,20 @@ test('late creator reads cannot replace a newer deep link or a changed session',
  context.currentSession={sessionId:'two'};pending.get('second')(product('second'));await stale;assert.deepEqual(opened,['second']);
 });
 
+test('late product auth return respects new Search/navigation/session context and still opens an unchanged destination',async()=>{
+ const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
+ const start=source.indexOf('  if (intent.productId) {',source.indexOf('async function resumePendingGuestIntentContext()'));
+ const end=source.indexOf("\n  if(intent.type==='notify-restock')",start);
+ for(const change of [null,c=>{c.searchInput.value='new search';},c=>{c.window.location.href='https://winga.test/profile/other';},c=>{c.currentView='profile';},c=>{c.currentSession={sessionId:'changed'};}]){
+  let complete;const opened=[],context=vm.createContext({currentUser:'buyer',currentSession:{sessionId:'initial'},currentView:'home',searchInput:{value:''},
+    window:{location:{href:'https://winga.test/product/shared'},WingaDataLayer:{loadSharedProduct:()=>new Promise(r=>{complete=r;})}},
+    refreshProductsFromStore(){},getProductById:()=>({id:'shared'}),setCurrentViewState(){},openProductDetailModal:id=>opened.push(id)});
+  vm.runInContext(`async function fixtureReturn(){const intent={productId:'shared'};${source.slice(start,end)}}`,context);
+  const pending=vm.runInContext('fixtureReturn()',context);if(change)change(context);complete({id:'shared'});await pending;
+  assert.deepEqual(opened,change?[]:['shared']);
+ }
+});
+
 function demandNotificationHarness(readProduct,markRead){
   const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
   const start=source.indexOf('async function handleNotificationOpen(notificationId)'),end=source.indexOf('\nfunction ',start);

@@ -607,7 +607,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const contract=win.WingaModules.growth.contract;
       if(!contract.id(productId)||!['PRODUCT','REEL','SHORT','COLLECTION'].includes(contentType))return;
       if(contentType!=='PRODUCT'&&win.WINGA_CONFIG?.growthInternalContentSharing!==true)return;
-      active?.close();
+      if(active){const previous=active;previous.close();previous.remove();}
       const owner=deps.getAccount(),identity=deps.getIdentity?.();
       if(!owner){deps.requireAuth(contentType==='PRODUCT'?{type:'share-to-winga',productId}:{type:'share-to-winga',contentId:productId,contentType});return;}
       const dialog=el('dialog');dialog.className='chat-security-dialog winga-share-picker';dialog.dataset.internalShare='true';

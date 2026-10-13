@@ -1,29 +1,30 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-10-13T21:54:45.656074+00:00",
+  "recordedAt": "2026-10-13T22:27:02.591103+00:00",
   "scope": "Phase 4 isolated source/measurement/hardening; no human acquisition, production canary or independent review",
   "sourceBaseline": "5c0394b4b8f6d73811a182660a9240a78977c08f",
   "sourceFiles": {
-    "app.js": "5c1f4acf17db9267a96503c0d8832b1570622042548e07c046eee7fbf95e284e",
+    "app.js": "aa36d25bc2561c50fb041abff8928824913e13c1a12f24b939c4559346877cd9",
     "backend/growth-store.js": "788962d42141651c5763f112a08b2f7b11f5ffc871b4d4b1549ad2a3284918b6",
     "backend/growth-seller-referrals.js": "1f1f5caf7139eb69102ff951a6f6d40df168cc8ca0ce26e4014e644fa651c1f7",
     "src/growth/runtime.js": "f9a388c1f80f9d525fe788afa29809ca22f0a29a8b508dc73c62fedd96e65199",
     "src/growth/content-ui.js": "34aea22f8129815664f3ef47da3577c9f1d160cd18cf0a938f0905304243fbbc",
     "src/admin/ui.js": "a3504ba42b082876188f2fd7c6916aeb5e883f948ed76caa94a0e1cd41a51120",
-    "winga-modules.js": "f8cf8e561ba1708edb5ab20c0100b66236f49f5e6a3198f0df2937fa554ed4a8",
+    "winga-modules.js": "400e3f7ff6fad4976ffdb05e2fbdc66b5d696ad43f90192c69adcd180858cbaa",
     "tests/growth-loops.test.mjs": "b0d4af5a8a90d88ed227114066819fd8d08db29e7a31717760ca5fd759cd4a4d",
     "tests/growth-seller-referrals.test.mjs": "fc1c3b19f9603a7202a3e952ac475fef16b96f8a07f22ca860eb279c2305cd0a",
     "tests/growth-runtime.test.js": "36323e2e2b680855305bd98026155d7234bcfde2bf360d27d1257c66d2817367",
     "tests/growth-content-ui.test.js": "7146a0a2d7410a3f2e77f6868a73ce56df91bf30e489f47d67229dd9f6f0b309",
-    "tests/frontend-core.test.js": "32bec70d209a6fedddbbd04cafe3912eadc3827abcb39c61aa6a0223f9e09cff",
+    "tests/frontend-core.test.js": "a066f8ae5233de39c2c2bfe1f0bda793340f7920f1ca8d8d0af1f6529082dae9",
     "tests/growth-dashboard.test.js": "1ed09e853cc00cef11c35a1f4c3c3b3d280fa9a05ea62e8a102f025e03b693c6",
-    "tests/e2e/growth-loops.spec.js": "624d8ac03bc2e75afbc2470f13fe7f46c0777918ae027f87d7db48f225d9379f",
+    "tests/e2e/growth-loops.spec.js": "440374253390003fe5a805d2502d9b32aff925276d95984ba310fbf41e4bf603",
     "package.json": "eaa499e46774f47acd2c74ea9330d15839ab4bfaac334fc056d6ab4ef4147b47",
     "scripts/run-local-growth-db-tests.sh": "ca2e5b470d9eca59c80f55dbe4b2f4a796c8d313ebb0ed3d1172ae79bd9cdb6c",
     "src/localization/catalogs/en.json": "1496f8e75ac5ea027e7334ad4bf0f08bc73457d5f6943e933df7c62c792fbbb4",
     "src/localization/catalogs/sw.json": "62ea4d040b2a06a3e47fa4d734eafe6f3ed80037fdf9561bd89c993b5f5f0c84",
     "src/localization/catalogs/fr.json": "0f6a3afb26c8d247fe7a45a8c95c4deddaafe38ce9c6355009bc19068f9a213a",
-    "src/localization/catalogs/ar.json": "1e84811e6b307eaed47cc4fc765c0a1dde3858cfacb4fb5f0b445c3c22e2af89"
+    "src/localization/catalogs/ar.json": "1e84811e6b307eaed47cc4fc765c0a1dde3858cfacb4fb5f0b445c3c22e2af89",
+    "src/growth/internal-share.js": "5e807392be2cdf53067aabd0ed56af9ba1b887b93a924be9a2b66341bc7945df"
   },
   "verification": {
     "phase4Postgres": {
@@ -41,7 +42,7 @@
       "note": "The 62-case PGlite run preceded the additional final multi-touch case; final runtime 25/25 and PostgreSQL 63/63 verify that addition."
     },
     "frontendCore": {
-      "passed": 152,
+      "passed": 153,
       "failed": 0
     },
     "dashboard": {
@@ -51,7 +52,7 @@
     "chromiumSharingAuth": {
       "passed": 28,
       "failed": 0,
-      "seconds": 46.6,
+      "seconds": 48.4,
       "scope": "Disposable localhost backend and controlled preview/analytics fixtures; no native Messages delivery or human value assertion."
     },
     "phase3Regression": {
@@ -84,5 +85,15 @@
   "rolloutConfigurationChanged": false,
   "independentSecurityReview": "pending; requires exact final-source scan and actual independent reviewer",
   "liveAcceptance": "pending configured app sessions/staging, genuine actors, Messages readiness where required and mature observations",
-  "productionReady": false
+  "productionReady": false,
+  "postCiHardening": {
+    "triggerCommit": "b2408a6c9622f1406be8587be52e618d678a01b5",
+    "workflowRunId": 38474142621,
+    "failure": "Late product auth return reopened a product over a new Search notification action.",
+    "fixes": [
+      "Cancel obsolete product auth return on account/session/URL/view/Search change.",
+      "Remove a closed previous Share picker synchronously before creating its replacement."
+    ],
+    "verification": "153 frontend checks, deterministic delayed-response/one-picker scenarios and full 28-case Chromium suite passed. No forced clicks or extended timeout."
+  }
 }

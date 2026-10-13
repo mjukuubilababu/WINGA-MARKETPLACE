@@ -5506,9 +5506,11 @@ async function resumePendingGuestIntentContext() {
   if(intent.type==='share-to-winga'&&intent.contentId){await openCanonicalContentDestination(window.WingaModules.growth.contract.destination(intent.contentType,intent.contentId));await openInternalProductShare(intent.contentId,intent.contentType);return;}
   if (intent.productId) {
     const returningUser = currentUser;
+    const context=()=>JSON.stringify([currentUser||'',currentSession?.sessionId||'',currentSession?.token||'',window.location.href,currentView,String(searchInput?.value||'')]);
+    const returningContext=context();
     let availableProduct = null;
     try { availableProduct = await window.WingaDataLayer.loadSharedProduct(intent.productId); } catch {}
-    if (currentUser !== returningUser) return;
+    if (currentUser !== returningUser||context()!==returningContext) return;
     if (!availableProduct) {
       closeProductDetailModal({ skipHistoryBack: true });
       clearPendingDeepLinkProductRoute();

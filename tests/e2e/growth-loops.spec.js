@@ -142,7 +142,11 @@ test('internal product sharing uses rich canonical transports and stable retry I
       window.__internalShares.push({peer,content,options});if(window.__internalShares.length===1)throw Error('network unavailable');return {id:options.clientMessageId};
     };
   });
-  await page.evaluate(id=>openInternalProductShare(id),product.id);
+  const pickerCount=await page.evaluate(async id=>{
+    await openInternalProductShare(id);await openInternalProductShare(id);
+    return document.querySelectorAll('dialog[data-internal-share]').length;
+  },product.id);
+  expect(pickerCount).toBe(1);
   const dialog=page.locator('dialog[data-internal-share]');
   await expect(dialog.locator('[data-share-person="market_seller"]')).toBeVisible();
   await expect(dialog.locator('[data-share-person="legacy_peer"]')).toBeVisible();
@@ -362,14 +366,26 @@ test('public profile remains visible when optional collections are unavailable',
 
 test('member failed Search exposes an explicit notification action',async({browser,request})=>{
   const {context,page,product}=await guest(browser,request,{growthDemandResolution:true});
+  let releaseReturn;const returnDelay=new Promise(resolve=>{releaseReturn=resolve;});let delayReturn=false;
+  await context.route('**/api/products?*',async route=>{
+    if(delayReturn&&new URL(route.request().url()).searchParams.get('productId')===product.id)await returnDelay;
+    await route.continue();
+  });
   let subscribed='';await context.route('**/api/search-demand/subscriptions',route=>{subscribed=route.request().postDataJSON().query;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({goalId:'goal_search_member_fixture',status:'looking'})});});
   await page.goto('/product/'+product.id);await expect(page.locator('#product-detail-title')).toHaveText(product.name,{timeout:30000});
+  await page.evaluate(()=>{
+    const resume=resumePendingGuestIntentContext;window.__pendingAuthReturns=0;
+    resumePendingGuestIntentContext=async()=>{window.__pendingAuthReturns++;try{return await resume();}finally{window.__pendingAuthReturns--;}};
+  });
   await page.locator('#product-detail-modal [data-buy-product]').first().click();await page.locator('#auth-gate-login').click();
-  await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
+  await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');delayReturn=true;await page.locator('#auth-button').click();
   await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
+  await expect.poll(()=>page.evaluate(()=>window.__pendingAuthReturns)).toBeGreaterThan(0);
   await page.evaluate(()=>closeProductDetailModal({skipHistoryBack:true}));
   await page.locator('#search-input').fill('unfindable green underwater snow shoes');
   await expect(page.locator('[data-search-notify]')).toBeVisible({timeout:30000});
+  releaseReturn();await expect.poll(()=>page.evaluate(()=>window.__pendingAuthReturns)).toBe(0);
+  await expect(page.locator('#product-detail-modal')).toBeHidden();
   await page.locator('[data-search-notify]').click();
   await expect.poll(()=>subscribed).toBe('unfindable green underwater snow shoes');
   await expect(page.locator('#auth-container')).toBeHidden();await context.close();

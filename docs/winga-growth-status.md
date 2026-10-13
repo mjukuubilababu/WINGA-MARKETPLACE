@@ -114,7 +114,7 @@ separate verified recipient value and later eligible publication from views.
 Referral value rejects inactive/blocked buyers and refunded/foreign-seller orders.
 Stale account/session/destination responses cannot act for a replacement context.
 
-Verification: 63 Phase 4 contracts on disposable PostgreSQL 18.6, 152 frontend
+Verification: 63 Phase 4 contracts on disposable PostgreSQL 18.6, 153 frontend
 checks, 5 dashboard checks and isolated Chromium Collection/auth/save scenarios.
 Phase 3's 23 contracts remain green. Four catalogs have 1,759 matching keys and
 zero new hard-coded debt; the 98-module generated bundle is synchronized.
