@@ -7952,6 +7952,9 @@ function openMediaActionSheet(product, options = {}) {
   savedProductState.activeSheetProductId = product.id;
   savedProductState.activeSheetSource = sourceImage;
 
+  root.classList.toggle('winga-share-sheet',Boolean(options.shareOnly));
+  root.querySelector('.media-action-close')?.setAttribute('aria-label',translateUi('common.close',{},'Close'));
+  const visuals=window.WingaModules.growth.createShareVisuals({window,translate:(key,fallback)=>translateUi(key,{},fallback),price:formatProductPrice});
   const preview = createElement("div", { className: "media-action-preview" });
   preview.appendChild(createElement("img", {
     attributes: {
@@ -7997,7 +8000,25 @@ function openMediaActionSheet(product, options = {}) {
     }));
   });
 
-  content.replaceChildren(preview, copy, actions);
+  if(options.shareOnly){
+    const hero=visuals.hero(translateUi('growth.shareHeadline',{},'Good finds go further.'),translateUi('growth.shareSubtitle',{},'Turn a find into a conversation.'));
+    hero.querySelector('h2').id='media-action-title';
+    const body=createElement('div',{className:'winga-share-body'});
+    const productPreview=visuals.preview({...product,image:sourceImage});if(productPreview)body.append(productPreview);
+    const descriptions={
+      'share-winga':['people','growth.shareWingaHint','Send a product card to a person or Room.'],
+      'share-copy':['link','growth.shareCopyHint','A direct link to this find.'],
+      'share-whatsapp':['message','growth.shareWhatsappHint','Bring the conversation to WhatsApp.'],
+      'share-external':['globe','growth.shareOutsideHint','Choose another app to share with.']
+    };
+    for(const button of actions.children){
+      const item=descriptions[button.dataset.mediaAction],label=button.textContent;button.setAttribute('aria-label',label);
+      const symbol=createElement('span',{className:'winga-share-action-icon'});symbol.append(visuals.icon(item[0]));
+      const text=createElement('span',{className:'winga-share-action-copy'});text.append(createElement('strong',{textContent:label}),createElement('span',{textContent:translateUi(item[1],{},item[2])}));
+      button.replaceChildren(symbol,text,visuals.icon('arrow'));
+    }
+    body.append(actions);content.replaceChildren(hero,body);
+  }else content.replaceChildren(preview, copy, actions);
   root.classList.add("open");
   document.body.classList.add("media-action-sheet-open");
   try{getGrowthRuntime().recordTiming('share_sheet_open_ms',performance.now()-shareSheetStarted);}catch{}
@@ -25986,7 +26007,7 @@ function openInternalProductShare(productId,contentType) {
   if(!contentType){const target=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin);
     contentType=window.WINGA_CONFIG?.growthInternalContentSharing===true?
       (['REEL','SHORT'].includes(target?.type)&&target.id===productId?target.type:getProductById(productId)?.category==='reels'?'REEL':'PRODUCT'):'PRODUCT';}
-  internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,getIdentity:()=>JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']),dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent}),
+  internalProductShareUi ||= window.WingaModules.growth.createInternalShare({window,getAccount:()=>currentUser,getProduct:id=>{const product=getProductById(id);return product?{...product,image:getMarketplacePrimaryImage(product)}:null;},price:formatProductPrice,getIdentity:()=>JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']),dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),requireAuth:intent=>promptGuestAuth({intent}),
     inviteProduct:id=>{const product=getProductById(id);if(product)void handleShareProduct(product,{channel:'native'});},
     bindSecureShare:(scope,peer,refresh,onDialog)=>window.WingaEncryptedChatUi?.bind(scope,{onDialog,dataLayer:window.WingaDataLayer,translate:(key,fallback)=>translateUi(key,{},fallback),refresh,getSession:()=>currentSession,getPeer:()=>peer,getMessages:()=>[]})});
   return internalProductShareUi.open(productId,contentType);

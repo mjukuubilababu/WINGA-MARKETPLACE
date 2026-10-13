@@ -46,3 +46,20 @@ Cloudflare frontend. Rollback reverts this release on both services; existing
 public product links and messaging records remain valid. No migration rollback
 is needed. Full Growth Loops readiness still depends on the separate spec evidence
 and live canary gates.
+
+## Winga visual experience
+
+The Share entry and recipient picker now share an orange/ink visual identity,
+compact product context, purpose-led copy and clear internal/external actions.
+Recipients use public avatars or initials, with a distinct Room treatment. All,
+People and Room filters reuse the same canonical discovery sources; filtering
+Rooms performs no people lookup. Empty states describe the selected scope.
+Mobile uses a full-width bottom sheet; desktop uses a centered dialog. RTL,
+keyboard focus, reduced motion, bounded scrolling and small-text contrast are
+handled within the sharing surfaces. No recommendations, online status, private
+activity or growth statistics are invented.
+
+The existing 27 sharing browser cases pass with the new presentation, including
+filter continuity. Visual inspection covers 390px mobile, 1280px desktop and
+320px RTL layouts, empty search and native security dialog cleanup. Screenshot
+recipients and Rooms are local fixtures, not live participation evidence.

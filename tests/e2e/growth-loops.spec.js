@@ -143,7 +143,7 @@ test('internal product sharing uses rich canonical transports and stable retry I
     };
   });
   await page.evaluate(id=>openInternalProductShare(id),product.id);
-  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
+  const dialog=page.locator('dialog[data-internal-share]');
   await expect(dialog.locator('[data-share-person="market_seller"]')).toBeVisible();
   await expect(dialog.locator('[data-share-person="legacy_peer"]')).toBeVisible();
   expect(await page.evaluate(()=>window.__internalShares.length)).toBe(0);
@@ -194,7 +194,7 @@ test('product Share keeps Winga and external choices explicit and returns intern
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');
   await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
-  const internal=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
+  const internal=page.locator('dialog[data-internal-share]');
   await expect(internal.locator('[data-share-person="market_seller"]')).toBeVisible();
   await expect(page.locator('#product-detail-title')).toHaveText(product.name);
   await expect(page).toHaveURL(new RegExp('/product/'+product.id+'(?:\\?|$)'));
@@ -234,7 +234,7 @@ test('public collection internal sharing uses live rich cards and stable encrypt
     WingaDataLayer.sendRichMessage=async(peer,content,options)=>(window.__contentShares.push({peer,content,options}),{id:options.clientMessageId});
   });
   await page.evaluate(id=>openInternalProductShare(id,'COLLECTION'),id);
-  const dialog=page.locator('dialog').filter({has:page.getByRole('heading',{name:/^(Share to Winga|Shiriki ndani ya Winga)$/})});
+  const dialog=page.locator('dialog[data-internal-share]');
   await dialog.locator('[data-share-person="market_seller"]').click();
   await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
   await dialog.getByRole('button',{name:'Choose together',exact:true}).click();
@@ -476,7 +476,10 @@ test('people search ignores stale replies and Room search uses only ready member
   await search.fill('jan');await expect(picker.locator('[data-share-person=janeth]')).toBeVisible();
   await page.evaluate(()=>window.__oldPeopleReply({items:[{username:'rey',fullName:'Rey'}]}));
   await expect(picker.locator('[data-share-person=rey]')).toHaveCount(0);await expect(picker.locator('[data-share-person=janeth]')).toBeVisible();
+  await picker.locator('[data-share-filter=rooms]').click();await expect(picker.locator('[data-share-person=janeth]')).toHaveCount(0);
   await search.fill('Gift');await expect(picker.locator('[data-share-room="'+roomId+'"]').first()).toBeVisible();
+  await picker.locator('[data-share-filter=people]').click();await expect(picker.locator('[data-share-room="'+roomId+'"]')).toHaveCount(0);
+  await picker.locator('[data-share-filter=all]').click();await expect(picker.locator('[data-share-room="'+roomId+'"]')).toBeVisible();
   await expect(picker.locator('[data-share-room=closed]')).toHaveCount(0);expect(await page.evaluate(()=>window.__recipientSends.length)).toBe(0);await context.close();
 });
 
