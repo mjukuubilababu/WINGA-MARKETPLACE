@@ -18,13 +18,14 @@
     let queue = read('localStorage', 'winga-growth-outbox-v1', []);
     queue = Array.isArray(queue) ? queue.filter(x => x && ['shares','events','room-events'].includes(x.kind) && x.payload?.schemaVersion === 1).slice(-100) : [];
     const safePayload=(kind,payload)=>Object.fromEntries(Object.entries(payload).filter(([field,value])=>{
-      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion','messageId']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs']).includes(field))return false;
+      if(!(kind==='shares'?['shareId','sessionId','contentType','contentId','sourceSurface','parentShareId','schemaVersion','messageId']:kind==='room-events'?['eventId','shareId','sessionId','tokenHash','eventType','schemaVersion','orderId','newRoomHash']:['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs','productId']).includes(field))return false;
       if(field==='schemaVersion')return value===1;
       if(field==='durationMs')return Number.isInteger(value)&&value>=0&&value<=300000;
       if(field==='contentType')return contract.shareTypes.includes(value);
       if(field==='sourceSurface')return contract.surfaces.includes(value);
       if(field==='eventType')return [...contract.events,...contract.roomEvents,...contract.contentEvents,...contract.referralEvents].includes(value);
       if(['tokenHash','newRoomHash'].includes(field))return typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+      if(field==='productId')return payload.eventType==='shared_content_saved'&&contract.id(value);
       if(['contentId','orderId'].includes(field))return contract.id(value);
       return field==='parentShareId'&&value===''||contract.uuid(value);
     }));
@@ -48,7 +49,7 @@
     let capabilityGeneration=0,capabilityIdentity='',capabilityTimer=null;
     function disableAccountCapabilities(){win.WINGA_CONFIG.growthProductSharing=false;win.WINGA_CONFIG.growthMeasurement=false;if(capabilityTimer)win.clearTimeout(capabilityTimer);capabilityTimer=null;}
     if(accountRollout)disableAccountCapabilities();
-    const roomProductContexts=new Map();
+    const roomProductContexts=new Map(),collectionProductContexts=new Map();
     function syncIdentity() {
       const current = account();
       if(accountRollout&&capabilityIdentity&&identity()!==capabilityIdentity){capabilityGeneration++;capabilityIdentity='';disableAccountCapabilities();}
@@ -56,7 +57,7 @@
         sessionId = randomId(); storage('sessionStorage','setItem','winga-growth-session',sessionId);
         journey = { firstTouch: null, lastTouch: null, touches: [] };
         routeTiming = null;
-        roomProductContexts.clear();pendingProductShare=null;
+        roomProductContexts.clear();collectionProductContexts.clear();pendingProductShare=null;
         storage('sessionStorage','setItem','winga-growth-journey-v1',JSON.stringify(journey));
       }
       previousAccount = current;
@@ -191,9 +192,9 @@
           parentShareId:parent?.shareId || '',schemaVersion:1 });
       } };
     }
-    function contentEvent(eventType,touch){
+    function contentEvent(eventType,touch,extra={}){
       syncIdentity();if(!measurement()||!contract.contentEvents.includes(eventType)||!contract.uuid(touch?.shareId))return;
-      enqueue('events',{eventId:randomId(),shareId:touch.shareId,sessionId,eventType,schemaVersion:1});
+      enqueue('events',{eventId:randomId(),shareId:touch.shareId,sessionId,eventType,schemaVersion:1,...(eventType==='shared_content_saved'&&touch.destinationType==='COLLECTION'&&contract.id(extra.productId)?{productId:extra.productId}:{})});
     }
     const contentTimers=new Map();
     function contentVisible(type,id,creatorRef='',visibleCheck=()=>true){
@@ -211,7 +212,18 @@
       contentTimers.set(shareId,timer);
     }
     function contentFollowed(username){syncIdentity();for(const touch of [...journey.touches].reverse())if(touch.creatorRef===username){contentEvent('shared_content_followed',touch);break;}}
-    function contentSaved(productId){syncIdentity();for(const touch of [...journey.touches].reverse())if(['REEL','SHORT'].includes(touch.destinationType)&&touch.destinationId===productId){contentEvent('shared_content_saved',touch);break;}}
+    function collectionProductOpened(collectionId,productId){
+      syncIdentity();if(!measurement()||!contract.id(productId))return;
+      const touch=[...journey.touches].reverse().find(t=>t.destinationType==='COLLECTION'&&t.destinationId===collectionId&&now()-t.at<30*86400000);
+      if(!touch)return;if(collectionProductContexts.size>=20)collectionProductContexts.delete(collectionProductContexts.keys().next().value);
+      collectionProductContexts.set(productId,{touch,at:now()});
+    }
+    function contentSaved(productId){
+      syncIdentity();const context=collectionProductContexts.get(productId);
+      const creator=[...journey.touches].reverse().find(t=>['REEL','SHORT'].includes(t.destinationType)&&t.destinationId===productId&&now()-t.at<30*86400000);
+      if(context&&now()-context.at<30*60000&&(!creator||context.at>=creator.at)){contentEvent('shared_content_saved',context.touch,{productId});return;}
+      if(creator)contentEvent('shared_content_saved',creator);
+    }
     function noteInternalShare(type,id,messageId,sourceSurface){
       syncIdentity();if(!account()||!measurement()||!enabled(type)||!['PRODUCT','COLLECTION','REEL','SHORT'].includes(type)||!contract.id(id)||!contract.uuid(messageId)||!['conversation','room'].includes(sourceSurface))return;
       enqueue('shares',{shareId:randomId(),sessionId,contentType:type,contentId:id,messageId,sourceSurface,parentShareId:'',schemaVersion:1});
@@ -297,7 +309,7 @@
     const navigation = () => capture();
     win.addEventListener('online',online); win.addEventListener('popstate',navigation); win.document.addEventListener('visibilitychange',visibility);
     capture(); void flush();void refreshCapabilities();
-    return { refreshCapabilities,recordTiming,getTimingSamples:()=>Object.fromEntries([...timingMetrics].map(([name,samples])=>[name,[...samples]])),prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,getSessionId:()=>{syncIdentity();return sessionId;},
+    return { refreshCapabilities,recordTiming,getTimingSamples:()=>Object.fromEntries([...timingMetrics].map(([name,samples])=>[name,[...samples]])),prepareShare,prepareSellerReferral,referralVisible,noteInternalShare,internalContentOpened,event,capture,productVisible,flush,roomInviteTouch,roomEvent,roomOrderStarted,contentVisible,contentFollowed,contentSaved,collectionProductOpened,getSessionId:()=>{syncIdentity();return sessionId;},
       getJourney: () => JSON.parse(JSON.stringify(journey)),
       getHealth: () => ({ pending:queue.length,deadLetters:dead.length }),
       retryDeadLetters() {

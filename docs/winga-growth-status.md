@@ -12,6 +12,7 @@ source evidence; they do not override this current product blocker.
 source/design/security preparation now; retain actual acceptance gates for later.
 
 - [Machine-readable ledger: all 106 sections](winga-growth-readiness.json)
+- [Phase 4 source completion and full-spec handoff](growth-phase4-status-20261013.md)
 - [Operations/security handoff and deferred validation matrix](growth-operations-handoff.md)
 - [Previous requirement evidence map](growth-loops-spec-evidence-20261012.md)
 - [Canonical Conversations handoff](conversations-spec-handoff.md)
@@ -103,6 +104,28 @@ notices now require the requested active variant to have unreserved stock.
 without claiming independent approval. Phase 3 does not
 silently close Phase 2, complete Messages or declare the full specification ready.
 
+## Phase 4 source completed; full-spec acceptance remains open
+
+[Phase 4 report](growth-phase4-status-20261013.md) audits and hardens the existing
+Collection, Creator and seller-referral owners. Confirmed saves now reach the
+shared attribution runtime; successfully opened Collection items retain bounded
+Save context and require fresh canonical membership/safety proof. Creator reports
+separate verified recipient value and later eligible publication from views.
+Referral value rejects inactive/blocked buyers and refunded/foreign-seller orders.
+Stale account/session/destination responses cannot act for a replacement context.
+
+Verification: 63 Phase 4 contracts on disposable PostgreSQL 18.6, 152 frontend
+checks, 5 dashboard checks and isolated Chromium Collection/auth/save scenarios.
+Phase 3's 23 contracts remain green. Four catalogs have 1,759 matching keys and
+zero new hard-coded debt; the 98-module generated bundle is synchronized.
+
+All four phases and 106 sections now have durable source/evidence references.
+Live acceptance is still open under MSG-01, LIVE-01/02/03/04, SEC-01, OPS-01,
+CAP-01 and RET-01. No real messages, Rooms, buyer orders, acquisition, provider
+outage or mature retention are inferred from fixtures. Account handles alone do
+not establish app sessions or test-environment access. The previously verified
+release before this phase was `5c0394b4`, Cloudflare `20261013202954`.
+
 ## Current capability audit
 
 Classifications describe current source/product scope, not a production certificate.
@@ -142,7 +165,7 @@ UNSAFE capability is asserted without finding-level evidence; SEC-01 stays open.
 | ID | Priority / status | What remains / finish criterion |
 | --- | --- | --- |
 | MSG-01 | P0 BLOCKED | Finish canonical Messages and trusted native membership/device readiness. Capture real explicit sender/recipient acceptance with stable retries, no downgrade, and meaningful delivery. |
-| SEC-01 | P0 NEEDS HARDENING | Independently review current exact-SHA security/crypto inputs. Scan of `3f3a0314`: 54 findings (21 error, 33 warning), `CODEQL_REVIEW_STALE`, zero current reviewed findings. Full safe input index and 90-day SARIF archive available. Scanner levels are not proof of exploitability or a completed review. |
+| SEC-01 | P0 NEEDS HARDENING | Independently review current exact-SHA security/crypto inputs. Previous verified scan of `5c0394b4`: 54 findings (21 error, 33 warning), `CODEQL_REVIEW_STALE`, zero current reviewed findings. Full safe input index and 90-day SARIF archive available. Scanner levels are not proof of exploitability or a completed review. |
 | LIVE-01 | P1 DEFERRED | Consented Product Share open/view/save/message/reshare, exact auth return and privacy. Public-link value and internal-message value are separate transitions. |
 | LIVE-02 | P1 BLOCKED | First real Room, capability/config checks, canonical membership, scoped invitation, expiry/revoke/block and meaningful vote/comment/product participation. |
 | LIVE-03 | P1 OBSERVATION | Legitimate N=1 demand → eligible seller response → relevant supply → actual buyer resolution; quality/fulfillment/fairness and paid/organic separation. |
@@ -151,6 +174,8 @@ UNSAFE capability is asserted without finding-level evidence; SEC-01 stays open.
 | RET-01 | P2 OBSERVATION | Genuine acquisition/value/abuse/opt-out cohorts and mature D1/D7/D30 windows. Wait for real time and observations. |
 | OPT-01 | CONDITIONAL | Rewards, contact integration, guest Room voting/commenting, new creator economics and experiments require separate explicit scope/product policy. Their absence does not justify duplicate V1 infrastructure. |
 | REL-01 | P0 BLOCKED | Section 106 declaration cannot close until mandatory acceptance and current review gates actually close. |
+| SRC-06 | SOURCE PREPARED | Phase 4 source complete: canonical Collection item Save, creator feedback/publication reporting, qualified referral value and async isolation. Dedicated report and isolated evidence retained. |
+| LIVE-04 | P1 OBSERVATION PENDING | Real Collection/creator/seller-referral utility/value remains unobserved; needs configured app sessions and genuine actors. |
 
 Additional source-review observations to retain for later hardening:
 

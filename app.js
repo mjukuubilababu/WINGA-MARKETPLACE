@@ -7610,7 +7610,13 @@ function syncSavedProductLike(productId, liked) {
   if (!isAuthenticatedUser() || typeof window.WingaDataLayer?.likeProduct !== "function") {
     return;
   }
-  Promise.resolve(window.WingaDataLayer.likeProduct(productId, liked)).catch((error) => {
+  const identity=()=>JSON.stringify([currentUser||'',currentSession?.sessionId||'',currentSession?.token||'']);
+  const owner=identity();
+  return Promise.resolve(window.WingaDataLayer.likeProduct(productId, liked)).then(result=>{
+    if(identity()!==owner||!liked||result?.liked!==true||!isProductSaved(productId))return;
+    try{getGrowthRuntime().event('shared_product_saved',productId);getGrowthRuntime().contentSaved(productId);}catch{}
+  }).catch((error) => {
+    if(identity()!==owner)return;
     if (isProductSaved(productId) === liked) {
       toggleSavedProduct(productId);
     }
@@ -11487,8 +11493,11 @@ function applySharedCollectionRoute(options = {}) {
 }
 
 async function handleShareCollection(options = {}) {
+  const identity=()=>JSON.stringify([currentUser||'',currentSession?.sessionId||'',currentSession?.token||'']);
+  const owner=identity();
   let collection=null;
   if(options.collectionId){collection=await window.WingaDataLayer.loadSharedCollection(options.collectionId);if(collection.visibility!=='public'||collection.status!=='published')return;}
+  if(identity()!==owner)return;
   const fallbackProduct = getProductById(options.productId || "");
   const shareCategory = getRestorableCategory(
     options.category
@@ -11529,7 +11538,9 @@ async function handleShareCollection(options = {}) {
   }
 
   if (navigator.clipboard?.writeText) {
+    if(identity()!==owner)return;
     await navigator.clipboard.writeText(`${shareText} | Link: ${shareUrl}`);try{prepared?.commit();}catch{}
+    if(identity()!==owner)return;
     showInAppNotification({
       title: translateUi("share.readyTitle", {}, "Share ready"),
       body: translateUi("share.linkCopied", { name: title }, `${title} link ime-copy tayari kwa sharing.`),
@@ -26085,10 +26096,10 @@ document.addEventListener('click',async event=>{
   if(await stopDemandRequest(stop.dataset.stopDemand))stop.remove();else stop.disabled=false;
 });
 
-let canonicalContentUi;
+let canonicalContentUi,canonicalContentNavigation=0;
 function getCanonicalContentUi(){
   canonicalContentUi ||= window.WingaModules.growth.createContentUi({window,dataLayer:window.WingaDataLayer,getGrowth:getGrowthRuntime,getAccount:()=>currentUser||'',translate:(key,fallback)=>translateUi(key,{},fallback),
-    isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
+    isFollowing:isPersonFollowed,follow:username=>{if(!isAuthenticatedUser()){const returnTo=window.WingaModules.growth.contract.parseDestination(window.location.href,window.location.origin)?.path;canonicalContentUi.close();promptGuestAuth({intent:{type:'follow-person',username,...(returnTo?{returnTo}:{})}});return;}return toggleFollowPerson(username);},openProfile:openPersonProfile,
     shareCollection:collection=>handleShareCollection({collectionId:collection.id,title:collection.title}),
     shareInternally:(type,id)=>{canonicalContentUi.close();openInternalProductShare(id,type);},
     canUseSellerFeatures,renderOpportunity:createSellerOpportunityItem,requireOpportunityAuth:id=>{canonicalContentUi.close();promptGuestAuth({intent:{type:'open-opportunity',opportunityId:id}});},
@@ -26096,7 +26107,7 @@ function getCanonicalContentUi(){
     openOpportunityDestination:path=>{const target=window.WingaModules.growth.contract.parseDestination(path,window.location.origin);if(target?.type==='OPPORTUNITY'){canonicalContentUi.close();safePushState(window.history.state||{},target.path);openCanonicalContentDestination(target);}},
     startSellerSupply:()=>{canonicalContentUi.close();if(isAuthenticatedUser())handleMobileShellAction('create');else promptGuestAuth({intent:{type:'go-upload'}});},
     explore:()=>{safeReplaceState(window.history.state||{},'/');setCurrentViewState('home',{syncHistory:false});renderCurrentView();},
-    openProduct:async id=>{const product=await window.WingaDataLayer.loadSharedProduct(id);if(product){refreshProductsFromStore();openProductDetailModal(id);}else showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});}
+    openProduct:async (id,options={})=>{const owner=currentUser,session=currentSession;const product=await window.WingaDataLayer.loadSharedProduct(id);if(currentUser!==owner||currentSession!==session||options.isCurrent?.()===false)return false;if(product){refreshProductsFromStore();openProductDetailModal(id);return true;}showInAppNotification({title:translateUi('growth.productUnavailable',{},'Product no longer available'),variant:'info'});return false;}
   });return canonicalContentUi;
 }
 function openPublicContentRouteIfNeeded(){
@@ -26106,13 +26117,14 @@ function openPublicContentRouteIfNeeded(){
   return true;
 }
 async function openCanonicalContentDestination(target){
+  const navigation=++canonicalContentNavigation;canonicalContentUi?.close();
   if(target.type==='SELLER_REFERRAL'){await getCanonicalContentUi().openSellerReferral(target.id);return;}
   if(target.type==='OPPORTUNITY'){await getCanonicalContentUi().openOpportunity(target.id);return;}
   if(target.type==='PROFILE'){await loadPersonProfile(target.id,{source:'public_deep_link'});return;}
   if(target.type==='COLLECTION'){await getCanonicalContentUi().openCollection(target.id);return;}
   if(['REEL','SHORT'].includes(target.type)){
-    const account=currentUser;let product;try{product=await window.WingaDataLayer.loadSharedProduct(target.id);}catch{}
-    if(currentUser!==account)return;
+    const account=currentUser,session=currentSession;let product;try{product=await window.WingaDataLayer.loadSharedProduct(target.id);}catch{}
+    if(currentUser!==account||currentSession!==session||navigation!==canonicalContentNavigation||window.location.pathname!==target.path)return;
     const ready=product?.mediaItems?.some(m=>m.type==='video'&&m.status==='ready'&&m.moderationStatus!=='rejected')||target.type==='REEL'&&product?.category==='reels'&&product.images?.length>0;
     if(!ready){showInAppNotification({title:translateUi('growth.videoUnavailable',{},'This video is no longer available.'),variant:'info'});return;}
     refreshProductsFromStore();openProductDetailModal(product.id,{skipHistoryPush:true});

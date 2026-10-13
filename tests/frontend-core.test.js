@@ -19,6 +19,51 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
+function savedAttributionHarness(api){
+  const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
+  const start=source.indexOf('function syncSavedProductLike(productId, liked)'),end=source.indexOf('\nfunction ',start+1);
+  const events=[],rollbacks=[],context=vm.createContext({currentUser:'buyer',currentSession:{sessionId:'session-one'},
+    window:{WingaDataLayer:{likeProduct:api}},isAuthenticatedUser:()=>true,isProductSaved:()=>true,
+    getGrowthRuntime:()=>({event:(...args)=>events.push(args),contentSaved:(...args)=>events.push(['content',...args])}),
+    toggleSavedProduct:id=>rollbacks.push(id),captureClientError:()=>{}});
+  vm.runInContext(source.slice(start,end),context);
+  return {context,events,rollbacks,save:liked=>vm.runInContext(`syncSavedProductLike('content-one',${liked})`,context)};
+}
+
+test('save attribution follows canonical API confirmation and analytics failure cannot undo a saved product',async()=>{
+  const f=savedAttributionHarness(async()=>({liked:true}));await f.save(true);
+  assert.deepEqual(f.events,[['shared_product_saved','content-one'],['content','content-one']]);
+  f.context.getGrowthRuntime=()=>({event:()=>{throw Error('analytics down');}});await f.save(true);assert.deepEqual(f.rollbacks,[]);
+  for(const [liked,result]of [[true,{liked:false}],[true,{}],[false,{liked:false}]]){
+    const missing=savedAttributionHarness(async()=>result);await missing.save(liked);assert.deepEqual(missing.events,[]);
+  }
+});
+
+test('late save success or failure cannot attribute or roll back another account/session',async()=>{
+ for(const change of [f=>{f.context.currentUser='other';},f=>{f.context.currentSession={sessionId:'session-two'};}]){
+  for(const fails of [false,true]){let resolve,reject;const f=savedAttributionHarness(()=>new Promise((a,b)=>{resolve=a;reject=b;}));
+    const pending=f.save(true);change(f);if(fails)reject(Error('old request failed'));else resolve({liked:true});await pending;
+    assert.deepEqual(f.events,[]);assert.deepEqual(f.rollbacks,[]);
+  }
+ }
+});
+
+test('late creator reads cannot replace a newer deep link or a changed session',async()=>{
+ const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
+ const start=source.indexOf('async function openCanonicalContentDestination(target)'),end=source.indexOf('\n}',start)+2;
+ const pending=new Map(),opened=[],context=vm.createContext({canonicalContentNavigation:0,canonicalContentUi:null,
+   currentUser:'buyer',currentSession:{sessionId:'one'},
+   window:{location:{pathname:'/reel/first'},WingaDataLayer:{loadSharedProduct:id=>new Promise(r=>pending.set(id,r))}},
+   refreshProductsFromStore(){},openProductDetailModal:id=>opened.push(id),getGrowthRuntime:()=>({contentVisible(){}}),showInAppNotification(){},translateUi:(_k,_a,f)=>f});
+ vm.runInContext(source.slice(start,end),context);
+ const first=vm.runInContext("openCanonicalContentDestination({type:'REEL',id:'first',path:'/reel/first'})",context);
+ context.window.location.pathname='/reel/second';const second=vm.runInContext("openCanonicalContentDestination({type:'REEL',id:'second',path:'/reel/second'})",context);
+ const product=id=>({id,category:'reels',images:['/safe.webp']});pending.get('second')(product('second'));await second;
+ pending.get('first')(product('first'));await first;assert.deepEqual(opened,['second']);
+ const stale=vm.runInContext("openCanonicalContentDestination({type:'REEL',id:'second',path:'/reel/second'})",context);
+ context.currentSession={sessionId:'two'};pending.get('second')(product('second'));await stale;assert.deepEqual(opened,['second']);
+});
+
 function demandNotificationHarness(readProduct,markRead){
   const source=fs.readFileSync(path.resolve(__dirname,'../app.js'),'utf8');
   const start=source.indexOf('async function handleNotificationOpen(notificationId)'),end=source.indexOf('\nfunction ',start);

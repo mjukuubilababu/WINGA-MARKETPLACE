@@ -1,8 +1,13 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.4",
+    "version":  "2026.10.13.5",
     "locale":  "en",
     "messages":  {
+        "growth.dashboard.sharedCreators": "Creators with shared content",
+        "growth.dashboard.creatorValue": "Creators with verified recipient value",
+        "growth.dashboard.creatorFollows": "Creators receiving verified follows",
+        "growth.dashboard.creatorSaves": "Creators receiving verified saves",
+        "growth.dashboard.creatorPublishes": "Creators publishing after value",
         "growth.dashboard.matureSellers": "Sellers observed for the full window",
         "growth.dashboard.repeatSellers": "Sellers responding to another Opportunity",
         "growth.dashboard.opportunityResponders": "Opportunity responders",

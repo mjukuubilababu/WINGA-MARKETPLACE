@@ -102,10 +102,11 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
   }
   async function recordGrowthEvent(payload, context) {
     if(contract.referralEvents.includes(payload?.eventType))return referrals.recordSellerReferralEvent(payload,context);
-    if (!fields(payload, ['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs'])
+    if (!fields(payload, ['eventId','shareId','sessionId','eventType','schemaVersion','orderId','durationMs','productId'])
       || payload.schemaVersion !== 1 || !contract.uuid(payload.eventId)
       || !contract.uuid(payload.shareId) || ![...contract.events,...contract.contentEvents].includes(payload.eventType)
-      || (payload.orderId && !contract.id(payload.orderId)) || payload.orderId!==undefined&&payload.eventType!=='shared_product_order_started') fail(400, 'growth_event_invalid');
+      || (payload.orderId && !contract.id(payload.orderId)) || payload.orderId!==undefined&&payload.eventType!=='shared_product_order_started'
+      || payload.productId!==undefined&&(!contract.id(payload.productId)||payload.eventType!=='shared_content_saved')) fail(400, 'growth_event_invalid');
     if (payload.durationMs !== undefined && (payload.eventType !== 'shared_product_viewed'
       || !Number.isInteger(payload.durationMs) || payload.durationMs < 0 || payload.durationMs > 300000)) fail(400, 'growth_event_invalid');
     const actorKey = identity(context, payload.sessionId);
@@ -113,6 +114,7 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
     return withTransaction(async client => {
       const share = await load(client, payload.shareId, context);
       if(!(share.content_type==='PRODUCT'?contract.events:contract.contentEvents).includes(payload.eventType))fail(400,'growth_event_invalid');
+      if(payload.productId!==undefined&&share.content_type!=='COLLECTION')fail(400,'growth_event_invalid');
       if (context.growthCohort && !context.growthCohort.allowsMeasurement(share.owner_username || '', context.username || ''))
         fail(403, 'growth_cohort_excluded');
       if (share.actor_key === actorKey || (context.username && share.owner_username === context.username))
@@ -138,16 +140,22 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
         if(!context.username||!target?.creator||target.creator===context.username||!(await client.query(`SELECT 1 FROM user_follows WHERE follower_username=$1 AND followed_username=$2 AND status='active' AND created_at>=$3`,[context.username,target.creator,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
         verification='server';
       }
-      if(payload.eventType==='shared_content_saved'){
-        const target=await publicContent(client,share.content_type,share.content_id,context.username||'',share.owner_username||'');
-        if(!['REEL','SHORT'].includes(share.content_type)||!context.username||target?.creator===context.username||!(await client.query('SELECT 1 FROM product_likes WHERE product_id=$1 AND user_id=$2 AND created_at>=$3',[share.content_id,context.username,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
-        verification='server';
-      }
       // A revoked/expired link or privacy change committed during quota or
       // evidence waits must not authorize a new event using the earlier read.
       const finalShare = await load(client, payload.shareId, context);
       if (context.growthCohort && !context.growthCohort.allowsMeasurement(finalShare.owner_username || '', context.username || ''))
         fail(403, 'growth_cohort_excluded');
+      if(payload.eventType==='shared_content_saved'){
+        const target=await publicContent(client,share.content_type,share.content_id,context.username||'',share.owner_username||'');
+        if(!context.username||!target||target.creator===context.username)fail(409,'growth_value_unconfirmed');
+        if(share.content_type==='COLLECTION'){
+          if(!contract.id(payload.productId)||!await publicProduct(client,payload.productId,context.username,share.owner_username||'')
+            ||!(await client.query(`SELECT 1 FROM public_collection_items i JOIN product_likes l ON l.product_id=i.product_id
+              JOIN products p ON p.id=i.product_id WHERE i.collection_id=$1 AND i.product_id=$2 AND l.user_id=$3
+                AND p.uploaded_by<>$3 AND l.created_at>=$4`,[share.content_id,payload.productId,context.username,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
+        }else if(!['REEL','SHORT'].includes(share.content_type)||!(await client.query('SELECT 1 FROM product_likes WHERE product_id=$1 AND user_id=$2 AND created_at>=$3',[share.content_id,context.username,share.created_at])).rows.length)fail(409,'growth_value_unconfirmed');
+        verification='server';
+      }
       const inserted = await insertEvent(client,payload.eventId,share.id,actorKey,payload.eventType,verification,payload.durationMs ?? null,context.username?key('user:'+context.username):null);
       return { accepted: true, duplicate: !inserted };
     });
@@ -237,11 +245,52 @@ function createGrowthStore({ query, withTransaction, authorizeInternalDirect,all
       AVG(EXTRACT(EPOCH FROM value_at-opened_at)) FILTER(WHERE activated_at>=opened_at AND value_at>=activated_at)::float8 AS seconds
       FROM journey`,[type])).rows[0]||{};
     const entries=Number((await query("SELECT COUNT(*)::int AS count FROM growth_shares WHERE content_type=$1 AND created_at>=NOW()-INTERVAL '30 days'",[type])).rows[0]?.count||0);
+    let creatorValue;
+    if(['REEL','SHORT'].includes(type)){
+      const creators=(await query(`WITH targets AS (
+        SELECT s.id AS share_id,p.uploaded_by AS creator,s.created_at FROM growth_shares s
+          JOIN products p ON p.id=s.content_id JOIN users u ON u.username=p.uploaded_by AND u.status='active'
+        WHERE s.content_type=$1 AND s.created_at>=NOW()-INTERVAL '30 days' AND p.status='approved'
+          AND NOT EXISTS(SELECT 1 FROM public_content_visibility v WHERE v.content_type='product' AND v.content_id=p.id AND v.visibility<>'public')
+          AND (EXISTS(SELECT 1 FROM jsonb_array_elements(p.media_items) media WHERE media->>'type'='video'
+            AND media->>'status'='ready' AND COALESCE(media->>'moderationStatus','')<>'rejected')
+            OR ($1='REEL' AND p.category='reels' AND jsonb_array_length(p.images)>0))
+      ), events AS (
+        SELECT t.creator,e.event_type,e.created_at FROM targets t JOIN growth_events e ON e.share_id=t.share_id
+        WHERE e.verification='server' AND e.event_type IN ('shared_content_followed','shared_content_saved')
+          AND e.authenticated_actor_key IS NOT NULL AND e.created_at>=t.created_at
+          AND e.authenticated_actor_key<>encode(sha256(convert_to('user:'||t.creator,'UTF8')),'hex')
+      ), values AS (
+        SELECT creator,BOOL_OR(event_type='shared_content_followed') AS followed,
+          BOOL_OR(event_type='shared_content_saved') AS saved,MIN(created_at) AS value_at
+        FROM events GROUP BY creator
+      ), publications AS (
+        SELECT v.creator,MIN(p.first_approved_at) AS published_at FROM values v JOIN products p ON p.uploaded_by=v.creator
+        WHERE p.status='approved' AND p.first_approved_at>v.value_at AND p.first_approved_at<=NOW()
+          AND NOT EXISTS(SELECT 1 FROM public_content_visibility visibility WHERE visibility.content_type='product'
+            AND visibility.content_id=p.id AND visibility.visibility<>'public')
+          AND (EXISTS(SELECT 1 FROM jsonb_array_elements(p.media_items) media WHERE media->>'type'='video'
+            AND media->>'status'='ready' AND COALESCE(media->>'moderationStatus','')<>'rejected')
+            OR ($1='REEL' AND p.category='reels' AND jsonb_array_length(p.images)>0))
+        GROUP BY v.creator
+      ) SELECT (SELECT COUNT(DISTINCT creator)::int FROM targets) AS shared_creators,
+        COUNT(*)::int AS with_value,COUNT(*) FILTER(WHERE v.followed)::int AS followed,
+        COUNT(*) FILTER(WHERE v.saved)::int AS saved,COUNT(*) FILTER(WHERE p.published_at IS NOT NULL)::int AS published,
+        AVG(EXTRACT(EPOCH FROM p.published_at-v.value_at)) FILTER(WHERE p.published_at>=v.value_at)::float8 AS seconds
+        FROM values v LEFT JOIN publications p USING(creator)`,[type])).rows[0]||{};
+      creatorValue={sharedCreators:Number(creators.shared_creators||0),withVerifiedRecipientValue:Number(creators.with_value||0),
+        withVerifiedFollow:Number(creators.followed||0),withVerifiedSave:Number(creators.saved||0),publishingAfterValue:Number(creators.published||0),
+        timeToNextPublicationSeconds:creators.seconds==null?null:Number(creators.seconds)};
+    }
     const rate=(n,d)=>Number(d)?Number(n)/Number(d):null;
-    return {schemaVersion:1,loop:type.toLowerCase()+'_share',windowDays:30,entryCount:entries,evidence:counts,
+    return {schemaVersion:1,loop:type.toLowerCase()+'_share',windowDays:30,entryCount:entries,evidence:counts,...(creatorValue?{creatorValue}:{}),
       cohort:{recipientJourneys:Number(summary.opens||0),activationCount:Number(summary.activations||0),valueCount:Number(summary.values||0),continuationCount:Number(summary.continuations||0),
         activationRate:rate(summary.activations,summary.opens),valueRate:rate(summary.values,summary.activations),continuationRate:rate(summary.continuations,summary.values),timeToValueSeconds:summary.seconds===null?null:Number(summary.seconds),viralCoefficient:null},
-      limitations:['Views are client observed. Follow/save values require canonical post-share evidence.','Registration is not activation; delivered shares and cross-device identity are unknown.','These metrics describe observed organic sharing, not revenue or causal lift.']};
+      limitations:['Views are client observed. Follow/save values require canonical post-share evidence.',
+        'Collection save value requires a current public member product saved by a nonself recipient; the product ID is checked at intake and not exported as analytics payload.',
+        'Creator value uses accepted authenticated server-verified follow/save metadata; repeated events do not inflate creator counts.',
+        'Publishing after value means a later known first approval of currently public ready content, not causal creator retention or guaranteed usefulness; legacy approvals remain unknown.',
+        'Registration is not activation; delivered shares and cross-device identity are unknown.','These metrics describe observed organic sharing, not revenue or causal lift.']};
   }
   async function pruneGrowthRecords() {
     // Retain bounded attribution history; explicit operations task, never a request-path scan.

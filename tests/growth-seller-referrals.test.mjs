@@ -13,7 +13,7 @@ async function fixture(t){
    ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();ALTER TABLE products ADD COLUMN price NUMERIC DEFAULT 100;
    CREATE TABLE conversation_crypto_devices(id TEXT PRIMARY KEY);
    CREATE TABLE supply_responses(response_id TEXT,opportunity_id TEXT,seller_id TEXT,action_type TEXT,status TEXT);
-   ALTER TABLE orders ADD COLUMN seller_username TEXT;ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'placed';`);
+   ALTER TABLE orders ADD COLUMN seller_username TEXT;ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'placed';ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'pending';`);
  for(const name of ['growth-loop-invites','growth-event-jobs','growth-public-content','growth-seller-referrals'])for(const sql of require('../backend/migrations/'+name).statements)await f.db.exec(sql);
  await f.db.exec(MIGRATIONS.flatMap(m=>m.statements||[]).find(sql=>sql.includes('CREATE TABLE IF NOT EXISTS commerce_opportunities')));
  await f.db.exec("INSERT INTO commerce_opportunities(opportunity_id,type,category,expires_at,metadata) VALUES('opp_ref','zero_result','dress',NOW()+INTERVAL '2 days','{\"evidenceLevel\":\"single_signal\"}')");
@@ -81,4 +81,21 @@ test('referral destination survives analytics SQL failure and creation reconcili
  assert.equal((await f.db.query('SELECT COUNT(*)::int AS count FROM growth_event_jobs')).rows[0].count,0);
  await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
  const saved=(await f.db.query("SELECT e.created_at=s.created_at AS preserved FROM growth_events e JOIN growth_shares s ON s.id=e.share_id WHERE e.event_type='seller_referral_created'")).rows[0];assert.equal(saved.preserved,true);
+});
+
+test('referral value rejects inactive or blocked savers and refunded or foreign-seller orders',async t=>{
+ const f=await fixture(t);await f.store.createGrowthShare(f.payload,f.source);
+ await f.db.exec("INSERT INTO users(username,status) VALUES('invited_supplier','active')");
+ await f.store.recordGrowthEvent(f.event(),{...f.recipient,username:'invited_supplier'});
+ await f.db.exec("INSERT INTO products(id,uploaded_by,status) VALUES('qualified_supply','invited_supplier','pending');UPDATE products SET status='approved' WHERE id='qualified_supply';UPDATE users SET status='suspended' WHERE username='other';INSERT INTO product_likes(product_id,user_id) VALUES('qualified_supply','other')");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();
+ const values=async()=>Number((await f.db.query("SELECT COUNT(*)::int AS n FROM growth_events WHERE event_type='seller_first_value_event'")).rows[0].n);
+ assert.equal(await values(),0);
+ await f.db.exec("UPDATE users SET status='active' WHERE username='other';INSERT INTO user_blocks VALUES('invited_supplier','other')");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();assert.equal(await values(),0);
+ await f.db.exec("DELETE FROM product_likes;DELETE FROM user_blocks;INSERT INTO orders(id,product_id,buyer_username,seller_username,status,payment_status) VALUES('refund','qualified_supply','other','invited_supplier','placed','refunded'),('foreign','qualified_supply','other','seller','placed','pending')");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();assert.equal(await values(),0);
+ await f.db.exec("UPDATE orders SET payment_status='paid' WHERE id='refund'");
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();assert.equal(await values(),1);
+ await f.store.reconcileSellerReferralEvents();await f.jobs.processGrowthEventJobs();assert.equal(await values(),1);
 });

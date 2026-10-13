@@ -699,6 +699,13 @@
             metric(t('growth.dashboard.time','Time to value (seconds)'),cohort.timeToValueSeconds);
             metric(t('growth.dashboard.repeat','Repeat recipients'),cohort.repeatRecipients);
             if(data.creationGaps){metric(t('growth.dashboard.gaps','Missing source events'),data.creationGaps.missing);metric(t('growth.dashboard.expired','Expired source gaps'),data.creationGaps.expired);}
+            if(data.creatorValue){
+              metric(t('growth.dashboard.sharedCreators','Creators with shared content'),data.creatorValue.sharedCreators);
+              metric(t('growth.dashboard.creatorValue','Creators with verified recipient value'),data.creatorValue.withVerifiedRecipientValue);
+              metric(t('growth.dashboard.creatorFollows','Creators receiving verified follows'),data.creatorValue.withVerifiedFollow);
+              metric(t('growth.dashboard.creatorSaves','Creators receiving verified saves'),data.creatorValue.withVerifiedSave);
+              metric(t('growth.dashboard.creatorPublishes','Creators publishing after value'),data.creatorValue.publishingAfterValue);
+            }
           }else if(report.loop==='delivery'){
             for(const state of ['pending','completed','dead'])metric(state,(data.states||[]).find(row=>row.status===state)?.count??0);
             metric(t('growth.dashboard.gaps','Missing source events'),data.reconciliationGaps?.missing);

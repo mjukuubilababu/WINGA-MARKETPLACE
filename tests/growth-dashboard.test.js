@@ -34,3 +34,9 @@ test('marketplace dashboard distinguishes paid/delivered seller value and keeps 
  assert.match(rendered,/Sellers with attributed deliveries/);assert.match(rendered,/Mature seller repeat-response rate \(7 days\) —/);
  assert.match(rendered,/Repeat is a distinct response, not a page visit/);
 });
+test('creator dashboard reports verified feedback and later publishing separately from recipient activation',async()=>{
+ const f=uiFixture();f.module.renderAnalyticsPanel({topCategories:[],recentProducts:[]},'Admin','');await settle();
+ f.resolve([{loop:'reel',available:true,data:{cohort:{activationRate:0.5},creatorValue:{sharedCreators:4,withVerifiedRecipientValue:2,withVerifiedFollow:1,withVerifiedSave:2,publishingAfterValue:1}}}]);await settle();
+ const rendered=text(f.panel);assert.match(rendered,/Creators with verified recipient value 2/);
+ assert.match(rendered,/Creators publishing after value 1/);assert.match(rendered,/Creators receiving verified saves 2/);
+});

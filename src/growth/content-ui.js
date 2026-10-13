@@ -17,15 +17,23 @@
       try{
         const collection=await deps.dataLayer.loadSharedCollection(id);if(!current())return;
         title.textContent=collection.title;status.textContent=collection.description||'';
-        for(const item of collection.items||[]){const button=el('button',item.name||item.productId);button.type='button';button.className='action-btn action-btn-secondary';button.onclick=async()=>{if(!current())return;close();await deps.openProduct(item.productId);};items.append(button);}
+        let productBusy=false;
+        for(const item of collection.items||[]){const button=el('button',item.name||item.productId);button.type='button';button.className='action-btn action-btn-secondary';button.onclick=async()=>{
+          if(!current()||productBusy)return;productBusy=true;button.disabled=true;
+          try{const opened=await deps.openProduct(item.productId,{isCurrent:current});if(!current())return;
+            if(opened===true){if(collection.visibility==='public'&&collection.status==='published')try{deps.getGrowth?.().collectionProductOpened(id,item.productId);}catch{}close();}
+            else status.textContent=t('growth.productUnavailable','Product no longer available');
+          }catch{if(current())status.textContent=t('growth.productUnavailable','Product no longer available');}
+          finally{if(current()){productBusy=false;button.disabled=false;}}
+        };items.append(button);}
         if(collection.visibility==='public'&&collection.status==='published'&&items.children.length)try{deps.getGrowth?.().contentVisible('COLLECTION',id,collection.ownerUsername,()=>current()&&dialog.open);}catch{}
         if(!items.children.length)items.append(el('p',t('growth.collectionEmpty','This collection has no available products.')));
         const profile=el('button',t('growth.viewCurator','View curator'));profile.type='button';profile.onclick=()=>{if(!current())return;close();deps.openProfile(collection.ownerUsername);};dialog.append(profile);
         const follow=el('button',deps.isFollowing(collection.ownerUsername)?t('personProfile.following','Following'):t('personProfile.follow','Follow'));follow.type='button';follow.dataset.followCollectionOwner=collection.ownerUsername;
         follow.onclick=()=>{if(!current())return;const following=deps.follow(collection.ownerUsername);if(typeof following==='boolean')follow.textContent=following?t('personProfile.following','Following'):t('personProfile.follow','Follow');};dialog.append(follow);
         if(collection.visibility==='public'&&collection.status==='published'){
-          const share=el('button',t('common.share','Share'));share.type='button';share.onclick=()=>deps.shareCollection(collection);dialog.append(share);
-          if(win.WINGA_CONFIG?.growthInternalContentSharing===true){const internal=el('button',t('growth.shareToWinga','Share to Winga'));internal.type='button';internal.onclick=()=>deps.shareInternally('COLLECTION',id);dialog.append(internal);}
+          const share=el('button',t('common.share','Share'));share.type='button';share.onclick=()=>{if(current())return deps.shareCollection(collection);};dialog.append(share);
+          if(win.WINGA_CONFIG?.growthInternalContentSharing===true){const internal=el('button',t('growth.shareToWinga','Share to Winga'));internal.type='button';internal.onclick=()=>{if(current())return deps.shareInternally('COLLECTION',id);};dialog.append(internal);}
         }
       }catch{if(!current())return;status.textContent=t('growth.collectionUnavailable','This collection is no longer available.');
         const explore=el('button',t('growth.exploreProducts','Explore products'));explore.type='button';explore.onclick=()=>{close();deps.explore();};dialog.append(explore);

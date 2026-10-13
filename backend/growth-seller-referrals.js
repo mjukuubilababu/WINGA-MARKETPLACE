@@ -5,6 +5,15 @@ const {enqueueGrowthEvent}=require('./growth-event-jobs');
 const actor=username=>key('user:'+username);
 function createSellerReferrals({query,withTransaction,measurementEnabled=false,cohort=require('./growth-policy').createGrowthPolicy(process.env)}){
   const policy=context=>context.growthCohort||cohort;
+  // Only canonical active, nonself and unblocked buyer signals qualify. These
+  // fragments use fixed column names, never identifiers supplied by a client.
+  const audience=(buyer,seller)=>`${buyer}<>${seller}
+    AND EXISTS(SELECT 1 FROM users value_buyer WHERE value_buyer.username=${buyer} AND value_buyer.status='active')
+    AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_username=${buyer} AND b.blocked_username=${seller})
+      OR (b.blocked_username=${buyer} AND b.blocker_username=${seller}))`;
+  const saveValue=`${audience('l.user_id','p.uploaded_by')} AND l.created_at>=p.first_approved_at`;
+  const orderValue=`ord.seller_username=p.uploaded_by AND ${audience('ord.buyer_username','p.uploaded_by')}
+    AND ord.status NOT IN ('cancelled','refunded') AND ord.payment_status<>'refunded' AND ord.created_at>=p.first_approved_at`;
   async function load(client,id,context={}){
     if(!contract.uuid(id))fail(404,'growth_referral_unavailable');
     const row=(await client.query(`SELECT s.* FROM growth_shares s JOIN users u ON u.username=s.owner_username
@@ -118,8 +127,8 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
             AND COALESCE((SELECT visibility FROM public_content_visibility WHERE content_type='product' AND content_id=p.id),'public')='public'
             AND (NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='referral-product:'||r.share_id||':'||encode(sha256(convert_to('user:'||r.recipient_username,'UTF8')),'hex'))
               OR (NOT EXISTS(SELECT 1 FROM growth_event_jobs j WHERE j.event_id='referral-value:'||r.share_id||':'||encode(sha256(convert_to('user:'||r.recipient_username,'UTF8')),'hex'))
-                AND (EXISTS(SELECT 1 FROM product_likes l WHERE l.product_id=p.id AND l.user_id<>p.uploaded_by AND l.created_at>=p.first_approved_at)
-                  OR EXISTS(SELECT 1 FROM orders ord WHERE ord.product_id=p.id AND ord.seller_username=p.uploaded_by AND ord.buyer_username<>p.uploaded_by AND ord.status NOT IN ('cancelled','refunded') AND ord.created_at>=p.first_approved_at)))))
+                AND (EXISTS(SELECT 1 FROM product_likes l WHERE l.product_id=p.id AND ${saveValue})
+                  OR EXISTS(SELECT 1 FROM orders ord WHERE ord.product_id=p.id AND ${orderValue})))))
         ORDER BY r.created_at LIMIT $1`,[limit])).rows;
       for(const receipt of rows){
         if(!cohort.allowsMeasurement(receipt.owner_username,receipt.recipient_username)){
@@ -136,9 +145,9 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
         const accountKey=actor(receipt.recipient_username);
         if(await enqueueGrowthEvent(client,'referral-product:'+receipt.share_id+':'+accountKey,receipt.share_id,accountKey,'seller_first_product','server',null,product.first_approved_at))queued++;
         const value=(await client.query(`SELECT MIN(at)::text AS at FROM (
-          SELECT l.created_at AS at FROM product_likes l JOIN products p ON p.id=l.product_id WHERE p.id=ANY($1::text[]) AND l.user_id<>$2 AND l.created_at>=p.first_approved_at
+          SELECT l.created_at AS at FROM product_likes l JOIN products p ON p.id=l.product_id WHERE p.id=ANY($1::text[]) AND p.uploaded_by=$2 AND ${saveValue}
           UNION ALL SELECT ord.created_at FROM orders ord JOIN products p ON p.id=ord.product_id WHERE p.id=ANY($1::text[]) AND ord.seller_username=$2 AND ord.buyer_username<>$2
-            AND ord.status NOT IN ('cancelled','refunded') AND ord.created_at>=p.first_approved_at) actions`,[visible.map(row=>row.id),receipt.recipient_username])).rows[0]?.at;
+            AND ${orderValue}) actions`,[visible.map(row=>row.id),receipt.recipient_username])).rows[0]?.at;
         if(value&&await enqueueGrowthEvent(client,'referral-value:'+receipt.share_id+':'+accountKey,receipt.share_id,accountKey,'seller_first_value_event','server',null,value))queued++;
       }
       return {queued,hasMore:rows.length===limit||created.length===limit||signups.length===limit};
@@ -170,7 +179,7 @@ function createSellerReferrals({query,withTransaction,measurementEnabled=false,c
         activationRate:ratio(summary.activations,summary.recipients),valueRate:ratio(summary.values,summary.activations),continuationRate:ratio(summary.continuations,summary.values),timeToValueSeconds:summary.seconds===null?null:Number(summary.seconds),viralCoefficient:null},
       limitations:['Signup is recorded only after an observed same-tab pre-signup guest open; signup alone is not seller activation.',
         'Activation requires a first currently public approved product with a positive price in the referred category after authenticated intake; legacy approvals remain unknown and are not backfilled.',
-        'Value is a canonical nonself save or noncancelled order start, not revenue or independently verified fulfillment.',
+        'Value is a canonical active/unblocked nonself save or noncancelled, nonrefunded owned order start, not revenue or independently verified fulfillment.',
         'Anonymous opens are client observed and are not joined to account cohorts without authenticated evidence.',
         'Funnel units are referral/account pairs; multi-touch associations are not additive unique acquisitions or causal revenue.',
         'Delivered invitations and cross-device anonymous acquisition are unknown; no rewards, contact uploads or platform reminders are sent.']};

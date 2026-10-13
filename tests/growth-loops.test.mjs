@@ -318,7 +318,7 @@ test('growth operations protect replay/reconciliation and expose only aggregate 
 
 async function publicContentFixture(t){
   const f=await fixture(t);
-  await f.db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN images JSONB DEFAULT '[]';ALTER TABLE products ADD COLUMN media_items JSONB DEFAULT '[]';
+  await f.db.exec(`ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'dress';ALTER TABLE products ADD COLUMN images JSONB DEFAULT '[]';ALTER TABLE products ADD COLUMN media_items JSONB DEFAULT '[]';ALTER TABLE products ADD COLUMN first_approved_at TIMESTAMPTZ;
     CREATE TABLE user_follows(follower_username TEXT,followed_username TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE public_collections(id TEXT PRIMARY KEY,owner_username TEXT,status TEXT);
     CREATE TABLE public_collection_items(collection_id TEXT,product_id TEXT);
@@ -347,6 +347,58 @@ test('public-content envelopes share canonical safety, dedupe, distinct funnels 
   assert.equal((await f.store.readGrowthHealth()).shares,0);
   await assert.rejects(f.store.recordGrowthEvent(event('shared_product_saved'),f.recipient),{code:'growth_event_invalid'});
   await f.db.exec("INSERT INTO user_blocks VALUES('seller','recipient')");await assert.rejects(f.store.resolveGrowthShare(payload.shareId,f.recipient),{code:'growth_share_unavailable'});
+});
+
+test('Collection item save value requires canonical membership, current public safety and recipient-owned post-share evidence',async t=>{
+ const f=await publicContentFixture(t);
+ const payload={...f.payload,contentType:'COLLECTION',contentId:'public-picks',sourceSurface:'collection'};
+ await f.store.createGrowthShare(payload,f.source);
+ const save=()=>({...f.event('shared_content_saved'),productId:'p1'});
+ await assert.rejects(f.store.recordGrowthEvent(save(),f.recipient),{code:'growth_value_unconfirmed'});
+ await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('p1','recipient')");
+ const event=save();assert.equal((await f.store.recordGrowthEvent(event,f.recipient)).accepted,true);
+ assert.equal((await f.store.recordGrowthEvent(event,f.recipient)).duplicate,true);
+ await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('p2','recipient')");
+ await assert.rejects(f.store.recordGrowthEvent({...save(),productId:'p2'},f.recipient),{code:'growth_value_unconfirmed'});
+ await f.db.exec("INSERT INTO user_blocks VALUES('recipient','seller')");
+ await assert.rejects(f.store.recordGrowthEvent(save(),f.recipient),{code:'growth_share_unavailable'});
+ await f.db.exec("DELETE FROM user_blocks;UPDATE product_likes SET created_at=NOW()-INTERVAL '1 day' WHERE product_id='p1'");
+ await assert.rejects(f.store.recordGrowthEvent(save(),f.recipient),{code:'growth_value_unconfirmed'});
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM growth_events WHERE event_type='shared_content_saved'")).rows[0].n,1);
+});
+
+test('creator reporting separates verified recipient value from views and later eligible publication without join inflation',async t=>{
+ const f=await publicContentFixture(t),payload={...f.payload,contentType:'REEL',contentId:'p2',sourceSurface:'creator'};
+ await f.store.createGrowthShare(payload,f.source);
+ const sessionId=randomUUID(),event=type=>({...f.event(type),sessionId});
+ await f.store.recordGrowthEvent(event('content_share_opened'),f.recipient);await f.store.recordGrowthEvent(event('shared_content_viewed'),f.recipient);
+ let report=await f.store.readContentGrowthHealth('REEL');assert.equal(report.creatorValue.sharedCreators,1);assert.equal(report.creatorValue.withVerifiedRecipientValue,0);
+ await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('p2','recipient');INSERT INTO user_follows VALUES('recipient','seller','active',NOW())");
+ for(let i=0;i<3;i++){await f.store.recordGrowthEvent(event('shared_content_saved'),f.recipient);await f.store.recordGrowthEvent(event('shared_content_followed'),f.recipient);}
+ await f.db.exec(`INSERT INTO products(id,uploaded_by,status,category,images,media_items,first_approved_at)
+   VALUES('new-reel','seller','approved','reels','["/public.webp"]','[]',clock_timestamp());
+   INSERT INTO public_content_visibility VALUES('product','new-reel','private');`);
+ report=await f.store.readContentGrowthHealth('REEL');assert.equal(report.creatorValue.withVerifiedRecipientValue,1);
+ assert.equal(report.creatorValue.withVerifiedFollow,1);assert.equal(report.creatorValue.withVerifiedSave,1);assert.equal(report.creatorValue.publishingAfterValue,0);
+ await f.db.exec("DELETE FROM public_content_visibility WHERE content_id='new-reel'");
+ report=await f.store.readContentGrowthHealth('REEL');assert.equal(report.creatorValue.publishingAfterValue,1);assert.ok(report.creatorValue.timeToNextPublicationSeconds>=0);
+ await f.db.exec("UPDATE products SET first_approved_at=NULL WHERE id='new-reel'");assert.equal((await f.store.readContentGrowthHealth('REEL')).creatorValue.publishingAfterValue,0);
+ assert.equal(JSON.stringify(report.creatorValue).includes('seller'),false);
+});
+
+test('Collection save cannot use membership removed during the final share safety read',async t=>{
+ const f=await publicContentFixture(t),payload={...f.payload,contentType:'COLLECTION',contentId:'public-picks',sourceSurface:'collection'};
+ await f.store.createGrowthShare(payload,f.source);await f.db.exec("INSERT INTO product_likes(product_id,user_id) VALUES('p1','recipient')");
+ const {createGrowthStore}=require('../backend/growth-store');let reads=0;
+ const racing=createGrowthStore({query:(...args)=>f.db.query(...args),withTransaction:work=>f.db.transaction(client=>work({query:async(sql,params)=>{
+   if(sql.includes('SELECT * FROM growth_shares WHERE id=$1')&&++reads===2){
+     await client.query("DELETE FROM public_collection_items WHERE product_id='p1'");
+     await client.query("INSERT INTO public_collection_items VALUES('public-picks','p2')");
+   }
+   return client.query(sql,params);
+ }}))});
+ await assert.rejects(racing.recordGrowthEvent({...f.event('shared_content_saved'),productId:'p1'},f.recipient),{code:'growth_value_unconfirmed'});
+ assert.equal((await f.db.query("SELECT COUNT(*)::int AS n FROM growth_events WHERE event_type='shared_content_saved'")).rows[0].n,0);
 });
 
 test('creator/Profile envelopes enforce ready content, current public visibility and post-share value evidence',async t=>{

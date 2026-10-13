@@ -1,8 +1,13 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.4",
+    "version":  "2026.10.13.5",
     "locale":  "ar",
     "messages":  {
+        "growth.dashboard.sharedCreators": "منشئون لديهم محتوى تمت مشاركته",
+        "growth.dashboard.creatorValue": "منشئون تلقوا قيمة موثقة من المستلمين",
+        "growth.dashboard.creatorFollows": "منشئون تلقوا متابعات موثقة",
+        "growth.dashboard.creatorSaves": "منشئون تلقوا عمليات حفظ موثقة",
+        "growth.dashboard.creatorPublishes": "منشئون نشروا بعد تلقي قيمة",
         "growth.dashboard.matureSellers": "البائعون الذين أكملوا فترة المتابعة",
         "growth.dashboard.repeatSellers": "البائعون الذين استجابوا لفرصة أخرى",
         "growth.dashboard.opportunityResponders": "البائعون الذين استجابوا للفرص",

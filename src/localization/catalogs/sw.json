@@ -1,8 +1,13 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.4",
+    "version":  "2026.10.13.5",
     "locale":  "sw",
     "messages":  {
+        "growth.dashboard.sharedCreators": "Watengenezaji wenye content iliyoshirikiwa",
+        "growth.dashboard.creatorValue": "Watengenezaji waliopata thamani iliyothibitishwa kutoka kwa wapokeaji",
+        "growth.dashboard.creatorFollows": "Watengenezaji waliopata follows zilizothibitishwa",
+        "growth.dashboard.creatorSaves": "Watengenezaji wenye content iliyohifadhiwa na wapokeaji",
+        "growth.dashboard.creatorPublishes": "Watengenezaji waliochapisha baada ya kupata thamani",
         "growth.dashboard.matureSellers": "Wauzaji waliotimiza muda wa ufuatiliaji",
         "growth.dashboard.repeatSellers": "Wauzaji waliojibu Fursa nyingine",
         "growth.dashboard.opportunityResponders": "Wauzaji waliojibu Fursa",

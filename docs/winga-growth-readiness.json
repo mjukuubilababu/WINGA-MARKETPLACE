@@ -4,9 +4,9 @@
   "updatedAt": "2026-10-13",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "e1e9a41d6db3fc3c6c0e24f083f664f1d78d8b4a",
-    "cloudflareBuild": "20261013195828",
-    "verification": "Previously verified all four Render services and frontend assets/health; functional, dependencies, beam and production verifier passed. Static analysis remained CODEQL_REVIEW_STALE (54 findings, zero independently reviewed). No human message or Phase 3 live value acceptance."
+    "commit": "5c0394b4b8f6d73811a182660a9240a78977c08f",
+    "cloudflareBuild": "20261013202954",
+    "verification": "All four Render services, deployed frontend assets/catalogs/health and production verifier passed. Required functional/dependency/Phoenix jobs passed; current independent CodeQL review stayed stale at 54 findings. No human message or Phase 3/4 live value acceptance."
   },
   "overall": {
     "productionReady": false,
@@ -264,7 +264,7 @@
       "status": "observation_pending",
       "priority": "P1",
       "title": "Operational routing, metrics and alerts",
-      "evidence": "Canonical admin reports, bounded retries/DLQ/reconciliation and client timings exist. Scrape integration, baselines, alert ownership and regional targets are not accepted.",
+      "evidence": "Canonical admin reports, bounded retries/DLQ/reconciliation and client timings exist. Scrape integration, baselines, alert ownership and regional targets are not accepted. Canonical content reports now include aggregate creator feedback and post-value publication; no operational alert schedule or ranking change.",
       "nextAction": "Use read-only reports, establish baseline/targets, then approve bounded replay and alerts without private payloads.",
       "sources": [
         "backend/growth-api.js",
@@ -290,7 +290,7 @@
       "status": "validation_deferred",
       "priority": "P1",
       "title": "Staging load, outage and abuse acceptance",
-      "evidence": "Bounded Phase 3 synthetic PostgreSQL 18.6 exercises passed: concurrent retries/workers, 60 requests, caps, notification failure/rollback/recovery and stop/expiry/withdrawal. Full deployed staging/viral/provider-outage/real-device acceptance remains deferred.",
+      "evidence": "Bounded Phase 3 synthetic PostgreSQL 18.6 exercises passed: concurrent retries/workers, 60 requests, caps, notification failure/rollback/recovery and stop/expiry/withdrawal. Full deployed staging/viral/provider-outage/real-device acceptance remains deferred. Phase 4 also has 61 isolated PostgreSQL contracts and native Chromium guest Collection/auth/save checks; these do not close deployed capacity or provider exercises.",
       "nextAction": "Use approved isolated staging with explicit budgets and cancellation; run replay, cache loss, signed membership races and protection matrix.",
       "sources": [
         "docs/growth-operations-handoff.md",
@@ -328,7 +328,8 @@
       "dependsOn": [
         "LIVE-01",
         "LIVE-02",
-        "LIVE-03"
+        "LIVE-03",
+        "LIVE-04"
       ],
       "specSections": [
         36,
@@ -384,7 +385,8 @@
         "LIVE-03",
         "OPS-01",
         "CAP-01",
-        "RET-01"
+        "RET-01",
+        "LIVE-04"
       ],
       "specSections": [
         95,
@@ -427,6 +429,88 @@
         76,
         77,
         91
+      ]
+    },
+    {
+      "id": "SRC-06",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Phase 4 Collection/creator/referral source completion and measurement",
+      "evidence": "Canonical Phase 4 architecture audited and reused. Confirmed Save feedback, bounded Collection member-product continuity, current membership/safety proof, stale account/navigation guards, qualified referral value and creator feedback/publication aggregates implemented. 63 Phase 4 PostgreSQL contracts, 152 frontend and 5 dashboard checks pass; 28 full sharing/auth Chromium scenarios pass. No live acquisition or independent review asserted.",
+      "nextAction": "Retain source/evidence; complete LIVE-04 and remaining independent security, operating/capacity and mature retention acceptance without fabricating human activity.",
+      "sources": [
+        "docs/growth-phase4-status-20261013.md",
+        "backend/growth-store.js",
+        "backend/growth-seller-referrals.js",
+        "src/growth/content-ui.js",
+        "src/growth/runtime.js",
+        "app.js",
+        "tests/growth-loops.test.mjs",
+        "tests/growth-seller-referrals.test.mjs",
+        "tests/growth-content-ui.test.js",
+        "tests/e2e/growth-loops.spec.js",
+        "docs/evidence/growth-phase4-isolated-20261013.json"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        22,
+        23,
+        24,
+        26,
+        30,
+        31,
+        32,
+        33,
+        35,
+        36,
+        37,
+        38,
+        41,
+        44,
+        48,
+        51,
+        53,
+        76,
+        77,
+        91,
+        95,
+        98,
+        100
+      ]
+    },
+    {
+      "id": "LIVE-04",
+      "status": "observation_pending",
+      "priority": "P1",
+      "title": "Real Collection, creator and seller referral utility/value acceptance",
+      "evidence": "Source and isolated SQL/browser feedback paths are implemented. No genuine Collection recipient save/follow, creator engagement/republication or referred seller activation/value has been observed by this continuation. Supplied account handles do not provide app sessions or isolated staging.",
+      "nextAction": "Use genuine authorized actors and configured test sessions; observe public guest discovery, auth return, nonself canonical value, meaningful creator feedback and seller utility in the referred category. Retain lineage, trust/safety and timing evidence; do not count signup alone.",
+      "sources": [
+        "docs/growth-phase4-status-20261013.md",
+        "backend/growth-store.js",
+        "backend/growth-seller-referrals.js",
+        "docs/growth-account-canary.md"
+      ],
+      "dependsOn": [
+        "SEC-01"
+      ],
+      "specSections": [
+        22,
+        23,
+        24,
+        26,
+        30,
+        31,
+        36,
+        37,
+        38,
+        39,
+        40,
+        91,
+        92,
+        93,
+        104,
+        106
       ]
     }
   ],
@@ -650,7 +734,9 @@
       "baselineEvidence": "Current public Reel/Short/photo Reel/profile sharing and follow/save metrics supported. Future collaboration/brand economics and arbitrary creator Posts not invented.",
       "currentDisposition": "conditional",
       "workItems": [
-        "OPT-01"
+        "OPT-01",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -660,7 +746,9 @@
       "baselineEvidence": "Current public Reel/Short/photo Reel/profile sharing and follow/save metrics supported. Future collaboration/brand economics and arbitrary creator Posts not invented.",
       "currentDisposition": "conditional",
       "workItems": [
-        "OPT-01"
+        "OPT-01",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -669,7 +757,10 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06",
+        "LIVE-04"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -685,7 +776,10 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Public Collections, explicit Search/restock subscriptions, canonical delivered-order review creation and eligible trust reporting.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06",
+        "LIVE-04"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -723,7 +817,10 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Utility-based category-relevant seller referral reuses canonical envelopes; protected first approval/nonself first value. No generic buyer reward scheme.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06",
+        "LIVE-04"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -731,7 +828,10 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Utility-based category-relevant seller referral reuses canonical envelopes; protected first approval/nonself first value. No generic buyer reward scheme.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06",
+        "LIVE-04"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -739,7 +839,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -748,7 +850,8 @@
       "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-01"
+        "LIVE-01",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -765,7 +868,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Single destination validator/router; allowlisted expiring auth intents; opaque envelope, bounded first/last-touch journal. Private Conversation invitation absent; no arbitrary redirects.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -774,7 +879,9 @@
       "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "RET-01"
+        "RET-01",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -784,7 +891,9 @@
       "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "RET-01"
+        "RET-01",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -795,7 +904,9 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "OPS-01",
-        "RET-01"
+        "RET-01",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -805,7 +916,8 @@
       "baselineEvidence": "Per-loop activation/value/continuation/cohorts/dashboards with explicit units. Unknown delivery and causal acquisition mean K-factor null, not invented.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "RET-01"
+        "RET-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -817,7 +929,8 @@
       "workItems": [
         "SRC-04",
         "OPS-01",
-        "RET-01"
+        "RET-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -826,7 +939,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -850,7 +965,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Explicit user actions, SQL quotas/dedupe, recipient preference, symmetric blocks/report/leave/mute. No platform invite reminders; fatigue reminders conditional and disabled.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -887,7 +1004,8 @@
       "baselineEvidence": "Eligibility rechecked after authorization, safe same-origin router, UUID/token validation, expiry/revocation and unavailable-content Explore fallback; legacy product paths preserved.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "LIVE-02"
+        "LIVE-02",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -915,7 +1033,9 @@
       "baselineClassification": "SOURCE VERIFIED",
       "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
       "currentDisposition": "source_reported_acceptance_open",
-      "workItems": [],
+      "workItems": [
+        "SRC-06"
+      ],
       "liveAcceptance": "not_performed_in_this_work"
     },
     {
@@ -934,7 +1054,8 @@
       "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "OPS-01"
+        "OPS-01",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1161,7 +1282,8 @@
       "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "SRC-05"
+        "SRC-05",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1171,7 +1293,8 @@
       "baselineEvidence": "Version1 stable IDs, source/target/session envelopes and SQL dedupe; preview/crawler UA excluded. Unknown bot detection is a documented limit.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "SRC-05"
+        "SRC-05",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1310,7 +1433,9 @@
       "workItems": [
         "OPS-01",
         "RET-01",
-        "SRC-05"
+        "SRC-05",
+        "SRC-06",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1320,7 +1445,8 @@
       "baselineEvidence": "Separate loop dashboards and authenticated acquisition cohorts with maturity-safe D1/D7/D30 denominators; live mature retention and causal impact not inferred from synthetic fixtures.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "RET-01"
+        "RET-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1330,7 +1456,8 @@
       "baselineEvidence": "Separate loop dashboards and authenticated acquisition cohorts with maturity-safe D1/D7/D30 denominators; live mature retention and causal impact not inferred from synthetic fixtures.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "RET-01"
+        "RET-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1352,7 +1479,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-03",
-        "REL-01"
+        "REL-01",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1381,7 +1509,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-01",
-        "CAP-01"
+        "CAP-01",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1403,7 +1532,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-01",
-        "CAP-01"
+        "CAP-01",
+        "SRC-06"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1448,7 +1578,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-03",
-        "REL-01"
+        "REL-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1473,7 +1604,8 @@
         "SRC-03",
         "SRC-04",
         "CAP-01",
-        "REL-01"
+        "REL-01",
+        "LIVE-04"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     }
@@ -1491,8 +1623,21 @@
     "independentlyReviewedCurrentFindings": 0,
     "sarifArtifactAtBaseline": "none listed; preservation added for subsequent runs"
   },
-  "currentPhase": 3,
+  "currentPhase": 4,
   "phases": [
+    {
+      "id": 1,
+      "title": "Canonical links, public Product sharing, attribution, auth return and anti-spam foundation",
+      "sourceStatus": "implementation_completed",
+      "acceptanceStatus": "observation_pending",
+      "report": "docs/winga-growth-status.md",
+      "acceptanceDependsOn": [
+        "LIVE-01",
+        "SEC-01",
+        "OPS-01",
+        "CAP-01"
+      ]
+    },
     {
       "id": 2,
       "title": "Conversations rich sharing, Shopping Room invites and attribution",
@@ -1515,6 +1660,20 @@
       "report": "docs/growth-phase3-status-20261013.md",
       "acceptanceDependsOn": [
         "LIVE-03",
+        "SEC-01",
+        "OPS-01",
+        "CAP-01",
+        "RET-01"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Collections, Creator/content feedback and utility seller referrals",
+      "sourceStatus": "implementation_completed",
+      "acceptanceStatus": "observation_pending",
+      "report": "docs/growth-phase4-status-20261013.md",
+      "acceptanceDependsOn": [
+        "LIVE-04",
         "SEC-01",
         "OPS-01",
         "CAP-01",
