@@ -58,6 +58,8 @@ jobs:
           WINGA_DOM_BROWSER_TEST: 'true'
         run: node --test tests/dom-url-security.test.js
       - run: npm run test:secure-content-browser
+      - name: Test recipient picker and retry-safe rich composer
+        run: npm run test:sharing-ui
       - name: Test guest sharing and exact auth return in the browser
         run: npx playwright test tests/e2e/growth-loops.spec.js --reporter=list
   dependencies:

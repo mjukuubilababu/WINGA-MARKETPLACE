@@ -136,10 +136,10 @@ test('internal product sharing uses rich canonical transports and stable retry I
     WingaDataLayer.loadInboxPage=async()=>({items:[{withUser:'market_seller',encrypted:true},{withUser:'legacy_peer',encrypted:false}]});
     WingaDataLayer.shoppingRoom=async(action,args)=>{
       if(action==='list')return [{id:'11111111-1111-4111-8111-111111111111',name:'Choose a gift',status:'active',transition:{status:'accepted'}}];
-      window.__roomShares.push({action,args});return {id:args[3]};
+      window.__roomShares.push({action,args});return {id:args[3],status:'sent'};
     };
     WingaDataLayer.sendRichMessage=async(peer,content,options)=>{
-      window.__internalShares.push({peer,content,options});if(window.__internalShares.length===1)throw Error('network unavailable');return {id:options.clientMessageId};
+      window.__internalShares.push({peer,content,options});if(window.__internalShares.length===1)throw Error('network unavailable');return {id:options.clientMessageId,status:'sent'};
     };
   });
   const pickerCount=await page.evaluate(async id=>{
@@ -152,9 +152,9 @@ test('internal product sharing uses rich canonical transports and stable retry I
   await expect(dialog.locator('[data-share-person="legacy_peer"]')).toBeVisible();
   expect(await page.evaluate(()=>window.__internalShares.length)).toBe(0);
   await dialog.locator('[data-share-person="market_seller"]').click();
-  await expect(dialog.locator('[role=status]')).toContainText('Unable to share');
+  await expect(dialog.locator('[role=status]')).toContainText(/Unable to share|Imeshindwa kushare/);
   await dialog.locator('[data-share-person="market_seller"]').click();
-  await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
+  await expect(dialog.locator('[role=status]')).toHaveText(/^(Sent\. Recipient delivery is not confirmed\.|Imetumwa\. Kupokelewa na mpokeaji bado hakujathibitishwa\.)$/);
   const messages=await page.evaluate(()=>window.__internalShares);
   expect(messages).toHaveLength(2);expect(messages[0].options.clientMessageId).toBe(messages[1].options.clientMessageId);
   expect(messages[1].content.type).toBe('product');expect(messages[1].content.data.ids).toEqual([product.id]);
@@ -234,13 +234,13 @@ test('public collection internal sharing uses live rich cards and stable encrypt
   await page.evaluate(()=>{
     window.__contentShares=[];WingaDataLayer.loadInboxPage=async()=>({items:[{withUser:'market_seller',encrypted:true}]});
     WingaDataLayer.shoppingRoom=async(action,args)=>action==='list'?[{id:'11111111-1111-4111-8111-111111111111',name:'Choose together',status:'active',transition:{status:'accepted'}}]:
-      (window.__contentShares.push({action,args}),{id:args[2]});
-    WingaDataLayer.sendRichMessage=async(peer,content,options)=>(window.__contentShares.push({peer,content,options}),{id:options.clientMessageId});
+      (window.__contentShares.push({action,args}),{id:args[2],status:'sent'});
+    WingaDataLayer.sendRichMessage=async(peer,content,options)=>(window.__contentShares.push({peer,content,options}),{id:options.clientMessageId,status:'sent'});
   });
   await page.evaluate(id=>openInternalProductShare(id,'COLLECTION'),id);
   const dialog=page.locator('dialog[data-internal-share]');
   await dialog.locator('[data-share-person="market_seller"]').click();
-  await expect(dialog.locator('[role=status]')).toHaveText('Shared.');
+  await expect(dialog.locator('[role=status]')).toHaveText(/^(Sent\. Recipient delivery is not confirmed\.|Imetumwa\. Kupokelewa na mpokeaji bado hakujathibitishwa\.)$/);
   await dialog.getByRole('button',{name:'Choose together',exact:true}).click();
   await expect.poll(()=>page.evaluate(()=>window.__contentShares.length)).toBe(2);
   const sent=await page.evaluate(()=>window.__contentShares);
@@ -478,7 +478,7 @@ async function recipientPicker(browser,request,{recent=[],rooms=[]}={}) {
     WingaDataLayer.loadInboxPage=async()=>({items:recent});
     WingaDataLayer.shoppingRoom=async action=>action==='list'?rooms:{id:crypto.randomUUID()};
     WingaDataLayer.searchPeople=async query=>{window.__peopleQueries.push(query);return {items:[]};};
-    WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});return {id:options.clientMessageId};};
+    WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});return {id:options.clientMessageId,status:'sent'};};
   },{recent,rooms});
   await page.locator('#auth-gate-login').click();await page.locator('#username').fill('buyer_seller');await page.locator('#password').fill('Pass1234!Secure');await page.locator('#auth-button').click();
   await expect(page.locator('#header-user-trigger')).toBeVisible({timeout:30000});
@@ -502,8 +502,8 @@ test('empty Share to Winga history can search a new person and send a rich card 
 
 test('recent people without an encrypted inbox marker remain visible and retry IDs survive filtering',async({browser,request})=>{
   const {context,page,picker,search}=await recipientPicker(browser,request,{recent:[{withUser:'market_seller'}]});
-  await page.evaluate(()=>{WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});if(window.__recipientSends.length===1)throw Error('offline');return {id:options.clientMessageId};};});
-  await picker.locator('[data-share-person=market_seller]').click();await expect(picker.locator('[role=status]').first()).toContainText('Unable to share');
+  await page.evaluate(()=>{WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});if(window.__recipientSends.length===1)throw Error('offline');return {id:options.clientMessageId,status:'sent'};};});
+  await picker.locator('[data-share-person=market_seller]').click();await expect(picker.locator('[role=status]').first()).toContainText(/Unable to share|Imeshindwa kushare/);
   await search.fill('unrelated');await expect(picker.locator('[data-share-person=market_seller]')).toHaveCount(0);
   await search.fill('');await picker.locator('[data-share-person=market_seller]').click();
   await expect.poll(()=>page.evaluate(()=>window.__recipientSends.length)).toBe(2);
@@ -531,7 +531,7 @@ test('first individual sharing reuses secure setup without a plaintext fallback 
     window.__shareSecureReady=false;window.__plainSends=0;
     WingaDataLayer.sendMessage=async()=>{window.__plainSends++;};
     WingaDataLayer.inspectEncryptedConversation=async()=>({status:window.__shareSecureReady?'active':'available'});
-    WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});if(!window.__shareSecureReady)throw Object.assign(Error('setup'),{code:'mls_runtime_required'});return {id:options.clientMessageId};};
+    WingaDataLayer.sendRichMessage=async(peer,content,options)=>{window.__recipientSends.push({peer,content,options});if(!window.__shareSecureReady)throw Object.assign(Error('setup'),{code:'mls_runtime_required'});return {id:options.clientMessageId,status:'sent'};};
     WingaEncryptedChatUi.bind=(scope,options)=>{scope.querySelector('[data-chat-security]').onclick=async()=>{window.__shareSecureReady=true;await options.refresh();};};
   });
   await picker.locator('[data-share-person=market_seller]').click();

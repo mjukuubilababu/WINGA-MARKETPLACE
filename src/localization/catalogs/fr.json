@@ -1,8 +1,11 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.5",
+    "version":  "2026.10.13.6",
     "locale":  "fr",
     "messages":  {
+        "growth.internalShareSent": "Envoyé. La réception par le destinataire n’est pas confirmée.",
+        "growth.internalShareFailed": "Impossible de partager. Réessayez pour renvoyer le même message.",
+        "growth.shareRecentsUnavailable": "Les conversations ou salons récents n’ont pas pu être chargés. Recherchez par nom ou rouvrez pour réessayer.",
         "growth.dashboard.sharedCreators": "Créateurs avec du contenu partagé",
         "growth.dashboard.creatorValue": "Créateurs avec une valeur destinataire vérifiée",
         "growth.dashboard.creatorFollows": "Créateurs recevant des abonnements vérifiés",

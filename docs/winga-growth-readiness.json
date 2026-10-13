@@ -4,9 +4,9 @@
   "updatedAt": "2026-10-13",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "5c0394b4b8f6d73811a182660a9240a78977c08f",
-    "cloudflareBuild": "20261013202954",
-    "verification": "All four Render services, deployed frontend assets/catalogs/health and production verifier passed. Required functional/dependency/Phoenix jobs passed; current independent CodeQL review stayed stale at 54 findings. No human message or Phase 3/4 live value acceptance."
+    "commit": "26056ef1e3928a5d13199fb849ed0fe430b0fc3e",
+    "cloudflareBuild": "20261013223726",
+    "verification": "Historical release immediately preceding Messages sharing hardening: all four Render services, frontend assets and production verifier passed. Required functional/dependency/Phoenix checks passed; CodeQL independent review stayed stale at 54 findings. No human delivery or live loop acceptance."
   },
   "overall": {
     "productionReady": false,
@@ -43,13 +43,14 @@
       "status": "blocked",
       "priority": "P0",
       "title": "Canonical Messages readiness",
-      "evidence": "User reported Messages incomplete on 2026-10-13. Internal product sharing, native Room participation and confirmed message value are not live-accepted.",
+      "evidence": "User reported Messages incomplete on 2026-10-13. Internal product sharing, native Room participation and confirmed message value are not live-accepted. Canonical individual sharing/result/retry/race hardening and an isolated encrypted two-device journey are now recorded; this is not live acceptance.",
       "nextAction": "Finish canonical transport, secure membership/device readiness and meaningful sender/recipient acceptance; retain exact-ID retries and no plaintext downgrade.",
       "sources": [
         "src/api/communications-client.js",
         "src/chat/encryption-session.js",
         "src/chat/room-session.js",
-        "docs/conversations-spec-handoff.md"
+        "docs/conversations-spec-handoff.md",
+        "docs/growth-messages-sharing-status-20261013.md"
       ],
       "dependsOn": [],
       "specSections": [
@@ -60,6 +61,39 @@
         75,
         82,
         83
+      ]
+    },
+    {
+      "id": "SRC-07",
+      "status": "source_prepared",
+      "priority": "P0",
+      "title": "Messages individual sharing source hardening",
+      "evidence": "Exact-ID canonical send outcomes, retry-safe rich composer, independently loaded recipients, stale dialog/session guards and isolated encrypted rich-card delivery evidence. No production Messages acceptance.",
+      "nextAction": "Run current synthetic regressions and preserve MSG-01/LIVE-02 for actual approved-session participation and independent review.",
+      "sources": [
+        "src/growth/internal-share.js",
+        "src/chat/rich-content.js",
+        "src/chat/rich-ui.js",
+        "tests/e2e/internal-share-ui.spec.js",
+        "tests/e2e/rich-chat-ui.spec.js",
+        "tests/e2e/encrypted-transport.spec.js",
+        "docs/growth-messages-sharing-status-20261013.md",
+        "docs/evidence/growth-messages-sharing-isolated-20261013.json"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        13,
+        14,
+        51,
+        53,
+        67,
+        68,
+        74,
+        75,
+        82,
+        83,
+        98,
+        106
       ]
     },
     {

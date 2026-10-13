@@ -1,8 +1,11 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.5",
+    "version":  "2026.10.13.6",
     "locale":  "ar",
     "messages":  {
+        "growth.internalShareSent": "تم الإرسال. لم يتم تأكيد الاستلام لدى المستلم بعد.",
+        "growth.internalShareFailed": "تعذرت المشاركة. حاول مجدداً لإعادة إرسال الرسالة نفسها.",
+        "growth.shareRecentsUnavailable": "تعذر تحميل المحادثات أو الغرف الأخيرة. ابحث بالاسم أو افتح مجدداً للمحاولة.",
         "growth.dashboard.sharedCreators": "منشئون لديهم محتوى تمت مشاركته",
         "growth.dashboard.creatorValue": "منشئون تلقوا قيمة موثقة من المستلمين",
         "growth.dashboard.creatorFollows": "منشئون تلقوا متابعات موثقة",

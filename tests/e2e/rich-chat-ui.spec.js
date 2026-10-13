@@ -2,14 +2,14 @@ const {test,expect}=require('@playwright/test'),fs=require('node:fs'),path=requi
 const root=path.resolve(__dirname,'../..');
 async function fixture(page,width=390,rtl=false) {
   await page.setViewportSize({width,height:844});
-  await page.route('http://rich-chat.test/**',async route=>{
+  await page.route('https://rich-chat.test/**',async route=>{
     const url=new URL(route.request().url()),icon=url.pathname.match(/^\/icons\/navigation\/([a-z-]+)\.svg$/);
     if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"></head><body><main id="chat"><div data-chat-security="bob"></div><div id="messages"></div><form><div class="chat-compose-footer"><button type="button">Send</button></div></form></main><script>window.WingaModules={chat:{}};</script><script src="/src/chat/rich-content.js"></script><script src="/src/chat/ui.js"></script><script src="/src/chat/voice-ui.js"></script><script src="/src/chat/rich-ui.js"></script></body></html>'});
     const file=icon?path.join(root,'node_modules/lucide-static/icons',icon[1]+'.svg'):path.join(root,url.pathname.slice(1));
     if(!icon&&!['/style.css','/src/chat/rich-content.js','/src/chat/ui.js','/src/chat/voice-ui.js','/src/chat/rich-ui.js'].includes(url.pathname))return route.abort();
     return route.fulfill({contentType:icon?'image/svg+xml':url.pathname.endsWith('.css')?'text/css':'application/javascript',body:fs.readFileSync(file)});
   });
-  await page.goto('http://rich-chat.test/');
+  await page.goto('https://rich-chat.test/');
   const messages=JSON.parse(fs.readFileSync(path.join(root,'src/localization/catalogs',rtl?'ar.json':'en.json'),'utf8')).messages;
   await page.evaluate(({messages,rtl})=>{
     document.documentElement.lang=rtl?'ar':'en';document.documentElement.dir=rtl?'rtl':'ltr';
@@ -21,7 +21,7 @@ async function fixture(page,width=390,rtl=false) {
     const api={
       readRichCatalog:async()=>[{id:'p1',name:'Phone'}],readRichContact:async username=>({username,fullName:'Bob'}),
       readConversationReference:async()=>({id:'p1',name:'Phone',price:850000,currency:'TZS',availability:'available',image:''}),
-      sendRichMessage:async(peer,content)=>{state.sends.push({peer,content});},
+      sendRichMessage:async(peer,content,options)=>{state.sends.push({peer,content,options});return {id:options.clientMessageId,status:'sent'};},
       mutateEncryptedMessage:async(peer,type,targetId,value)=>{state.mutations.push({peer,type,targetId,value});},
       readEncryptedMediaDraft:async()=>state.draft,
       stageEncryptedMediaDraft:async(peer,file,kind)=>{state.draft={id:id(10),blob:file,name:file.name,kind,checkSession:()=>{}};return state.draft;},
@@ -31,8 +31,10 @@ async function fixture(page,width=390,rtl=false) {
     const ui=WingaModules.chat.createChatUiModule({getCurrentUser:()=>state.session.username,getActiveChatContext:()=>({withUser:state.peer}),escapeHtml:esc,getMessageProductItems:()=>[],getReplyPreviewMessage:()=>null,getOpenChatMessageMenuId:()=>state.menu,translate:(k,_v,f)=>t(k,f)});
     function render(){
       const scope=document.getElementById('chat');document.getElementById('messages').innerHTML=ui.renderConversationMessagesMarkup(rows,{enableActions:true});
-      WingaRichUi.bind(scope,{peer:'bob',dataLayer:api,translate:t,getSession:()=>state.session,getPeer:()=>state.peer,getMessages:()=>rows,refresh:render,
-        actions:{mediaEnabled:true,openProduct:id=>state.actions.push(['product',id]),saveProduct:id=>state.actions.push(['save',id]),buyProduct:id=>state.actions.push(['buy',id])}});
+      WingaRichUi.bind(scope,{peer:'bob',dataLayer:api,translate:t,getSession:()=>state.session,getPeer:()=>state.peer,getMessages:()=>rows,
+        refresh:()=>{if(state.refreshFailure)throw Error('render unavailable');render();},
+        actions:{mediaEnabled:true,getReplyId:()=>state.replyId,clearReply:()=>{state.replyCleared=(state.replyCleared||0)+1;state.replyId=null;},
+          openProduct:id=>state.actions.push(['product',id]),saveProduct:id=>state.actions.push(['save',id]),buyProduct:id=>state.actions.push(['buy',id])}});
     }
     window.richFixture={state,rows,api,render,id};render();
   },{messages,rtl});
@@ -66,6 +68,67 @@ test('dialogs close on owner or peer change and do not send stale selections',as
   await page.getByRole('button',{name:'Attach',exact:true}).click();await page.getByRole('button',{name:'Contact',exact:true}).click();
   await page.evaluate(()=>richFixture.state.session={username:'eve',sessionId:'e'});
   await expect(page.locator('dialog')).toHaveCount(0);expect(await page.evaluate(()=>richFixture.state.sends.length)).toBe(0);
+});
+test('rich composer retries a failed selection with the same ID and closes despite a refresh outage',async({page})=>{
+  await fixture(page);
+  await page.evaluate(()=>{
+    richFixture.api.sendRichMessage=async(peer,content,options)=>{
+      richFixture.state.sends.push({peer,content,options});
+      if(richFixture.state.sends.length===1)throw Error('lost reply');
+      return {id:options.clientMessageId,status:'sent'};
+    };
+    richFixture.state.refreshFailure=true;
+  });
+  await page.locator('[data-rich-composer]').click();await page.getByRole('button',{name:'Product',exact:true}).click();
+  await page.getByRole('button',{name:'Phone',exact:true}).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('Unable to share');
+  await page.getByRole('button',{name:'Phone',exact:true}).click();await expect(page.locator('dialog')).toHaveCount(0);
+  const sends=await page.evaluate(()=>richFixture.state.sends);
+  expect(sends).toHaveLength(2);expect(sends[0].options.clientMessageId).toBe(sends[1].options.clientMessageId);
+});
+test('rich composer queued and failed intents remain retryable without clearing reply context',async({page})=>{
+  await fixture(page);
+  await page.evaluate(()=>{
+    richFixture.state.mode='queued';richFixture.state.replyId=richFixture.id(1);
+    richFixture.api.sendRichMessage=async(peer,content,options)=>{
+      richFixture.state.sends.push({peer,content,options});
+      return {id:options.clientMessageId,status:richFixture.state.mode==='sent'?'sent':'pending',
+        sendState:richFixture.state.mode==='failed'?'failed':'pending',isQueued:richFixture.state.mode!=='sent'};
+    };
+  });
+  await page.locator('[data-rich-composer]').click();await page.getByRole('button',{name:'Product',exact:true}).click();
+  await page.getByRole('button',{name:'Phone',exact:true}).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('Queued for sending');
+  await page.evaluate(()=>richFixture.state.mode='failed');await page.getByRole('button',{name:'Phone',exact:true}).click();
+  await expect(page.locator('dialog [role=status]')).toContainText('Unable to share');
+  const ids=await page.evaluate(()=>richFixture.state.sends.map(s=>s.options.clientMessageId));
+  expect(new Set(ids).size).toBe(1);
+  expect(await page.evaluate(()=>richFixture.state.replyId)).toBe(await page.evaluate(()=>richFixture.id(1)));
+  expect(await page.evaluate(()=>richFixture.state.replyCleared||0)).toBe(0);
+});
+test('rich composer late send acceptance cannot clear a replacement session reply',async({page})=>{
+  await fixture(page);
+  await page.evaluate(()=>richFixture.api.sendRichMessage=(_peer,_content,options)=>new Promise(resolve=>{
+    richFixture.release=()=>resolve({id:options.clientMessageId,status:'sent'});
+  }));
+  await page.locator('[data-rich-composer]').click();await page.getByRole('button',{name:'Product',exact:true}).click();
+  await page.getByRole('button',{name:'Phone',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>typeof richFixture.release)).toBe('function');
+  await page.evaluate(()=>{
+    richFixture.state.session={username:'alice',sessionId:'replacement'};richFixture.state.replyId=richFixture.id(7);richFixture.release();
+  });
+  await expect(page.locator('dialog')).toHaveCount(0);
+  expect(await page.evaluate(()=>richFixture.state.replyCleared||0)).toBe(0);
+  expect(await page.evaluate(()=>richFixture.state.replyId)).toBe(await page.evaluate(()=>richFixture.id(7)));
+});
+test('rich composer late contact lookup cannot send after the dialog closes',async({page})=>{
+  await fixture(page);
+  await page.evaluate(()=>richFixture.api.readRichContact=()=>new Promise(resolve=>richFixture.release=resolve));
+  await page.locator('[data-rich-composer]').click();await page.getByRole('button',{name:'Contact',exact:true}).click();
+  await page.locator('dialog input').fill('bob');await page.locator('dialog').getByRole('button',{name:'Send message',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>typeof richFixture.release)).toBe('function');
+  await page.evaluate(()=>{document.querySelector('dialog').close();richFixture.release({username:'bob',fullName:'Bob'});});
+  await expect(page.locator('dialog')).toHaveCount(0);expect(await page.evaluate(()=>richFixture.state.sends)).toEqual([]);
 });
 for(const [width,rtl] of [[320,false],[390,false],[1280,false],[390,true]])test('rich composer layout '+width+(rtl?' RTL':''),async({page})=>{
   await fixture(page,width,rtl);

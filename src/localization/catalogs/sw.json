@@ -1,8 +1,11 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.5",
+    "version":  "2026.10.13.6",
     "locale":  "sw",
     "messages":  {
+        "growth.internalShareSent": "Imetumwa. Kupokelewa na mpokeaji bado hakujathibitishwa.",
+        "growth.internalShareFailed": "Imeshindwa kushare. Jaribu tena kutuma ujumbe huo huo.",
+        "growth.shareRecentsUnavailable": "Mazungumzo au Rooms za hivi karibuni hazijapakia. Tafuta kwa jina au fungua tena kujaribu.",
         "growth.dashboard.sharedCreators": "Watengenezaji wenye content iliyoshirikiwa",
         "growth.dashboard.creatorValue": "Watengenezaji waliopata thamani iliyothibitishwa kutoka kwa wapokeaji",
         "growth.dashboard.creatorFollows": "Watengenezaji waliopata follows zilizothibitishwa",

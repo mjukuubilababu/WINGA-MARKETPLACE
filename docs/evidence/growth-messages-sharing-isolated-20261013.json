@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-13T23:49:49.384108+00:00",
+  "scope": "Messages sharing source hardening; synthetic local observations only",
+  "sourceBaseline": "26056ef1e3928a5d13199fb849ed0fe430b0fc3e",
+  "sourceFiles": {
+    "src/chat/rich-content.js": "cabd588708e2e798c76b3b821d8deaa58d8f454aef2a8710c8f9cfd69fadefc9",
+    "src/chat/rich-ui.js": "f59ecd2c845a26fb33e7fca71e5ec296ae2797cb53af56f0bc160b7cbda87074",
+    "src/growth/internal-share.js": "367b0c81bad9c790208626e370638a6322817db24c0c4b7e0346ccf61bc13551",
+    "winga-modules.js": "794794623d297ca87f443242603f41f43fbc83511467e5ae32239e6d43cf5bf6",
+    "package.json": "9ce39ccc0c9edcc339f5cca2f9175906b4132eb649b75c12acd25c5b7b230939",
+    ".github/workflows/conversation-tests.yml": "627c4228b2326efe81d39112a22c63fff68f71282bef2289b99f76853c5e066e",
+    "tests/rich-content.test.js": "377eaaf9f353182c155b976cee706265ca3dee9c00e6bb7f43c22f0038f68bfa",
+    "tests/e2e/internal-share-ui.spec.js": "099f6f2d2cd8669330787f767ebe623538fbb484e7b60f019fe1dffc27354145",
+    "tests/e2e/rich-chat-ui.spec.js": "4bf9de08feaadca8b089fb30c215b85758b1cea1411d65218cbbc4ccb848513d",
+    "tests/e2e/encrypted-transport.spec.js": "a8f0da3d716fe475d11d4b0f0f0d816fb0239f24e5246a59ac161e321b8fe2ae",
+    "tests/e2e/growth-loops.spec.js": "34776903d6dfaea9d5c5a7334ea6efe97f9e0f5672b4072af4ae32b4fa7b7dca",
+    "tests/sharing-ui.playwright.config.cjs": "00c6a5d226f923c318132f9ea3619b28cf3f5b45262215f24bf2238dc161fcb8",
+    "src/localization/catalogs/en.json": "3db324fe24706349a74dd6e7f62b744515dc640cac3f6133a1528ed67784e75f",
+    "src/localization/catalogs/sw.json": "77d8654142d2f415bee94420bf7608a55bc7333a2cdceb9e97d8b13b342ce5fd",
+    "src/localization/catalogs/fr.json": "38babfcfb054785c30958691c357fe4218b8b12636b1b29e7096e151bb82edaa",
+    "src/localization/catalogs/ar.json": "c4419e573fb30ef90d7e35c9bdbe8c748cdf7045948559a1445a30ba637a8566"
+  },
+  "verification": {
+    "sharingBrowser": {
+      "passed": 24,
+      "failed": 0,
+      "durationSeconds": 16.4
+    },
+    "guestSharingAuthBrowser": {
+      "passed": 28,
+      "failed": 0,
+      "durationSeconds": 54.3
+    },
+    "encryptedBrowser": {
+      "passed": 50,
+      "failed": 0,
+      "durationSeconds": 240,
+      "note": "Full run preceded the final added read-receipt assertion in the new rich-card case; final targeted case separately passed below."
+    },
+    "finalEncryptedRichCard": {
+      "passed": 1,
+      "failed": 0,
+      "durationSeconds": 6.3,
+      "canonicalCiphertextMessages": 1,
+      "legacyMessageDelta": 0,
+      "sameLogicalIdOnRetry": true,
+      "recipientLiveProductResolved": true,
+      "senderObservedRecipientRead": true
+    },
+    "frontendCore": {
+      "passed": 153,
+      "failed": 0
+    },
+    "richContentUnit": {
+      "passed": 12,
+      "failed": 0
+    },
+    "encryptedSendIntentsUnit": {
+      "passed": 8,
+      "failed": 0
+    },
+    "conversationTransportUnit": {
+      "passed": 4,
+      "failed": 0
+    },
+    "growthContracts": {
+      "command": "npm run test:growth",
+      "result": "passed",
+      "databaseAdapter": "isolated PGlite",
+      "usesProductionDatabase": false
+    },
+    "richContentContracts": {
+      "command": "npm run test:rich-content",
+      "testFilesPassed": 4,
+      "failed": 0
+    },
+    "localization": {
+      "locales": 4,
+      "keysPerLocale": 1762,
+      "version": "2026.10.13.6",
+      "newHardcodedDebt": 0
+    },
+    "modules": {
+      "synchronized": true,
+      "count": 98
+    },
+    "nodeVersion": "24.19.0"
+  },
+  "boundaries": {
+    "humanProductionJourney": false,
+    "actualRoomParticipation": false,
+    "independentSecurityApproval": false,
+    "productionCapacityAccepted": false,
+    "productionReady": false,
+    "productionFlagsChanged": false,
+    "productionDatabaseUsed": false
+  }
+}

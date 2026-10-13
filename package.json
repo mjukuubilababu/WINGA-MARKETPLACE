@@ -43,6 +43,7 @@
     "test:integration": "node --test tests/integration-api.test.js tests/http-cookie-session.test.js tests/postgres-pagination.test.js tests/commerce-opportunity.test.js tests/search-opportunity-n1.test.mjs tests/global-context.test.js tests/r2-storage.test.js tests/legacy-uploads-audit.test.js tests/copy-legacy-public-media.test.js tests/image-processing.test.js tests/product-media.test.js tests/cloudflare-stream.test.js tests/video-safety.test.js tests/video-safety-adapter.test.js tests/video-safety-dispatcher.test.js tests/video-recovery.test.js tests/video-background-worker.test.js tests/cache.test.js tests/database-health-monitor.test.js tests/database-recovery.test.js tests/server-lifecycle.test.js tests/video-health-monitor.test.js",
     "test:e2e": "playwright test",
     "test:chat-ui": "playwright test --config tests/chat-ui.playwright.config.cjs",
+    "test:sharing-ui": "playwright test --config tests/sharing-ui.playwright.config.cjs",
     "test:rich-content": "node --test tests/rich-content.test.js tests/conversation-references.test.js tests/encrypted-media-drafts.test.js tests/rich-catalog-client.test.js",
     "test:shopping-rooms": "node scripts/patch-ts-mls.js --check && node --test tests/shopping-room-content.test.mjs tests/mls-room-runtime.test.mjs tests/shopping-rooms-service.test.mjs tests/room-members.test.js tests/room-order-ui.test.js tests/encrypted-room-limits.test.js",
     "deploy:worker:frontend": "node scripts/deploy-cloudflare-frontend.js",

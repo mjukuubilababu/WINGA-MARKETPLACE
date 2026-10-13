@@ -1,8 +1,11 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.5",
+    "version":  "2026.10.13.6",
     "locale":  "en",
     "messages":  {
+        "growth.internalShareSent": "Sent. Recipient delivery is not confirmed.",
+        "growth.internalShareFailed": "Unable to share. Try again to retry the same message.",
+        "growth.shareRecentsUnavailable": "Recent conversations or Rooms could not load. Search by name or reopen to retry.",
         "growth.dashboard.sharedCreators": "Creators with shared content",
         "growth.dashboard.creatorValue": "Creators with verified recipient value",
         "growth.dashboard.creatorFollows": "Creators receiving verified follows",

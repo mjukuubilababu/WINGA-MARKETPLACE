@@ -76,3 +76,18 @@ test('canonical sequence wins equal-time edits and reactions with reversed UUID 
   assert.deepEqual(projected[0].reactions,[{emoji:rich.REACTIONS[1],owners:['bob']}]);
   assert.deepEqual(projected,rich.project(rows.slice().reverse(),'alice'));
 });
+
+
+test('send result distinguishes durable pending, failed and canonical accepted messages',()=>{
+  const key=id(1);
+  for(const status of ['sent','delivered','read'])assert.equal(rich.sendOutcome({id:key,status},key),'accepted');
+  assert.equal(rich.sendOutcome({id:key,isQueued:true},key),'pending');
+  assert.equal(rich.sendOutcome({id:key,status:'pending',sendState:'failed'},key),'failed');
+  assert.equal(rich.sendOutcome({id:key,sendState:'queued'},key),'pending');
+  assert.equal(rich.sendOutcome({id:key,status:'sent',isQueued:true},key),'pending');
+});
+test('missing, rejected, unknown and mismatching message results never confirm acceptance',()=>{
+  const key=id(1);
+  for(const result of [null,undefined,{},false,{id:key},{id:id(2),status:'sent'},{id:key,status:'sent',ok:false},{id:key,status:'unknown'}])
+    assert.throws(()=>rich.sendOutcome(result,key),{code:'rich_content_invalid'});
+});

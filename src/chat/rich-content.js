@@ -101,5 +101,13 @@
     return [...rows.values()].filter(item=>!hidden.has(item.id))
       .concat(events.filter(([item])=>item.status==='pending').map(([item,c])=>({...item,richContent:c,eventRecord:true,reactions:[]})));
   }
-  return {PREFIX,MAX_BYTES,EDIT_WINDOW_MS,REACTIONS,TYPES,encode,parse,create,event,project,canEdit,contentOf};
+  // Local persistence and canonical acceptance are distinct from recipient delivery.
+  function sendOutcome(result,clientMessageId) {
+    if(!uuid(clientMessageId)||!record(result)||result.id!==clientMessageId||result.ok===false)fail();
+    if(result.sendState==='failed'||result.status==='failed')return 'failed';
+    if(result.isQueued===true||result.status==='pending'||['pending','queued'].includes(result.sendState))return 'pending';
+    if(['sent','delivered','read'].includes(result.status))return 'accepted';
+    fail();
+  }
+  return {PREFIX,MAX_BYTES,EDIT_WINDOW_MS,REACTIONS,TYPES,encode,parse,create,event,project,canEdit,contentOf,sendOutcome};
 });

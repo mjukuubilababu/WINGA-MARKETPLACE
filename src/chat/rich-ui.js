@@ -14,7 +14,7 @@
       const b=element('button','chat-rich-action');b.type='button';b.title=label;b.setAttribute('aria-label',label);
       if(symbol)b.append(icon(symbol));b.append(element('span','',label));
       b.onclick=async()=>{
-        const host=b.closest('dialog');if(b.disabled||!current()||host?.dataset.busy)return;
+        const host=b.closest('dialog');if(b.disabled||!current()||host&&!host.open||host?.dataset.busy)return;
         b.disabled=true;if(host)host.dataset.busy='true';
         try{await run(b);}catch(error){
           actions.onError?.(/^[a-z0-9_]{1,80}$/.test(error?.code||'')?error.code:'rich_action_failed');
@@ -34,13 +34,24 @@
       return {d,body,status,footer};
     }
     async function send(content,view) {
-      if(!current())return;let accepted=false;
+      if(!current()||!view.d.open)return;let accepted=false;
       view.status.textContent=t('chat.secureWorking','Working...');
       const reply=actions.getReplyId?.();if(reply)content={...content,reply:{id:reply,quote:''}};
       try {
-        await dataLayer.sendRichMessage(peer,content);accepted=true;
-        actions.clearReply?.();await refresh();
-      } catch {if(view.d.isConnected)view.status.textContent=t('chat.richFailed','The action failed. Your saved messages are unchanged.');}
+        // A retry of the same serialized intent must retain its logical message ID.
+        const wire=WingaRichContent.encode(content);
+        view.intents ||= new Map();
+        if(!view.intents.has(wire))view.intents.set(wire,crypto.randomUUID());
+        const id=view.intents.get(wire),result=await dataLayer.sendRichMessage(peer,content,{clientMessageId:id});
+        if(!current()||!view.d.open)return;
+        const outcome=WingaRichContent.sendOutcome(result,id);
+        if(outcome==='failed')throw new Error('rich_send_failed'); // i18n-gate: allow -- internal state, caught and localized below
+        accepted=outcome==='accepted';
+        view.status.textContent=accepted?'':t('growth.internalShareQueued','Queued for sending; delivery is not confirmed.');
+        if(accepted){actions.clearReply?.();view.d.close();}
+        // Rendering failure cannot turn canonical acceptance into another send.
+        try{await refresh();}catch{}
+      } catch {if(current()&&view.d.open)view.status.textContent=t('growth.internalShareFailed','Unable to share. Try again to retry the same message.');}
       finally {if(accepted)view.d.close();}
     }
     for(const trigger of scope.querySelectorAll('[data-seller-message]')){

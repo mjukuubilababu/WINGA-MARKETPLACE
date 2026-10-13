@@ -85,8 +85,8 @@
       invite.onclick=()=>{if(current()){dialog.close();deps.inviteProduct(productId);}};
       const close=el('button');close.className='winga-share-close';close.type='button';close.setAttribute('aria-label',t('common.close','Close'));close.append(visuals.icon('close'));close.onclick=()=>dialog.close();
       body.append(form,tabs,empty,status,list,security,invite);dialog.append(hero,close,body);win.document.body.append(dialog);dialog.showModal();active=dialog;win.document.body.classList.add('winga-internal-share-open');
-      const current=()=>dialog.isConnected&&active===dialog&&deps.getAccount()===owner&&(!deps.getIdentity||deps.getIdentity()===identity);
-      let busy=false,checking=false,sequence=0,debounce=0,loaded=false,searching=false,searchFailed=false;
+      const current=()=>dialog.open&&dialog.isConnected&&active===dialog&&deps.getAccount()===owner&&(!deps.getIdentity||deps.getIdentity()===identity);
+      let busy=false,checking=false,sequence=0,debounce=0,loaded=false,searching=false,searchFailed=false,recentFailed=false,loadedCount=0;
       let recent=[],rooms=[],found=[];const states=new Map(),pending=new Map(),securityDialogs=new Set();
       const started=Date.now();
       const timer=win.setInterval(()=>{if(!current())dialog.close();},250);
@@ -120,11 +120,14 @@
             if(!product||!current())throw new Error('growth_share_unavailable');
             if(contentType==='COLLECTION'&&(product.status!=='published'||product.visibility!=='public'||!product.items?.length))throw new Error('growth_share_unavailable');
             const result=await send(action.id);
-            if(!current())return;action.sent=true;pending.delete(peer);action.securityNode?.remove();render();
-            status.textContent=result?.status==='pending'||result?.sendState==='queued'?t('growth.internalShareQueued','Queued for sending; delivery is not confirmed.'):t('growth.internalShareSent','Shared.');
+            if(!current())return;
+            const outcome=win.WingaRichContent.sendOutcome(result,action.id);
+            if(outcome==='failed')throw new Error('growth_share_send_failed');
+            action.sent=outcome==='accepted';pending.delete(peer);action.securityNode?.remove();action.securityNode=null;render();
+            status.textContent=outcome==='pending'?t('growth.internalShareQueued','Queued for sending; delivery is not confirmed.'):t('growth.internalShareSent','Sent. Recipient delivery is not confirmed.');
           }catch(error){
             if(!current())return;
-            const needsSecurity=peer&&['mls_runtime_required','mls_membership_pending','mls_membership_unconfirmed','encrypted_membership_required','crypto_device_pending','mls_group_not_found'].includes(error?.code);
+            const needsSecurity=peer&&['mls_runtime_required','mls_membership_pending','mls_membership_unconfirmed','encrypted_membership_required','encrypted_membership_pending','crypto_device_pending','mls_group_not_found'].includes(error?.code);
             status.textContent=needsSecurity?t('growth.shareChatSetup','Set up or confirm this conversation before sharing.'):t('growth.internalShareFailed','Unable to share. Try again to retry the same message.');
             if(needsSecurity&&deps.bindSecureShare&&!action.securityNode){
               const wrap=el('div'),securityButton=el('button',t('chat.security','Chat security'));securityButton.type='button';securityButton.dataset.chatSecurity=peer;
@@ -152,6 +155,7 @@
         status.textContent=searching?t('inbox.loading','Loading...'):searchFailed?t('growth.peopleSearchUnavailable','People search is unavailable. You can still choose recent people or Rooms.'):
           list.querySelector('button')?t('growth.chooseShareDestination','Choose a person or Shopping Room.'):
           !loaded&&!needle()?t('inbox.loading','Loading...'):needle()?t('growth.shareSearchEmpty','No matching people or Rooms. Try another name or invite someone.'):
+          recentFailed?t('growth.shareRecentsUnavailable','Recent conversations or Rooms could not load. Search by name or reopen to retry.'):
           scope==='rooms'?t('growth.shareRoomsEmpty','No ready Rooms yet. Choose People to find someone to share with.'):
           scope==='people'?t('growth.sharePeopleEmpty','No recent people here yet. Search by name or @username.'):
           t('growth.shareRecentEmpty','No recent people or Rooms yet. Search for someone to share with.');
@@ -171,12 +175,22 @@
         if(immediate)void run();else debounce=win.setTimeout(run,300);
       }
       input.oninput=()=>queueSearch();form.onsubmit=event=>{event.preventDefault();queueSearch(true);};
-      const results=await Promise.allSettled([deps.dataLayer.loadInboxPage({limit:20}),deps.dataLayer.shoppingRoom('list',[])]);
-      if(!current())return;
-      const known=new Map((deps.dataLayer.getUsers?.()||[]).map(user=>[user.username,user]));
-      if(results[0].status==='fulfilled')recent=(results[0].value?.items||[]).map(row=>({username:row.withUser,fullName:known.get(row.withUser)?.fullName||row.withUser,profileImage:known.get(row.withUser)?.profileImage||''})).filter(usable).slice(0,20);
-      if(results[1].status==='fulfilled')rooms=(results[1].value||[]).filter(room=>room.status==='active'&&room.transition?.status==='accepted'&&!room.departures?.length&&!room.preferences?.archived);
-      loaded=true;render();showStatus();
+      // A stalled Room service must not hold recent people (or search) hostage.
+      async function loadRecent(read,apply) {
+        let deadline;
+        try{
+          const result=await Promise.race([Promise.resolve().then(read),new Promise((_,reject)=>{deadline=win.setTimeout(()=>reject(new Error('share_recents_timeout')),5500);})]);
+          if(current())apply(result);
+        }catch{if(current())recentFailed=true;}
+        finally{win.clearTimeout(deadline);if(current()){loaded=++loadedCount===2;render();showStatus();}}
+      }
+      await Promise.all([
+        loadRecent(()=>deps.dataLayer.loadInboxPage({limit:20}),result=>{
+          const known=new Map((deps.dataLayer.getUsers?.()||[]).map(user=>[user.username,user]));
+          recent=(result?.items||[]).map(row=>({username:row.withUser,fullName:known.get(row.withUser)?.fullName||row.withUser,profileImage:known.get(row.withUser)?.profileImage||''})).filter(usable).slice(0,20);
+        }),
+        loadRecent(()=>deps.dataLayer.shoppingRoom('list',[]),result=>{rooms=(result||[]).filter(room=>room.status==='active'&&room.transition?.status==='accepted'&&!room.departures?.length&&!room.preferences?.archived);})
+      ]);
     }
     return {open};
   }

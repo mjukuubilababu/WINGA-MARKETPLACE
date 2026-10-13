@@ -668,6 +668,52 @@ test('production session admits a third approved native device and converges enc
     expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
   } finally {for(const c of contexts)await c.close();multiDeviceEnabled=false;}
 });
+test('rich composer lost accepted reply retries one encrypted product card and the recipient resolves its live product',async({browser})=>{
+  test.setTimeout(120000);await resetStores();
+  const contexts=[await browser.newContext(),await browser.newContext()];
+  const legacyBefore=(await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n;
+  try {
+    const [alice,bob]=await Promise.all(contexts.map(c=>c.newPage()));
+    for(const page of [alice,bob]){await page.goto(origin);await page.addScriptTag({url:origin+'/rich.js'});await page.addScriptTag({url:origin+'/rich-ui.js'});}
+    const ai=await alice.evaluate(()=>start('alice')),bi=await bob.evaluate(()=>start('bob'));
+    const native=(await db.query('SELECT owner_id,id FROM conversation_crypto_devices')).rows;
+    await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('bob',id,fp),{id:native.find(d=>d.owner_id==='bob').id,fp:bi.ownFingerprint});
+    await bob.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:native.find(d=>d.owner_id==='alice').id,fp:ai.ownFingerprint});
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    await alice.evaluate(()=>{
+      const form=document.createElement('form'),footer=document.createElement('div');footer.className='chat-compose-footer';form.append(footer);document.body.append(form);
+      const nativeSend=client.sendRichMessage;window.richAttempts=[];
+      client.sendRichMessage=(peer,content,options)=>{richAttempts.push(options.clientMessageId);return nativeSend(peer,content,options);};
+      WingaRichUi.bind(document,{peer:'bob',dataLayer:client,getSession:()=>browserSession,refresh:render});
+    });
+    let dropped=0;
+    await alice.route('**/api/conversations/encrypted/operations',async route=>{
+      const action=route.request().postDataJSON()?.action;
+      if(action==='send'&&!dropped){
+        dropped++;const accepted=await route.fetch();expect(accepted.ok()).toBe(true);
+        await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({code:'fixture_lost_accepted_reply'})});
+      }else await route.continue();
+    });
+    await alice.locator('[data-rich-composer]').click();await alice.getByRole('button',{name:'Product',exact:true}).click();
+    await alice.locator('[data-rich-pick="room-fixture-product"]').click();
+    await expect(alice.locator('dialog [role=status]')).toContainText('Unable to share');
+    expect(dropped).toBe(1);
+    await alice.locator('[data-rich-pick="room-fixture-product"]').click();await expect(alice.locator('dialog')).toHaveCount(0);
+    const attempts=await alice.evaluate(()=>richAttempts);expect(attempts).toHaveLength(2);expect(new Set(attempts).size).toBe(1);
+    const received=await bob.evaluate(async()=>{
+      const rows=await render();WingaRichUi.bind(document,{peer:'alice',dataLayer:client,getSession:()=>browserSession,getMessages:()=>rows});return rows;
+    });
+    expect(received.filter(m=>m.id===attempts[0])).toHaveLength(1);
+    expect(received.find(m=>m.id===attempts[0]).richContent).toMatchObject({type:'product',data:{ids:['room-fixture-product']}});
+    await expect(bob.locator('[data-rich-reference-id="room-fixture-product"]')).toContainText('Kariakoo simu');
+    await bob.evaluate(ids=>client.markConversationRead({withUser:'alice',messageIds:ids}),received.map(m=>m.id));
+    expect((await alice.evaluate(()=>render())).find(m=>m.id===attempts[0]).status).toBe('read');
+    const stored=(await db.query('SELECT id,ciphertext FROM encrypted_conversation_messages')).rows;
+    expect(stored).toHaveLength(1);expect(JSON.stringify(stored)).not.toContain('room-fixture-product');
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
+  }finally{for(const context of contexts)await context.close();}
+});
+
 test('offline encrypted recipient resumes all missed canonical messages once and incompatible protocol fails without plaintext downgrade',async({browser})=>{
   test.setTimeout(120000);await resetStores();
   const a=await browser.newContext(),b=await browser.newContext();
