@@ -470,7 +470,7 @@ test('recent people without an encrypted inbox marker remain visible and retry I
 
 test('people search ignores stale replies and Room search uses only ready memberships',async({browser,request})=>{
   const roomId='11111111-1111-4111-8111-111111111111';
-  const {context,page,picker,search}=await recipientPicker(browser,request,{rooms:[{id:roomId,name:'Gift choices',status:'active',transition:{status:'accepted'}},{id:'closed',name:'Private closed',status:'closed',transition:{status:'accepted'}}]});
+  const {context,page,picker,search}=await recipientPicker(browser,request,{rooms:[...Array.from({length:30},(_,i)=>({id:'recent-room-'+i,name:'Other choices '+i,status:'active',transition:{status:'accepted'}})),{id:roomId,name:'Gift choices',status:'active',transition:{status:'accepted'}},{id:'closed',name:'Private closed',status:'closed',transition:{status:'accepted'}}]});
   await page.evaluate(()=>{WingaDataLayer.searchPeople=query=>{window.__peopleQueries.push(query);return query==='rey'?new Promise(resolve=>{window.__oldPeopleReply=resolve;}):Promise.resolve({items:query==='jan'?[{username:'janeth',fullName:'Janeth'}]:[]});};});
   await search.fill('rey');await expect.poll(()=>page.evaluate(()=>typeof window.__oldPeopleReply)).toBe('function');
   await search.fill('jan');await expect(picker.locator('[data-share-person=janeth]')).toBeVisible();

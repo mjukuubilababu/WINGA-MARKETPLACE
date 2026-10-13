@@ -72,7 +72,7 @@
       }
       function render() {
         if(!current())return;list.replaceChildren();
-        const readyRooms=rooms.filter(room=>matches(room.name));
+        const readyRooms=rooms.filter(room=>matches(room.name)).slice(0,30);
         const people=new Map();for(const person of [...recent,...found])if(usable(person)&&matches(person.username,person.fullName))people.set(person.username,person);
         if(readyRooms.length){const section=el('section');section.append(el('h3',t('inbox.rooms','Shopping Rooms')));
           for(const room of readyRooms){const b=choice(room.name||t('rooms.title','Shopping Room'),'room:'+room.id,id=>contentType==='PRODUCT'?deps.dataLayer.shoppingRoom('command',[room.id,'product-share',{productId,note:'',snapshot:null},id]):deps.dataLayer.shoppingRoom('send',[room.id,win.WingaRichContent.encode(win.WingaRichContent.create(contentType.toLowerCase(),'',{ids:[productId]})),id]));if(b)section.append(b);}list.append(section);}
@@ -106,7 +106,7 @@
       if(!current())return;
       const known=new Map((deps.dataLayer.getUsers?.()||[]).map(user=>[user.username,user]));
       if(results[0].status==='fulfilled')recent=(results[0].value?.items||[]).map(row=>({username:row.withUser,fullName:known.get(row.withUser)?.fullName||row.withUser})).filter(usable).slice(0,20);
-      if(results[1].status==='fulfilled')rooms=(results[1].value||[]).filter(room=>room.status==='active'&&room.transition?.status==='accepted'&&!room.departures?.length&&!room.preferences?.archived).slice(0,30);
+      if(results[1].status==='fulfilled')rooms=(results[1].value||[]).filter(room=>room.status==='active'&&room.transition?.status==='accepted'&&!room.departures?.length&&!room.preferences?.archived);
       loaded=true;render();showStatus();
     }
     return {open};
