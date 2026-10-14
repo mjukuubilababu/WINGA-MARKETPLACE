@@ -16,8 +16,8 @@ jobs:
       - name: Download the immutable current-source SARIF
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          artifact-ids: '11903020316'
-          run-id: '38579401617'
+          artifact-ids: '11904908320'
+          run-id: '38585697377'
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           path: ${{ runner.temp }}/winga-baseline-sarif
