@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "mode": "physical-device-operator-acceptance",
+  "status": "NOT_EXECUTED",
+  "releaseCommit": null,
+  "cloudflareBuildVersion": null,
+  "operatorEvidenceReference": null,
+  "runStartedAt": null,
+  "runEndedAt": null,
+  "devicePlatforms": [],
+  "checks": {
+    "explicitIdentityVerification": null,
+    "mutualActivityConsent": null,
+    "onlineAndTypingExpiry": null,
+    "backgroundAndInstalledPWA": null,
+    "networkSwitchAndOfflineRetry": null,
+    "durableSentAndRecipientDelivered": null,
+    "explicitRead": null,
+    "duplicateMessageProtection": null,
+    "deviceNoticeOutsideManager": null,
+    "noticeOpensExactManagerDevice": null,
+    "explicitDeviceApprovalAndMembership": null,
+    "revokedDeviceDenied": null,
+    "blockedParticipantDenied": null,
+    "userHeldRecovery": null,
+    "passwordResetDoesNotDecrypt": null,
+    "noPrivateContentInServerPushGrowth": null
+  },
+  "productionFoundationAccepted": false,
+  "independentCryptoReviewAccepted": false,
+  "note": "Fill only with real operator evidence for the exact deployed release. This empty template and isolated browser tests prove no physical-device acceptance. Never include credentials, private keys, recovery secrets or message bodies."
+}

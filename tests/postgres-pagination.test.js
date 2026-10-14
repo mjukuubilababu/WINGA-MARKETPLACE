@@ -4429,7 +4429,7 @@ test("person notifications are database-backed, owner-scoped, and bounded", asyn
   assert.equal(notifications[0].type, "follow");
   assert.equal(notifications[0].actorUsername, "viewer");
   assert.equal(notifications[0].readAt, "");
-  assert.deepEqual(calls[0].params, ["creator", 100]);
+  assert.deepEqual(calls[0].params, ["creator", 100, null]);
   assert.match(calls[0].text, /WHERE notification\.user_id = \$1/);
   assert.match(calls[0].text, /notification\.type NOT IN \('message', 'request', 'follow', 'content', 'demand'\)/);
   assert.match(calls[0].text, /FROM user_blocks blocked/);

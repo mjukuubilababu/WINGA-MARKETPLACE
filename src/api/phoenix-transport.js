@@ -45,7 +45,7 @@
     const later = deps.setTimeout || setTimeout, cancel = deps.clearTimeout || clearTimeout;
     const now = deps.now || Date.now, random = deps.random || Math.random;
     let closed = false, epoch = 0, socket = null, channel = null, timer = null, deadline = null;
-    let joined = false, receiving = false, attempts = 0, expiresAt = 0, nativeOperations = false;
+    let joined = false, receiving = false, attempts = 0, expiresAt = 0, nativeOperations = false, activityEnabled = false;
     let joinWhenOpen = null;
     let reconnectStarted=null,everJoined=false,resumeAttempt=null,resumeTimer=null;
     const metric=(name,value)=>{try{globalThis.WingaConversationExperience?.record(name,value);}catch{}};
@@ -59,6 +59,7 @@
       epoch++;
       joined = false;
       nativeOperations = false;
+      activityEnabled = false;
       expiresAt = 0;
       receiving = false;
       cancel(timer); cancel(deadline);cancel(resumeTimer);resumeTimer=null;
@@ -134,6 +135,9 @@
         channel = socket.channel("device", { ticket: ticket.ticket });
         channel.onError(() => { report("unavailable", "channel_error"); retry(generation); });
         channel.onClose(() => { report("unavailable", "channel_closed"); retry(generation); });
+        channel.on("activity", value => {
+          if(current(generation)&&joined&&activityEnabled){try{deps.onActivity?.(value);}catch{}}
+        });
         channel.on("events", async batch => {
           if (!current(generation) || !joined) return;
           if (receiving) { retry(generation); return; }
@@ -161,6 +165,7 @@
             cancel(deadline); deadline = null;
             joined = true; attempts = 0; expiresAt = ticket.expiresAt;
             nativeOperations = principal.nativeOperations === true;
+            activityEnabled = nativeOperations && principal.activityEnabled === true;
             everJoined=true;
             if(resumeAttempt!==null)resumeTimer=later(()=>{
               if(current(generation)&&resumeAttempt!==null){metric('transport-resume-pending',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;}
@@ -179,6 +184,11 @@
     return {
       close,
       isReady,
+      async sendActivity(operation) {
+        if(!isReady()||!activityEnabled||pending.size>=2)return null;
+        if(operation?.action!=='activity'||new TextEncoder().encode(JSON.stringify(operation)).byteLength>4096)return null;
+        return command('activity',operation);
+      },
       async forwardEncryptedOperation(operation) {
         if (!isReady() || !nativeOperations) return null;
         // Large operations retain the existing signed HTTP path and frame budgets.

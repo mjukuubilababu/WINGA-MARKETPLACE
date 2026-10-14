@@ -2226,6 +2226,10 @@ async loadAdminPayments(filters) {
         inspectEncryptedConversation(peer) { return getCommunicationsApiClient().inspectEncryptedConversation(peer); },
         shoppingRoom(action,args) { return getCommunicationsApiClient().shoppingRoom(action,args); },
         localConversationHistory(peer) { return getCommunicationsApiClient().localConversationHistory(peer); },
+        conversationActivityPreferences() { return getCommunicationsApiClient().conversationActivityPreferences(); },
+        setConversationActivitySharing(...args) { return getCommunicationsApiClient().setConversationActivitySharing(...args); },
+        conversationActivity(...args) { return getCommunicationsApiClient().conversationActivity(...args); },
+        subscribeConversationActivity(listener) { return getCommunicationsApiClient().subscribeConversationActivity(listener); },
         seller(action,args) { return getCommunicationsApiClient().seller(action,args); },
         enableEncryptedConversation(peer,deviceId,fingerprint) { return getCommunicationsApiClient().enableEncryptedConversation(peer,deviceId,fingerprint); },
         replaceEncryptedConversationDevice(peer,deviceId,fingerprint) { return getCommunicationsApiClient().replaceEncryptedConversationDevice(peer,deviceId,fingerprint); },
@@ -4378,6 +4382,10 @@ async loadAdminPayments() {
         if(adapter!==state.adapter)throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});
         return Array.isArray(result)?result:null;
       },
+      conversationActivityPreferences() { assertBuyerCapableAccess();ensureAdapter();return state.adapter.conversationActivityPreferences(); },
+      setConversationActivitySharing(...args) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.setConversationActivitySharing(...args); },
+      conversationActivity(...args) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.conversationActivity(...args); },
+      subscribeConversationActivity(listener) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.subscribeConversationActivity(listener); },
       async seller(action,args=[]) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.seller(action,args); },
       async sendEncryptedMedia(peer,file,text,kind) { assertBuyerCapableAccess();ensureAdapter();if(!state.adapter.sendEncryptedMedia)throw new Error('private_media_disabled');return state.adapter.sendEncryptedMedia(peer,file,text,kind); },
       async stageEncryptedMediaDraft(peer,file,kind) { assertBuyerCapableAccess();ensureAdapter();return state.adapter.stageEncryptedMediaDraft(peer,file,kind); },

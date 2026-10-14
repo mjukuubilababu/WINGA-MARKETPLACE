@@ -123,6 +123,7 @@ const MIGRATIONS = Object.freeze([
   require("./encrypted-conversation-backups"),
   require("./encrypted-history-pages"),
   require("./conversation-crypto-devices"),
+  require("./conversation-activity-preferences"),
   require("./conversation-crypto-session-bindings"),
   require("./conversation-security-mode"),
   require("./conversation-crypto-key-packages"),

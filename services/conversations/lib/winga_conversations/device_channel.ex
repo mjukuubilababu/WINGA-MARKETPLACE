@@ -20,6 +20,12 @@ defmodule WingaConversations.DeviceChannel do
            device: device,
            expires: expires,
            native_operations: principal["nativeOperations"] == true,
+           activity_enabled: principal["activityEnabled"] == true,
+           activity_task: nil,
+           activity_scope: nil,
+           activity_refresh: nil,
+           activity_window: System.monotonic_time(:millisecond),
+           activity_count: 0,
            pending: MapSet.new(),
            window: System.monotonic_time(:millisecond),
            count: 0
@@ -31,6 +37,19 @@ defmodule WingaConversations.DeviceChannel do
   end
 
   def join(_, _, _), do: {:error, %{code: "unauthorized"}}
+
+  def handle_in("activity", payload, socket) do
+    {:message_queue_len, queued} = Process.info(self(), :message_queue_len)
+    now = System.monotonic_time(:millisecond)
+    socket = if now - socket.assigns.activity_window >= 10_000,
+      do: assign(socket, activity_window: now, activity_count: 0), else: socket
+    if queued >= 16 or socket.assigns.activity_count >= 6 or socket.assigns.count >= 18
+      or System.system_time(:millisecond) >= socket.assigns.expires do
+      {:reply, {:error, %{code: "activity_busy"}}, socket}
+    else
+      WingaConversations.ActivityChannel.request(payload, assign(socket, :activity_count, socket.assigns.activity_count + 1), socket_ref(socket))
+    end
+  end
 
   def handle_in(event, payload, socket) do
     {:message_queue_len, queued} = Process.info(self(), :message_queue_len)
@@ -142,6 +161,11 @@ defmodule WingaConversations.DeviceChannel do
     {:reply, {:error, %{code: "invalid_request"}}, socket}
   end
 
+  def handle_info({:activity_result, id, result}, socket), do: WingaConversations.ActivityChannel.result(id, result, socket)
+  def handle_info({:activity_timeout, id}, socket), do: WingaConversations.ActivityChannel.timeout(id, socket)
+  def handle_info({:activity_changed, topic}, socket), do: WingaConversations.ActivityChannel.changed(topic, socket)
+  def handle_info(:activity_refresh, socket), do: WingaConversations.ActivityChannel.refresh(socket)
+
   def handle_info(:poll, socket) do
     if MapSet.size(socket.assigns.pending) > 0 do
       {:noreply, socket}
@@ -171,10 +195,12 @@ defmodule WingaConversations.DeviceChannel do
     now = System.system_time(:millisecond)
 
     case adapter().request(socket.assigns.ticket, "authorize", %{}) do
-      {:ok, %{"deviceId" => device, "expiresAt" => expires}}
+      {:ok, %{"deviceId" => device, "expiresAt" => expires} = principal}
       when device == socket.assigns.device and is_integer(expires) and expires > now ->
         Process.send_after(self(), :reauthorize, interval(:reauthorize_interval))
-        {:noreply, socket}
+        enabled = principal["activityEnabled"] == true
+        if not enabled, do: WingaConversations.ActivityRegistry.drop(self())
+        {:noreply, assign(socket, activity_enabled: enabled, native_operations: principal["nativeOperations"] == true)}
 
       _ ->
         {:stop, :normal, socket}

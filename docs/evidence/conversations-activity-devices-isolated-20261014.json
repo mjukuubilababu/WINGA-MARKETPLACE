@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-14T13:09:42.378328+00:00",
+  "sourceBaseline": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+  "scope": "Owned isolated endpoint/browser fixtures and disposable localhost PostgreSQL; no live users or physical-device acceptance.",
+  "productionReady": false,
+  "foundationAccepted": false,
+  "checks": {
+    "nativeDeviceRegistry": {
+      "passed": 15,
+      "failed": 0
+    },
+    "encryptedConversations": {
+      "passed": 44,
+      "failed": 0
+    },
+    "databaseTLSPolicy": {
+      "passed": 4,
+      "failed": 0
+    },
+    "phoenixBrowserClient": {
+      "passed": 14,
+      "failed": 0
+    },
+    "nativeSocketAndKillSwitch": {
+      "passed": 8,
+      "failed": 0
+    },
+    "eventLedgerAndRetention": {
+      "passed": 12,
+      "failed": 0
+    },
+    "beam": {
+      "passed": 20,
+      "failed": 0
+    },
+    "secureContentBrowser": {
+      "passed": 54,
+      "failed": 0
+    },
+    "conversationOperations": {
+      "reportedPassed": 68,
+      "reportedFailed": 0
+    },
+    "databaseQueries": {
+      "passed": 120,
+      "failed": 0
+    },
+    "disposablePostgresSuite": {
+      "passed": 144,
+      "failed": 0
+    },
+    "realPhoenixAndPostgresTransport": {
+      "passed": 2,
+      "failed": 0,
+      "boundedMessages": 65,
+      "canonicalDuplicates": 0,
+      "writerRestartRecovered": true,
+      "phoenixNodeLossRecovered": true,
+      "nativeActivityConsentAndWithdrawal": true,
+      "productionCapacityProven": false,
+      "durableOwnAccountDeviceNotices": true
+    },
+    "roomActivityPostgres": {
+      "passed": 1,
+      "failed": 0,
+      "subsetOfPostgresSuite": true
+    },
+    "frontendCore": {
+      "passed": 153,
+      "failed": 0
+    },
+    "localization": {
+      "locales": 4,
+      "keysPerLocale": 1777,
+      "newHardcodedDebt": 0
+    },
+    "modules": {
+      "count": 100,
+      "synchronized": true
+    },
+    "growthReadiness": {
+      "sections": 106,
+      "runtimeAcceptance": false
+    }
+  },
+  "tlsFixture": {
+    "database": "PostgreSQL 18",
+    "protocol": "TLSv1.3",
+    "verifiedTrustAndHost": true,
+    "untrustedCertificateRejected": "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "testCAIsProductionTrustRoot": false
+  },
+  "externalGates": {
+    "providerTrustActivation": {
+      "accepted": false,
+      "readonlyRenderPreflightJob": "job-db7n4i2j9qps73d1sf40",
+      "jobStatus": "failed",
+      "logReadStatus": 403,
+      "diagnosticPending": true
+    },
+    "physicalDevices": {
+      "executed": false,
+      "recordTemplate": "docs/evidence/conversations-device-acceptance-template.json"
+    },
+    "fullRetentionPolicy": {
+      "accepted": false,
+      "newHistoryPurgeExecuted": false
+    },
+    "independentCryptoAndCodeQLReview": {
+      "accepted": false,
+      "exactSourceReviewRequired": true
+    },
+    "shoppingRoomsFoundation": {
+      "accepted": false,
+      "newDependentRoomFeaturesAllowed": false
+    }
+  }
+}

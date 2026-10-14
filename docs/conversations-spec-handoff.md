@@ -154,3 +154,7 @@ direct runtime, mixed pages, pager/local state, UI and encrypted inbox latest
 selection without comparing independent stream counters. Source hardening and
 bounded local checks are documented; applicable live/device/migration acceptance
 and other security/foundation gates remain open. It adds no new Room feature.
+
+## Activity, device notices and infrastructure hardening — 14 October 2026
+
+[Current implementation and remaining acceptance](conversations-activity-devices-hardening-20261014.md) closes presence/typing and durable native-device notice source gaps on the existing plane/inbox. Requested database TLS now verifies trust/hostname; retention has a read-only dry-run and a sweeper kill switch. Strict provider activation, approved full-history/erasure/backup durations, real physical-device evidence and independent review remain open. Shopping Rooms section 0 is still not accepted; do not implement new dependent Room features yet.

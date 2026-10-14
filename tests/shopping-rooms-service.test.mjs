@@ -8,6 +8,18 @@ import {encodeRoomContent,projectRoomContent} from '../src/chat/shopping-room-co
 const require=createRequire(import.meta.url),{createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const encode=b=>Buffer.from(b).toString('base64url'),decode=b=>new Uint8Array(Buffer.from(b,'base64url'));
+test('room activity reuses native membership, mutual consent and block policy without opening room history',async t=>{
+  const f=await fixture(t,{four:true,excludeFromRoom:['eve']});await f.activate();
+  for(const name of ['conversation-activity-preferences','conversation-crypto-session-bindings'])
+    for(const sql of require('../backend/migrations/'+name).statements)await f.db.exec(sql);
+  for(const p of f.people)await f.db.query(`INSERT INTO conversation_crypto_session_bindings(session_id,session_token,owner_id,crypto_device_id) VALUES($1,$2,$3,$4)`,[p.context.deviceId,p.context.token,p.owner,p.native.id]);
+  const publish=p=>f.store.authorizeConversationActivity(p.context,p.signed('activity',{conversationId:f.id,online:true,typing:false}));
+  for(const p of [f.alice,f.bob])await f.store.authorizeConversationActivity(p.context,p.signed('activity-preference',{shareActivity:true,expectedRevision:'0'}));
+  const result=await publish(f.alice);assert.equal(result.allowed,true);assert.deepEqual(new Set(result.audience),new Set(['alice','bob']));
+  assert.equal(Object.hasOwn(result,'messages'),false);await assert.rejects(publish(f.eve),e=>e.status===403);
+  await f.db.query("INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('bob','alice')");
+  await assert.rejects(publish(f.alice),e=>e.status===403);
+});
 async function fixture(t,{four=false,sibling=false,mediaEnabled=false,roomLimits,invites=false,excludeFromRoom=[]}={}){
   const db=await roomDatabase(t);await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages',

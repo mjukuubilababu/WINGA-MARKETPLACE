@@ -607,6 +607,7 @@
       bindConversationMessageActions(modal, replaceContextChatModal);
       globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
       globalThis.WingaConversationNotifications?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationActivityUi?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaConversationReports?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaMessageSearchUi?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaConversationArchive?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:async()=>{await deps.refreshMessagesState();deps.replaceContextChatModal?.();}});
@@ -1019,6 +1020,7 @@
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
       globalThis.WingaConversationNotifications?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationActivityUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaConversationReports?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaMessageSearchUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaConversationArchive?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),

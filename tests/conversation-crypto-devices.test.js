@@ -25,7 +25,7 @@ function proof(target, actor = target, action = 'register', ctx = context, overr
   value.signature = crypto.sign(null, operationBytes(ctx, value), actor.privateKey).toString('base64url');
   return value;
 }
-async function fixture(t) {
+async function fixture(t,options={}) {
   const db = new PGlite();
   t.after(() => db.close());
   await db.exec(require('./helpers/conversation-event-fixture'));
@@ -34,8 +34,35 @@ async function fixture(t) {
     CREATE UNIQUE INDEX idx_sessions_session_id_unique ON sessions(session_id) WHERE session_id<>'';`);
   for (const sql of migration.statements) await db.exec(sql);
   for (const sql of bindingsMigration.statements) await db.exec(sql);
-  return { db, store: createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work) }) };
+  return { db, store: createConversationCryptoDeviceStore({ withTransaction: work => db.transaction(work),...options }) };
 }
+
+test('device security notices commit with registry truth, dedupe retries and expose only own generic metadata',async t=>{
+  const f=await fixture(t,{recordSecurityNotice:require('../backend/conversation-device-notices').recordDeviceSecurityNotice});
+  await f.db.exec(`CREATE TABLE notifications(id TEXT PRIMARY KEY,user_id TEXT,actor_username TEXT,type TEXT,message_id TEXT,
+    conversation_id TEXT,title TEXT,body TEXT,is_read BOOLEAN,created_at TIMESTAMPTZ);`);
+  const own=device(),registration=proof(own);
+  await f.store.mutateConversationCryptoDevice(context,registration);
+  await f.store.mutateConversationCryptoDevice(context,registration);
+  let rows=(await f.db.query('SELECT * FROM notifications')).rows;assert.equal(rows.length,1);
+  assert.equal(rows[0].user_id,'bob');assert.equal(rows[0].type,'crypto-device-register');
+  assert.equal(rows[0].conversation_id,own.id);assert.match(rows[0].id,/^crypto-notice-[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(rows).includes(own.publicKey),false);assert.equal(JSON.stringify(rows).includes(own.fingerprint),false);
+  const view=await f.store.readConversationCryptoDevices(context);assert.ok(view.deviceDetails[own.id].createdAt);
+  assert.deepEqual(Object.keys(view.devices[0]).sort(),['fingerprint','id','owner','publicKey','status']);
+  const other=device();await f.store.mutateConversationCryptoDevice(context,proof(other));
+  await f.store.mutateConversationCryptoDevice(context,proof(other,own,'approve'));
+  const revoke=proof(other,own,'revoke');await f.store.mutateConversationCryptoDevice(context,revoke);
+  await f.store.mutateConversationCryptoDevice(context,revoke);
+  rows=(await f.db.query('SELECT type FROM notifications')).rows;
+  assert.equal(rows.length,4);assert.equal(rows.filter(r=>r.type==='crypto-device-revoke').length,1);
+});
+test('failure to durably record a device security notice rolls back registration',async t=>{
+  const f=await fixture(t,{recordSecurityNotice:async()=>{throw Error('synthetic durable notice failure');}}),own=device();
+  await assert.rejects(f.store.mutateConversationCryptoDevice(context,proof(own)),/synthetic/);
+  assert.equal((await f.db.query('SELECT * FROM conversation_crypto_devices WHERE id=$1',[own.id])).rows.length,0);
+  assert.equal((await f.db.query('SELECT * FROM conversation_crypto_operations')).rows.length,0);
+});
 
 test('device migration is additive and registered exactly once', () => {
   assert.equal(MIGRATIONS.filter(item => item.id === migration.id).length, 1);

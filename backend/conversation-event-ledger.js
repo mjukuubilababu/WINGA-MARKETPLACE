@@ -1,5 +1,7 @@
 const reject = (status = 400) => Object.assign(new Error("Conversation event request rejected."), { status });
 const MAX_BATCH = 50;
+const ACK_RETENTION_ELIGIBLE=`d.acknowledged_at IS NOT NULL AND d.cancelled_at IS NULL
+  AND d.acknowledged_at<NOW()-$1::int*INTERVAL '1 day' AND e.position<=p.acknowledged_position`;
 const fields = `m.id,m.sender_id AS "senderId",m.receiver_id AS "receiverId",
   m.conversation_id AS "conversationId",m.conversation_sequence::text AS "conversationSequence",
   m.message,m.message_type AS "messageType",m.product_id AS "productId",m.product_name AS "productName",
@@ -155,9 +157,7 @@ function createConversationEventStore({ withTransaction }) {
         SELECT d.device_id,d.event_id FROM conversation_device_deliveries d
         JOIN conversation_events e ON e.id=d.event_id
         JOIN conversation_device_progress p ON p.device_id=d.device_id AND p.conversation_id=e.conversation_id
-        WHERE d.acknowledged_at IS NOT NULL AND d.cancelled_at IS NULL
-          AND d.acknowledged_at<NOW()-$1::int*INTERVAL '1 day'
-          AND e.position<=p.acknowledged_position
+        WHERE ${ACK_RETENTION_ELIGIBLE}
         ORDER BY d.acknowledged_at LIMIT $2::int FOR UPDATE OF d SKIP LOCKED
       ) DELETE FROM conversation_device_deliveries d USING candidates c
         WHERE d.device_id=c.device_id AND d.event_id=c.event_id`, [retentionDays,batchSize]);
@@ -203,4 +203,4 @@ function createConversationEventStore({ withTransaction }) {
   return { registerConversationDevice,pollConversationDeviceEvents,acknowledgeConversationDeviceEvents,
     pruneAcknowledgedConversationDeliveries,readConversationEvents };
 }
-module.exports = { createConversationEventStore,validateEventIds };
+module.exports = { createConversationEventStore,validateEventIds,ACK_RETENTION_ELIGIBLE };

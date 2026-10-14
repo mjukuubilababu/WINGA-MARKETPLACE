@@ -205,6 +205,14 @@ test('old ACK rows prune only behind a contiguous device cursor and never replay
     assert.equal((await db.query('SELECT acknowledged_position::text AS p FROM conversation_device_progress')).rows[0].p,'0');
     await ackIds([first.events[0].id]);
     await db.exec("UPDATE conversation_device_deliveries SET acknowledged_at=NOW()-INTERVAL '8 days' WHERE device_id='b1'");
+    await db.exec(`CREATE TABLE encrypted_conversation_history_transfers(expires_at TIMESTAMPTZ);
+      CREATE TABLE encrypted_conversation_messages(id TEXT);INSERT INTO encrypted_conversation_messages VALUES('preserved');`);
+    const before=(await db.query('SELECT COUNT(*)::text AS n FROM conversation_device_deliveries')).rows[0].n;
+    const audit=await require('../backend/conversation-retention-audit').inspectConversationRetention(db,{ackRetentionDays:7});
+    assert.equal(audit.queue.eligibleAcknowledged,'2');assert.ok(Number(audit.queue.pendingProtected)>0);
+    assert.equal(audit.history.acceptedMessagesPreserved,'1');assert.equal(audit.deletionExecuted,false);
+    assert.equal(audit.policy.ciphertextHistoryDays,null);
+    assert.equal((await db.query('SELECT COUNT(*)::text AS n FROM conversation_device_deliveries')).rows[0].n,before);
     assert.equal((await store.pruneAcknowledgedConversationDeliveries({retentionDays:7,batchSize:1})).pruned,1);
     assert.equal((await store.pruneAcknowledgedConversationDeliveries({retentionDays:7,batchSize:1})).pruned,1);
     assert.equal((await poll()).events.length,0);

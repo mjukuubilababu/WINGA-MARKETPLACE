@@ -4,6 +4,34 @@ const {PGlite}=require('@electric-sql/pglite');
 const {createEncryptedConversationStore,operationBytes}=require('../backend/encrypted-conversations');
 const {createEncryptedConversationsApi}=require('../backend/encrypted-conversations-api');
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+
+test('activity requires mutual explicit consent, active native binding and current unblocked membership',async t=>{
+  const f=await fixture(t);await f.active();
+  for(const name of ['conversation-activity-preferences','conversation-crypto-session-bindings'])
+    for(const sql of require('../backend/migrations/'+name).statements)await f.db.exec(sql);
+  for(const m of Object.values(f.members))await f.db.query(`INSERT INTO conversation_crypto_session_bindings(session_id,session_token,owner_id,crypto_device_id) VALUES($1,$2,$3,$4)`,[m.context.deviceId,m.context.token,m.context.owner,m.id]);
+  const activity=(who,p={conversationId:f.id,online:true,typing:true})=>f.store.authorizeConversationActivity(f.members[who].context,f.members[who].sign('activity',p));
+  const preference=(who,value,revision='0',id=crypto.randomUUID())=>f.store.authorizeConversationActivity(f.members[who].context,f.members[who].sign('activity-preference',{shareActivity:value,expectedRevision:revision},id));
+  assert.deepEqual(await f.store.readConversationActivityPreferences(f.members.alice.context),{version:1,shareActivity:false,revision:'0'});
+  assert.equal((await activity('alice')).allowed,false);
+  const id=crypto.randomUUID();assert.equal((await preference('alice',true,'0',id)).revision,'1');
+  assert.equal((await preference('alice',true,'0',id)).revision,'1');
+  await assert.rejects(preference('alice',false,'0',id),e=>e.status===409);
+  assert.deepEqual((await activity('alice')).audience,['alice']);
+  await preference('bob',true);assert.deepEqual(new Set((await activity('alice')).audience),new Set(['alice','bob']));
+  await assert.rejects(activity('eve'),e=>e.status===403);
+  await assert.rejects(activity('alice',{conversationId:f.id,online:false,typing:true}),e=>e.status===400);
+  const bad=f.members.alice.sign('activity',{conversationId:f.id,online:true,typing:false});bad.payload.typing=true;
+  await assert.rejects(f.store.authorizeConversationActivity(f.members.alice.context,bad),e=>e.status===403);
+  await f.db.query("INSERT INTO user_blocks(blocker_username,blocked_username) VALUES('bob','alice')");
+  await assert.rejects(activity('alice'),e=>e.status===403);await f.db.exec('DELETE FROM user_blocks');
+  await f.db.query("UPDATE conversation_crypto_devices SET status='revoked',revoked_at=NOW() WHERE id=$1",[f.members.alice.id]);
+  await assert.rejects(activity('alice'),e=>e.status===403);
+  await f.db.query("UPDATE conversation_crypto_devices SET status='active',revoked_at=NULL WHERE id=$1",[f.members.alice.id]);
+  await f.db.query("DELETE FROM conversation_crypto_session_bindings WHERE owner_id='alice'");
+  await assert.rejects(activity('alice'),e=>e.code==='activity_native_binding_required');
+  assert.equal((await f.db.query('SELECT COUNT(*) AS n FROM encrypted_conversation_messages')).rows[0].n,0);
+});
 async function fixture(t,options={}) {
   const db=new PGlite();t.after(()=>db.close());await db.exec(require('./helpers/conversation-event-fixture'));
   for(const name of ['message-web-push','conversation-notification-preferences','conversation-event-ledger','conversation-security-mode','conversation-crypto-devices','conversation-crypto-key-packages','encrypted-conversations','encrypted-conversation-media','encrypted-conversation-replacement','encrypted-replacement-retirements','encrypted-device-delivery'])

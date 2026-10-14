@@ -19,7 +19,7 @@ function operationBytes(context, value) {
   return Buffer.from(JSON.stringify(['winga-crypto-device-operation',1,context.owner,context.deviceId,
     ...fields.filter(key=>key!=='signature').map(key=>value[key])]));
 }
-function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }) {
+function createConversationCryptoDeviceStore({ withTransaction, now = Date.now, recordSecurityNotice = async()=>{} }) {
   async function authenticate(client, context) {
     if (!context?.owner || !context.token || !context.deviceId) throw failure(401,'crypto_device_unauthorized');
     // Account row serializes enrollment and tombstones; session lock orders
@@ -43,7 +43,9 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
   async function readConversationCryptoDevices(context) {
     return withTransaction(async client => {
       await authenticate(client,context);
-      return {version:1,devices:(await client.query('SELECT * FROM conversation_crypto_devices WHERE owner_id=$1 ORDER BY created_at,id LIMIT 32',[context.owner])).rows.map(view)};
+      const rows=(await client.query('SELECT * FROM conversation_crypto_devices WHERE owner_id=$1 ORDER BY created_at,id LIMIT 32',[context.owner])).rows;
+      return {version:1,devices:rows.map(view),deviceDetails:Object.fromEntries(rows.map(row=>[row.id,{createdAt:new Date(row.created_at).toISOString(),
+        revokedAt:row.revoked_at?new Date(row.revoked_at).toISOString():null}]))};
     });
   }
   async function mutateConversationCryptoDevice(context, payload) {
@@ -75,7 +77,7 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
       }
       const publicKey=crypto.createPublicKey({key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),keyBytes(actor.public_key,32)]),type:'spki',format:'der'});
       if(!crypto.verify(null,signed,publicKey,keyBytes(payload.signature,64))) throw failure(403,'crypto_device_proof_rejected');
-      let row;
+      let row,changed=false;
       if(payload.action==='register') {
         if(target) {
           if(target.owner_id!==context.owner || target.public_key!==payload.publicKey || target.status==='revoked') throw failure(409,'crypto_device_identity_conflict');
@@ -88,16 +90,19 @@ function createConversationCryptoDeviceStore({ withTransaction, now = Date.now }
           row=(await client.query(`INSERT INTO conversation_crypto_devices(id,owner_id,public_key,fingerprint,status)
             VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING *`,[payload.deviceId,context.owner,payload.publicKey,payload.fingerprint,previous.length?'pending':'active'])).rows[0];
           if (!row) throw failure(409,'crypto_device_identity_conflict');
+          changed=true;
         }
       } else {
         if ((payload.action === 'approve' && target.status !== 'pending')
           || (payload.action === 'revoke' && target.status === 'revoked')) throw failure(409,'crypto_device_transition_rejected');
         row=(await client.query(`UPDATE conversation_crypto_devices SET status=$2,
           revoked_at=CASE WHEN $2='revoked' THEN NOW() ELSE NULL END WHERE id=$1 RETURNING *`,[payload.deviceId,payload.action==='approve'?'active':'revoked'])).rows[0];
+        changed=true;
       }
       if (payload.action==='register') await bindRegistration(client,context,payload,row);
       const result={version:1,device:view(row)};
       await client.query('INSERT INTO conversation_crypto_operations(owner_id,request_id,digest,result) VALUES($1,$2,$3,$4)',[context.owner,payload.requestId,digest,JSON.stringify(result)]);
+      if(changed)await recordSecurityNotice(client,{owner:context.owner,requestId:payload.requestId,action:payload.action,device:row});
       return result;
     });
   }

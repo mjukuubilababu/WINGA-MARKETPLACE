@@ -191,3 +191,16 @@ test('communications fail closed on session switches and canonical denials; HTTP
   const http = await communicationsFixture(async () => null);
   await http.operation(signed()); assert.equal(http.calls.filter(r => r.url.endsWith('/operations')).length, 1); http.close();
 });
+
+test('activity negotiates independently and its kill switch preserves native messaging',async()=>{
+  const transport=createConversationTransport({env}),op=signed('activity',{conversationId:crypto.randomUUID(),online:true,typing:false});
+  const input={version:1,command:'activity',payload:op};transport.validateCommand(input);
+  assert.equal((await transport.execute(context,{command:'authorize'},{})).activityEnabled,true);
+  let calls=0;const store={authorizeConversationActivity:async(c,p)=>{calls++;assert.deepEqual(c,context);assert.equal(p,op);return {version:1};}};
+  assert.deepEqual(await transport.execute(context,input,store),{version:1});assert.equal(calls,1);
+  const disabled=createConversationTransport({env:{...env,WINGA_CONVERSATION_ACTIVITY_ENABLED:'false'}});
+  const principal=await disabled.execute(context,{command:'authorize'},{});
+  assert.equal(principal.activityEnabled,false);assert.equal(principal.nativeOperations,true);
+  await assert.rejects(disabled.execute(context,input,store),{status:404});assert.equal(calls,1);
+  await assert.rejects(transport.execute(context,{...input,payload:signed('activity-preference',{shareActivity:true,expectedRevision:'0'})},store),{status:400});
+});

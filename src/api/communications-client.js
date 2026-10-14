@@ -12,6 +12,10 @@
     let encryptionOwner = '';
     let encryptionService = null;
     let encryptionChanged = () => {};
+    const activityListeners=new Set();
+    const activityIdentity=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+    const activityCurrent=identity=>{if(identity!==activityIdentity())throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});};
+    const activityNotify=value=>{for(const listener of activityListeners){try{listener(value);}catch{}}};
     let api;
     if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
       request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
@@ -407,6 +411,7 @@
               method: "POST", headers: jsonHeaders(), body: "{}"
             }),
             onEvents: handlers.onDeviceEvents,
+            onActivity: value=>{if(canStream())activityNotify(value);},
             onState: handlers.onTransportState
           });
           phoenix = deviceStream;
@@ -507,6 +512,29 @@
     }
 
     return api = {
+      conversationActivityPreferences:async()=>{
+        const identity=activityIdentity(),value=await fetchJson(`${baseUrl}/conversations/activity-preferences`,{headers:authHeaders()});
+        activityCurrent(identity);return value;
+      },
+      setConversationActivitySharing:async(shareActivity,revision,requestId)=>{
+        const identity=activityIdentity(),service=await ensureEncryption();activityCurrent(identity);
+        if(!service)runtimeRequired();
+        const operation=await service.signActivityPreference(shareActivity,revision,requestId);activityCurrent(identity);
+        const value=await fetchJson(`${baseUrl}/conversations/activity-preferences`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(operation)});
+        activityCurrent(identity);return value;
+      },
+      conversationActivity:async(peer,online,typing)=>{
+        const identity=activityIdentity(),service=encryptionService,stream=phoenix;
+        // Optional activity never enrolls devices or falls back to HTTP polling.
+        if(!service||encryptionOwner!==identity||!stream?.isReady())return null;
+        const operation=await service.signConversationActivity(peer,online,typing);activityCurrent(identity);
+        const value=await stream.sendActivity(operation);activityCurrent(identity);return value;
+      },
+      subscribeConversationActivity:listener=>{
+        if(typeof listener!=='function'||activityListeners.size>=16)return ()=>{};
+        const identity=activityIdentity(),guard=value=>{if(identity===activityIdentity())listener(value);};
+        activityListeners.add(guard);return ()=>activityListeners.delete(guard);
+      },
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
       resolveInternalGrowthShare:async(messageId,type,id)=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.resolveInternalGrowthShare(messageId,type,id);},
       localConversationHistory:async peer=>{

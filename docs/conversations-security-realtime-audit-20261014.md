@@ -13,6 +13,8 @@ Conversations contract is accepted. User-reported Messages incompleteness and re
 internal sharing/Room acceptance remain open. Runtime source, isolated fixtures,
 real infrastructure and independent cryptographic approval are separate evidence.
 
+Current follow-up: [activity, device notices and infrastructure hardening](conversations-activity-devices-hardening-20261014.md) supersedes the earlier missing-source findings below. Full foundation acceptance remains open.
+
 ## Audit summary and canonical reuse
 
 Existing canonical code implements authenticated Phoenix routing to Node's
@@ -67,11 +69,11 @@ No production outage is inferred from these test-construction failures.
 
 | Gate | What remains / why |
 | --- | --- |
-| EPHEMERAL | Dedicated privacy-aware Phoenix Presence, multi-device aggregation and typing runtime. No fake Online/typing UI; define audience/TTL/bounds/block/current-device checks first, then use the existing plane. |
-| DEVICE_NOTICES | Device manager detects status changes only while open. Always-available security-event delivery and exact disclosed name/date metadata need a canonical, deduped, privacy-aware design; no second inbox or silent device approval. |
+| EPHEMERAL | Source now implemented on existing Phoenix with mutual opt-in, native authorization, TTL, bounded QoS and direct UI. Physical PWA, regional capacity and clustered presence acceptance remain open. |
+| DEVICE_NOTICES | Durable deduped own-account register/approve/revoke notices now reuse canonical notifications/SSE and link to device management. Dates reflect stored truth; physical device acceptance remains open. |
 | ORDERING | [14 October follow-up](conversations-ordering-20261014.md) replaces direct/mixed/pager/UI timestamp overrides with shared scoped sequence ordering and correct inbox latest selection. Unknown recovered metadata and separate legacy/native domains stay explicit; live/migration/device acceptance remains open. |
 | LEGACY | Explicit plaintext compatibility remains. New encrypted mode is irreversible/fail-closed. Universal E2EE needs approved migration/activation; do not relabel old history or enable unaudited encryption automatically. |
-| INFRA_TLS | `backend/db.js` enables TLS with `rejectUnauthorized:false` in pools/listener. Obtain provider CA/trust/deployment evidence and coordinate strict verification with the shared platform; blind toggling can break core marketplace access. At-rest/backup and least-privilege assurance also need actual infrastructure evidence. |
+| INFRA_TLS | Requested pool/replica/listener TLS now verifies certificate and hostname; local TLS checks pass. Production provider trust activation, at-rest/backup and least-privilege evidence remain open; failed Render preflight needs operator logs. |
 | CRYPTO | Final protocol/library/license/integration review and actual independent security/crypto approval. Latest baseline CodeQL still reports 54 findings, zero reviewed, CODEQL_REVIEW_STALE; no waiver or forged review. |
 | RETENTION | Approved numeric message/metadata/attachment/backup/tombstone/erasure policies and execution evidence. Existing limited queue pruning is not whole-account erasure. |
 | MOBILE / LIVE | Real trusted-device approval, physical Android/PWA secure-store/reload/offline/recovery/media/receipt/Room acceptance. Handles/old Pending reports are not current sessions. |
@@ -122,9 +124,9 @@ Detailed source references and gates are retained in
 | 25 | PROCESS FAILURE | IMPLEMENTED | CAPACITY, LIVE |
 | 26 | NODE FAILURE | PARTIAL | CAPACITY, LIVE |
 | 27 | BACKPRESSURE | PARTIAL | CAPACITY |
-| 28 | PRESENCE | MISSING | EPHEMERAL |
-| 29 | MULTI-DEVICE PRESENCE | MISSING | EPHEMERAL |
-| 30 | TYPING INDICATORS | MISSING | EPHEMERAL |
+| 28 | PRESENCE | IMPLEMENTED | MOBILE, LIVE, CAPACITY |
+| 29 | MULTI-DEVICE PRESENCE | IMPLEMENTED | MOBILE, LIVE, CAPACITY |
+| 30 | TYPING INDICATORS | IMPLEMENTED | MOBILE, LIVE, CAPACITY |
 | 31 | SHOPPING ROOM REALTIME | PARTIAL | EPHEMERAL, CAPACITY, LIVE |
 | 32 | GROUP ENCRYPTION | IMPLEMENTED | CRYPTO, LIVE |
 | 33 | LARGE ROOM FAN-OUT | PARTIAL | CAPACITY |
@@ -142,7 +144,7 @@ Detailed source references and gates are retained in
 | 45 | RECOVERY UX | IMPLEMENTED | CRYPTO, MOBILE, LIVE |
 | 46 | PASSWORD RESET | IMPLEMENTED | CRYPTO, MOBILE, LIVE |
 | 47 | ACCOUNT TAKEOVER | IMPLEMENTED | CRYPTO, MOBILE, LIVE |
-| 48 | SECURITY NOTIFICATIONS | PARTIAL | DEVICE_NOTICES, LIVE |
+| 48 | SECURITY NOTIFICATIONS | IMPLEMENTED | MOBILE, LIVE |
 | 49 | REPORTING ABUSE UNDER E2EE | IMPLEMENTED | CRYPTO, CAPACITY, LIVE |
 | 50 | BLOCKING | IMPLEMENTED | CRYPTO, CAPACITY, LIVE |
 | 51 | SPAM / RATE LIMITING | IMPLEMENTED | CRYPTO, CAPACITY, LIVE |

@@ -41,7 +41,7 @@ function fixture(options = {}) {
     disconnect() { this.connected = false; }
   }
   const context = {window:{location:{hostname:'localhost'},Phoenix:{Socket}},URL,URLSearchParams,
-    Date:class extends Date {static now(){return time;}},setTimeout:later,clearTimeout:cancel,setInterval:every,clearInterval:cancel};
+    Date:class extends Date {static now(){return time;}},TextEncoder,setTimeout:later,clearTimeout:cancel,setInterval:every,clearInterval:cancel};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/api/phoenix-transport.js'),'utf8'),context);
   const api = context.window.WingaModules.api.phoenix;
   const make = overrides => api.createPhoenixTransport({
@@ -245,4 +245,19 @@ test('resume attempts count ticket rejection, join timeout and a joined connecti
   await f.advance(15001);
   assert.equal(observed.filter(v=>v[0]==='transport-resume-pending').length,1);
   assert.equal(observed.some(v=>v[0]==='transport-resume-confirmed'),false);client.close();
+});
+
+test('activity requires negotiated native capability, cannot exhaust message budget and discards stale pushes',async()=>{
+  const f=fixture(),seen=[],transport=f.make({onActivity:value=>seen.push(value)});await tick();
+  const socket=f.sockets[0];socket.join.respond('ok',{deviceId:'a1',securityMode:'legacy-plaintext',expiresAt:400000,nativeOperations:true,activityEnabled:true});
+  const op={action:'activity',requestId:'synthetic',payload:{conversationId:'synthetic',online:true,typing:false}};
+  const first=transport.sendActivity(op),second=transport.sendActivity(op);
+  assert.equal(await transport.sendActivity(op),null);
+  const message=transport.sendMessage(payload);assert.equal(socket.pushes.at(-1).event,'message.send');
+  socket.pushes.at(-1).push.respond('ok',{accepted:true,message:{id:'canonical',senderId:'alice',receiverId:'bob',conversationSequence:'1'}});
+  assert.equal((await message).id,'canonical');
+  socket.pushes[0].push.respond('ok',{version:1,states:[]});socket.pushes[1].push.respond('ok',{version:1,states:[]});await Promise.all([first,second]);
+  socket.activity({version:1,states:[]});assert.equal(seen.length,1);f.invalidate();socket.activity({version:1,states:[]});assert.equal(seen.length,1);
+  transport.close();
+  const disabled=fixture(),plain=disabled.make();await disabled.join();assert.equal(await plain.sendActivity(op),null);plain.close();
 });

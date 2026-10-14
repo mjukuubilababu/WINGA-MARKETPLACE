@@ -158,6 +158,34 @@ module.exports = async function exerciseNative({fixture, pool, accounts, onLoss,
     await receiver.evaluate(p => native.enable('alice', p.deviceId, p.fingerprint), alicePackage);
     assert.equal((await sender.evaluate(() => native.inspect('bob'))).status, 'active');
 
+    if(onLoss){
+      const notices=(await pool.query(`SELECT user_id,type,conversation_id FROM notifications
+        WHERE type='crypto-device-register' ORDER BY user_id`)).rows;
+      assert.equal(notices.length,2);assert.deepEqual(notices.map(n=>n.user_id),['alice','bob']);
+      for(const page of [sender,receiver]){
+        const own=await page.evaluate(()=>client.loadNotifications());
+        const registration=own.filter(n=>n.type==='crypto-device-register');assert.equal(registration.length,1);
+        assert.equal(registration[0].actorUsername,registration[0].userId);
+      }
+      onProgress('verify native activity consent and signed Phoenix authorization');
+      for(const page of [sender,receiver]){
+        const preference=await page.evaluate(()=>client.conversationActivityPreferences());
+        assert.equal(preference.shareActivity,false);
+        const enabled=await page.evaluate(async()=>{
+          const state=await client.conversationActivityPreferences();
+          return client.setConversationActivitySharing(true,state.revision,crypto.randomUUID());
+        });assert.equal(enabled.shareActivity,true);
+      }
+      const activity=await sender.evaluate(()=>client.conversationActivity('bob',true,true));
+      assert.equal(activity.version,1);assert.equal(activity.enabled,true);assert.ok(Array.isArray(activity.states));
+      // These fixture nodes are independent, so no remote online state is fabricated.
+      assert.deepEqual(activity.states,[]);
+      await sender.evaluate(async()=>{const state=await client.conversationActivityPreferences();
+        await client.setConversationActivitySharing(false,state.revision,crypto.randomUUID());});
+      const withdrawn=await sender.evaluate(()=>client.conversationActivity('bob',false,false));
+      assert.equal(withdrawn.enabled,false);assert.deepEqual(withdrawn.states,[]);
+    }
+
     let liveText = '';
     if (onLoss) {
       assert.notEqual(sender.nativePort, receiver.nativePort, 'live native peers must use different BEAM nodes');

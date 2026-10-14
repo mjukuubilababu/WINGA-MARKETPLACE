@@ -13,7 +13,7 @@
       close(){closed=true;client.close();}
     };
   }
-  async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{}}) {
+  async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{},targetDeviceId=''}={}) {
     const t=translate,session=await dataLayer.createCryptoDeviceManagement();let dialog,timer,refreshTimer;
     try {
       let view=await session.list(),busy=false,refreshing=false,closed=false,mutationVersion=0;
@@ -25,6 +25,7 @@
       const own=node('label',t('chat.ownFingerprint','Your device fingerprint')),ownKey=node('code','');ownKey.className='chat-fingerprint';own.append(ownKey);dialog.append(own);
       const targetLabel=node('label',t('chat.deviceTarget','Device')),target=document.createElement('select');target.dataset.cryptoDeviceTarget='';targetLabel.append(target);dialog.append(targetLabel);
       const fingerprint=node('code','');fingerprint.className='chat-fingerprint';dialog.append(fingerprint);
+      const registered=node('small','');dialog.append(registered);
       const actionLabel=node('label',t('chat.deviceAction','Action')),action=document.createElement('select');action.dataset.cryptoDeviceAction='';actionLabel.append(action);dialog.append(actionLabel);
       const warning=node('p',t('chat.deviceRevokeOwnWarning','Revoking this device blocks its live encrypted chats.'));warning.hidden=true;dialog.append(warning);
       const confirmLabel=node('label',t('chat.deviceConfirm','Full fingerprint from the device')),confirm=document.createElement('input');confirm.autocomplete='off';confirm.spellcheck=false;confirm.dataset.cryptoDeviceConfirm='';confirmLabel.append(confirm);dialog.append(confirmLabel);
@@ -36,12 +37,15 @@
       function selected(){return view.devices.find(d=>d.id===target.value);}
       function enabled(){const d=selected();apply.disabled=busy || !d || !action.value || confirm.value.replace(/\s/g,'').toLowerCase()!==d.fingerprint || (view.ownDevice?.status!=='active'&&!view.pendingOperation);target.disabled=action.disabled=confirm.disabled=busy;close.disabled=busy;stop.hidden=stopNote.hidden=!view.pendingOperation;stop.disabled=busy;warning.hidden=d?.id!==view.ownDevice?.id || action.value!=='revoke';apply.textContent=action.value==='approve'?t('chat.deviceApprove','Approve'):action.value==='revoke'?t('chat.deviceRevoke','Revoke'):t('chat.deviceApply','Confirm device action');}
       function choose(){const d=selected(),pending=view.pendingOperation;fingerprint.textContent=d?.fingerprint||'';confirm.value='';action.replaceChildren();
+        const date=view.deviceDetails?.[d?.id]?.createdAt;
+        registered.textContent=typeof date==='string'&&Number.isFinite(Date.parse(date))
+          ?t('chat.deviceRegisteredAt','Registered')+' '+new Date(date).toLocaleString(document.documentElement.lang||'sw'):'';
         const actions=pending?[pending.action]:d?.status==='pending'?['approve','revoke']:d?.status==='active'?['revoke']:[];
         for(const value of actions){const option=node('option',value==='approve'?t('chat.deviceApprove','Approve'):t('chat.deviceRevoke','Revoke'));option.value=value;action.append(option);}enabled();}
       function render(previous){ownKey.textContent=view.ownDevice?.fingerprint||'';status.textContent=stateText(view.ownDevice?.status);target.replaceChildren();
         const pending=view.pendingOperation;
         for(const d of view.devices.filter(d=>pending?d.id===pending.deviceId:d.status!=='revoked')){const option=node('option',`${stateText(d.status)}: ${d.fingerprint.slice(0,16)}${d.id===view.ownDevice?.id?' ('+t('chat.deviceThis','This device')+')':''}`);option.value=d.id;target.append(option);}
-        const preferred=view.devices.find(d=>pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;
+        const preferred=view.devices.find(d=>targetDeviceId?d.id===targetDeviceId:pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;
         if(previous&&Array.from(target.options).some(o=>o.value===previous.id))target.value=previous.id;
         choose();
         if(previous&&target.value===previous.id&&selected()?.fingerprint===previous.fingerprint

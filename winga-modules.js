@@ -2041,6 +2041,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let encryptionOwner = '';
     let encryptionService = null;
     let encryptionChanged = () => {};
+    const activityListeners=new Set();
+    const activityIdentity=()=>{const s=deps.getSession?.();return JSON.stringify([s?.username,s?.sessionId,s?.token]);};
+    const activityCurrent=identity=>{if(identity!==activityIdentity())throw Object.assign(new Error('mls_session_changed'),{code:'mls_session_changed'});};
+    const activityNotify=value=>{for(const listener of activityListeners){try{listener(value);}catch{}}};
     let api;
     if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
       request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
@@ -2436,6 +2440,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               method: "POST", headers: jsonHeaders(), body: "{}"
             }),
             onEvents: handlers.onDeviceEvents,
+            onActivity: value=>{if(canStream())activityNotify(value);},
             onState: handlers.onTransportState
           });
           phoenix = deviceStream;
@@ -2536,6 +2541,29 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     }
 
     return api = {
+      conversationActivityPreferences:async()=>{
+        const identity=activityIdentity(),value=await fetchJson(`${baseUrl}/conversations/activity-preferences`,{headers:authHeaders()});
+        activityCurrent(identity);return value;
+      },
+      setConversationActivitySharing:async(shareActivity,revision,requestId)=>{
+        const identity=activityIdentity(),service=await ensureEncryption();activityCurrent(identity);
+        if(!service)runtimeRequired();
+        const operation=await service.signActivityPreference(shareActivity,revision,requestId);activityCurrent(identity);
+        const value=await fetchJson(`${baseUrl}/conversations/activity-preferences`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(operation)});
+        activityCurrent(identity);return value;
+      },
+      conversationActivity:async(peer,online,typing)=>{
+        const identity=activityIdentity(),service=encryptionService,stream=phoenix;
+        // Optional activity never enrolls devices or falls back to HTTP polling.
+        if(!service||encryptionOwner!==identity||!stream?.isReady())return null;
+        const operation=await service.signConversationActivity(peer,online,typing);activityCurrent(identity);
+        const value=await stream.sendActivity(operation);activityCurrent(identity);return value;
+      },
+      subscribeConversationActivity:listener=>{
+        if(typeof listener!=='function'||activityListeners.size>=16)return ()=>{};
+        const identity=activityIdentity(),guard=value=>{if(identity===activityIdentity())listener(value);};
+        activityListeners.add(guard);return ()=>activityListeners.delete(guard);
+      },
       shoppingRoom:async(action,args=[])=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.shoppingRoom(action,args);},
       resolveInternalGrowthShare:async(messageId,type,id)=>{const service=await ensureEncryption();if(!service)runtimeRequired();return service.resolveInternalGrowthShare(messageId,type,id);},
       localConversationHistory:async peer=>{
@@ -2804,7 +2832,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     const later = deps.setTimeout || setTimeout, cancel = deps.clearTimeout || clearTimeout;
     const now = deps.now || Date.now, random = deps.random || Math.random;
     let closed = false, epoch = 0, socket = null, channel = null, timer = null, deadline = null;
-    let joined = false, receiving = false, attempts = 0, expiresAt = 0, nativeOperations = false;
+    let joined = false, receiving = false, attempts = 0, expiresAt = 0, nativeOperations = false, activityEnabled = false;
     let joinWhenOpen = null;
     let reconnectStarted=null,everJoined=false,resumeAttempt=null,resumeTimer=null;
     const metric=(name,value)=>{try{globalThis.WingaConversationExperience?.record(name,value);}catch{}};
@@ -2818,6 +2846,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       epoch++;
       joined = false;
       nativeOperations = false;
+      activityEnabled = false;
       expiresAt = 0;
       receiving = false;
       cancel(timer); cancel(deadline);cancel(resumeTimer);resumeTimer=null;
@@ -2893,6 +2922,9 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         channel = socket.channel("device", { ticket: ticket.ticket });
         channel.onError(() => { report("unavailable", "channel_error"); retry(generation); });
         channel.onClose(() => { report("unavailable", "channel_closed"); retry(generation); });
+        channel.on("activity", value => {
+          if(current(generation)&&joined&&activityEnabled){try{deps.onActivity?.(value);}catch{}}
+        });
         channel.on("events", async batch => {
           if (!current(generation) || !joined) return;
           if (receiving) { retry(generation); return; }
@@ -2920,6 +2952,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
             cancel(deadline); deadline = null;
             joined = true; attempts = 0; expiresAt = ticket.expiresAt;
             nativeOperations = principal.nativeOperations === true;
+            activityEnabled = nativeOperations && principal.activityEnabled === true;
             everJoined=true;
             if(resumeAttempt!==null)resumeTimer=later(()=>{
               if(current(generation)&&resumeAttempt!==null){metric('transport-resume-pending',now()-resumeAttempt);resumeAttempt=null;reconnectStarted=null;}
@@ -2938,6 +2971,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return {
       close,
       isReady,
+      async sendActivity(operation) {
+        if(!isReady()||!activityEnabled||pending.size>=2)return null;
+        if(operation?.action!=='activity'||new TextEncoder().encode(JSON.stringify(operation)).byteLength>4096)return null;
+        return command('activity',operation);
+      },
       async forwardEncryptedOperation(operation) {
         if (!isReady() || !nativeOperations) return null;
         // Large operations retain the existing signed HTTP path and frame budgets.
@@ -20013,7 +20051,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       close(){closed=true;client.close();}
     };
   }
-  async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{}}) {
+  async function open({dataLayer,translate=(k,f)=>f,refresh=()=>{},targetDeviceId=''}={}) {
     const t=translate,session=await dataLayer.createCryptoDeviceManagement();let dialog,timer,refreshTimer;
     try {
       let view=await session.list(),busy=false,refreshing=false,closed=false,mutationVersion=0;
@@ -20025,6 +20063,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       const own=node('label',t('chat.ownFingerprint','Your device fingerprint')),ownKey=node('code','');ownKey.className='chat-fingerprint';own.append(ownKey);dialog.append(own);
       const targetLabel=node('label',t('chat.deviceTarget','Device')),target=document.createElement('select');target.dataset.cryptoDeviceTarget='';targetLabel.append(target);dialog.append(targetLabel);
       const fingerprint=node('code','');fingerprint.className='chat-fingerprint';dialog.append(fingerprint);
+      const registered=node('small','');dialog.append(registered);
       const actionLabel=node('label',t('chat.deviceAction','Action')),action=document.createElement('select');action.dataset.cryptoDeviceAction='';actionLabel.append(action);dialog.append(actionLabel);
       const warning=node('p',t('chat.deviceRevokeOwnWarning','Revoking this device blocks its live encrypted chats.'));warning.hidden=true;dialog.append(warning);
       const confirmLabel=node('label',t('chat.deviceConfirm','Full fingerprint from the device')),confirm=document.createElement('input');confirm.autocomplete='off';confirm.spellcheck=false;confirm.dataset.cryptoDeviceConfirm='';confirmLabel.append(confirm);dialog.append(confirmLabel);
@@ -20036,12 +20075,15 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       function selected(){return view.devices.find(d=>d.id===target.value);}
       function enabled(){const d=selected();apply.disabled=busy || !d || !action.value || confirm.value.replace(/\s/g,'').toLowerCase()!==d.fingerprint || (view.ownDevice?.status!=='active'&&!view.pendingOperation);target.disabled=action.disabled=confirm.disabled=busy;close.disabled=busy;stop.hidden=stopNote.hidden=!view.pendingOperation;stop.disabled=busy;warning.hidden=d?.id!==view.ownDevice?.id || action.value!=='revoke';apply.textContent=action.value==='approve'?t('chat.deviceApprove','Approve'):action.value==='revoke'?t('chat.deviceRevoke','Revoke'):t('chat.deviceApply','Confirm device action');}
       function choose(){const d=selected(),pending=view.pendingOperation;fingerprint.textContent=d?.fingerprint||'';confirm.value='';action.replaceChildren();
+        const date=view.deviceDetails?.[d?.id]?.createdAt;
+        registered.textContent=typeof date==='string'&&Number.isFinite(Date.parse(date))
+          ?t('chat.deviceRegisteredAt','Registered')+' '+new Date(date).toLocaleString(document.documentElement.lang||'sw'):'';
         const actions=pending?[pending.action]:d?.status==='pending'?['approve','revoke']:d?.status==='active'?['revoke']:[];
         for(const value of actions){const option=node('option',value==='approve'?t('chat.deviceApprove','Approve'):t('chat.deviceRevoke','Revoke'));option.value=value;action.append(option);}enabled();}
       function render(previous){ownKey.textContent=view.ownDevice?.fingerprint||'';status.textContent=stateText(view.ownDevice?.status);target.replaceChildren();
         const pending=view.pendingOperation;
         for(const d of view.devices.filter(d=>pending?d.id===pending.deviceId:d.status!=='revoked')){const option=node('option',`${stateText(d.status)}: ${d.fingerprint.slice(0,16)}${d.id===view.ownDevice?.id?' ('+t('chat.deviceThis','This device')+')':''}`);option.value=d.id;target.append(option);}
-        const preferred=view.devices.find(d=>pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;
+        const preferred=view.devices.find(d=>targetDeviceId?d.id===targetDeviceId:pending?d.id===pending.deviceId:d.status==='pending');if(preferred)target.value=preferred.id;
         if(previous&&Array.from(target.options).some(o=>o.value===previous.id))target.value=previous.id;
         choose();
         if(previous&&target.value===previous.id&&selected()?.fingerprint===previous.fingerprint
@@ -20760,6 +20802,14 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         fail('encrypted_seller_request_invalid');
       }
       const service={
+        signConversationActivity:async(peer,online,typing)=>{
+          current();const conversationId=await runtime.conversationId(peer);current();
+          if(!conversationId)fail('activity_unavailable');
+          return identity.signCryptoOperation('activity',{conversationId,online,typing});
+        },
+        signActivityPreference:async(shareActivity,expectedRevision,requestId)=>{
+          current();return identity.signCryptoOperation('activity-preference',{shareActivity,expectedRevision},requestId);
+        },
         resolveInternalGrowthShare:(messageId,contentType,contentId)=>serialize(()=>operation('growth-internal-read',{messageId,contentType,contentId})),
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia','invitationCapabilities','createInvite','createdInvites','revokeInvite','invitationRequests','declineInvite','requestInvite','inviteEvent'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),
@@ -23386,6 +23436,101 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/activity-ui.js
+(() => {
+  const identities=s=>JSON.stringify([s?.username,s?.sessionId,s?.token]);
+  function bind(scope,{dataLayer,getSession,getPeer,translate=(k,f)=>f}) {
+    const label=scope.querySelector('.thread-presence, .context-chat-presence');
+    const input=scope.querySelector('#message-compose-input, #context-chat-compose-input');
+    if(!label||label.dataset.activityBound||typeof dataLayer.conversationActivity!=='function')return;
+    const initial=getSession(),identity=identities(initial),peer=getPeer();
+    if(!initial?.username||!initial.sessionId||!peer)return;
+    label.dataset.activityBound='true';
+    const fallback=label.textContent,t=translate;
+    const current=()=>scope.isConnected&&getPeer()===peer&&identities(getSession())===identity;
+    const visible=()=>current()&&document.visibilityState==='visible'&&document.hasFocus();
+    let closed=false,busy=false,state=null,expires=0,typingUntil=0,remoteTypingExpires=0,lastSend=0,conversationId=null,wasOnline=false;
+    const button=document.createElement('button');button.type='button';button.className='action-btn chat-activity-control';
+    button.dataset.chatActivitySettings='';button.textContent=t('chat.activitySettings','Activity privacy');(scope.querySelector('.messages-thread-actions')||label.parentNode).append(button);
+    const reset=()=>{expires=0;label.textContent=fallback;};
+    const update=value=>{
+      if(!visible()||!state?.shareActivity||!conversationId||value?.version!==1||value.conversationId!==conversationId)return;
+      if(value.enabled!==true||!Array.isArray(value.states)||value.states.length>12){reset();return;}
+      const other=value.states.find(v=>v.owner===peer&&v.online===true&&typeof v.typing==='boolean'
+        &&Number.isInteger(v.ttlMs)&&v.ttlMs>0&&v.ttlMs<=12000);
+      if(!other){reset();return;}
+      expires=Date.now()+other.ttlMs;remoteTypingExpires=other.typing&&Number.isInteger(other.typingTtlMs)&&other.typingTtlMs>0&&other.typingTtlMs<=6000?Date.now()+other.typingTtlMs:0;
+      label.textContent=remoteTypingExpires>Date.now()?t('chat.typing','Typing…'):t('chat.online','Online');
+    };
+    const unsubscribe=dataLayer.subscribeConversationActivity?.(update)||(()=>{});
+    async function pulse(force=false){
+      if(closed||busy||!current()||!state?.shareActivity)return;
+      const now=Date.now(),online=visible(),typing=online&&typingUntil>now;
+      if(!force&&now-lastSend<(typing?2200:8000)&&online===wasOnline)return;
+      busy=true;lastSend=now;wasOnline=online;
+      try{
+        const value=await dataLayer.conversationActivity(peer,online,typing);
+        if(!current())return;
+        if(value?.version===1&&typeof value.conversationId==='string')conversationId=value.conversationId;
+        if(online)update(value);else reset();
+      }catch{if(current())reset();}finally{busy=false;}
+    }
+    const validate=value=>{
+      if(value?.version!==1||typeof value.shareActivity!=='boolean'||typeof value.revision!=='string'
+        ||!/^(0|[1-9][0-9]{0,18})$/.test(value.revision))throw Error('activity_unavailable');
+      return value;
+    };
+    button.onclick=async()=>{
+      if(!visible()||button.disabled)return;button.disabled=true;let dialog,timer;
+      try{
+        state=validate(await dataLayer.conversationActivityPreferences());if(!visible())return;
+        const node=(tag,text)=>{const el=document.createElement(tag);if(text)el.textContent=text;return el;};
+        dialog=node('dialog');dialog.className='chat-security-dialog';dialog.append(node('h3',t('chat.activitySettings','Activity privacy')));
+        dialog.append(node('p',t('chat.activityExplanation','Share online and typing activity with authorized participants who also enable sharing. No last seen is stored.')));
+        const option=node('label',t('chat.shareActivity','Share online and typing activity'));
+        const checkbox=node('input');checkbox.type='checkbox';checkbox.checked=state.shareActivity;checkbox.dataset.chatActivityChoice='';option.prepend(checkbox);dialog.append(option);
+        const status=node('p');status.setAttribute('role','status');dialog.append(status);
+        const save=node('button',t('common.save','Save')),close=node('button',t('common.close','Close'));
+        for(const control of [save,close]){control.type='button';control.className='action-btn';dialog.append(control);}
+        save.onclick=async()=>{
+          if(save.disabled||!visible())return;save.disabled=true;
+          try{
+            const value=validate(await dataLayer.setConversationActivitySharing(checkbox.checked,state.revision,crypto.randomUUID()));
+            if(!visible()||!dialog.isConnected)return;state=value;
+            if(!state.shareActivity){reset();await dataLayer.conversationActivity(peer,false,false).catch(()=>{});}
+            else await pulse(true);
+            if(visible()&&dialog.isConnected)dialog.close();
+          }catch{
+            // A lost response is reconciled, never displayed as a successful Save.
+            try{const value=validate(await dataLayer.conversationActivityPreferences());if(current())state=value;}catch{}
+            if(visible()&&dialog.isConnected)status.textContent=t('chat.activityFailed','Unable to update activity sharing. Review your encryption device and try again.');
+          }finally{save.disabled=false;}
+        };
+        close.onclick=()=>dialog.close();timer=setInterval(()=>{if(!visible())dialog.close();},500);
+        dialog.addEventListener('close',()=>{clearInterval(timer);dialog.remove();},{once:true});document.body.append(dialog);dialog.showModal();
+      }catch{button.title=t('chat.activityFailed','Unable to update activity sharing. Review your encryption device and try again.');dialog?.remove();}
+      finally{button.disabled=false;}
+    };
+    const typing=()=>{typingUntil=Date.now()+5000;void pulse();};
+    input?.addEventListener('input',typing);
+    const visibility=()=>{if(!visible())reset();void pulse(true);};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('blur',visibility);window.addEventListener('focus',visibility);
+    const timer=setInterval(()=>{
+      if(!current()){
+        closed=true;clearInterval(timer);unsubscribe();input?.removeEventListener('input',typing);
+        document.removeEventListener('visibilitychange',visibility);window.removeEventListener('blur',visibility);window.removeEventListener('focus',visibility);
+        return;
+      }
+      if(expires&&expires<=Date.now())reset();
+      else if(expires&&remoteTypingExpires&&remoteTypingExpires<=Date.now()){remoteTypingExpires=0;label.textContent=t('chat.online','Online');}
+      void pulse();
+    },1000);
+    Promise.resolve().then(()=>dataLayer.conversationActivityPreferences()).then(value=>{if(current()){state=validate(value);void pulse(true);}}).catch(()=>{});
+  }
+  globalThis.WingaConversationActivityUi={bind};
+})();
+
+
 // src/chat/archive-ui.js
 (() => {
   let state={key:'',peers:new Set(),ready:false,error:false},request=0;
@@ -24419,6 +24564,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       bindConversationMessageActions(modal, replaceContextChatModal);
       globalThis.WingaEncryptedChatUi?.bind(modal,encryptedUiOptions(modal,async()=>{await deps.refreshMessagesState();replaceContextChatModal();}));
       globalThis.WingaConversationNotifications?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationActivityUi?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaConversationReports?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaMessageSearchUi?.bind(modal,encryptedUiOptions(modal,async()=>{}));
       globalThis.WingaConversationArchive?.bind(modal,{...encryptedUiOptions(modal,async()=>{}),refresh:async()=>{await deps.refreshMessagesState();deps.replaceContextChatModal?.();}});
@@ -24831,6 +24977,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
       globalThis.WingaEncryptedChatUi?.bind(scope,encryptedUiOptions(scope,async()=>{await deps.refreshMessagesState();deps.replaceMessagesPanel(scope);}));
       globalThis.WingaConversationNotifications?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),refresh:()=>deps.refreshNotificationsState?.()});
+      globalThis.WingaConversationActivityUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaConversationReports?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaMessageSearchUi?.bind(scope,encryptedUiOptions(scope,async()=>{}));
       globalThis.WingaConversationArchive?.bind(scope,{...encryptedUiOptions(scope,async()=>{}),

@@ -664,6 +664,14 @@
         fail('encrypted_seller_request_invalid');
       }
       const service={
+        signConversationActivity:async(peer,online,typing)=>{
+          current();const conversationId=await runtime.conversationId(peer);current();
+          if(!conversationId)fail('activity_unavailable');
+          return identity.signCryptoOperation('activity',{conversationId,online,typing});
+        },
+        signActivityPreference:async(shareActivity,expectedRevision,requestId)=>{
+          current();return identity.signCryptoOperation('activity-preference',{shareActivity,expectedRevision},requestId);
+        },
         resolveInternalGrowthShare:(messageId,contentType,contentId)=>serialize(()=>operation('growth-internal-read',{messageId,contentType,contentId})),
         seller:(action,args=[])=>serialize(()=>seller(action,args)),
         shoppingRoom:(action,args=[])=>serialize(async()=>{if(!roomSession||!['limits','preferences','setPreference','list','sync','pendingTransitions','inspectOwners','create','resumeCreate','join','inspectChange','change','resumeChange','transferAdmin','leave','resumeLeave','history','board','send','command','markRead','sendMedia','retryMedia','downloadMedia','pendingMedia','invitationCapabilities','createInvite','createdInvites','revokeInvite','invitationRequests','declineInvite','requestInvite','inviteEvent'].includes(action))fail('encrypted_rooms_disabled');const result=await roomSession[action](...args);if(action==='sync')startHistorySync();return result;}),

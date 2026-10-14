@@ -69,6 +69,46 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       hash: p.hash, deviceId: p.device_id, owner: p.owner_id, publicKey: p.public_key, fingerprint: p.fingerprint,
       keyPackage: p.package, mlsPublicKey: p.mls_public_key, identityProof: p.identity_proof }));
   }
+  async function authorizeConversationActivity(context,op){
+    const preference=op?.action==='activity-preference',p=op?.payload;
+    assert(op&&Object.keys(op).sort().join(',')==='action,actorId,issuedAt,payload,requestId,signature'
+      &&['activity','activity-preference'].includes(op.action)&&p&&!Array.isArray(p)
+      &&Object.keys(p).sort().join(',')===(preference?'expectedRevision,shareActivity':'conversationId,online,typing')
+      &&Buffer.byteLength(JSON.stringify(op))<=4096,400,'activity_invalid');
+    if(!preference)assert(uuid(p.conversationId)&&typeof p.online==='boolean'&&typeof p.typing==='boolean'&&(!p.typing||p.online),400,'activity_invalid');
+    return withTransaction(async client=>{
+      // Ephemeral reads never wait behind durable send/revocation work or write
+      // heartbeat rows. Try the existing transport/stream lock namespace.
+      await client.query("SET LOCAL lock_timeout='100ms'");
+      await client.query("SET LOCAL statement_timeout='1s'");
+      const lock=(await client.query("SELECT pg_try_advisory_xact_lock_shared(hashtext('winga-encrypted-transport')) AS locked")).rows[0];
+      assert(lock?.locked,503,'activity_busy');
+      if(!preference){const scoped=(await client.query("SELECT pg_try_advisory_xact_lock_shared(hashtext('winga-encrypted-scope'),hashtext($1)) AS locked",['group:'+p.conversationId])).rows[0];assert(scoped?.locked,503,'activity_busy');}
+      await authorize(client,context,op);
+      const bound=(await client.query(`SELECT 1 FROM conversation_crypto_session_bindings WHERE session_id=$1 AND session_token=$2
+        AND owner_id=$3 AND crypto_device_id=$4`,[context.deviceId,context.token,context.owner,op.actorId])).rows.length;
+      assert(bound,403,'activity_native_binding_required');
+      const policy=require('./conversation-activity-policy');
+      if(preference)return policy.save(client,context.owner,op);
+      const group=(await client.query('SELECT * FROM encrypted_conversations WHERE id=$1 FOR SHARE',[p.conversationId])).rows[0];
+      assert(group?.status==='active',403,'activity_membership_required');
+      let owners;
+      if(group.kind==='shopping-room'){
+        assert(roomsEnabled,503,'encrypted_rooms_disabled');
+        const membership=await rooms.access(client,{owner:context.owner},op.actorId,group,{pending:false});
+        owners=membership.owners;
+      }else{
+        await access(client,group,op.actorId,context.owner);
+        assert(!await frozen(client,group.id),409,'activity_membership_pending');
+        owners=[group.creator,group.recipient];
+      }
+      assert(Array.isArray(owners)&&owners.length>=1&&owners.length<=12,403,'activity_membership_required');
+      const opted=(await client.query('SELECT owner_id FROM conversation_activity_preferences WHERE owner_id=ANY($1::text[]) AND share_activity', [owners])).rows.map(r=>r.owner_id);
+      return {version:1,conversationId:group.id,epoch:group.epoch,owner:context.owner,actorId:op.actorId,
+        allowed:opted.includes(context.owner),audience:opted.includes(context.owner)?opted:[],online:p.online,typing:p.typing};
+    });
+  }
+  async function readConversationActivityPreferences(context){return withTransaction(async client=>{await authenticateCryptoSession(client,context,now());return require('./conversation-activity-policy').read(client,context.owner);});}
   async function encryptedOperation(context, op) {
     const release=require('./conversation-release-policy');
     release.assertCompatibleProtocol(release.readConversationReleasePolicy());
@@ -358,7 +398,7 @@ function createEncryptedConversationStore({ withTransaction, now = Date.now, enq
       return {version:1,mode:row?.security_mode || 'legacy-plaintext'};
     });
   }
-  return { encryptedOperation, readEncryptedConversationMode, ...growthEventJobs,
+  return { encryptedOperation, readEncryptedConversationMode, authorizeConversationActivity,readConversationActivityPreferences, ...growthEventJobs,
     resolveLoopInvite:loopInvites.resolveLoopInvite,recordRoomGrowthEvent:loopInvites.recordRoomGrowthEvent,invitePreferences:loopInvites.invitePreferences,readRoomLoopHealth:loopInvites.readRoomLoopHealth,
     resolveInviteSafetyTarget:loopInvites.resolveInviteSafetyTarget,recordInviteSafetyEvent:loopInvites.recordInviteSafetyEvent,
     pruneEncryptedNativeHistory:({batchSize=100}={})=>multiDeviceEnabled?withTransaction(async client=>{

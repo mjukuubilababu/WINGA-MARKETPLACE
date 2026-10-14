@@ -4,6 +4,8 @@ defmodule WingaConversations.Application do
   def start(_type, _args) do
     children = [
       {Phoenix.PubSub, name: WingaConversations.PubSub},
+      WingaConversations.ActivitySupervisor,
+      {Finch, name: WingaConversations.ActivityHTTP, pools: %{default: [size: 2, count: 1]}},
       {Finch, name: WingaConversations.HTTP, pools: %{default: [size: 16, count: 1]}},
       WingaConversations.Metrics,
       WingaConversations.Endpoint

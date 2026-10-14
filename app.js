@@ -7538,6 +7538,15 @@ async function handleNotificationOpen(notificationId) {
   if (!safeId) {
     return false;
   }
+  const deviceNotice=currentNotifications?.find(n=>n.id===safeId&&['crypto-device-register','crypto-device-approve','crypto-device-revoke'].includes(n.type));
+  if(deviceNotice&&globalThis.WingaDeviceManagementUi){
+    const identity=JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']);
+    await WingaDeviceManagementUi.open({dataLayer:window.WingaDataLayer,targetDeviceId:deviceNotice.conversationId,
+      translate:(key,fallback)=>translateUi(key,{},fallback)});
+    if(identity!==JSON.stringify([currentUser,currentSession?.sessionId||'',currentSession?.token||'']))return false;
+    void window.WingaDataLayer.markNotificationRead(safeId).then(refreshNotificationsState).catch(()=>{});
+    return true;
+  }
   let productId = "";
   const demandNotice=currentNotifications?.find(n=>n.id===safeId&&n.type==='demand');
   if(demandNotice){
@@ -9256,9 +9265,19 @@ function openPasswordRecoveryMode(prefillIdentifier = "") {
   syncAuthMode();
 }
 
+function localizeDeviceNotifications(notifications) {
+    return notifications.map(notification=>{
+      const keys={'crypto-device-register':'notification.cryptoDeviceRegistered','crypto-device-approve':'notification.cryptoDeviceApproved','crypto-device-revoke':'notification.cryptoDeviceRevoked'};
+      const key=keys[notification.type];
+      return key?{...notification,title:translateUi(key,{},'Encryption device security update'),
+        body:translateUi('notification.cryptoReviewDevices',{},'Review your encryption devices.')}:notification;
+    });
+}
+
 async function refreshNotificationsState() {
   try {
     currentNotifications = await window.WingaDataLayer.loadNotifications();
+    currentNotifications=localizeDeviceNotifications(currentNotifications);
     updateProfileNavBadge();
   } catch (error) {
     captureClientError("notifications_refresh_failed", error, {
@@ -13497,7 +13516,7 @@ const {
       currentMessages = value;
     },
   setCurrentNotifications: (value) => {
-    currentNotifications = value;
+    currentNotifications = localizeDeviceNotifications(value);
   },
   getMarketplaceUser,
   isBuyerUser,

@@ -144,14 +144,16 @@
       "section": 8,
       "title": "ADDING A DEVICE",
       "sourceStatus": "PARTIAL",
-      "evidence": "Explicit signed device approval/revocation and five-second refresh in the open device manager exist. No always-available durable cryptographic security-event notification stream was found; appVersion/name/date-rich device view is limited.",
+      "evidence": "Canonical native register/approve/revoke changes persist one deduped generic own-account notification in the same transaction. Existing notification/SSE infrastructure and device manager are reused; registered/revoked timestamps are separate own-account metadata. No invented device name/type, key details in notices or silent approvals. Physical device acceptance remains open.",
       "sources": [
         "src/chat/device-management-ui.js",
         "src/chat/crypto-devices.js",
-        "backend/conversation-crypto-devices.js"
+        "backend/conversation-crypto-devices.js",
+        "backend/conversation-device-notices.js"
       ],
       "openGates": [
-        "DEVICE_NOTICES",
+        "LIVE",
+        "MOBILE",
         "LIVE"
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
@@ -378,9 +380,9 @@
     },
     {
       "section": 22,
-      "title": "REALTIME PLANE \u2014 BEAM",
+      "title": "REALTIME PLANE — BEAM",
       "sourceStatus": "PARTIAL",
-      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Presence/typing features are absent; native fan-out and deployed measurement acceptance remain open.",
+      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Opt-in bounded native-authorized Presence/typing source now exists; native fan-out and deployed measurement acceptance remain open.",
       "sources": [
         "services/conversations/lib/winga_conversations/device_channel.ex",
         "backend/conversation-transport.js",
@@ -475,45 +477,54 @@
     {
       "section": 28,
       "title": "PRESENCE",
-      "sourceStatus": "MISSING",
-      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Existing Phoenix now owns opt-in, TTL-bound native-authorized activity. Mutual account consent, current session/native binding, existing group/member/block checks, bounded async low-priority RPC, aggregate user presence and typing expiry are implemented. Direct chat has a privacy setting and fail-soft UI. No durable heartbeat, last-seen or public device detail; physical PWA, clustered presence and regional capacity acceptance remain open.",
       "sources": [
-        "services/conversations/lib/winga_conversations/application.ex",
-        "services/conversations/lib/winga_conversations/device_channel.ex",
-        "src/chat/ui.js"
+        "services/conversations/lib/winga_conversations/activity_registry.ex",
+        "services/conversations/lib/winga_conversations/activity_channel.ex",
+        "backend/encrypted-conversations.js",
+        "src/chat/activity-ui.js"
       ],
       "openGates": [
-        "EPHEMERAL"
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
     },
     {
       "section": 29,
       "title": "MULTI-DEVICE PRESENCE",
-      "sourceStatus": "MISSING",
-      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Existing Phoenix now owns opt-in, TTL-bound native-authorized activity. Mutual account consent, current session/native binding, existing group/member/block checks, bounded async low-priority RPC, aggregate user presence and typing expiry are implemented. Direct chat has a privacy setting and fail-soft UI. No durable heartbeat, last-seen or public device detail; physical PWA, clustered presence and regional capacity acceptance remain open.",
       "sources": [
-        "services/conversations/lib/winga_conversations/application.ex",
-        "services/conversations/lib/winga_conversations/device_channel.ex",
-        "src/chat/ui.js"
+        "services/conversations/lib/winga_conversations/activity_registry.ex",
+        "services/conversations/lib/winga_conversations/activity_channel.ex",
+        "backend/encrypted-conversations.js",
+        "src/chat/activity-ui.js"
       ],
       "openGates": [
-        "EPHEMERAL"
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
     },
     {
       "section": 30,
       "title": "TYPING INDICATORS",
-      "sourceStatus": "MISSING",
-      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Existing Phoenix now owns opt-in, TTL-bound native-authorized activity. Mutual account consent, current session/native binding, existing group/member/block checks, bounded async low-priority RPC, aggregate user presence and typing expiry are implemented. Direct chat has a privacy setting and fail-soft UI. No durable heartbeat, last-seen or public device detail; physical PWA, clustered presence and regional capacity acceptance remain open.",
       "sources": [
-        "services/conversations/lib/winga_conversations/application.ex",
-        "services/conversations/lib/winga_conversations/device_channel.ex",
-        "src/chat/ui.js"
+        "services/conversations/lib/winga_conversations/activity_registry.ex",
+        "services/conversations/lib/winga_conversations/activity_channel.ex",
+        "backend/encrypted-conversations.js",
+        "src/chat/activity-ui.js"
       ],
       "openGates": [
-        "EPHEMERAL"
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
     },
@@ -521,7 +532,7 @@
       "section": 31,
       "title": "SHOPPING ROOM REALTIME",
       "sourceStatus": "PARTIAL",
-      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Presence/typing features are absent; native fan-out and deployed measurement acceptance remain open.",
+      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Opt-in bounded native-authorized Presence/typing source now exists; native fan-out and deployed measurement acceptance remain open.",
       "sources": [
         "services/conversations/lib/winga_conversations/device_channel.ex",
         "backend/conversation-transport.js",
@@ -694,11 +705,14 @@
       "section": 41,
       "title": "DATABASE ENCRYPTION",
       "sourceStatus": "PARTIAL",
-      "evidence": "Public TLS and bounded service credentials/config exist; at-rest/backup/least-privilege assurance needs infrastructure evidence. Enabled PG TLS currently sets rejectUnauthorized:false in pooled/listener clients: transport encryption is not certificate verification. Trusted provider CA rollout must be reviewed before tightening shared marketplace DB connectivity.",
+      "evidence": "Requested PostgreSQL TLS now verifies trust and the configured hostname for primary/replica/listener, consuming URL overrides and validating optional public CA configuration. Real isolated TLSv1.3 positive and untrusted-certificate negative checks passed. Production provider trust activation is not accepted: read-only Render preflight failed and logs are permission-denied; at-rest/backup/least-privilege and retention policy evidence remain external.",
       "sources": [
         "backend/db.js",
         "backend/server.js",
-        "docs/conversations-foundation-contract.md"
+        "docs/conversations-foundation-contract.md",
+        "backend/database-tls.js",
+        "scripts/verify-database-tls.js",
+        "scripts/verify-conversation-retention.js"
       ],
       "openGates": [
         "INFRA_TLS",
@@ -815,15 +829,17 @@
     {
       "section": 48,
       "title": "SECURITY NOTIFICATIONS",
-      "sourceStatus": "PARTIAL",
-      "evidence": "Explicit signed device approval/revocation and five-second refresh in the open device manager exist. No always-available durable cryptographic security-event notification stream was found; appVersion/name/date-rich device view is limited.",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Canonical native register/approve/revoke changes persist one deduped generic own-account notification in the same transaction. Existing notification/SSE infrastructure and device manager are reused; registered/revoked timestamps are separate own-account metadata. No invented device name/type, key details in notices or silent approvals. Physical device acceptance remains open.",
       "sources": [
         "src/chat/device-management-ui.js",
         "src/chat/crypto-devices.js",
-        "backend/conversation-crypto-devices.js"
+        "backend/conversation-crypto-devices.js",
+        "backend/conversation-device-notices.js"
       ],
       "openGates": [
-        "DEVICE_NOTICES",
+        "LIVE",
+        "MOBILE",
         "LIVE"
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
@@ -938,5 +954,6 @@
       ],
       "productionAcceptance": "not_accepted_in_this_audit"
     }
-  ]
+  ],
+  "foundationFollowUp": "docs/conversations-activity-devices-hardening-20261014.md"
 }

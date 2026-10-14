@@ -171,7 +171,7 @@ const bundledModuleSources = [
   "src/chat/encrypted-vault.js",
   "src/chat/recovery-client.js",
   "src/chat/recovery-ui.js",
-  "src/chat/preference-sync.js", "src/chat/notification-ui.js", "src/chat/archive-ui.js", "src/chat/report-ui.js",
+  "src/chat/preference-sync.js", "src/chat/notification-ui.js", "src/chat/activity-ui.js", "src/chat/archive-ui.js", "src/chat/report-ui.js",
   "src/chat/message-search.js", "src/chat/message-search-ui.js",
   "src/chat/controller.js",
   "src/admin/ui.js",

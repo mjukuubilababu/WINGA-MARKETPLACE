@@ -61,9 +61,9 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   }
   function validateCommand(input) {
     if (!input || input.version !== 1 || Buffer.byteLength(JSON.stringify(input)) > MAX_COMMAND_BYTES
-      || !['authorize', 'send', 'poll', 'ack', 'receipt', 'native'].includes(input.command)
+      || !['authorize', 'send', 'poll', 'ack', 'receipt', 'native', 'activity'].includes(input.command)
       || !input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) throw reject(400);
-    if (input.command === 'native') {
+    if (input.command === 'native'||input.command==='activity') {
       const operation = input.payload;
       if (Object.keys(operation).sort().join(',') !== 'action,actorId,issuedAt,payload,requestId,signature'
         || Buffer.byteLength(JSON.stringify(operation)) > MAX_NATIVE_OPERATION_BYTES
@@ -87,7 +87,13 @@ function createConversationTransport({ env = process.env, now = Date.now } = {})
   }
   async function execute(context, input, store) {
     if (input.command === 'authorize') return { version: 1, deviceId: context.deviceId,
-      expiresAt: context.ticketExpiresAt, securityMode: 'legacy-plaintext', nativeOperations: nativeEnabled };
+      expiresAt: context.ticketExpiresAt, securityMode: 'legacy-plaintext', nativeOperations: nativeEnabled,
+      activityEnabled:nativeEnabled&&env.WINGA_CONVERSATION_ACTIVITY_ENABLED!=='false' };
+    if(input.command==='activity'){
+      if(!nativeEnabled||env.WINGA_CONVERSATION_ACTIVITY_ENABLED==='false'||typeof store.authorizeConversationActivity!=='function')throw reject(404);
+      if(input.payload.action!=='activity'||Buffer.byteLength(JSON.stringify(input.payload))>4096)throw reject(400);
+      return store.authorizeConversationActivity({owner:context.owner,token:context.token,deviceId:context.deviceId},input.payload);
+    }
     if (input.command === 'native') {
       if (!nativeEnabled || typeof store.encryptedOperation !== 'function') throw reject(404);
       // The ticket authenticates the session, never the native actor or MLS membership.

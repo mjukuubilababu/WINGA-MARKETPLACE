@@ -58,7 +58,7 @@
     "monitor:intelligence": "node scripts/check-intelligence-health.js",
     "monitor:database": "node scripts/check-database-health.js",
     "monitor:conversations": "node scripts/check-conversation-health.js",
-    "test:conversation-operations": "node --test tests/conversation-operations.test.js tests/conversation-metrics.test.js tests/conversation-release-policy.test.js tests/conversation-experience.test.js tests/conversation-experience-store.test.js tests/conversation-transport-health.test.js tests/legacy-conversation-compatibility.test.js tests/conversation-client-ownership.test.js tests/encrypted-send-intents.test.js tests/conversation-invariants.test.js tests/recovery-bootstrap.test.js",
+    "test:conversation-operations": "node --test tests/conversation-operations.test.js tests/conversation-metrics.test.js tests/conversation-release-policy.test.js tests/conversation-experience.test.js tests/conversation-experience-store.test.js tests/conversation-transport-health.test.js tests/legacy-conversation-compatibility.test.js tests/conversation-client-ownership.test.js tests/encrypted-send-intents.test.js tests/conversation-invariants.test.js tests/recovery-bootstrap.test.js tests/database-tls.test.js",
     "ops:intelligence:list": "node scripts/intelligence-ops.js list",
     "ops:intelligence:retry": "node scripts/intelligence-ops.js retry",
     "ops:intelligence:dead": "node scripts/intelligence-ops.js dead",
@@ -78,7 +78,9 @@
     "monitor:video": "node scripts/check-video-health.js",
     "verify:video-production": "node scripts/verify-video-production.js",
     "worker:video": "node backend/video-background-worker.js",
-    "worker:video:once": "node backend/video-background-worker.js --once"
+    "worker:video:once": "node backend/video-background-worker.js --once",
+    "verify:database-tls": "node scripts/verify-database-tls.js",
+    "verify:conversation-retention": "node scripts/verify-conversation-retention.js"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

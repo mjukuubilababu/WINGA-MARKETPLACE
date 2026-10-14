@@ -206,7 +206,7 @@ const ALLOWED_PAYMENT_STATUSES = ["pending", "paid", "failed", "cancelled", "ref
 const ALLOWED_USER_STATUSES = ["active", "suspended", "banned", "flagged", "deactivated"];
 const ALLOWED_REPORT_STATUSES = ["open", "reviewed", "resolved"];
 const ALLOWED_REPORT_TARGETS = ["user", "product"];
-const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "offer", "follow", "content", "demand"];
+const ALLOWED_NOTIFICATION_TYPES = ["message", "request", "order", "offer", "follow", "content", "demand", "crypto-device-register", "crypto-device-approve", "crypto-device-revoke"];
 const ALLOWED_CONTENT_VISIBILITY = ["public", "followers", "private"];
 const ALLOWED_PROMOTION_TYPES = ["starter_day", "boost_3day", "growth_7day", "premium_14day", "boost", "featured", "category_boost", "pin_top"];
 const ALLOWED_PROMOTION_STATUSES = ["pending", "active", "rejected", "expired", "disabled"];
@@ -1701,6 +1701,7 @@ function stopCommerceReservationSweeper() {
 }
 
 async function sweepAcknowledgedConversationEvents() {
+  if(process.env.CONVERSATION_RETENTION_SWEEP_ENABLED==='false')return;
   if (!postgresStore?.pruneAcknowledgedConversationDeliveries || conversationAckSweepRunning) return;
   conversationAckSweepRunning = true;
   try {
@@ -6281,6 +6282,14 @@ async function emitAuthorizedNotification(notificationRecord) {
 }
 
 async function deliverPostgresMessageEvent(event) {
+  if(event?.type==='crypto_device_security_changed'){
+    if(typeof event.owner!=='string'||!/^[A-Za-z0-9._:-]{1,40}$/.test(event.owner)
+      ||typeof event.notificationId!=='string'||!/^crypto-notice-[a-f0-9]{64}$/.test(event.notificationId))return;
+    const records=await postgresStore.readUserNotifications(event.owner,{id:event.notificationId});
+    const notification=records.find(n=>n.id===event.notificationId&&n.userId===event.owner);
+    if(notification)await emitAuthorizedNotification(normalizeNotificationRecord(notification));
+    return;
+  }
   if (event?.type === "message_state_changed") {
     for (const owner of getMessageStateEventOwners(event)) {
       emitLiveEvent(owner, "message_state_changed", { version: 1 });

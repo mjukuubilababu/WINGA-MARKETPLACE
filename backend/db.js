@@ -189,15 +189,13 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
   const requestedSearchOpportunityMinimumAudience = Number(searchOpportunityMinimumAudience ?? 1);
   const safeSearchOpportunityMinimumAudience = Math.min(20, Math.max(1, Number.isFinite(requestedSearchOpportunityMinimumAudience) ? Math.round(requestedSearchOpportunityMinimumAudience) : 1));
   const pool = queryClient || new Pool({
-    connectionString: databaseUrl,
-    ssl: ssl ? { rejectUnauthorized: false } : false,
+    ...require('./database-tls').databaseConnectionOptions(databaseUrl,{ssl}),
     max: resolveDatabasePoolMax()
   });
   const replicaUrl = String(readReplicaDatabaseUrl || "").trim();
   const readPool = readQueryClient || (!queryClient && replicaUrl
     ? new Pool({
-      connectionString: replicaUrl,
-      ssl: ssl ? { rejectUnauthorized: false } : false,
+      ...require('./database-tls').databaseConnectionOptions(replicaUrl,{ssl}),
       max: resolveDatabasePoolMax(process.env.READ_DB_POOL_MAX || process.env.DB_POOL_MAX)
     })
     : pool);
@@ -260,7 +258,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
 
   function createMessageListenClient() {
     if (typeof listenClientFactory === "function") return listenClientFactory();
-    return new Client({ connectionString: databaseUrl, ssl: ssl ? { rejectUnauthorized: false } : false, application_name: "winga-message-listener" });
+    return new Client({ ...require('./database-tls').databaseConnectionOptions(databaseUrl,{ssl}), application_name: "winga-message-listener" });
   }
   function updateLatencyMetrics(metrics, latencyMs, prefix) {
     const countKey = prefix === "query" ? "queries" : "successes";
@@ -4463,6 +4461,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )) AS "alertsMuted"
        FROM notifications notification
        WHERE notification.user_id = $1
+         AND ($3::text IS NULL OR notification.id=$3)
          AND (
            notification.type NOT IN ('message', 'request', 'follow', 'content', 'demand')
            OR notification.actor_username = ''
@@ -4475,7 +4474,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
          )
        ORDER BY notification.created_at DESC, notification.id DESC
        LIMIT $2`,
-      [username, limit]
+      [username, limit,typeof options.id==='string'?options.id:null]
     );
     return (result.rows || []).map((row) => ({
       ...row,
@@ -10067,7 +10066,7 @@ function createPostgresStore({ databaseUrl, ssl = false, queryClient = null, rea
     ...createConversationReportStore({withTransaction}),
     ...createConversationEventStore({ withTransaction }),
     ...createEncryptedConversationBackupStore({ withTransaction }),
-    ...createConversationCryptoDeviceStore({ withTransaction }),
+    ...createConversationCryptoDeviceStore({ withTransaction, recordSecurityNotice:require('./conversation-device-notices').recordDeviceSecurityNotice }),
     ...createCryptoKeyPackageStore({ withTransaction }),
     ...createEncryptedConversationStore({ withTransaction, enqueuePush: enqueueMessagePush,mediaEnabled:process.env.WINGA_ENCRYPTED_MEDIA_ENABLED==='true',
       multiDeviceEnabled:process.env.WINGA_ENCRYPTED_MULTIDEVICE_ENABLED==='true',

@@ -17,7 +17,7 @@ defmodule WingaConversations.Adapter do
     result =
       Finch.stream_while(
         request,
-        WingaConversations.HTTP,
+        if(command == "activity", do: WingaConversations.ActivityHTTP, else: WingaConversations.HTTP),
         %{status: nil, body: [], bytes: 0},
         fn
           {:status, status}, acc ->
@@ -36,9 +36,9 @@ defmodule WingaConversations.Adapter do
               do: {:halt, %{acc | status: 503, body: []}},
               else: {:cont, %{acc | body: [bytes | acc.body], bytes: size}}
         end,
-        receive_timeout: 3_000,
-        request_timeout: 4_000,
-        pool_timeout: 1_000
+        receive_timeout: if(command == "activity", do: 1_000, else: 3_000),
+        request_timeout: if(command == "activity", do: 1_500, else: 4_000),
+        pool_timeout: if(command == "activity", do: 50, else: 1_000)
       )
 
     case result do
