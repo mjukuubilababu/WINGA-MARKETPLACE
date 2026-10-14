@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+  "productionReady": false,
+  "foundationAccepted": false,
+  "sourceReleaseVerified": true,
+  "verificationScope": "Public read-only asset/body hashes and health plus Render deployment metadata; no authenticated production message/Room/device/media/user journey or capacity result.",
+  "liveVerification": {
+    "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+    "cloudflareBuild": "20261014111138",
+    "assets": [
+      {
+        "path": "vendor/winga-mls-candidate.js",
+        "status": 200,
+        "matches": true,
+        "sha256": "eacb4025cce6abc7b71c15c47bfac125c194912974a9d310b34f2b1695b0fb4a"
+      },
+      {
+        "path": "app.js",
+        "status": 200,
+        "matches": true,
+        "sha256": "24211b995ad032b13a906e2ff3c327c793642376c7b906e0c9ac50b198b1d832"
+      },
+      {
+        "path": "style.css",
+        "status": 200,
+        "matches": true,
+        "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+      },
+      {
+        "path": "winga-modules.js",
+        "status": 200,
+        "matches": true,
+        "sha256": "e758e8008f3ce798eeda270e6d2af6cc8100947582ea019c67aef4596594d3b8"
+      },
+      {
+        "path": "src/localization/catalogs/en.json",
+        "status": 200,
+        "matches": true,
+        "sha256": "032821b7d006d5d89e2164e2eea52ff486d528d99eaee3bd32482ae25da1b95a"
+      },
+      {
+        "path": "src/localization/catalogs/sw.json",
+        "status": 200,
+        "matches": true,
+        "sha256": "128bd89e3854f85880d6f06b0985af503ada69c7c16354ccb81c59c8d5a13dac"
+      },
+      {
+        "path": "src/localization/catalogs/fr.json",
+        "status": 200,
+        "matches": true,
+        "sha256": "512d0bba51ceaad66f0ce42d8a1ed5d2e874c6290d59a604a5489fc2e085144f"
+      },
+      {
+        "path": "src/localization/catalogs/ar.json",
+        "status": 200,
+        "matches": true,
+        "sha256": "0213295ea070e999064c65a815676cd64799e473c8409315909529eaeae84371"
+      }
+    ],
+    "health": [
+      {
+        "url": "https://winga-pflp.onrender.com/api/health",
+        "status": 200,
+        "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+        "expectedBackendCommit": true
+      },
+      {
+        "url": "https://winga-phoenix.onrender.com/health",
+        "status": 200,
+        "commit": null,
+        "expectedBackendCommit": false
+      }
+    ],
+    "allAssetsMatch": true
+  },
+  "render": [
+    {
+      "name": "backend",
+      "serviceId": "srv-d74n9ubuibrs739o39f0",
+      "deployId": "dep-db7m0jugekts73e2cip0",
+      "status": "live",
+      "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1"
+    },
+    {
+      "name": "intelligence",
+      "serviceId": "srv-dajuloeq1p3s739k819g",
+      "deployId": "dep-db7m0jugekts73e2ck8g",
+      "status": "live",
+      "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1"
+    },
+    {
+      "name": "video",
+      "serviceId": "srv-dafp68740ujc73ca2lag",
+      "deployId": "dep-db7m0jugekts73e2ckd0",
+      "status": "live",
+      "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+      "scope": "Deployment identity only; video failures remain deferred."
+    },
+    {
+      "name": "phoenix",
+      "serviceId": "srv-davf9be7bikc73drgumg",
+      "deployId": "dep-db7m0jugekts73e2ciig",
+      "status": "live",
+      "commit": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+      "identitySource": "Render API; public /health does not expose source SHA."
+    }
+  ],
+  "acceptance": {
+    "runId": 38553288050,
+    "overallConclusion": "failure",
+    "jobs": [
+      {
+        "id": 115816166861,
+        "name": "static-analysis",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 115816167092,
+        "name": "beam",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115816167353,
+        "name": "dependencies",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115816167500,
+        "name": "functional",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "requiredJobNames": [
+      "functional",
+      "dependencies",
+      "beam"
+    ],
+    "requiredJobsPassed": true,
+    "milestones": {
+      "frontendCorePassed": 153,
+      "encryptedChromiumPassed": 51,
+      "encryptedChromiumDuration": "4.9 minutes",
+      "sharingChromiumPassed": 27,
+      "guestAuthReturnPassed": 28,
+      "modules": 99,
+      "localizationKeysPerLocale": 1766,
+      "locales": 4,
+      "newHardcodedDebt": 0
+    }
+  },
+  "productionWorkflow": {
+    "runId": 38554823037,
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 115821232970,
+        "name": "cloudflare",
+        "status": "completed",
+        "conclusion": "success",
+        "steps": [
+          {
+            "name": "Require functional, dependency, and Phoenix acceptance checks",
+            "conclusion": "success"
+          },
+          {
+            "name": "Build and deploy existing production Workers",
+            "conclusion": "success"
+          },
+          {
+            "name": "Verify production shell and deployed build",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ]
+  },
+  "security": {
+    "gate": {
+      "mode": "conversation-codeql-gate",
+      "privacy": "aggregate-only",
+      "ok": false,
+      "errorCode": "CODEQL_REVIEW_STALE",
+      "diagnostic": {
+        "stage": "review-manifest",
+        "field": "source-tree-fingerprint"
+      },
+      "totals": {
+        "reports": 1,
+        "runs": 1,
+        "results": 54,
+        "securityFindings": 54,
+        "levels": {
+          "none": 0,
+          "note": 0,
+          "warning": 33,
+          "error": 21
+        },
+        "reviewedFindings": 0,
+        "unreviewedFindings": 54
+      },
+      "fingerprintDiagnosticCounts": {
+        "emitted": 54,
+        "limit": 64
+      },
+      "sourceTreeFingerprint": "7e7ccbe7be64d5c6e283a803f45081f21b56dc0872cac147485d1678ce5cd8bf"
+    },
+    "artifacts": [
+      {
+        "id": 11888080498,
+        "name": "conversation-codeql-e3f4a8401d24bc3ec18700cecdbc92982ecb80a1",
+        "size_in_bytes": 119328,
+        "url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11888080498",
+        "archive_download_url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11888080498/zip",
+        "expired": false,
+        "created_at": "2026-10-14T11:01:55Z",
+        "expires_at": "2027-01-12T10:58:24Z",
+        "updated_at": "2026-10-14T11:01:55Z",
+        "digest": "sha256:01e5f5d4b551dbb4dd91c84ce8e5d380d3c534fac8c2045f79d39b3906e2af31",
+        "workflow_run": {
+          "id": 38553288050,
+          "repository_id": 1194426348,
+          "head_repository_id": 1194426348,
+          "head_branch": "master",
+          "head_sha": "e3f4a8401d24bc3ec18700cecdbc92982ecb80a1"
+        }
+      }
+    ],
+    "independentCryptographicApproval": false,
+    "sarifDownloadedOrIndependentlyReviewed": false,
+    "note": "Existing production policy requires functional/dependencies/beam, while CodeQL/crypto review remains a separate unaccepted foundation gate. No waiver, review rebinding, policy change or all-CI-green claim."
+  },
+  "openFoundationWork": [
+    "presence/typing with privacy-aware audience/TTL/quotas/lower priority",
+    "durable device security notices",
+    "reviewed crypto and web/PWA key custody",
+    "infrastructure TLS/certificate/backup assurance",
+    "retention/erasure policy",
+    "real device/media/recovery/load/failure and migration acceptance",
+    "missing remainder of new Conversations section 54 and Shopping Rooms section 61"
+  ]
+}
