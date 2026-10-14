@@ -1,8 +1,12 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.6",
+    "version":  "2026.10.14.1",
     "locale":  "en",
     "messages":  {
+        "growth.dashboard.export": "Export metrics snapshot",
+        "growth.dashboard.exportStarted": "Snapshot download started.",
+        "growth.dashboard.exportFailed": "Unable to download snapshot. Try again.",
+        "growth.dashboard.snapshotNotice": "Aggregate reports collected separately. Unknown values remain null; this is not production acceptance.",
         "growth.internalShareSent": "Sent. Recipient delivery is not confirmed.",
         "growth.internalShareFailed": "Unable to share. Try again to retry the same message.",
         "growth.shareRecentsUnavailable": "Recent conversations or Rooms could not load. Search by name or reopen to retry.",

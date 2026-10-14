@@ -16,6 +16,8 @@ not override the user-reported live blocker. See the dedicated report above.
 **Full Growth Loops production readiness: NOT ACCEPTED.** Continue independent
 source/design/security preparation now; retain actual acceptance gates for later.
 
+- [Current full-spec status: every phase, loop and definition-of-done gate](growth-full-spec-status-20261014.md)
+- [Canonical operations snapshot source and deferred acceptance](growth-observability-status-20261014.md)
 - [Machine-readable ledger: all 106 sections](winga-growth-readiness.json)
 - [Growth worker failure-isolation/backlog evidence](growth-resilience-status-20261014.md)
 - [Messages sharing source hardening and current deferred gates](growth-messages-sharing-status-20261013.md)
@@ -244,3 +246,23 @@ Additional source-review observations to retain for later hardening:
    the same commit; preserve prior snapshots rather than turning unknowns into 0.
 7. Complete actual §106 acceptance, then expand the rollout. CI success alone is
    not the completed production growth contract.
+
+## Current observability preparation — 14 October 2026
+
+The previous verified release is `4d499a5d`, Cloudflare build `20261014011520`,
+all four Render services live at that SHA. Its required functional/dependencies/
+Phoenix jobs passed; current-source CodeQL review remained stale at 54 findings.
+These observations precede the current export source, not independent approval.
+
+The canonical dashboard now offers a manually downloaded, allowlisted aggregate
+JSON snapshot with explicit unknown/unavailable states, per-report windows,
+bounded cohorts and job age/attempt evidence. It rejects stale account/session
+exports; no raw/private payload, regional small segment or automatic alert is
+exported. Local proofs: 9 dashboard contracts, 3 Chromium download/isolation
+scenarios, 153 frontend checks, four 1,766-key catalogs and 98 synchronized modules.
+
+[Full current spec report](growth-full-spec-status-20261014.md) lists phases 1–4,
+all 14 loops, complete sections 1–106 and every section-106 checklist gate.
+OPS-01 is still open for actual ownership/baseline/scrape/alerts; Messages, real
+value, independent security, staging capacity and mature retention remain open.
+Video failure investigation stays deferred by user instruction.

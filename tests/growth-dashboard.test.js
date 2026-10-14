@@ -11,10 +11,10 @@ test('admin loop reports isolate failed analytics and retain authenticated canon
 });
 function uiFixture(){
  const factory=moduleAt('src/admin/ui.js',m=>m.admin.createAdminUiModule);
- const node=(tag,props={})=>({tag,...props,isConnected:true,children:[],append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);},replaceChildren(...items){this.children=items;}});
- let actor='admin',admin=true,resolve;const panel=node('section');
- const module=factory({createElement:node,createSectionHeading:props=>node('h2',props),createEmptyState:text=>node('p',{textContent:text}),getAnalyticsPanel:()=>panel,formatNumber:String,isAdminUser:()=>admin,getCurrentUser:()=>actor,isAdminAnalyticsContext:()=>admin,loadGrowthLoopReports:()=>new Promise(r=>{resolve=r;}),translate:(_key,_args,fallback)=>fallback});
- return {module,panel,resolve:rows=>resolve(rows),switchActor:()=>{actor='other';admin=false;}};
+ const node=(tag,props={})=>({tag,...props,isConnected:true,children:[],append(...items){this.children.push(...items);},appendChild(item){this.children.push(item);},replaceChildren(...items){this.children=items;},addEventListener(type,handler){this[type]=handler;}});
+ let actor='admin',admin=true,session={},resolve;const panel=node('section');
+ const module=factory({createElement:node,createSectionHeading:props=>node('h2',props),createEmptyState:text=>node('p',{textContent:text}),getAnalyticsPanel:()=>panel,formatNumber:String,isAdminUser:()=>admin,getCurrentUser:()=>actor,getCurrentSession:()=>session,isAdminAnalyticsContext:()=>admin,loadGrowthLoopReports:()=>new Promise(r=>{resolve=r;}),translate:(_key,_args,fallback)=>fallback});
+ return {module,panel,resolve:rows=>resolve(rows),switchActor:()=>{actor='other';admin=false;},replaceSession:()=>{session={};}};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const text=node=>[node.textContent||'',...(node.children||[]).map(text)].join(' ');
@@ -39,4 +39,42 @@ test('creator dashboard reports verified feedback and later publishing separatel
  f.resolve([{loop:'reel',available:true,data:{cohort:{activationRate:0.5},creatorValue:{sharedCreators:4,withVerifiedRecipientValue:2,withVerifiedFollow:1,withVerifiedSave:2,publishingAfterValue:1}}}]);await settle();
  const rendered=text(f.panel);assert.match(rendered,/Creators with verified recipient value 2/);
  assert.match(rendered,/Creators publishing after value 1/);assert.match(rendered,/Creators receiving verified saves 2/);
+});
+
+const project=moduleAt('src/admin/ui.js',m=>m.admin.createGrowthSnapshot);
+const snapshot=rows=>JSON.parse(JSON.stringify(project(rows,Date.UTC(2026,9,14),Date.UTC(2026,9,14,0,0,2))));
+test('portable metrics export uses a strict aggregate allowlist and keeps unavailable and malformed reports unknown',()=>{
+ const exported=snapshot([{loop:'product',available:true,data:{schemaVersion:1,windowDays:30,cohort:{entryCount:0,activationRate:null,valueRate:Infinity,recipientJourneys:'8'},
+  token:'private-token',userId:'private-user',limitations:['private message body'],evidence:[{actor:'private-actor'}]}},
+  {loop:'room',available:false,data:{schemaVersion:1,cohort:{entryCount:99}}},
+  {loop:'reel',available:true,data:{schemaVersion:2,entryCount:88}}]);
+ assert.equal(exported.reports.length,13);assert.equal(exported.productionReady,false);
+ const product=exported.reports.find(r=>r.loop==='product');assert.equal(product.metrics['cohort.entryCount'],0);
+ assert.equal(product.metrics['cohort.recipientJourneys'],null);assert.equal(product.metrics['cohort.valueRate'],null);
+ assert.equal(exported.reports.find(r=>r.loop==='room').metrics,null);assert.equal(exported.reports.find(r=>r.loop==='reel').status,'unavailable');
+ assert.doesNotMatch(JSON.stringify(exported),/private-|private message body/);
+ assert.equal(exported.consistency,'independent_reports_not_atomic');
+});
+test('delivery export preserves attempts and age but never calls missing states zero',()=>{
+ const projectDelivery=data=>snapshot([{loop:'delivery',available:true,data:{schemaVersion:1,...data}}]).reports.find(r=>r.loop==='delivery');
+ assert.equal(projectDelivery({}).metrics['pending.count'],null);
+ const populated=projectDelivery({enabled:true,states:[{status:'pending',count:3,maxAttempts:5,oldestAgeSeconds:80000,eventId:'secret'}]});
+ assert.equal(populated.metrics['pending.oldestAgeSeconds'],80000);assert.equal(populated.metrics['pending.maxAttempts'],5);
+ assert.equal(populated.metrics['dead.count'],0);assert.equal(populated.metrics['dead.oldestAgeSeconds'],null);
+ const duplicate=projectDelivery({states:[{status:'pending',count:3},{status:'pending',count:4}]});
+ assert.equal(duplicate.metrics['pending.count'],null);assert.doesNotMatch(JSON.stringify(populated),/secret/);
+});
+test('retention export bounds cohorts, preserves maturity denominators and drops arbitrary labels and identifiers',()=>{
+ const row={loop:'PRODUCT',week:'2026-10-05T00:00:00.000Z',accounts:2,username:'secret-user',retention:{D7:{eligible:0,returned:0,rate:null}}};
+ const report=snapshot([{loop:'cohorts',available:true,data:{schemaVersion:1,windowDays:90,cohorts:Array(61).fill(row)}}]).reports.find(r=>r.loop==='cohorts');
+ assert.equal(report.cohorts.length,60);assert.equal(report.cohortsTruncated,true);
+ assert.equal(report.cohorts[0].retention.D7.eligible,0);assert.equal(report.cohorts[0].retention.D7.rate,null);
+ assert.doesNotMatch(JSON.stringify(report),/secret-user/);
+ const invalid=snapshot([{loop:'cohorts',available:true,data:{schemaVersion:1,cohorts:[{...row,loop:'private-room-name'},{...row,week:'private-date'}]}}]);
+ assert.equal(invalid.reports.find(r=>r.loop==='cohorts').cohorts.length,0);
+});
+test('same-account session replacement cannot populate or enable export of stale admin reports',async()=>{
+ const f=uiFixture();f.module.renderAnalyticsPanel({topCategories:[],recentProducts:[]},'Admin','');await settle();f.replaceSession();
+ f.resolve([{loop:'product',available:true,data:{schemaVersion:1,entryCount:999}}]);await settle();
+ assert.equal(text(f.panel).includes('999'),false);assert.equal(text(f.panel).includes('Export metrics snapshot'),false);
 });

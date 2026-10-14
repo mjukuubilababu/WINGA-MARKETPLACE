@@ -4,9 +4,9 @@
   "updatedAt": "2026-10-14",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8",
-    "cloudflareBuild": "20261014000145",
-    "verification": "Historical verified release immediately preceding isolated worker resilience evidence: all four Render services, seven assets and production verifier passed; required functional/dependency/Phoenix checks passed (153 frontend, 50 encrypted, 24 sharing UI, 28 guest/auth browser). Independent CodeQL review remained stale at 54 findings. No real Messages/Rooms acceptance."
+    "commit": "4d499a5daf193f79dd7dd204f60b18b886b6db9e",
+    "cloudflareBuild": "20261014011520",
+    "verification": "Historical verified release immediately preceding OPS snapshot source work: four Render services live at exact SHA, seven static assets match and production verifier passed. Required functional/dependencies/Phoenix checks passed; current-source CodeQL review remained stale with 54 findings, zero independently reviewed. Real Messages/Rooms and full production acceptance remain open."
   },
   "overall": {
     "productionReady": false,
@@ -325,13 +325,15 @@
       "status": "observation_pending",
       "priority": "P1",
       "title": "Operational routing, metrics and alerts",
-      "evidence": "Canonical admin reports, bounded retries/DLQ/reconciliation and client timings exist. Scrape integration, baselines, alert ownership and regional targets are not accepted. Canonical content reports now include aggregate creator feedback and post-value publication; no operational alert schedule or ranking change.",
+      "evidence": "Canonical admin reports, bounded retries/DLQ/reconciliation and client timings exist. Scrape integration, baselines, alert ownership and regional targets are not accepted. Canonical content reports now include aggregate creator feedback and post-value publication; no operational alert schedule or ranking change. Read-only allowlisted snapshot/export now prepared and isolated-tested; this does not establish real baseline, operator ownership or alert delivery.",
       "nextAction": "Use read-only reports, establish baseline/targets, then approve bounded replay and alerts without private payloads.",
       "sources": [
         "backend/growth-api.js",
         "backend/growth-event-jobs.js",
         "src/growth/runtime.js",
-        "docs/growth-operations-handoff.md"
+        "docs/growth-operations-handoff.md",
+        "docs/growth-observability-status-20261014.md",
+        "docs/growth-full-spec-status-20261014.md"
       ],
       "dependsOn": [],
       "specSections": [
@@ -575,6 +577,36 @@
         104,
         106
       ]
+    },
+    {
+      "id": "SRC-09",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Canonical read-only Growth operations snapshot",
+      "evidence": "Strict aggregate export reuses 13 canonical reports; null/unavailable preservation, bounded cohort rows, job attempts/age, current account/session guards and contained browser failure verified by 9 contracts and 3 isolated Chromium scenarios. No live baseline or alert activation.",
+      "nextAction": "Verify actual admin snapshot collection and assign approved ownership, baseline, sample/window and alert/scrape integration without treating availability as healthy.",
+      "sources": [
+        "src/admin/ui.js",
+        "src/api/admin-client.js",
+        "tests/growth-dashboard.test.js",
+        "tests/e2e/growth-dashboard-export.spec.js",
+        "docs/growth-observability-status-20261014.md",
+        "docs/evidence/growth-observability-isolated-20261014.json",
+        "docs/growth-full-spec-status-20261014.md"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        38,
+        39,
+        40,
+        80,
+        81,
+        90,
+        91,
+        92,
+        93,
+        106
+      ]
     }
   ],
   "requirements": [
@@ -750,7 +782,7 @@
     {
       "section": 18,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -761,7 +793,7 @@
     {
       "section": 19,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -772,7 +804,7 @@
     {
       "section": 20,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -783,7 +815,7 @@
     {
       "section": 21,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Canonical search-event→demand→Opportunity→response→product→resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
+      "baselineEvidence": "Canonical search-event\u2192demand\u2192Opportunity\u2192response\u2192product\u2192resolution/order linkage, N=1 evidence/confidence distinction; opt-in capped notifications and authorized exact Opportunity routing.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "LIVE-03",
@@ -818,7 +850,7 @@
     {
       "section": 24,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-06",
@@ -829,7 +861,7 @@
     {
       "section": 25,
       "baselineClassification": "SOURCE VERIFIED",
-      "baselineEvidence": "Existing Person→Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
+      "baselineEvidence": "Existing Person\u2192Person follow graph, public content/block eligibility and explainable reasons; network report is potential eligible updates, never feed impressions or purchase content.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [],
       "liveAcceptance": "not_performed_in_this_work"
@@ -969,7 +1001,8 @@
         "OPS-01",
         "RET-01",
         "SRC-06",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -980,7 +1013,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "RET-01",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -993,7 +1027,8 @@
         "SRC-04",
         "OPS-01",
         "RET-01",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1388,7 +1423,8 @@
       "baselineEvidence": "Allowlisted bounded timing samples for share sheet/server link creation/deep link/auth return and Room request or confirmed acceptance; telemetry failure isolated. Acceptance timing excludes pending admission.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "OPS-01"
+        "OPS-01",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1398,7 +1434,8 @@
       "baselineEvidence": "Local direct-content samples captured; no regional production SLO asserted without live measurements and agreed targets.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "OPS-01"
+        "OPS-01",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1489,7 +1526,8 @@
       "workItems": [
         "SRC-02",
         "SRC-04",
-        "OPS-01"
+        "OPS-01",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1503,7 +1541,8 @@
         "RET-01",
         "SRC-05",
         "SRC-06",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1514,7 +1553,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "RET-01",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1525,7 +1565,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "RET-01",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1676,7 +1717,8 @@
         "CAP-01",
         "REL-01",
         "LIVE-04",
-        "SRC-08"
+        "SRC-08",
+        "SRC-09"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     }

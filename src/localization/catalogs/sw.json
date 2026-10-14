@@ -1,8 +1,12 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.6",
+    "version":  "2026.10.14.1",
     "locale":  "sw",
     "messages":  {
+        "growth.dashboard.export": "Pakua snapshot ya metrics",
+        "growth.dashboard.exportStarted": "Upakuaji wa snapshot umeanza.",
+        "growth.dashboard.exportFailed": "Snapshot haikupakuliwa. Jaribu tena.",
+        "growth.dashboard.snapshotNotice": "Reports za jumla zimekusanywa tofauti. Thamani zisizojulikana zinabaki null; huu si uthibitisho wa production.",
         "growth.internalShareSent": "Imetumwa. Kupokelewa na mpokeaji bado hakujathibitishwa.",
         "growth.internalShareFailed": "Imeshindwa kushare. Jaribu tena kutuma ujumbe huo huo.",
         "growth.shareRecentsUnavailable": "Mazungumzo au Rooms za hivi karibuni hazijapakia. Tafuta kwa jina au fungua tena kujaribu.",

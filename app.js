@@ -13217,6 +13217,7 @@ const { renderAnalyticsPanel: renderBaseAnalyticsPanel, renderSellerAnalyticsVie
   translate: translateUi,
   getCurrentUser: () => currentUser,
   getCurrentDisplayName,
+  getCurrentSession: () => currentSession,
   isSellerAnalyticsView: () => currentView === "analytics" && canUseSellerFeatures(),
   loadAnalytics: (options) => window.WingaDataLayer.loadAnalytics(options),
   loadGrowthLoopReports: () => window.WingaDataLayer.loadGrowthLoopReports(),

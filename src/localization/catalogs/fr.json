@@ -1,8 +1,12 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.6",
+    "version":  "2026.10.14.1",
     "locale":  "fr",
     "messages":  {
+        "growth.dashboard.export": "Exporter un instantané des métriques",
+        "growth.dashboard.exportStarted": "Téléchargement de l’instantané lancé.",
+        "growth.dashboard.exportFailed": "Impossible de télécharger l’instantané. Réessayez.",
+        "growth.dashboard.snapshotNotice": "Rapports agrégés recueillis séparément. Les valeurs inconnues restent null ; ceci ne valide pas la production.",
         "growth.internalShareSent": "Envoyé. La réception par le destinataire n’est pas confirmée.",
         "growth.internalShareFailed": "Impossible de partager. Réessayez pour renvoyer le même message.",
         "growth.shareRecentsUnavailable": "Les conversations ou salons récents n’ont pas pu être chargés. Recherchez par nom ou rouvrez pour réessayer.",

@@ -3315,10 +3315,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       requireFetcher();
       const sources=[['product','health'],['room','rooms'],['marketplace','marketplace'],['delivery','events'],['cohorts','cohorts'],['referral','referrals'],['network','network'],
         ...['PROFILE','COLLECTION','REEL','SHORT'].map(type=>[type.toLowerCase(),'content?type='+type])];
-      const settled=await Promise.allSettled(sources.map(([,path])=>fetchJson(`${baseUrl}/admin/growth/${path}`,{headers:authHeaders()})));
+      const settled=await Promise.allSettled(sources.map(([,path])=>fetchJson(`${baseUrl}/admin/growth/${path}`,{headers:authHeaders(),timeoutMs:8000})));
       return sources.flatMap(([loop],index)=>{
         const available=settled[index].status==='fulfilled',data=available?settled[index].value:null;
-        if(loop==='network')return ['conversation','trust','follow'].map(key=>({loop:key,available:available&&Boolean(data?.[key]),data:data?.[key]?{...data[key],limitations:data.limitations||[]}:null}));
+        if(loop==='network')return ['conversation','trust','follow'].map(key=>({loop:key,available:available&&Boolean(data?.[key]),data:data?.[key]?{...data[key],schemaVersion:data.schemaVersion,windowDays:data.windowDays,limitations:data.limitations||[]}:null}));
         return [{loop,available,data}];
       });
     }
@@ -25599,6 +25599,87 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 
 // src/admin/ui.js
 (() => {
+  // Portable aggregate projection of the existing reports, never a raw API dump.
+  function createGrowthSnapshot(reports, startedAt, completedAt) {
+    const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    const fields = (data, paths) => Object.fromEntries(paths.map(path => {
+      const value = number(path.split('.').reduce((node, key) => node?.[key], data));
+      return [path, /rate$/i.test(path) && value > 1 ? null : value];
+    }));
+    const loops = ['product','room','profile','collection','reel','short','referral','conversation','trust','follow','marketplace','delivery','cohorts'];
+    const common = ['entryCount','cohort.entryCount','cohort.recipientJourneys','cohort.humanOpenJourneys','cohort.activationCount','cohort.valueCount','cohort.continuationCount','cohort.activationRate','cohort.valueRate','cohort.continuationRate','cohort.timeToValueSeconds','cohort.repeatRecipients',
+      'timing.samples','timing.averageMs','timing.p95Ms','creationGaps.missing','creationGaps.expired'];
+    const special = {
+      conversation: ['entryCount','acceptedMessages','responseCount','responseRate','timeToReplySeconds','recipientReadCount'],
+      trust: ['verifiedPublicReviews','reviewedProducts','reviewedSellers','averageRating'],
+      follow: ['entryCount','activeFollowers','followedPeople','pairsWithNewPublicSupply','pairsWithCanonicalSave','valueRate'],
+      marketplace: ['demandResolution.linked','demandResolution.ordered','demandResolution.delivered',
+        ...['responders','withPaidOrder','withDeliveredOrder','mature7','repeat7','repeat7Rate','mature30','repeat30','repeat30Rate','timeToFirstValueSeconds'].map(key=>'sellerOpportunity.'+key)],
+      delivery: ['maxAttempts','lifetimeHours','reconciliationGaps.missing','reconciliationGaps.expired'],
+      cohorts: []
+    };
+    const creator = ['sharedCreators','withVerifiedRecipientValue','withVerifiedFollow','withVerifiedSave','publishingAfterValue'].map(key=>'creatorValue.'+key);
+    const rows = Array.isArray(reports) ? reports : [];
+    const snapshot = {
+      schemaVersion: 1, kind: 'winga_growth_operations_snapshot',
+      collectionStartedAt: new Date(startedAt).toISOString(), collectionCompletedAt: new Date(completedAt).toISOString(),
+      privacy: 'allowlisted_aggregates_only', consistency: 'independent_reports_not_atomic',
+      productionReady: false, unknownValue: null,
+      limitations: ['Report windows differ; collected timestamps are not event windows.',
+        'Null means unknown or invalid, not zero. Availability is not loop health.',
+        'Transport acceptance is not message meaning; order starts are not sales.',
+        'Retention is accepted growth-event return in mature windows, not whole-app retention.',
+        'Known crawlers/self-touches are excluded upstream; unknown bots still require analysis.',
+        'No identities, tokens, free-text notes, small regional/category segments or raw events are exported.'],
+      reports: loops.map(loop => {
+        const matches = rows.filter(row=>row?.loop===loop), report = matches.length===1 ? matches[0] : null;
+        const data = report?.available===true && report.data?.schemaVersion===1 ? report.data : null;
+        if (!data) return {loop,status:'unavailable',windowDays:null,metrics:null};
+        const metrics = fields(data,special[loop] || [...common,...creator]);
+        const result = {loop,status:'available',windowDays:number(data.windowDays),metrics};
+        if (loop==='delivery') {
+          result.enabled = typeof data.enabled==='boolean' ? data.enabled : null;
+          for (const state of ['pending','completed','dead']) {
+            const states = Array.isArray(data.states) ? data.states : null;
+            const valid = states && states.every(row=>['pending','completed','dead'].includes(row?.status) && number(row.count)!==null)
+              && new Set(states.map(row=>row.status)).size===states.length;
+            const row = valid ? states.find(row=>row.status===state) : null;
+            metrics[state+'.count'] = valid ? row?.count ?? 0 : null;
+            metrics[state+'.maxAttempts'] = row ? number(row.maxAttempts) : null;
+            metrics[state+'.oldestAgeSeconds'] = row ? number(row.oldestAgeSeconds) : null;
+          }
+        }
+        if (loop==='cohorts') {
+          result.cohorts = Array.isArray(data.cohorts) ? data.cohorts.slice(0,60).filter(row=>
+            ['PRODUCT','SHOPPING_ROOM','PROFILE','COLLECTION','REEL','SHORT','SELLER_REFERRAL'].includes(row?.loop)
+            && typeof row.week==='string' && /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/.test(row.week) && Number.isFinite(Date.parse(row.week)))
+            .map(row=>({loop:row.loop,week:row.week,...fields(row,['accounts','activationRate','valueRate']),
+              retention:Object.fromEntries(['D1','D7','D30'].map(day=>[day,fields(row.retention?.[day],['eligible','returned','rate'])]))})) : null;
+          result.cohortsTruncated = Array.isArray(data.cohorts) ? data.cohorts.length>60 : null;
+        }
+        return result;
+      })
+    };
+    return snapshot;
+  }
+
+  function downloadGrowthSnapshot(snapshot) {
+    let url;
+    try {
+      url = window.URL.createObjectURL(new window.Blob([JSON.stringify(snapshot,null,2)+'\n'],{type:'application/json'}));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'winga-growth-'+snapshot.collectionCompletedAt.replace(/[:.]/g,'-')+'.json';
+      document.body.appendChild(link);
+      try { link.click(); } finally { link.remove(); }
+      // Give the browser time to start reading the local Blob before disposal.
+      window.setTimeout(()=>window.URL.revokeObjectURL(url),1000);
+      return true;
+    } catch (_) {
+      if (url) window.URL.revokeObjectURL(url);
+      return false;
+    }
+  }
   function createAdminUiModule(deps) {
     const t = (key, fallbackText = "", variables = {}) => deps.translate?.(key, variables, fallbackText) || fallbackText;
     function createAnalyticsCard(label, value) {
@@ -26274,14 +26355,25 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     let growthSequence=0;
     function renderGrowthReports(panel) {
       if(!deps.isAdminUser()||!deps.loadGrowthLoopReports)return;
-      const sequence=++growthSequence,owner=deps.getCurrentUser?.();
+      const sequence=++growthSequence,owner=deps.getCurrentUser?.(),session=deps.getCurrentSession?.(),startedAt=Date.now();
+      const current=()=>sequence===growthSequence && section.isConnected && deps.getCurrentUser?.()===owner
+        && deps.getCurrentSession?.()===session && deps.isAdminUser() && deps.isAdminAnalyticsContext?.()!==false;
       const section=el('section','analytics-list',undefined,{'data-growth-dashboard':'true'});
       section.append(el('h3','',t('growth.dashboard.title','Growth loop health')));
       section.append(el('p','product-meta',t('growth.dashboard.loading','Loading loop reports…')));
       panel.append(section);
       Promise.resolve().then(()=>deps.loadGrowthLoopReports()).then(reports=>{
-        if(sequence!==growthSequence||!section.isConnected||deps.getCurrentUser?.()!==owner||!deps.isAdminUser()||deps.isAdminAnalyticsContext?.()===false)return;
+        if(!current())return;
         section.replaceChildren(el('h3','',t('growth.dashboard.title','Growth loop health')));
+        const snapshot=createGrowthSnapshot(reports,startedAt,Date.now());
+        const exportButton=el('button','action-btn action-btn-secondary',t('growth.dashboard.export','Export metrics snapshot'),{type:'button','data-growth-export':'true'});
+        const exportStatus=el('p','product-meta','',{'role':'status'});
+        exportButton.addEventListener('click',()=>{
+          if(!current())return;
+          const saved=downloadGrowthSnapshot(snapshot);
+          exportStatus.textContent=saved?t('growth.dashboard.exportStarted','Snapshot download started.'):t('growth.dashboard.exportFailed','Unable to download snapshot. Try again.');
+        });
+        section.append(exportButton,el('p','product-meta',t('growth.dashboard.snapshotNotice','Aggregate reports collected separately. Unknown values remain null; this is not production acceptance.')),exportStatus);
         const labels={conversation:t('growth.dashboard.conversation','Conversation response'),trust:t('growth.dashboard.trust','Review and trust'),follow:t('growth.dashboard.follow','Person follow graph'),referral:t('growth.dashboard.referral','Utility seller referrals'),product:t('growth.dashboard.product','Product sharing'),room:t('growth.dashboard.room','Shopping Rooms'),marketplace:t('growth.dashboard.marketplace','Marketplace liquidity'),delivery:t('growth.dashboard.delivery','Event delivery'),cohorts:t('growth.dashboard.cohorts','Authenticated recipient cohorts'),profile:t('growth.dashboard.profile','Public profiles'),collection:t('growth.dashboard.collection','Collections'),reel:t('growth.dashboard.reel','Reels'),short:t('growth.dashboard.short','Shorts')};
         for(const report of Array.isArray(reports)?reports:[]){
           if(!Object.hasOwn(labels,report.loop))continue;
@@ -26307,7 +26399,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
               metric(t('growth.dashboard.creatorPublishes','Creators publishing after value'),data.creatorValue.publishingAfterValue);
             }
           }else if(report.loop==='delivery'){
-            for(const state of ['pending','completed','dead'])metric(state,(data.states||[]).find(row=>row.status===state)?.count??0);
+            for(const state of ['pending','completed','dead'])metric(state,Array.isArray(data.states)?data.states.find(row=>row.status===state)?.count??0:null);
             metric(t('growth.dashboard.gaps','Missing source events'),data.reconciliationGaps?.missing);
             metric(t('growth.dashboard.expired','Expired source gaps'),data.reconciliationGaps?.expired);
           }else if(report.loop==='cohorts'){
@@ -26355,7 +26447,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           for(const note of [...(data.limitations||[]),...(data.demandRequests?.limitations||[]),...(data.sellerOpportunity?.limitations||[])].slice(0,18))if(typeof note==='string')card.append(el('p','product-meta',note));
           section.append(card);
         }
-      }).catch(()=>{if(sequence===growthSequence&&section.isConnected)section.replaceChildren(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));});
+      }).catch(()=>{if(current())section.replaceChildren(el('p','product-meta',t('growth.dashboard.unavailable','Report unavailable; no zero values inferred.')));});
     }
 
     function renderAnalyticsPanel(data, heading, subtitle) {
@@ -26535,6 +26627,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return { renderAnalyticsPanel, renderSellerAnalyticsView, leaveSellerAnalytics,createSellerOpportunityItem };
   }
 
+  window.WingaModules.admin.createGrowthSnapshot = createGrowthSnapshot;
   window.WingaModules.admin.createAdminUiModule = createAdminUiModule;
 })();
 

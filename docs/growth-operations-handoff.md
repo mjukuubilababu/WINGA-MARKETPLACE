@@ -29,6 +29,22 @@ No read-only report should automatically replay events, notify recipients or
 change rollout configuration. HTTP401/403/503 must be reported as unavailable.
 An empty/missing cohort is not a completed healthy loop.
 
+## Manual metrics snapshot (source prepared 14 October)
+
+In the existing admin Growth dashboard, choose **Export metrics snapshot** after
+reports load. This writes a local aggregate JSON file on explicit user action;
+it does not replay, send alerts or mutate flags. The projection excludes private
+IDs/tokens/free text/raw events and small regional/category segments, caps cohort
+rows at 60 and retains null/unavailable. Job attempts/age and mature retention
+denominators are preserved. Report collection is independent, not atomic.
+
+Record environment and exact deployed source/frontend build beside each file in
+the approved operations store. Compare like windows/definitions and maturity.
+The download source is tested, but no real admin export, ownership, calibrated
+baseline, scrape or alert integration was executed here. See
+[growth-observability-status-20261014.md](growth-observability-status-20261014.md)
+and the [complete spec status](growth-full-spec-status-20261014.md).
+
 ## Baseline and alert proposals
 
 Before activation, assign an owner, environment, measurement window, minimum

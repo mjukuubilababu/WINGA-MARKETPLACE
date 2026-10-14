@@ -1,8 +1,12 @@
 {
     "schemaVersion":  1,
-    "version":  "2026.10.13.6",
+    "version":  "2026.10.14.1",
     "locale":  "ar",
     "messages":  {
+        "growth.dashboard.export": "تصدير لقطة المقاييس",
+        "growth.dashboard.exportStarted": "بدأ تنزيل اللقطة.",
+        "growth.dashboard.exportFailed": "تعذر تنزيل اللقطة. حاول مرة أخرى.",
+        "growth.dashboard.snapshotNotice": "جُمعت التقارير الإجمالية بشكل منفصل. تبقى القيم غير المعروفة null؛ هذا لا يؤكد جاهزية الإنتاج.",
         "growth.internalShareSent": "تم الإرسال. لم يتم تأكيد الاستلام لدى المستلم بعد.",
         "growth.internalShareFailed": "تعذرت المشاركة. حاول مجدداً لإعادة إرسال الرسالة نفسها.",
         "growth.shareRecentsUnavailable": "تعذر تحميل المحادثات أو الغرف الأخيرة. ابحث بالاسم أو افتح مجدداً للمحاولة.",
