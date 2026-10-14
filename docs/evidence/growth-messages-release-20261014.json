@@ -1,0 +1,138 @@
+{
+  "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8",
+  "cloudflareBuild": "20261014000145",
+  "assets": [
+    {
+      "path": "app.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "aa36d25bc2561c50fb041abff8928824913e13c1a12f24b939c4559346877cd9"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "matches": true,
+      "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+    },
+    {
+      "path": "winga-modules.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "794794623d297ca87f443242603f41f43fbc83511467e5ae32239e6d43cf5bf6"
+    },
+    {
+      "path": "src/localization/catalogs/en.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "3db324fe24706349a74dd6e7f62b744515dc640cac3f6133a1528ed67784e75f"
+    },
+    {
+      "path": "src/localization/catalogs/sw.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "77d8654142d2f415bee94420bf7608a55bc7333a2cdceb9e97d8b13b342ce5fd"
+    },
+    {
+      "path": "src/localization/catalogs/fr.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "38babfcfb054785c30958691c357fe4218b8b12636b1b29e7096e151bb82edaa"
+    },
+    {
+      "path": "src/localization/catalogs/ar.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "c4419e573fb30ef90d7e35c9bdbe8c748cdf7045948559a1445a30ba637a8566"
+    }
+  ],
+  "health": [
+    {
+      "url": "https://winga-pflp.onrender.com/api/health",
+      "status": 200,
+      "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8",
+      "expectedBackendCommit": true
+    },
+    {
+      "url": "https://winga-phoenix.onrender.com/health",
+      "status": 200,
+      "commit": null
+    }
+  ],
+  "allAssetsMatch": true,
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-14T00:05:20.256126+00:00",
+  "scope": "Read-only production deployment and aggregate operational observation; no real buyer/seller messaging or replay",
+  "renderServices": [
+    {
+      "name": "backend",
+      "deployId": "dep-db7c7cm7bikc73cs339g",
+      "status": "live",
+      "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8"
+    },
+    {
+      "name": "intelligence",
+      "deployId": "dep-db7c7cm7bikc73cs3580",
+      "status": "live",
+      "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8"
+    },
+    {
+      "name": "video",
+      "deployId": "dep-db7c7cm7bikc73cs34pg",
+      "status": "live",
+      "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8"
+    },
+    {
+      "name": "phoenix",
+      "deployId": "dep-db7c7ce7bikc73cs333g",
+      "status": "live",
+      "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8"
+    }
+  ],
+  "ci": {
+    "acceptanceRun": 38486629308,
+    "functionalJob": 115601730913,
+    "functional": "success",
+    "dependencyJob": 115601730873,
+    "dependencies": "success",
+    "phoenixJob": 115601730722,
+    "phoenix": "success",
+    "staticAnalysisJob": 115601731086,
+    "staticAnalysis": "CODEQL_REVIEW_STALE",
+    "frontendPassed": 153,
+    "encryptedBrowserPassed": 50,
+    "sharingUiBrowserPassed": 24,
+    "guestAuthBrowserPassed": 28
+  },
+  "productionWorkflow": {
+    "run": 38487718447,
+    "job": 115605270267,
+    "conclusion": "success",
+    "verifiedBuild": "20261014000145"
+  },
+  "independentSecurityReview": {
+    "findings": 54,
+    "reviewed": 0,
+    "sourceTreeFingerprint": "090618bd14fd08eb744050058e04209d50cdc65789481b1cfd0c8e5b9ff3fd97",
+    "artifactId": 11859573402,
+    "artifactName": "conversation-codeql-7fd26609abc9f42adbaab17e25af240c8644b0c8",
+    "artifactDigest": "sha256:2e8f3b6a4d2a2e9f1f4c0c89d88fd7ff849a20f51d7b705651301192bd15f819",
+    "expiresAt": "2027-01-11T23:50:11Z",
+    "approved": false
+  },
+  "videoSafetyObservation": {
+    "observedAt": "2026-10-13T23:57:52Z",
+    "workflowRun": 38487363041,
+    "job": 115604130220,
+    "httpStatus": 503,
+    "readiness": "degraded",
+    "safetyDead": 38,
+    "safetyQueueDepth": 0,
+    "safetyLastFailureCode": "hive_provider_request_rejected",
+    "perJobCausesInspected": false,
+    "causalRelationshipToSharingChangeEstablished": false,
+    "replayedJobs": 0,
+    "moderationBypassed": false
+  },
+  "productionReady": false,
+  "actualHumanMessagingAccepted": false
+}
