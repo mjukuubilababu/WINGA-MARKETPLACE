@@ -7,6 +7,7 @@ from pathlib import Path
 root = Path(os.environ['WINGA_BASELINE_SARIF'])
 reports = list(root.rglob('*.sarif'))
 assert len(reports) == 1, 'Exactly one baseline report is required'
+assert 0 < reports[0].stat().st_size <= 32 * 1024 * 1024, 'Report size rejected'
 raw = reports[0].read_bytes()
 assert 0 < len(raw) <= 32 * 1024 * 1024, 'Report size rejected'
 report = json.loads(raw)
@@ -45,4 +46,5 @@ for index, result in enumerate(results):
         'ruleId': result.get('ruleId'), 'level': result.get('level'),
         'message': result.get('message', {}).get('text', '')[:8192],
         'locations': [location(value) for value in result.get('locations', [])],
+        'relatedLocations': [dict(location(value), id=value.get('id')) for value in result.get('relatedLocations', [])],
         'codeFlows': flows, 'truncated': truncated}, separators=(',', ':')))
