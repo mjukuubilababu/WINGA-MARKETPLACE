@@ -27,10 +27,12 @@ function fixture({sync=async()=>{},history=async()=>[saved],create,fetchPage=asy
     if(create)return create(options);
     return service;
   }}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/chat/history-ordering.js'),'utf8'),context);
   vm.runInNewContext(source,context);
   const client = context.window.WingaModules.api.communications.createCommunicationsApiClient({baseUrl:'/api',getSession:()=>session,fetchJson:async url=>{
     calls.push(url);
     if(url.includes('/messages/inbox?'))return fetchPage();
+    if(url.includes('/messages/history?'))return fetchPage();
     if(url.endsWith('/encrypted/capabilities'))return {version:1,enabled:true};
     throw new Error('Unexpected route: '+url);
   }});
@@ -114,4 +116,24 @@ test('session changes during local history search discard the result',async()=>{
   await f.client.loadInboxPage();pause=true;const pending=f.client.localConversationHistory('rey');
   await new Promise(setImmediate);f.setSession({username:'me',sessionId:'replacement'});finish([saved]);
   await assert.rejects(pending,{code:'mls_session_changed'});
+});
+
+test('inbox chooses the canonical latest encrypted message when committed clocks roll back',async()=>{
+  const rows=[{...saved,id:'earlier',conversationId:'native-a',conversationSequence:'9007199254740992',timestamp:'2026-10-14T10:00:00Z',message:'earlier'},
+    {...saved,id:'latest',conversationId:'native-a',conversationSequence:'9007199254740993',timestamp:'2026-10-14T09:00:00Z',message:'latest'},
+    {...saved,id:'other',senderId:'another',conversationId:'native-b',conversationSequence:'1',timestamp:'2026-10-14T11:00:00Z'}];
+  const f=fixture({history:async()=>rows}),result=await f.client.loadInboxPage();
+  assert.equal(result.items.find(r=>r.withUser==='rey').lastMessageId,'latest');
+  assert.equal(result.items[0].withUser,'another');
+  assert.equal(result.totalUnread,3);
+});
+
+test('merged legacy/encrypted history orders only within each canonical stream and retains cursors',async()=>{
+  const encrypted=[{...saved,id:'first',conversationId:'native',conversationSequence:'2',timestamp:'2026-10-14T12:00:00Z'},
+    {...saved,id:'second',conversationId:'native',conversationSequence:'3',timestamp:'2026-10-14T10:00:00Z'}];
+  const legacy={...saved,id:'legacy',encrypted:false,conversationId:'legacy',conversationSequence:'9007199254740995',timestamp:'2026-10-14T11:00:00Z'};
+  const f=fixture({history:async()=>encrypted,fetchPage:async()=>({items:[legacy],hasMore:true,nextCursor:'owned-cursor',order:'sequence'})});
+  const result=await f.client.loadConversationPage('rey',{order:'sequence'});
+  assert.deepEqual(Array.from(result.items,r=>r.id),['first','legacy','second']);
+  assert.equal(result.nextCursor,'owned-cursor');assert.equal(result.hasMore,true);assert.equal(result.order,'sequence');
 });

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-14T10:56:52.029278+00:00",
+  "sourceBaseline": "0bc9414aabad756b18f2d46785def7ac5bf4c9bc",
+  "productionReady": false,
+  "foundationAccepted": false,
+  "scope": "owned isolated endpoint/browser fixtures; no live users, no physical-device or independent security acceptance",
+  "checks": {
+    "runtime": {
+      "passed": 58,
+      "failed": 0
+    },
+    "pagination": {
+      "passed": 20,
+      "failed": 0
+    },
+    "inbox": {
+      "passed": 11,
+      "failed": 0
+    },
+    "receipts": {
+      "passed": 14,
+      "failed": 0
+    }
+  },
+  "chromiumDomRegression": {
+    "passed": 1
+  },
+  "encryptedChromiumCheckpoint": {
+    "passed": 51,
+    "duration": "3.6 minutes",
+    "exactFinalTreeAcceptanceRequiredInCI": true
+  },
+  "messagePageRegression": {
+    "passedFiles": 13,
+    "internalCountsNotObservedInThisExecutor": true
+  },
+  "frontend": {
+    "corePassed": 153,
+    "behaviorPassedFiles": 7
+  },
+  "localization": {
+    "locales": 4,
+    "keysPerLocale": 1766,
+    "newHardcodedDebt": 0
+  },
+  "synchronizedModules": 99,
+  "sourceHashes": {
+    "src/chat/history-ordering.js": "d805340573473caa711e98c163bb1bba19037d088676688059a54316b1db7ada",
+    "src/chat/mls-runtime.mjs": "e30a61bb9b9a0e4d4a01e63c9589ee290b758dccbdcc24f7164a8ae06c8af27d",
+    "src/chat/pagination.js": "afba96e82a0543d4c8dc3d3cdbd0b4a89b6517a4c2ba0bfbe22c375350a764db",
+    "src/chat/ui.js": "cb9674eb6ed12e139a674b6813139452df484b090bc74e9c376a414af8141385",
+    "src/api/communications-client.js": "aa8f3762ad5fa3f0ff92d39d6fcf2d7b6c4024116d8dc4cdee7b538fd2b4aa1a",
+    "scripts/build-vercel-static.js": "2b3a9eeb7ab36b172cbe950508fb929e06e6b3acd951184e76e4005c40d076aa",
+    "winga-modules.js": "e758e8008f3ce798eeda270e6d2af6cc8100947582ea019c67aef4596594d3b8",
+    "tests/mls-runtime.test.mjs": "daa3cdf1ecf8ee0d193d8bcd1e37d2e4b7500e56644ec658883cc08afc58e0ef",
+    "tests/message-pagination-client.test.js": "410e44bf0146e53bf6e5ca5a86b7e65a4005e2f350232d21816ba21292d91f83",
+    "tests/encrypted-inbox-client.test.js": "5eeaf107d73a1c98c53cf5610dc366a193a2271048d3a59e846e142f9e8f17d8",
+    "tests/message-receipts.test.js": "5435188cf8472419338dae249440304b34fa6c46a3af48b3318cf3d3c8e58dd0",
+    "tests/e2e/chat-ui.spec.js": "39c04f61bbb27484d27aaecb6422628689c89345385f19ca3d6cf7515b62f02c"
+  },
+  "releaseVerification": "not yet performed at this local checkpoint",
+  "invariants": [
+    "No unrelated conversation/legacy/native counter comparisons.",
+    "No keys, ratchets, ciphertext/message IDs, canonical ACKs, receipts or metadata are rewritten by ordering.",
+    "No room feature, production flag, schema, TLS/CSP/crypto library or Phoenix instance change.",
+    "Pending is not durable acceptance.",
+    "Missing historical sequence remains unknown."
+  ]
+}

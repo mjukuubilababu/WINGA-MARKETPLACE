@@ -146,3 +146,11 @@ inviting, room reporting/block behavior, notification/lifecycle rules and
 commerce-owned group orders need explicit resolution. The existing Orders
 surface contains individual canonical references, not a group-order service.
 This documentation-only intake does not activate features or certify production.
+
+## Foundation ordering follow-up — 14 October 2026
+
+[Shared canonical history ordering](conversations-ordering-20261014.md) hardens
+direct runtime, mixed pages, pager/local state, UI and encrypted inbox latest
+selection without comparing independent stream counters. Source hardening and
+bounded local checks are documented; applicable live/device/migration acceptance
+and other security/foundation gates remain open. It adds no new Room feature.

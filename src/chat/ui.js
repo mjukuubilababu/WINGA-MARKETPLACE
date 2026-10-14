@@ -502,8 +502,10 @@
       }
 
       let previousDay = "";
-      return activeMessages.slice().sort(window.WingaModules?.chat?.compareConversationMessages
-        || ((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || String(a.id).localeCompare(String(b.id)))).map((message) => {
+      const ordered = window.WingaModules?.chat?.orderConversationMessages
+        ? window.WingaModules.chat.orderConversationMessages(activeMessages)
+        : activeMessages.slice().sort((a,b)=>new Date(a.timestamp).getTime()-new Date(b.timestamp).getTime()||String(a.id).localeCompare(String(b.id)));
+      return ordered.map((message) => {
         const day = conversationTime(message.timestamp, true);
         const separator = day !== previousDay ? `<div class="message-date-separator">${deps.escapeHtml(day)}</div>` : "";
         previousDay = day;

@@ -9,6 +9,7 @@ import { verifyKeyPackage, generateKeyPackageWithKey } from 'ts-mls/keyPackage.j
 import { verifyLeafNodeSignatureKeyPackage } from 'ts-mls/leafNode.js';
 import { decryptSenderData } from 'ts-mls/privateMessage.js';
 import { createMlsRoomOperations } from './mls-room-operations.mjs';
+import historyOrdering from './history-ordering.js';
 export { encodeRoomTransferPayload, decodeRoomTransferPayload } from './mls-room-operations.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
@@ -770,8 +771,8 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
   async function history(peer) {
     const belongs=(value,key)=>key.startsWith('history:')&&value.kind!=='shopping-room'&&(!peer||value.owner===peer||value.peer===peer);
     current(); const saved = await (vault.historySnapshot?vault.historySnapshot({filter:belongs}):vault.snapshot()); current();
-    return Object.entries(saved.values).filter(([key,value]) => belongs(value,key))
-      .map(([,value]) => structuredClone(value)).sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+    return historyOrdering.orderConversationMessages(Object.entries(saved.values)
+      .filter(([key,value]) => belongs(value,key)).map(([,value]) => structuredClone(value)));
   }
   async function applyReceipt(p, pin) {
     return locked(async () => {

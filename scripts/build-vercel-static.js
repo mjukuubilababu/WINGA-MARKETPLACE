@@ -96,6 +96,7 @@ const bundledModuleSources = [
   "src/api/feed-state.js",
   "src/api/auth-client.js",
   "src/api/products-client.js",
+  "src/chat/history-ordering.js",
   "src/api/communications-client.js",
   "src/api/phoenix-transport.js",
   "src/api/social-client.js",

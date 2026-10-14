@@ -6,15 +6,12 @@
     return date.toISOString().slice(0, 19) + "." + fraction.padEnd(6, "0").slice(0, 6);
   };
   const compareTime = (a, b) => timeKey(a.timestamp).localeCompare(timeKey(b.timestamp)) || String(a.id || a.withUser).localeCompare(String(b.id || b.withUser));
+  const canonicalCompare = window.WingaModules?.chat?.compareConversationMessages;
   function compareConversationMessages(a, b) {
-    const sequence = item => typeof item.conversationSequence === "string" && /^[1-9][0-9]{0,18}$/.test(item.conversationSequence)
-      ? item.conversationSequence : "";
-    const first = sequence(a), second = sequence(b);
-    if (first && second) return first.length - second.length || first.localeCompare(second) || String(a.id || "").localeCompare(String(b.id || ""));
-    // Missing metadata belongs to the legacy view, before sequenced canonical messages.
-    if (first || second) return first ? 1 : -1;
-    return compareTime(a, b);
+    return canonicalCompare ? canonicalCompare(a, b) : compareTime(a, b);
   }
+  const orderMessages = items => window.WingaModules?.chat?.orderConversationMessages
+    ? window.WingaModules.chat.orderConversationMessages(items) : items.slice().sort(compareTime);
   function createMessagePagination({ getUser, dataLayer }) {
     let state;
     const emptyPage = () => ({ items: [], nextCursor: "", hasMore: false, loaded: false, loading: false, error: false, revision: 0 });
@@ -117,7 +114,7 @@
           const orderChanged = target.order && target.order !== order;
           const boundary = page.items[0];
           const retained = orderChanged ? [] : older ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compareConversationMessages(item, boundary) < 0) : [];
-          target.items = merge(retained, page.items, "id").sort(compareConversationMessages);
+          target.items = orderMessages(merge(retained, page.items, "id"));
           if (resync || orderChanged || !page.hasMore) target.extended = false;
           if (older || !target.extended || !page.items.length) {
             target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
@@ -142,11 +139,11 @@
       s.seen.add(message.id);
       if (s.seen.size > 500) s.seen.delete(s.seen.values().next().value);
       s.revision += 1;
-      if (target) { target.items = merge(target.items, [message], "id").sort(compareConversationMessages); target.revision += 1; }
+      if (target) { target.items = orderMessages(merge(target.items, [message], "id")); target.revision += 1; }
       const existing = s.inbox.items.find(item => item.withUser === partner);
       const unread = message.receiverId === s.user && !message.isRead ? 1 : 0;
       const next = { ...existing, withUser: partner, unreadCount: (existing?.unreadCount || 0) + unread };
-      if (!existing || compareConversationMessages(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName, conversationSequence: message.conversationSequence });
+      if (!existing || compareConversationMessages(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName, conversationSequence: message.conversationSequence, conversationId:message.conversationId, encrypted:message.encrypted, status:message.status, senderId:message.senderId, receiverId:message.receiverId });
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
@@ -160,9 +157,11 @@
         ||prior.status!=='pending'&&message.status==='pending')return;
       const next={...prior,...message,isRead:prior.isRead||message.isRead,isDelivered:prior.isDelivered||message.isDelivered};
       if(prior.status==='read'||prior.status==='delivered'&&message.status==='sent')next.status=prior.status;
-      s.revision++;target.revision++;target.items=merge(target.items,[next],"id").sort(compareConversationMessages);
+      s.revision++;target.revision++;target.items=orderMessages(merge(target.items,[next],"id"));
       const summary=s.inbox.items.find(item=>item.withUser===message.receiverId&&item.lastMessageId===message.id);
-      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence});
+      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence,
+        conversationId:next.conversationId,encrypted:next.encrypted,status:next.status,
+        senderId:next.senderId,receiverId:next.receiverId});
     }
     return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest,upsertLocal };
   }

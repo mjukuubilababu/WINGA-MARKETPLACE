@@ -363,8 +363,9 @@
       "section": 21,
       "title": "EVENT ORDERING",
       "sourceStatus": "PARTIAL",
-      "evidence": "Server sequences and sequence-aware canonical pager exist; Room history uses native sequence. Direct runtime history and some mixed legacy/encrypted projections still sort by timestamp. Scope/migration ordering must be hardened without comparing unrelated sequence domains.",
+      "evidence": "14 October follow-up implements shared scoped sequence ordering in direct runtime, mixed API history, pager/local updates and UI, plus canonical encrypted inbox latest selection. Independent streams are not compared by sequence. Unknown recovered metadata, legacy migration and real device/live acceptance remain open; see docs/conversations-ordering-20261014.md.",
       "sources": [
+        "src/chat/history-ordering.js",
         "src/chat/pagination.js",
         "src/chat/mls-runtime.mjs",
         "src/api/communications-client.js",

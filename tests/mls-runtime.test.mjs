@@ -849,3 +849,24 @@ test('partial or malformed canonical ACK never marks Sent or discards exact ciph
     alice.runtime.close();bob.runtime.close();
   });
 });
+
+test('direct decrypted history preserves large canonical sequence across clock rollback and vault reload',async()=>{
+  const {alice,bob}=await pair(),payloads=[message('first accepted'),message('second accepted')];
+  const replies=[];
+  alice.options.transport.send=async packet=>{
+    alice.packets.push(structuredClone(packet));
+    const i=replies.length;
+    const reply={id:packet.id,hash:packet.hash,status:'sent',sequence:i?'9007199254740993':'9007199254740992',
+      createdAt:i?'2026-10-14T09:00:00.000Z':'2026-10-14T10:00:00.000Z'};
+    replies.push(reply);return reply;
+  };
+  for(const p of payloads)await alice.runtime.sendMessage(p);
+  for(let i=0;i<alice.packets.length;i++)await bob.runtime.receive('alice',{
+    ...alice.packets[i],sequence:replies[i].sequence,created_at:replies[i].createdAt});
+  assert.deepEqual((await alice.runtime.history('bob')).map(m=>m.message),['first accepted','second accepted']);
+  assert.deepEqual((await bob.runtime.history('alice')).map(m=>m.message),['first accepted','second accepted']);
+  alice.runtime.close();alice.runtime=await createMlsRuntime(alice.options);
+  assert.deepEqual((await alice.runtime.history('bob')).map(m=>m.id),payloads.map(p=>p.clientMessageId));
+  assert.equal(alice.packets.length,2);
+  alice.runtime.close();bob.runtime.close();
+});

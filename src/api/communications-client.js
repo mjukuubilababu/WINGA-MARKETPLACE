@@ -16,6 +16,12 @@
     if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
       request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
     const networkFailure = error => error instanceof TypeError || error.status === 503;
+    const orderHistory = items => window.WingaModules?.chat?.orderConversationMessages
+      ? window.WingaModules.chat.orderConversationMessages(items) : items.slice().sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+    const compareHistory = (a,b) => window.WingaModules?.chat?.compareConversationMessages
+      ? window.WingaModules.chat.compareConversationMessages(a,b) : a.timestamp.localeCompare(b.timestamp);
+    const historyScope = item => window.WingaModules?.chat?.messageOrderScope
+      ? window.WingaModules.chat.messageOrderScope(item) : String(item.conversationId || '');
     function ensureEncryption() {
       const s = deps.getSession?.();
       if (!s?.username || !globalThis.WingaEncryptionSession) return Promise.resolve(null);
@@ -165,17 +171,24 @@
         } catch (error) {history = [];unavailable(error);}
       }
       const merged = new Map(page.items.map(item => [item.withUser, item]));
-      const unread = new Map();
+      const unread = new Map(), latest = new Map();
       for (const item of history) {
         if(item.eventRecord)continue;
         if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
         const peer = item.senderId === owner ? item.receiverId : item.senderId;
         if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
         if (item.senderId === peer && !item.isRead) unread.set(peer, (unread.get(peer) || 0) + 1);
+        const key=JSON.stringify([peer,historyScope(item)]),candidate=latest.get(key);
+        if(!candidate || compareHistory(item,candidate.item)>=0)latest.set(key,{peer,item});
+      }
+      for(const {peer,item} of latest.values()) {
         const prior = merged.get(peer);
-        if (!prior || Date.parse(item.timestamp) >= Date.parse(prior.timestamp)) merged.set(peer, {...prior,
+        const sameStream = prior?.encrypted === true && historyScope(prior)===historyScope(item);
+        if (!prior || (sameStream ? compareHistory(item,prior)>=0 : Date.parse(item.timestamp) >= Date.parse(prior.timestamp))) merged.set(peer, {...prior,
           withUser:peer,latestMessage:item.message,timestamp:item.timestamp,lastMessageId:item.id,
-          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true});
+          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true,
+          conversationId:item.conversationId,conversationSequence:item.conversationSequence || item.sequence,status:item.status,
+          senderId:item.senderId,receiverId:item.receiverId});
       }
       for (const [peer, count] of unread) {
         const row = merged.get(peer);
@@ -201,7 +214,7 @@
       catch(error){if(!encrypted || !networkFailure(error))throw error;page={items:[],hasMore:false,nextCursor:''};}
       if(!encrypted) return page;
       const history = await encrypted.history(options.withUser);
-      if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
+      if(path === 'history') return {...page,items:orderHistory([...page.items,...history])};
       return page;
     }
 

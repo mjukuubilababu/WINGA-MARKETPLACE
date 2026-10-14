@@ -238,7 +238,7 @@ test('pending messages offer retry without claiming Sent or exposing local error
 
 test('conversation render follows durable sequence instead of timestamps', () => {
   const context = vm.createContext({ window: {}, document: { documentElement: { lang: 'en' } } });
-  for (const file of ['pagination.js','ui.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/chat',file),'utf8'),context);
+  for (const file of ['history-ordering.js','pagination.js','ui.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/chat',file),'utf8'),context);
   const ui = context.window.WingaModules.chat.createChatUiModule({
     escapeHtml: String, getCurrentUser: () => 'sender',
     getMessageProductItems: () => [], getReplyPreviewMessage: () => null

@@ -8,6 +8,7 @@ const summary = (withUser, id, timestamp) => ({ withUser, lastMessageId: id, lat
 const page = (items, nextCursor = "", totalUnread = 0) => ({ items, nextCursor, hasMore: Boolean(nextCursor), totalUnread, totalConversations: items.length });
 function setup(api = {}) {
   const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/chat/history-ordering.js'),'utf8'),context);
   vm.runInNewContext(source, context);
   let user = "me";
   const pager = context.window.WingaModules.chat.createMessagePagination({ getUser: () => user, dataLayer: api });
@@ -264,4 +265,32 @@ test('trusted local pending updates reconcile immediately without refresh or unr
   assert.equal(pager.history('other').items[0].status,'sent');
   assert.equal(pager.history('other').items[0].message,'immutable');
   assert.equal(pager.snapshot().totalUnread,0);assert.equal(pager.history('other').items.length,1);
+  pager.ingest({...pending,id:'after-ack',status:'sent',conversationSequence:'3',timestamp:'2026-10-08T11:00:00Z'});
+  assert.equal(pager.snapshot().inbox.items.find(r=>r.withUser==='other').lastMessageId,'after-ack');
+});
+
+test('mixed streams have deterministic history ordering without comparing unrelated sequences',()=>{
+  const {orderConversationMessages:order}=require('../src/chat/history-ordering.js');
+  const a={...message('a','2026-10-14T12:00:00Z'),conversationId:'a',encrypted:true,sequence:'9007199254740992'};
+  const b={...message('b','2026-10-14T10:00:00Z'),conversationId:'a',encrypted:true,sequence:'9007199254740993'};
+  const other={...message('other','2026-10-14T11:00:00Z'),conversationId:'b',encrypted:true,sequence:'1'};
+  for(const rows of [[a,b,other],[other,b,a],[b,a,other],[b,other,a]]){
+    const original=rows.slice();
+    assert.deepEqual(order(rows).map(r=>r.id),['a','other','b']);
+    assert.deepEqual(rows,original);
+  }
+  const legacy={...other,id:'legacy',encrypted:false,conversationId:'a',sequence:'9007199254740995'};
+  assert.deepEqual(order([a,b,legacy]).map(r=>r.id),['a','legacy','b']);
+});
+
+test('unknown historical sequence is retained, pending stays last, and retries do not mutate source rows',()=>{
+  const {orderConversationMessages:order,messageSequence}=require('../src/chat/history-ordering.js');
+  const committed={...message('committed','2026-10-14T12:00:00Z'),conversationId:'native',encrypted:true,sequence:'2',status:'sent'};
+  const recovered={...committed,id:'recovered',sequence:undefined,timestamp:'2026-10-14T13:00:00Z'};
+  const pending={...committed,id:'pending',sequence:undefined,status:'pending',timestamp:'2026-10-14T09:00:00Z'};
+  const input=[committed,recovered,pending],before=structuredClone(input);
+  assert.deepEqual(order(input).map(r=>r.id),['recovered','committed','pending']);
+  assert.deepEqual(input,before);
+  for(const bad of [1,'0','01','1e3','10000000000000000000'])assert.equal(messageSequence({sequence:bad}),'');
+  assert.equal(messageSequence({sequence:'2',conversationSequence:'3'}),'');
 });

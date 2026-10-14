@@ -1968,6 +1968,64 @@ window.WingaModules.localization = window.WingaModules.localization || {};
 })();
 
 
+// src/chat/history-ordering.js
+(() => {
+  const sequence = item => {
+    const values = [item.sequence, item.conversationSequence].filter(value => value !== undefined);
+    return values.length && values.every(value => typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value))
+      && values.every(value => value === values[0]) ? values[0] : '';
+  };
+  const scope = item => JSON.stringify([
+    item.encrypted === true || item.kind === 'shopping-room' || (typeof item.epoch === 'string' && item.deviceId) ? 'encrypted' : 'legacy',
+    item.conversationId || [item.senderId || item.owner || '', item.receiverId || item.peer || ''].sort().join('/')
+  ]);
+  const time = value => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const fraction = String(value).match(/\.(\d+)(?:Z|[+-]\d\d:\d\d)$/)?.[1] || '';
+    return date.toISOString().slice(0, 19) + '.' + fraction.padEnd(6, '0').slice(0, 6);
+  };
+  const compareTime = (a, b) => time(a.timestamp).localeCompare(time(b.timestamp))
+    || String(a.id || a.lastMessageId || '').localeCompare(String(b.id || b.lastMessageId || ''));
+  const compare = (a, b) => {
+    // This pair comparison is for scoped cursors/latest records. Across streams,
+    // use time only; do not use it as a general Array.sort comparator.
+    if (scope(a) !== scope(b)) return compareTime(a, b);
+    const x = sequence(a), y = sequence(b);
+    const rank = (item, seq) => item.status === 'pending' ? 2 : seq ? 1 : 0;
+    const category = rank(a, x) - rank(b, y);
+    if (category) return category;
+    if (a.status === 'pending') return compareTime(a, b);
+    if (x && y) return x.length - y.length || x.localeCompare(y) || compareTime(a, b);
+    return compareTime(a, b);
+  };
+  function order(items) {
+    // Start from a deterministic chronological merge. Each stream retains its
+    // slots, but its own rows use canonical sequence (and pending rows last).
+    // This avoids a non-transitive pair comparator mixing sequence with time.
+    const result = items.slice().sort(compareTime), streams = new Map();
+    result.forEach((item, index) => {
+      const key = scope(item);
+      if (!streams.has(key)) streams.set(key, {indices: [], items: []});
+      const stream = streams.get(key); stream.indices.push(index); stream.items.push(item);
+    });
+    for (const stream of streams.values()) {
+      stream.items.sort(compare);
+      stream.indices.forEach((index, offset) => { result[index] = stream.items[offset]; });
+    }
+    return result;
+  }
+  const api = {messageSequence: sequence, messageOrderScope: scope,
+    compareConversationMessages: compare, orderConversationMessages: order};
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (typeof window !== 'undefined') {
+    window.WingaModules = window.WingaModules || {};
+    window.WingaModules.chat = window.WingaModules.chat || {};
+    Object.assign(window.WingaModules.chat, api);
+  }
+})();
+
+
 // src/api/communications-client.js
 (() => {
   function createCommunicationsApiClient(deps = {}) {
@@ -1987,6 +2045,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     if(typeof deps.getSession==='function'&&fetchJson)globalThis.WingaConversationExperience?.connect({getSession:deps.getSession,
       request:payload=>fetchJson(`${baseUrl}/conversations/experience`,{method:'POST',headers:jsonHeaders(),body:JSON.stringify(payload)})});
     const networkFailure = error => error instanceof TypeError || error.status === 503;
+    const orderHistory = items => window.WingaModules?.chat?.orderConversationMessages
+      ? window.WingaModules.chat.orderConversationMessages(items) : items.slice().sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+    const compareHistory = (a,b) => window.WingaModules?.chat?.compareConversationMessages
+      ? window.WingaModules.chat.compareConversationMessages(a,b) : a.timestamp.localeCompare(b.timestamp);
+    const historyScope = item => window.WingaModules?.chat?.messageOrderScope
+      ? window.WingaModules.chat.messageOrderScope(item) : String(item.conversationId || '');
     function ensureEncryption() {
       const s = deps.getSession?.();
       if (!s?.username || !globalThis.WingaEncryptionSession) return Promise.resolve(null);
@@ -2136,17 +2200,24 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         } catch (error) {history = [];unavailable(error);}
       }
       const merged = new Map(page.items.map(item => [item.withUser, item]));
-      const unread = new Map();
+      const unread = new Map(), latest = new Map();
       for (const item of history) {
         if(item.eventRecord)continue;
         if (!owner || ![item.senderId, item.receiverId].includes(owner)) continue;
         const peer = item.senderId === owner ? item.receiverId : item.senderId;
         if (!peer || peer === owner || !Number.isFinite(Date.parse(item.timestamp))) continue;
         if (item.senderId === peer && !item.isRead) unread.set(peer, (unread.get(peer) || 0) + 1);
+        const key=JSON.stringify([peer,historyScope(item)]),candidate=latest.get(key);
+        if(!candidate || compareHistory(item,candidate.item)>=0)latest.set(key,{peer,item});
+      }
+      for(const {peer,item} of latest.values()) {
         const prior = merged.get(peer);
-        if (!prior || Date.parse(item.timestamp) >= Date.parse(prior.timestamp)) merged.set(peer, {...prior,
+        const sameStream = prior?.encrypted === true && historyScope(prior)===historyScope(item);
+        if (!prior || (sameStream ? compareHistory(item,prior)>=0 : Date.parse(item.timestamp) >= Date.parse(prior.timestamp))) merged.set(peer, {...prior,
           withUser:peer,latestMessage:item.message,timestamp:item.timestamp,lastMessageId:item.id,
-          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true});
+          productId:'',productName:'',unreadCount:prior?.unreadCount || 0,encrypted:true,
+          conversationId:item.conversationId,conversationSequence:item.conversationSequence || item.sequence,status:item.status,
+          senderId:item.senderId,receiverId:item.receiverId});
       }
       for (const [peer, count] of unread) {
         const row = merged.get(peer);
@@ -2172,7 +2243,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       catch(error){if(!encrypted || !networkFailure(error))throw error;page={items:[],hasMore:false,nextCursor:''};}
       if(!encrypted) return page;
       const history = await encrypted.history(options.withUser);
-      if(path === 'history') return {...page,items:[...page.items,...history].sort((a,b)=>a.timestamp.localeCompare(b.timestamp))};
+      if(path === 'history') return {...page,items:orderHistory([...page.items,...history])};
       return page;
     }
 
@@ -18572,8 +18643,10 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       }
 
       let previousDay = "";
-      return activeMessages.slice().sort(window.WingaModules?.chat?.compareConversationMessages
-        || ((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || String(a.id).localeCompare(String(b.id)))).map((message) => {
+      const ordered = window.WingaModules?.chat?.orderConversationMessages
+        ? window.WingaModules.chat.orderConversationMessages(activeMessages)
+        : activeMessages.slice().sort((a,b)=>new Date(a.timestamp).getTime()-new Date(b.timestamp).getTime()||String(a.id).localeCompare(String(b.id)));
+      return ordered.map((message) => {
         const day = conversationTime(message.timestamp, true);
         const separator = day !== previousDay ? `<div class="message-date-separator">${deps.escapeHtml(day)}</div>` : "";
         previousDay = day;
@@ -19051,15 +19124,12 @@ window.WingaModules.localization = window.WingaModules.localization || {};
     return date.toISOString().slice(0, 19) + "." + fraction.padEnd(6, "0").slice(0, 6);
   };
   const compareTime = (a, b) => timeKey(a.timestamp).localeCompare(timeKey(b.timestamp)) || String(a.id || a.withUser).localeCompare(String(b.id || b.withUser));
+  const canonicalCompare = window.WingaModules?.chat?.compareConversationMessages;
   function compareConversationMessages(a, b) {
-    const sequence = item => typeof item.conversationSequence === "string" && /^[1-9][0-9]{0,18}$/.test(item.conversationSequence)
-      ? item.conversationSequence : "";
-    const first = sequence(a), second = sequence(b);
-    if (first && second) return first.length - second.length || first.localeCompare(second) || String(a.id || "").localeCompare(String(b.id || ""));
-    // Missing metadata belongs to the legacy view, before sequenced canonical messages.
-    if (first || second) return first ? 1 : -1;
-    return compareTime(a, b);
+    return canonicalCompare ? canonicalCompare(a, b) : compareTime(a, b);
   }
+  const orderMessages = items => window.WingaModules?.chat?.orderConversationMessages
+    ? window.WingaModules.chat.orderConversationMessages(items) : items.slice().sort(compareTime);
   function createMessagePagination({ getUser, dataLayer }) {
     let state;
     const emptyPage = () => ({ items: [], nextCursor: "", hasMore: false, loaded: false, loading: false, error: false, revision: 0 });
@@ -19162,7 +19232,7 @@ window.WingaModules.localization = window.WingaModules.localization || {};
           const orderChanged = target.order && target.order !== order;
           const boundary = page.items[0];
           const retained = orderChanged ? [] : older ? target.items : !resync && page.hasMore && boundary ? target.items.filter(item => compareConversationMessages(item, boundary) < 0) : [];
-          target.items = merge(retained, page.items, "id").sort(compareConversationMessages);
+          target.items = orderMessages(merge(retained, page.items, "id"));
           if (resync || orderChanged || !page.hasMore) target.extended = false;
           if (older || !target.extended || !page.items.length) {
             target.hasMore = Boolean(page.hasMore && page.nextCursor && page.nextCursor !== cursor);
@@ -19187,11 +19257,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
       s.seen.add(message.id);
       if (s.seen.size > 500) s.seen.delete(s.seen.values().next().value);
       s.revision += 1;
-      if (target) { target.items = merge(target.items, [message], "id").sort(compareConversationMessages); target.revision += 1; }
+      if (target) { target.items = orderMessages(merge(target.items, [message], "id")); target.revision += 1; }
       const existing = s.inbox.items.find(item => item.withUser === partner);
       const unread = message.receiverId === s.user && !message.isRead ? 1 : 0;
       const next = { ...existing, withUser: partner, unreadCount: (existing?.unreadCount || 0) + unread };
-      if (!existing || compareConversationMessages(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName, conversationSequence: message.conversationSequence });
+      if (!existing || compareConversationMessages(message, { ...existing, id: existing.lastMessageId }) >= 0) Object.assign(next, { lastMessageId: message.id, latestMessage: message.message, timestamp: message.timestamp, productId: message.productId, productName: message.productName, conversationSequence: message.conversationSequence, conversationId:message.conversationId, encrypted:message.encrypted, status:message.status, senderId:message.senderId, receiverId:message.receiverId });
       s.inbox.items = merge(s.inbox.items, [next], "withUser").sort((a,b) => compare(b,a));
       s.totalUnread += unread;
     }
@@ -19205,9 +19275,11 @@ window.WingaModules.localization = window.WingaModules.localization || {};
         ||prior.status!=='pending'&&message.status==='pending')return;
       const next={...prior,...message,isRead:prior.isRead||message.isRead,isDelivered:prior.isDelivered||message.isDelivered};
       if(prior.status==='read'||prior.status==='delivered'&&message.status==='sent')next.status=prior.status;
-      s.revision++;target.revision++;target.items=merge(target.items,[next],"id").sort(compareConversationMessages);
+      s.revision++;target.revision++;target.items=orderMessages(merge(target.items,[next],"id"));
       const summary=s.inbox.items.find(item=>item.withUser===message.receiverId&&item.lastMessageId===message.id);
-      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence});
+      if(summary)Object.assign(summary,{timestamp:next.timestamp,conversationSequence:next.conversationSequence,
+        conversationId:next.conversationId,encrypted:next.encrypted,status:next.status,
+        senderId:next.senderId,receiverId:next.receiverId});
     }
     return { reset, requestResync, snapshot: current, history, refreshInbox: () => inbox(false), loadMore: () => inbox(true), refreshHistory: user => loadHistory(user), loadOlder: user => loadHistory(user, true), ingest,upsertLocal };
   }

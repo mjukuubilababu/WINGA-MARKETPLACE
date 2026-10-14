@@ -57,6 +57,20 @@ async function openChatUi(page, {width=390,height=844,rtl=false}={}) {
   },{catalog,rtl});
 }
 
+test('actual chat DOM keeps canonical sequence across clock rollback without mixing legacy sequence scope',async({page})=>{
+  await openChatUi(page);
+  await page.addScriptTag({content:fs.readFileSync(path.join(root,'src/chat/history-ordering.js'),'utf8')});
+  await page.evaluate(()=>{
+    const f=chatUiFixture;
+    f.messages.splice(0,f.messages.length,
+      {id:'first',senderId:'rey',receiverId:'alice',message:'Canonical first',conversationId:'native',encrypted:true,conversationSequence:'9007199254740992',timestamp:'2026-10-14T12:00:00Z'},
+      {id:'second',senderId:'rey',receiverId:'alice',message:'Canonical second',conversationId:'native',encrypted:true,conversationSequence:'9007199254740993',timestamp:'2026-10-14T10:00:00Z'},
+      {id:'legacy',senderId:'rey',receiverId:'alice',message:'Retained legacy',conversationId:'legacy',conversationSequence:'9007199254740995',timestamp:'2026-10-14T11:00:00Z'});
+    f.state.context={withUser:'rey'};f.state.mode='detail';f.render();
+  });
+  await expect(page.locator('.message-bubble p')).toHaveText(['Canonical first','Retained legacy','Canonical second']);
+});
+
 test('cached chat shell does not wait for network history or optional commerce and late navigation cannot mark another chat read',async({page})=>{
   await openChatUi(page);
   await page.evaluate(()=>{chatUiFixture.state.holdHistory=true;chatUiFixture.state.holdOffers=true;});
