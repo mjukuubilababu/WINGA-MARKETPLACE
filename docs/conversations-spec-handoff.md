@@ -162,3 +162,15 @@ and other security/foundation gates remain open. It adds no new Room feature.
 ## CodeQL baseline triage and local I/O fixes — 14 October 2026
 
 [Per-finding triage and evidence](conversations-codeql-triage-20261014.md) records all 55 findings at baseline 50585d50, the actual immutable report projection, and two reproduced/fixed local I/O gaps. Six source paths are hardened and negative tests are retained. Engineering triage does not approve cryptography or rebind independent review; fresh matching-source CodeQL and physical/provider/policy gates remain explicit.
+
+### CodeQL hardening release evidence — 14 October 2026
+
+Runtime source `a6fb17587f9883ec5f910d38b53338d16f5dd5cd` is deployed to the four
+existing Render services and Cloudflare build `20261014143205`. Functional,
+dependencies and BEAM CI passed; overall acceptance remains failed with
+`CODEQL_REVIEW_STALE` (55 unreviewed findings). The
+[release report](conversations-codeql-release-20261014.md) and
+[current full projected flows](evidence/conversations-codeql-current-flows-20261014.json)
+are saved on `codex/conversations-codeql-release-evidence-20261014` without
+changing production source or copying independent review decisions. Shopping
+Rooms §0 and the external foundation gates remain open.
