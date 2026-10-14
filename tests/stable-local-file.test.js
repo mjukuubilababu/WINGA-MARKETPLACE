@@ -30,7 +30,7 @@ test("same-size replacement between lstat and open is rejected and the descripto
     const open = fs.promises.open;
     let closes = 0;
     t.mock.method(fs.promises, "open", async (target, flags) => {
-      assert.equal(flags, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+      assert.equal(flags, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
       fs.renameSync(filename, path.join(directory, "previous.webp"));
       fs.writeFileSync(filename, "private-data");
       const handle = await open(target, flags);

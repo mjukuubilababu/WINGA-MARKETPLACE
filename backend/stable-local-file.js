@@ -11,7 +11,9 @@ async function readStableLocalFile(filename, { maxBytes, expectedSize, expectedI
     || before.size > maxBytes || (expectedSize !== undefined && before.size !== expectedSize)) changed();
   if (expectedIdentity !== undefined && (!expectedIdentity
     || ["size", "dev", "ino", "mtimeMs", "ctimeMs"].some(key => before[key] !== expectedIdentity[key]))) changed();
-  const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+  // A pathname swap to a FIFO must not occupy a filesystem worker indefinitely.
+  // Regular-file descriptor verification below remains authoritative.
+  const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
   try {
     const opened = await handle.stat();
     if (!opened.isFile() || opened.ino !== before.ino || opened.dev !== before.dev

@@ -57,7 +57,8 @@ function createStaticServer() {
       const isBuiltIcon = pathname.startsWith("/icons/create/") || pathname.startsWith("/icons/navigation/");
       const assetRoot = isBuiltIcon ? path.join(rootDir, "public") : rootDir;
       const resolvedPath = path.resolve(assetRoot, `.${pathname}`);
-      if (!resolvedPath.startsWith(rootDir)) {
+      const relativePath = path.relative(assetRoot, resolvedPath);
+      if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
         res.writeHead(403);
         res.end("Forbidden");
         return;

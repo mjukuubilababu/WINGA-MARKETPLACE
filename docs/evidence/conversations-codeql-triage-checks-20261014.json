@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-14T14:14:56.476167+00:00",
+  "baselineCommit": "50585d50deaa7ba4dacf65162104733f67ccbc31",
+  "scope": "Owned synthetic filesystem, Node, PGlite and real Chromium parser fixtures; no live user messages, no physical-device or independent security acceptance.",
+  "checks": {
+    "readersAndReviewGate": {
+      "passed": 165,
+      "failed": 0,
+      "note": "Includes reader/FIFO/static harness and unchanged fail-closed review-gate regressions; overlaps other groups."
+    },
+    "targetedSecurityAndBuild": {
+      "passed": 88,
+      "failed": 0
+    },
+    "nativeHistoryAndAuthority": {
+      "passed": 44,
+      "failed": 0
+    },
+    "selectedRoomAndInvites": {
+      "passed": 6,
+      "failed": 0
+    },
+    "actualBrowserURLParser": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    "frontendCore": {
+      "passed": 153,
+      "failed": 0
+    },
+    "modules": {
+      "synchronized": true,
+      "count": 100
+    }
+  },
+  "reproductions": {
+    "readerFIFO": {
+      "oldReadersTimedOut": 3,
+      "timeoutMs": 900,
+      "postFixRejected": 3,
+      "postFixClosedDescriptors": 3,
+      "precondition": "Local directory write/mutation access; unauthenticated remote exploitation not demonstrated."
+    },
+    "staticSiblingTraversal": {
+      "oldHandlersReturnedOutsideSyntheticBytes": 3,
+      "oldStatus": 200,
+      "postFixStatus": 403,
+      "normalInsideReadPreserved": true,
+      "precondition": "Local development/test handlers, loopback bound; not a production HTTP server change."
+    }
+  },
+  "securityGate": {
+    "reviewManifestChanged": false,
+    "reviewDecisionsCopied": false,
+    "independentReviewAccepted": false,
+    "freshSourceRescanRequired": true
+  },
+  "baselineTriage": {
+    "findings": 55,
+    "fullyLocated": 55,
+    "primarySourceHashesBound": 55,
+    "untruncatedFlowProjections": 55,
+    "independentAccepted": 0
+  }
+}

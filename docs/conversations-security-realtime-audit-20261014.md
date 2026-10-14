@@ -164,3 +164,7 @@ functional/dependency/Phoenix deployment checks. Keep independent CodeQL/crypto
 review open. Update this report with exact subsequent evidence, not synthetic
 production claims. The ACK guard changes no server schema or protocol, and can
 be reverted as a bounded client patch while canonical ciphertext/events remain.
+
+## CodeQL engineering triage follow-up — 14 October 2026
+
+[All 55 baseline findings and two reproduced local I/O fixes](conversations-codeql-triage-20261014.md) now have actual message/flow evidence and source assessments. The read-only artifact projection provides full baseline location threads; three readers reject FIFO swaps and three local harnesses reject sibling-root traversal. Independent review/source rebinding remains open; no reviewer identity, manifest or release gate was changed.

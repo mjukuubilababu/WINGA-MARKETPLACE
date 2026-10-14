@@ -119,7 +119,7 @@ async function readStableFile(directory, name, size) {
   if (!before.isFile() || before.size !== size || size <= 0 || size > MAX_FILE_BYTES) {
     fail("BACKUP_SOURCE_CHANGED_OR_UNSUPPORTED");
   }
-  const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+  const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
   try {
     const opened = await handle.stat();
     if (!opened.isFile() || opened.ino !== before.ino || opened.dev !== before.dev

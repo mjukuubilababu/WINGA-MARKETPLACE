@@ -110,7 +110,7 @@ async function readLegacyLocalMedia(directory, name) {
   try {
     const stat = await fs.promises.lstat(filename);
     if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_BYTES) return null;
-    const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     try {
       const opened = await handle.stat();
       if (!opened.isFile() || opened.ino !== stat.ino || opened.dev !== stat.dev || opened.size !== stat.size) return null;

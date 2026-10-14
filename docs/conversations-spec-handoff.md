@@ -158,3 +158,7 @@ and other security/foundation gates remain open. It adds no new Room feature.
 ## Activity, device notices and infrastructure hardening — 14 October 2026
 
 [Current implementation and remaining acceptance](conversations-activity-devices-hardening-20261014.md) closes presence/typing and durable native-device notice source gaps on the existing plane/inbox. Requested database TLS now verifies trust/hostname; retention has a read-only dry-run and a sweeper kill switch. Strict provider activation, approved full-history/erasure/backup durations, real physical-device evidence and independent review remain open. Shopping Rooms section 0 is still not accepted; do not implement new dependent Room features yet.
+
+## CodeQL baseline triage and local I/O fixes — 14 October 2026
+
+[Per-finding triage and evidence](conversations-codeql-triage-20261014.md) records all 55 findings at baseline 50585d50, the actual immutable report projection, and two reproduced/fixed local I/O gaps. Six source paths are hardened and negative tests are retained. Engineering triage does not approve cryptography or rebind independent review; fresh matching-source CodeQL and physical/provider/policy gates remain explicit.

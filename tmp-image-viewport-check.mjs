@@ -58,7 +58,8 @@ function createStaticServer() {
           : "/index.html";
       }
       let resolvedPath = path.resolve(STATIC_ROOT, `.${pathname}`);
-      if (!resolvedPath.startsWith(STATIC_ROOT)) {
+      const relativePath = path.relative(STATIC_ROOT, resolvedPath);
+      if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
         res.writeHead(403);
         res.end("Forbidden");
         return;
