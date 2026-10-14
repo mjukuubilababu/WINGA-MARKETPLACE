@@ -1,0 +1,176 @@
+{
+  "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa",
+  "cloudflareBuild": "20261014151230",
+  "assets": [
+    {
+      "path": "vendor/winga-mls-candidate.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "eacb4025cce6abc7b71c15c47bfac125c194912974a9d310b34f2b1695b0fb4a"
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "matches": true,
+      "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+    },
+    {
+      "path": "winga-modules.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+    },
+    {
+      "path": "src/localization/catalogs/en.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "b97a7e381788076aa725a968d54d277f52b0b0e3c10dac2774fb79b6d7302880"
+    },
+    {
+      "path": "src/localization/catalogs/sw.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "a98975a864eebd9127eebae751e81d06ac9c41fd9d43b69fd47230636ad05b8d"
+    },
+    {
+      "path": "src/localization/catalogs/fr.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "0b3be3af44db13ce30c6d34f9dfeff3d7a918f0cb935641985ba0d4e4da46a37"
+    },
+    {
+      "path": "src/localization/catalogs/ar.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "ded8d97a774506099f3fe6c85cb32dd54652db322e40cc97af2403b9b98f0040"
+    }
+  ],
+  "health": [
+    {
+      "url": "https://winga-pflp.onrender.com/api/health",
+      "status": 200,
+      "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa",
+      "expectedBackendCommit": true
+    },
+    {
+      "url": "https://winga-phoenix.onrender.com/health",
+      "status": 200,
+      "commit": null,
+      "expectedBackendCommit": false
+    }
+  ],
+  "allAssetsMatch": true,
+  "schemaVersion": 1,
+  "github": {
+    "acceptance": {
+      "runId": 38585697377,
+      "conclusion": "failure",
+      "jobs": {
+        "functional": {
+          "id": 115927011865,
+          "conclusion": "success"
+        },
+        "static-analysis": {
+          "id": 115927012097,
+          "conclusion": "failure",
+          "errorCode": "CODEQL_REVIEW_STALE"
+        },
+        "beam": {
+          "id": 115927012198,
+          "conclusion": "success"
+        },
+        "dependencies": {
+          "id": 115927012613,
+          "conclusion": "success"
+        }
+      }
+    },
+    "production": {
+      "runId": 38587267558,
+      "jobId": 115932474056,
+      "conclusion": "success",
+      "requiredJobs": [
+        "functional",
+        "dependencies",
+        "beam"
+      ],
+      "existingPolicyUnchanged": true
+    }
+  },
+  "render": [
+    {
+      "service": "backend",
+      "deployId": "dep-db7piktbedkc738u9urg",
+      "status": "live",
+      "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa"
+    },
+    {
+      "service": "intelligence",
+      "deployId": "dep-db7piktbedkc738ua0b0",
+      "status": "live",
+      "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa"
+    },
+    {
+      "service": "video",
+      "deployId": "dep-db7piktbedkc738u9ud0",
+      "status": "live",
+      "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa"
+    },
+    {
+      "service": "phoenix",
+      "deployId": "dep-db7piktbedkc738u9u70",
+      "status": "live",
+      "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa"
+    }
+  ],
+  "ciVerification": {
+    "newTlsCliRegressionsPassed": true,
+    "secureBrowserPassed": 54,
+    "sharingUiPassed": 27,
+    "guestAuthReturnPassed": 28,
+    "frontendCorePassed": 153,
+    "localeCount": 4,
+    "keysPerLocale": 1777,
+    "synchronizedModules": 100,
+    "growthSpecLedgerSections": 106,
+    "beamTestsPassed": 20,
+    "phoenixTransportPassed": 15,
+    "productionCapacityProven": false
+  },
+  "tlsProvider": {
+    "preflightJobId": "job-db7pd1id0e5s73emkuh0",
+    "preflightSource": "a6fb17587f9883ec5f910d38b53338d16f5dd5cd",
+    "status": "failed",
+    "errorCauseKnown": false,
+    "logsHttpStatus": 403,
+    "operatorDiagnosticsPending": true,
+    "primaryTrustVerified": false,
+    "replicaTrustVerified": false,
+    "productionSslFlagChanged": false,
+    "caChanged": false,
+    "databaseUrlChanged": false,
+    "providerActivationCompleted": false
+  },
+  "codeqlEvidence": "docs/evidence/conversations-tls-codeql-20261014.json",
+  "diagnostics": "docs/evidence/conversations-tls-diagnostics-20261014.json",
+  "productionReady": false,
+  "foundationAccepted": false,
+  "reviewManifestChanged": false,
+  "externalGates": {
+    "physicalDevices": false,
+    "providerTrustActivation": false,
+    "fullHistoryRetentionErasureBackupPolicy": false,
+    "independentCryptoAndCodeQLReview": false
+  },
+  "phoenixHealthIdentityNote": "Public Phoenix health has no commit; live source identity is verified in Render deployment metadata.",
+  "newPaidPhoenixInstanceCreated": false,
+  "newProductionHistoryPurgeExecuted": false,
+  "videoFailureInvestigationPerformed": false,
+  "verifiedAt": "2026-10-14T15:15:39.048400+00:00"
+}

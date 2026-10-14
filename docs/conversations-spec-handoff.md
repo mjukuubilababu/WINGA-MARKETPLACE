@@ -171,3 +171,13 @@ Thirteen operational PostgreSQL clients now reuse the canonical strict TLS helpe
 sanitized CLI failures and regression checks are recorded. Production provider
 trust/activation remains blocked pending operator output; no SSL flag or CA was
 changed and Shopping Rooms §0 remains open.
+
+### Verified operational TLS hardening release — 14 October 2026
+
+Runtime `73487b95bb1e970e5d8adf28c5568d947f244caa` is live on the four existing
+Render services and Cloudflare build `20261014151230`. Functional, dependencies
+and BEAM CI passed; overall acceptance remains failed with `CODEQL_REVIEW_STALE`
+and 55 unreviewed findings. The [release report](conversations-tls-release-20261014.md)
+and fresh full projected flows are saved on `codex/conversations-tls-release-evidence-20261014`.
+Provider activation remains blocked by failed preflight/Logs API 403 pending
+operator output. No production SSL/CA/database URL or review manifest was changed.

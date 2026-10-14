@@ -1,0 +1,1777 @@
+{
+  "schemaVersion": 1,
+  "commit": "73487b95bb1e970e5d8adf28c5568d947f244caa",
+  "runId": 38585697377,
+  "jobId": 115927012097,
+  "gate": {
+    "mode": "conversation-codeql-gate",
+    "privacy": "aggregate-only",
+    "ok": false,
+    "errorCode": "CODEQL_REVIEW_STALE",
+    "diagnostic": {
+      "stage": "review-manifest",
+      "field": "source-tree-fingerprint"
+    },
+    "totals": {
+      "reports": 1,
+      "runs": 1,
+      "results": 55,
+      "securityFindings": 55,
+      "levels": {
+        "none": 0,
+        "note": 0,
+        "warning": 33,
+        "error": 22
+      },
+      "reviewedFindings": 0,
+      "unreviewedFindings": 55
+    },
+    "fingerprintDiagnosticCounts": {
+      "emitted": 55,
+      "limit": 64
+    },
+    "sourceTreeFingerprint": "54f94c8b5de673324c850ef8e7e57aff75bdb49e296fb9bae97c000400f07b4c"
+  },
+  "artifact": {
+    "id": 11904908320,
+    "name": "conversation-codeql-73487b95bb1e970e5d8adf28c5568d947f244caa",
+    "digest": "sha256:d17d2172d7a8f0f12930ff539649dc3981f546fc5562fe367bf678c17743650d",
+    "expiresAt": "2027-01-12T15:01:41Z"
+  },
+  "independentReviewAccepted": false,
+  "reviewManifestChanged": false,
+  "records": [
+    {
+      "result": 0,
+      "ruleId": "js/request-forgery",
+      "level": "error",
+      "locations": [
+        {
+          "path": "tmp-bootstrap-integrity-check.mjs",
+          "line": 37,
+          "sourceSha256": "cb82852a893741271d68228113959f268d699463f6bc9278f84a45836e8aa3bb"
+        }
+      ],
+      "resultFingerprint": "f9d525ac302a72dbbe16319ae1d76342fc817aaec17b5b6a22d6b264e5199c94",
+      "sourceSha256": "cb82852a893741271d68228113959f268d699463f6bc9278f84a45836e8aa3bb",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "2ea9f76b3d4c18c7ee1203ab8c1cb411c2ff2ae682ee71218090edffa7471951",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2033,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 0,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 1,
+      "ruleId": "js/request-forgery",
+      "level": "error",
+      "locations": [
+        {
+          "path": "tmp-image-viewport-check.mjs",
+          "line": 36,
+          "sourceSha256": "0884940c19ee69462ddbae9632db40bbc3677a69772df290e11a57c253cf5559"
+        }
+      ],
+      "resultFingerprint": "677047ec8dcf9ae26b8b5a2b28943b3d2ca57523af1c624597b1a0c566129d32",
+      "sourceSha256": "0884940c19ee69462ddbae9632db40bbc3677a69772df290e11a57c253cf5559",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "57aa2f51f008200d1624d042ffbf6ccaca4c6a47e2ec9f4e3844770339c35bc8",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1467,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 1,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 2,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 2546,
+          "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+        }
+      ],
+      "resultFingerprint": "a720c89599204ee44b8e91cace18e49902f3c4a4efecdf4e70ee1c2413304bd7",
+      "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1800,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 2,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 3,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "src/chat/voice-ui.js",
+          "line": 42,
+          "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37"
+        }
+      ],
+      "resultFingerprint": "7e5c62f2ca9e2ff70a9bd28b1398ee155d9f0cb74a6cf65d00d47dfcfecd6d4a",
+      "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "43bf0a10efd66d08266eb3f59fb2ce878bad9a0f637f7248357943defbcfd174",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1670,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 3,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 4,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "src/chat/voice-ui.js",
+          "line": 45,
+          "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37"
+        }
+      ],
+      "resultFingerprint": "d099485f2c12e1be9ba92ff1c662c17cacd9f63fbc80594849ce35bb48556654",
+      "sourceSha256": "ae2ea5bb345d7ed39bc59ccbfdb1729e458488dd6e12443f758cbf2478e1ff37",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "43bf0a10efd66d08266eb3f59fb2ce878bad9a0f637f7248357943defbcfd174",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1670,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 4,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 5,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 22180,
+          "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+        }
+      ],
+      "resultFingerprint": "ebffc62ea6447ab4ea89b3be7b4279101dffc5c61de78997ffb17d7c74f20ddf",
+      "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1670,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 5,
+      "baselineProposedDisposition": "GENERATED_DUPLICATE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 6,
+      "ruleId": "js/xss-through-dom",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 22183,
+          "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+        }
+      ],
+      "resultFingerprint": "9004ca4560ac9556ab48a5da6bb30c1f5a29f15d02b47a705c7f4ea56825afd7",
+      "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1670,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 6,
+      "baselineProposedDisposition": "GENERATED_DUPLICATE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 7,
+      "ruleId": "js/bad-tag-filter",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/message-receipts.test.js",
+          "line": 236,
+          "sourceSha256": "5435188cf8472419338dae249440304b34fa6c46a3af48b3318cf3d3c8e58dd0"
+        }
+      ],
+      "resultFingerprint": "538d54ec4e9e8f9e188039e63878becedf6934987180ab035e7530d2aed55df4",
+      "sourceSha256": "5435188cf8472419338dae249440304b34fa6c46a3af48b3318cf3d3c8e58dd0",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "64f57d32c889c4b6cbc3b35dc190e88ed8208c24ebb848b79326350fa8a848ab",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1237,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 7,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 8,
+      "ruleId": "js/incomplete-sanitization",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 5210,
+          "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00"
+        }
+      ],
+      "resultFingerprint": "04dfa428a59ef0f3396562d7587a80d22f24c2cb93b6c2192ae943572533df71",
+      "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1234,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 8,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 9,
+      "ruleId": "js/incomplete-sanitization",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 5405,
+          "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00"
+        }
+      ],
+      "resultFingerprint": "f36d3685316cbc0575028db3a2a0b4858bb912d285f55e6d2dea23532a7867a0",
+      "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1234,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 9,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 10,
+      "ruleId": "js/insecure-randomness",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "src/marketplace/video-playback.js",
+          "line": 329,
+          "sourceSha256": "1cf4e5e5eaee8ac041668ef18aa036ee49730d2978e13ac148aff74f66c280ff"
+        }
+      ],
+      "resultFingerprint": "22c296189ad6b39773540d108e15f01fab53ac34af0003710da387fd9231a4d2",
+      "sourceSha256": "1cf4e5e5eaee8ac041668ef18aa036ee49730d2978e13ac148aff74f66c280ff",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "4ea0ec895841d8b26db5eb300cb60aab89d71693a0c47b428407b98c19b5927b",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1666,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 10,
+      "baselineProposedDisposition": "NON_SECURITY_RANDOM_REVIEW_REQUIRED"
+    },
+    {
+      "result": 11,
+      "ruleId": "js/insecure-randomness",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 13809,
+          "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+        }
+      ],
+      "resultFingerprint": "ea40e7e77641b61891c7a41fad7e2e04fd53ca7b5da629417b610f63193a82de",
+      "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1666,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 11,
+      "baselineProposedDisposition": "GENERATED_DUPLICATE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 12,
+      "ruleId": "js/incomplete-url-substring-sanitization",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 3382,
+          "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00"
+        }
+      ],
+      "resultFingerprint": "3afb4fb96b2e53356e801dc49ca9d17ab032b2f651824c4ebbf1b7e0127bb1e1",
+      "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1246,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 12,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 13,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/backup-legacy-private-media.js",
+          "line": 122,
+          "sourceSha256": "1afb5315582818b713ff4e272bae4788c8340771184e55b46ef6e028f201089a"
+        }
+      ],
+      "resultFingerprint": "d4058ce45d546f0c044c956cedecd438d24a9dcebbdf7316f41d418eb6b1ec4b",
+      "sourceSha256": "1afb5315582818b713ff4e272bae4788c8340771184e55b46ef6e028f201089a",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "5ae8a5c733ce37dfceae36675592449b156bcaad1138bf144c601043baca3fb2",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 13,
+      "baselineProposedDisposition": "FIX_IMPLEMENTED_RESCAN_REQUIRED"
+    },
+    {
+      "result": 14,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/legacy-public-media.js",
+          "line": 113,
+          "sourceSha256": "9f6b2b35b0d38a34c78250a8dfe38caf1c0156e1b2c64d9c169c26e9869df34f"
+        }
+      ],
+      "resultFingerprint": "e108af97ddc2fc1238c20d1b6b44991c0735f742a3ad0fe9ae2b1db60d0069c9",
+      "sourceSha256": "9f6b2b35b0d38a34c78250a8dfe38caf1c0156e1b2c64d9c169c26e9869df34f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "cc582da49d1b7c7e5294a02acf9266d7484db30ad08998e2216643b49ac74411",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 14,
+      "baselineProposedDisposition": "FIX_IMPLEMENTED_RESCAN_REQUIRED"
+    },
+    {
+      "result": 15,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/stable-local-file.js",
+          "line": 16,
+          "sourceSha256": "ac76b8dea98529e013d15c350882bb2a0d5f25e432a594bf2e4055174489b727"
+        }
+      ],
+      "resultFingerprint": "577e0925a70dd8756c75b86bf0b0d6d8d5d450baa3945b9462b0b0dc5109e585",
+      "sourceSha256": "ac76b8dea98529e013d15c350882bb2a0d5f25e432a594bf2e4055174489b727",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "9300c2de69f5377f45717c8005ce9a84660d7b5fc148543a6622338843591fc6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 15,
+      "baselineProposedDisposition": "FIX_IMPLEMENTED_RESCAN_REQUIRED"
+    },
+    {
+      "result": 16,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 619,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "7b67788634a522fb17465c364b09feffa3a05c7b832c707b713d8056bdceda68",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1246,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 16,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 17,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/copy-legacy-public-media.test.js",
+          "line": 176,
+          "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032"
+        }
+      ],
+      "resultFingerprint": "a7d035e0b868ac428995f62795f2ac1cbadcf639b46d3b6fa854362db778cef5",
+      "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "f47cb71509aab7280237707196a1f3a8ce3e65ac7f94a25e8a7d25af39643c44",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 17,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 18,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/copy-legacy-public-media.test.js",
+          "line": 210,
+          "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032"
+        }
+      ],
+      "resultFingerprint": "c7cb91079f25d763995c54da2cd75e49738dc875899e15b8d05433ef7bbe2bd0",
+      "sourceSha256": "0c1335ce29ca8852b7c58525ae3675f80153943d1d778970b931c8035ad62032",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "f47cb71509aab7280237707196a1f3a8ce3e65ac7f94a25e8a7d25af39643c44",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 18,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 19,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 995,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "dd97fca0c6f5d8b4ddf69eede7b538011d48a52ff80452c5c5656981b2302fc6",
+      "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 19,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 20,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 1035,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "904de298bb457e5ae83a3a75420872bcbde6987bc4d8b2d7247e150ddb4a1d2b",
+      "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 20,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 21,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/conversation-codeql-gate.test.js",
+          "line": 1383,
+          "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4"
+        }
+      ],
+      "resultFingerprint": "06fea3da13fad4cef58b108a883feeabc538baee991ed7b0933a50193d7e612d",
+      "sourceSha256": "7f5d69c9f73b0266b67535b4e7ece6742032f9ed3bfc118a3ef80b94d28017c4",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3fe6d3a9795c072189f540535c2aff7fb9cc5cb8a8823b66da5ac81040e2bfa6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 21,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 22,
+      "ruleId": "js/file-system-race",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/helpers/phoenix-fixture-startup.js",
+          "line": 24,
+          "sourceSha256": "916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8"
+        }
+      ],
+      "resultFingerprint": "bf10b7ce29bbdbd983e4c5d83b49d56d2be2f3ec7c98108df0a53a410a2403c6",
+      "sourceSha256": "916f56bc46daad160733d7bd61e67710385d2b95e084eec2f27525fa4da78ca8",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "fb0ce679e0cc461fb044bb196204f4a0b8503452ba4cef9cc49b89caf159e71b",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1245,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 22,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 23,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 266,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "8b27fd1ee177f1b4a1956fa6b06ea1f081a6cc4d4b967923ed949f22705e49fb",
+      "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2221,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 23,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 24,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/intelligence-platform.js",
+          "line": 313,
+          "sourceSha256": "60fc5f028f51488e7051b8da107bebe3242826750e3a55e32058d4f8ac39055c"
+        }
+      ],
+      "resultFingerprint": "e66d97f52c2e5f827dd66da982e263ace9fd86a24789e0c361841323bf2c949a",
+      "sourceSha256": "60fc5f028f51488e7051b8da107bebe3242826750e3a55e32058d4f8ac39055c",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "097998966d0fe99a0e402b063f4784e006e71869aa33831467c0b97184e0adce",
+        "selectedCount": 2,
+        "unreferencedCount": 564,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 4013,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 24,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 25,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 3848,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "0fae72d201219e943b5e0be2618cc45ef5c1f570daa85f51493e1a63d84b75cf",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1404,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 25,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 26,
+      "ruleId": "js/remote-property-injection",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 3850,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "e75ebc40fab8bd07ca98afbd3c0735d0f54fd15a5e08ff2baaf0d4aa39454bff",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1404,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 26,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 27,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/conversation-transport.js",
+          "line": 92,
+          "sourceSha256": "2dd4a11d0f7b53a90f483a3b470eba9242fa8b6064d0b8c718a593ea741edc05"
+        }
+      ],
+      "resultFingerprint": "5de05092418d1e07f833879620f1783d4373ff41eaa7e89beb2b02ad10913262",
+      "sourceSha256": "2dd4a11d0f7b53a90f483a3b470eba9242fa8b6064d0b8c718a593ea741edc05",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ca3edd3abf126dff824d4e8e51e899e25a84a2a05100ba7bced0bfc9aae0003f",
+        "selectedCount": 2,
+        "unreferencedCount": 564,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1492,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 27,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 28,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-native-history.js",
+          "line": 37,
+          "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8"
+        }
+      ],
+      "resultFingerprint": "0c09a613eb2fa31889d145a08b270e72614a9b9eed330304f024bd2c5d6d0e13",
+      "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "2651d16a4a78504b39a9949d21c4f4a09499f3d06e52001c666ae4cca96b10b5",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2189,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 28,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 29,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-native-history.js",
+          "line": 60,
+          "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8"
+        }
+      ],
+      "resultFingerprint": "dd7a9fce45caf4e6abe17b3e05fce3bcbf43d00aee1ac08971c56587e44fddee",
+      "sourceSha256": "feff602c4d6eb7059655a2d99380dabdc218e4c48327370845b753a1aacef6e8",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "2651d16a4a78504b39a9949d21c4f4a09499f3d06e52001c666ae4cca96b10b5",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2202,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 29,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 30,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 108,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "58d83a93be66f8189504f727114416579a674724a8393dc3645686cca5a3e3cb",
+      "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2202,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 30,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 31,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 261,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "9e5e003fc60f3b30cd32e00f9e3b75c4d98f4a1770d8d86315a53fa7f9cb5124",
+      "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2202,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 31,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 32,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 290,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "ec4aef1eab662ede27238fe0b1101bc9d616dd9dcb759bf58daae75a9081ac7f",
+      "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2202,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 32,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 33,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/encrypted-shopping-rooms.js",
+          "line": 294,
+          "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f"
+        }
+      ],
+      "resultFingerprint": "c25b83da43b089529152e28a1661e122ee82c635c4838461c5b608f3007e63bc",
+      "sourceSha256": "1eb7edad0bd43e3094dc89041992305b228bcfc810e4a7cafb844de260449f2f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "ebf062f179cd1ff053b1be01be1d76c8ce7523d71d5008e40e54484caed59bdd",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2488,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 33,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 34,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 68,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "7c09d15bd2b7e10edeb0fedb6db16383f2ef96a4c710a5c1a31e60c0540f57dd",
+      "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "14c1d6815052cc196c538a8d558c859242b90e93b0d68192e2c054ddc3857b75",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2280,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 34,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 35,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 103,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "cff2b83812c280efc06cd46011cca9e32e2a7b29d8b26ac2498931d2a5c1e658",
+      "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "14c1d6815052cc196c538a8d558c859242b90e93b0d68192e2c054ddc3857b75",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2189,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 35,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 36,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 115,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "5b78a4cd62f2e85eab2071d97d63a5786b773ebef857329ee8b70844fa40c4c1",
+      "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "14c1d6815052cc196c538a8d558c859242b90e93b0d68192e2c054ddc3857b75",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2189,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 36,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 37,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 126,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "9ada7e8a5f6dd58a58fb3b53e0006dadd5ab0fcb8152f496857ae1677c8322db",
+      "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "14c1d6815052cc196c538a8d558c859242b90e93b0d68192e2c054ddc3857b75",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2189,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 37,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 38,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/growth-loop-invites.js",
+          "line": 137,
+          "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67"
+        }
+      ],
+      "resultFingerprint": "a723e29ef2b1a7ae9eb2a2f687bf94a64f6ea3091b60f3e50cdaaaff65a5fb0d",
+      "sourceSha256": "86257740c7742100861feaf120edd3bb739c7fd896ef2fba139473b35347aa67",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "14c1d6815052cc196c538a8d558c859242b90e93b0d68192e2c054ddc3857b75",
+        "selectedCount": 4,
+        "unreferencedCount": 562,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2189,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 38,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 39,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 7977,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "0c4c34584681841a981b87b98cce5a67407cdba41292b7c8b95c2e09c7628798",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1448,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 39,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 40,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 10357,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "74c2c2d8e0b564413cb84fe07a4b6b414db276c1d4a0ee44d4c8a50c95832b4a",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1445,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 40,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 41,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 10502,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "82a2b97ebaf75a14b51150f909242137f0204ef63c70469857739c43c424e7b2",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1445,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 41,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 42,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 11310,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "936e732dda8e86ab52de8b0aab708d32edfc7cd78da12108b9799ed7d9fc3690",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1527,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 42,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 43,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 19787,
+          "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+        }
+      ],
+      "resultFingerprint": "1259558436374ff440d14fcb5bc8fd7a373d48f7bf0c24cdce6dc5958268c40a",
+      "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1423,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 43,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 44,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "backend/server.js",
+          "line": 14853,
+          "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec"
+        }
+      ],
+      "resultFingerprint": "fb3cb4571262caf7f0562bb6113e47f061a0f4295c9573cac5e3f0959100efa5",
+      "sourceSha256": "d988b94ef50637069505a09f2abac3cadae753c07d0d2eeb89c3c562faa509ec",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "3736b05f15226e52b268be47b8320379c8ff50ec8656fdd6a58f462303185363",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1418,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 44,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 45,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 24422,
+          "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+        }
+      ],
+      "resultFingerprint": "ef75d97c772ea57231022815925dd32790b55d01b90bc8fd69d54a30e2575a39",
+      "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1449,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 45,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 46,
+      "ruleId": "js/user-controlled-bypass",
+      "level": "error",
+      "locations": [
+        {
+          "path": "app.js",
+          "line": 25944,
+          "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+        }
+      ],
+      "resultFingerprint": "2af6ee9636468721fc104c6723c8dd6e437e478694e6ddfd2613b1ffa38605a0",
+      "sourceSha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "9942883bcdd845915c1b0da2724fba4681c774e8f8a252e0145920e155caa11a",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1397,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 46,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 47,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "scripts/build-vercel-static.js",
+          "line": 721,
+          "sourceSha256": "1a550be39f5793373ca36aeac0d836eee36b10652b29443927026dbac24987c9"
+        }
+      ],
+      "resultFingerprint": "66dbec5ae4e9de54fbe2e387276512ab61f2cdf48c7fd7e9a299b9b2bdb34e0b",
+      "sourceSha256": "1a550be39f5793373ca36aeac0d836eee36b10652b29443927026dbac24987c9",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "f2ef7eeef40ab41be60ea36027802caf04a2f3ef230e7f4d811ff95eab4943d7",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 4856,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 47,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 48,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "scripts/build-vercel-static.js",
+          "line": 973,
+          "sourceSha256": "1a550be39f5793373ca36aeac0d836eee36b10652b29443927026dbac24987c9"
+        }
+      ],
+      "resultFingerprint": "8089e393766349e95e6bbfeae1524e5e12c6031cf191418db053e65b5d8c23ef",
+      "sourceSha256": "1a550be39f5793373ca36aeac0d836eee36b10652b29443927026dbac24987c9",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "f2ef7eeef40ab41be60ea36027802caf04a2f3ef230e7f4d811ff95eab4943d7",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 5044,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 48,
+      "baselineProposedDisposition": "SOURCE_GUARDED_REVIEW_REQUIRED"
+    },
+    {
+      "result": 49,
+      "ruleId": "js/http-to-file-access",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/e2e/start-servers.js",
+          "line": 443,
+          "sourceSha256": "495f03dd3b2dcf376450208585330fd0fdb11b628cf5397c081d57271bcc25d9"
+        }
+      ],
+      "resultFingerprint": "244553add5ece061269c99dec09eb1630ab332e806875ae82f5e933a80a236bb",
+      "sourceSha256": "495f03dd3b2dcf376450208585330fd0fdb11b628cf5397c081d57271bcc25d9",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "289cfeacc846a605c6e8bf4bcabc125e03c6f0f4b5b10b9913e8ebf698e48712",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 2503,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 49,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 50,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "src/marketplace/gallery.js",
+          "line": 223,
+          "sourceSha256": "1ec1864ef295ebb822917bf8500308086eab980f08f7b7b3aab46597dc08dba2"
+        }
+      ],
+      "resultFingerprint": "6cc8f555309bef433cd50838eb87739888809b039941ac62ea43f8dea924bbdb",
+      "sourceSha256": "1ec1864ef295ebb822917bf8500308086eab980f08f7b7b3aab46597dc08dba2",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "e861378022232dd1d8341e67fca6ed1ba2f67cd9eb6e1e9a12ee0a164c22c2e3",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1232,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 50,
+      "baselineProposedDisposition": "CONSERVATIVE_EXCLUSION_REVIEW_REQUIRED"
+    },
+    {
+      "result": 51,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 386,
+          "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00"
+        }
+      ],
+      "resultFingerprint": "a7d0be4fd5245dbc1b920f0dcbb91345920ccd20e02beb94892d2eb1df7c56a5",
+      "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1232,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 51,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 52,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "tests/frontend-core.test.js",
+          "line": 3461,
+          "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00"
+        }
+      ],
+      "resultFingerprint": "2b4c7f83e700c768246876e68cfb116b33c64ff59f8b00d4ebaf49b0d42c56b6",
+      "sourceSha256": "ad16ff525654299885a5ee138ce4481edf0e394512b0b5fd81435acef8f06d00",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "a6c286d8b1aee86fc8994eec98be6232665dde1457dc938350958826f4ee0c75",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1232,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 52,
+      "baselineProposedDisposition": "TEST_FIXTURE_REVIEW_REQUIRED"
+    },
+    {
+      "result": 53,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "worker.js",
+          "line": 1172,
+          "sourceSha256": "2f02bf3a5030c4dabf2bcafb10f2c8892f6fd31bb4a977a643e517aa4d39c3da"
+        }
+      ],
+      "resultFingerprint": "e69e28e3a87f26374df9df78c17ee1e8304e485ac04d9492f05d6c0a1ca46e66",
+      "sourceSha256": "2f02bf3a5030c4dabf2bcafb10f2c8892f6fd31bb4a977a643e517aa4d39c3da",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "c34bed8c9d00cd939e2672be7ee06c79ce0ad04112dfbb0fbad506416ecb9af3",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1232,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 53,
+      "baselineProposedDisposition": "CONSERVATIVE_EXCLUSION_REVIEW_REQUIRED"
+    },
+    {
+      "result": 54,
+      "ruleId": "js/regex/missing-regexp-anchor",
+      "level": "warning",
+      "locations": [
+        {
+          "path": "winga-modules.js",
+          "line": 9338,
+          "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+        }
+      ],
+      "resultFingerprint": "137462fdc6fb74ddcc76eb2d49ee51830c3ffeb6da41dab463bfb752cd7eacff",
+      "sourceSha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1",
+      "artifactClosure": {
+        "version": 2,
+        "eligible": true,
+        "sha256": "62abc762b5f25f7e8ac235b96fc13d92c7b983b3d02a38453530b406e63740d6",
+        "selectedCount": 1,
+        "unreferencedCount": 565,
+        "unindexedReferences": 2,
+        "unmatchedUriReferences": 2,
+        "absoluteFileReferences": 2,
+        "fileAliasMatches": 0,
+        "workCount": 1232,
+        "workLimit": 1000000
+      },
+      "independentDecision": null,
+      "accepted": false,
+      "baselineResult": 54,
+      "baselineProposedDisposition": "GENERATED_DUPLICATE_REVIEW_REQUIRED"
+    }
+  ],
+  "sourceComparison": {
+    "all55RuleAndPrimaryPathGroupsMatchBaseline": true,
+    "primarySourceSha256VerifiedAgainstCommit": true,
+    "primarySourceChangedResultsSince50585d50": [
+      0,
+      1,
+      13,
+      14,
+      15,
+      49
+    ],
+    "independentAcceptanceClaimed": false
+  },
+  "fullFlowProjection": {
+    "path": "docs/evidence/conversations-tls-codeql-flows-20261014.json",
+    "runId": 38586563121,
+    "jobId": 115929998516,
+    "projectionCommit": "25dd900afbadf39972b148c39b89b7701020d782",
+    "reportSha256": "57683b5ae9ed11212fe77e4968c4232ec5983212159a85d0c07e1d22e69b64e2",
+    "all55MessagesAndPathFlowShapesMatchBaseline": true,
+    "coordinateOrArtifactIndexChangedResults": [
+      15,
+      49
+    ],
+    "truncatedThreads": 0,
+    "independentReviewAccepted": false
+  }
+}
