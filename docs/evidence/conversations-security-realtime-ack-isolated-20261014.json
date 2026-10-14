@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-14",
+  "sourceBaseline": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+  "contractInputComplete": false,
+  "completeReceivedSections": [
+    0,
+    53
+  ],
+  "partialSection": 54,
+  "productionReady": false,
+  "sourceHashes": {
+    "src/chat/mls-runtime.mjs": "5325817b402f47a2b050429f7f50cb8b778c41041285fedc1cffa88b9dcd6a0b",
+    "tests/mls-runtime.test.mjs": "a011a73dbb28f48c0fcbe079bfab33264fa6cb9204f23bee18ea3f8ba709ab93",
+    "tests/e2e/mls-runtime.spec.js": "fdc7c90a9db75ca12885d25dc18fbefec1cf6f2db3fed6da7b9bfc8c0d4442fd",
+    "tests/e2e/encrypted-transport.spec.js": "47d49e857bb8a4bd0fad56d42bfdda103264beb2d37a9c67440e47e011e272f5"
+  },
+  "verification": {
+    "runtime": {
+      "passed": 57,
+      "failed": 0,
+      "skipped": 0,
+      "topLevel": 49,
+      "newInvalidAckCases": 8
+    },
+    "encryptedBrowser": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed": "3.6m"
+    },
+    "canonicalPartialAckHttpFixture": {
+      "passed": 1,
+      "sqlAdapter": "PGlite",
+      "independentPostgresConnections": false,
+      "physicalDevices": false
+    },
+    "catalogs": {
+      "locales": 4,
+      "keys": 1766,
+      "version": "2026.10.14.1",
+      "newHardcodedDebt": 0
+    },
+    "modules": 98
+  },
+  "limits": [
+    "No real user messaging/device approval or feature switch changes.",
+    "No cryptographic primitive, MLS wire format, schema or server ID allocation change.",
+    "Existing plaintext compatibility and independent cryptographic review remain open.",
+    "Contract continuation is pending; complete text beyond partial section54 not inferred."
+  ]
+}

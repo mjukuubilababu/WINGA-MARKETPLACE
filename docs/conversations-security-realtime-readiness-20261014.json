@@ -1,0 +1,941 @@
+{
+  "schemaVersion": 1,
+  "contract": "WINGA CONVERSATIONS SECURITY & REALTIME CONTRACT v1.0",
+  "receivedAt": "2026-10-14",
+  "sourceBaseline": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+  "inputComplete": false,
+  "completeReceivedSections": {
+    "first": 0,
+    "last": 53
+  },
+  "partialSection": 54,
+  "inputNote": "User replied naangalia while looking for the remainder. No missing sections are invented.",
+  "productionReady": false,
+  "sourceClassificationsAreNotAcceptance": true,
+  "requirements": [
+    {
+      "section": 0,
+      "title": "CORE ARCHITECTURAL DECISION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Platform commerce/auth remains outside Phoenix; canonical PostgreSQL writer/event ledger and supervised bounded Phoenix service exist. Deployed failure/capacity acceptance remains open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-conversations.js"
+      ],
+      "openGates": [
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 1,
+      "title": "SECURITY PRINCIPLE",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Native encrypted path stores ciphertext/proofs/metadata. Explicit legacy plaintext compatibility remains; this is not universal E2EE deployment acceptance or retrospective encryption of old history.",
+      "sources": [
+        "backend/encrypted-conversations.js",
+        "backend/conversation-security-mode.js",
+        "src/api/communications-client.js"
+      ],
+      "openGates": [
+        "LEGACY",
+        "CRYPTO",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 2,
+      "title": "DO NOT INVENT CRYPTOGRAPHY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Established MLS implementation and WebCrypto/noble primitives are reused; this audit adds no custom crypto. Integration/library independent review remains required.",
+      "sources": [
+        "src/chat/mls-runtime.mjs",
+        "package.json",
+        "docs/conversation-crypto-feasibility.md"
+      ],
+      "openGates": [
+        "CRYPTO"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 3,
+      "title": "PROTOCOL EVALUATION",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Signal/MLS/OpenMLS/native/browser tradeoffs are documented. MLS/ts-mls candidate is integrated and pinned, but reviewed production-library selection and physical mobile acceptance are not complete.",
+      "sources": [
+        "docs/conversations-foundation-contract.md",
+        "docs/conversation-crypto-feasibility.md",
+        "docs/e2ee-runtime-integration.md",
+        "package.json"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 4,
+      "title": "C/C++ CRYPTO CORE",
+      "sourceStatus": "CONDITIONAL",
+      "evidence": "No Winga C/C++ crypto core is selected. Do not invent one to tick conditional requirements. Relevant dependency/parser/browser and independent protocol review still applies.",
+      "sources": [
+        "docs/conversation-crypto-feasibility.md",
+        "docs/e2ee-internal-security-review.md",
+        "package.json"
+      ],
+      "openGates": [
+        "CRYPTO"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 5,
+      "title": "MEMORY SAFETY REVIEW",
+      "sourceStatus": "CONDITIONAL",
+      "evidence": "No Winga C/C++ crypto core is selected. Do not invent one to tick conditional requirements. Relevant dependency/parser/browser and independent protocol review still applies.",
+      "sources": [
+        "docs/conversation-crypto-feasibility.md",
+        "docs/e2ee-internal-security-review.md",
+        "package.json"
+      ],
+      "openGates": [
+        "CRYPTO"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 6,
+      "title": "DEVICE IDENTITY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Device-generated nonextractable Ed25519 identity, owner/session-bound public registry, pending approval and revocation tombstones. Replacement is represented by native retirement/revocation, not a new registry REPLACED enum.",
+      "sources": [
+        "src/chat/crypto-devices.js",
+        "backend/conversation-crypto-devices.js",
+        "backend/encrypted-membership-replacement.js"
+      ],
+      "openGates": [
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 7,
+      "title": "DEVICE REGISTRATION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Device-generated nonextractable Ed25519 identity, owner/session-bound public registry, pending approval and revocation tombstones. Replacement is represented by native retirement/revocation, not a new registry REPLACED enum.",
+      "sources": [
+        "src/chat/crypto-devices.js",
+        "backend/conversation-crypto-devices.js",
+        "backend/encrypted-membership-replacement.js"
+      ],
+      "openGates": [
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 8,
+      "title": "ADDING A DEVICE",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Explicit signed device approval/revocation and five-second refresh in the open device manager exist. No always-available durable cryptographic security-event notification stream was found; appVersion/name/date-rich device view is limited.",
+      "sources": [
+        "src/chat/device-management-ui.js",
+        "src/chat/crypto-devices.js",
+        "backend/conversation-crypto-devices.js"
+      ],
+      "openGates": [
+        "DEVICE_NOTICES",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 9,
+      "title": "DEVICE REVOCATION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Native epoch/device admission/removal/replacement freezes writers and requires retained/new authorized endpoint acceptances. Revoked devices are denied; deleting a socket is not the crypto membership transition.",
+      "sources": [
+        "backend/encrypted-device-admissions.js",
+        "backend/encrypted-membership-replacement.js",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/mls-room-operations.mjs"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 10,
+      "title": "IDENTITY VERIFICATION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Full fingerprint obtained independently is required; pinned package identities are checked and changed keys cannot silently inherit trust. QR and key transparency are not established by fingerprint UX.",
+      "sources": [
+        "src/chat/encryption-ui.js",
+        "src/chat/encryption-session.js",
+        "src/chat/mls-runtime.mjs"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 11,
+      "title": "MESSAGE ENVELOPE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Versioned signed native operation wraps MLS ciphertext, routing and optional opaque media reference. Private content/keys remain at endpoints.",
+      "sources": [
+        "backend/encrypted-conversations.js",
+        "backend/encrypted-content-contract.js",
+        "src/chat/mls-runtime.mjs"
+      ],
+      "openGates": [
+        "CRYPTO"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 12,
+      "title": "MESSAGE IDENTITY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Logical UUID and exact ciphertext are staged before transmission; server adopts the validated UUID as its canonical encrypted message ID. Matching retries return the same row; different binding conflicts. This is not two independently allocated IDs.",
+      "sources": [
+        "src/chat/mls-runtime.mjs",
+        "backend/encrypted-conversations.js",
+        "tests/encrypted-conversations.test.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 13,
+      "title": "DURABLE ACK CONTRACT",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Canonical store responds after withTransaction commit. Direct client partial ACK gap fixed: committed ISO time and decimal server sequence required before SENT/outbox retirement, matching existing Room validation. Eight invalid-ACK cases retain exact work; actual isolated HTTP/PGlite reload reconciliation proves one row.",
+      "sources": [
+        "backend/encrypted-conversations.js",
+        "src/chat/mls-runtime.mjs",
+        "tests/mls-runtime.test.mjs",
+        "tests/e2e/encrypted-transport.spec.js"
+      ],
+      "openGates": [
+        "LIVE",
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 14,
+      "title": "DELIVERY STATE MACHINE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Pending/exact retry and sender/recipient signed message-state evidence exist. A socket attempt is not Delivered; own sibling sync is not peer Delivered/Read. True receipt can independently reconcile accepted work; physical UI/state acceptance remains open.",
+      "sources": [
+        "src/chat/mls-runtime.mjs",
+        "src/chat/encryption-session.js",
+        "backend/encrypted-conversations.js",
+        "tests/encrypted-conversations.test.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 15,
+      "title": "SENT",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Canonical store responds after withTransaction commit. Direct client partial ACK gap fixed: committed ISO time and decimal server sequence required before SENT/outbox retirement, matching existing Room validation. Eight invalid-ACK cases retain exact work; actual isolated HTTP/PGlite reload reconciliation proves one row.",
+      "sources": [
+        "backend/encrypted-conversations.js",
+        "src/chat/mls-runtime.mjs",
+        "tests/mls-runtime.test.mjs",
+        "tests/e2e/encrypted-transport.spec.js"
+      ],
+      "openGates": [
+        "LIVE",
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 16,
+      "title": "DELIVERED",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Pending/exact retry and sender/recipient signed message-state evidence exist. A socket attempt is not Delivered; own sibling sync is not peer Delivered/Read. True receipt can independently reconcile accepted work; physical UI/state acceptance remains open.",
+      "sources": [
+        "src/chat/mls-runtime.mjs",
+        "src/chat/encryption-session.js",
+        "backend/encrypted-conversations.js",
+        "tests/encrypted-conversations.test.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 17,
+      "title": "READ",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Pending/exact retry and sender/recipient signed message-state evidence exist. A socket attempt is not Delivered; own sibling sync is not peer Delivered/Read. True receipt can independently reconcile accepted work; physical UI/state acceptance remains open.",
+      "sources": [
+        "src/chat/mls-runtime.mjs",
+        "src/chat/encryption-session.js",
+        "backend/encrypted-conversations.js",
+        "tests/encrypted-conversations.test.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 18,
+      "title": "OFFLINE DELIVERY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Encrypted durable endpoint outbox, same-ID reload/reconnect retry and bounded authorized monotonic device/event replay are implemented. Legacy queue is separate. Retention and physical closed-app recovery acceptance remains open.",
+      "sources": [
+        "src/chat/encrypted-vault.js",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/device-receipts.js",
+        "backend/message-replay.js",
+        "docs/conversation-events-device-queues.md"
+      ],
+      "openGates": [
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 19,
+      "title": "OFFLINE SEND QUEUE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Encrypted durable endpoint outbox, same-ID reload/reconnect retry and bounded authorized monotonic device/event replay are implemented. Legacy queue is separate. Retention and physical closed-app recovery acceptance remains open.",
+      "sources": [
+        "src/chat/encrypted-vault.js",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/device-receipts.js",
+        "backend/message-replay.js",
+        "docs/conversation-events-device-queues.md"
+      ],
+      "openGates": [
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 20,
+      "title": "RECONNECT / RESUME",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Encrypted durable endpoint outbox, same-ID reload/reconnect retry and bounded authorized monotonic device/event replay are implemented. Legacy queue is separate. Retention and physical closed-app recovery acceptance remains open.",
+      "sources": [
+        "src/chat/encrypted-vault.js",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/device-receipts.js",
+        "backend/message-replay.js",
+        "docs/conversation-events-device-queues.md"
+      ],
+      "openGates": [
+        "MOBILE",
+        "LIVE",
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 21,
+      "title": "EVENT ORDERING",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Server sequences and sequence-aware canonical pager exist; Room history uses native sequence. Direct runtime history and some mixed legacy/encrypted projections still sort by timestamp. Scope/migration ordering must be hardened without comparing unrelated sequence domains.",
+      "sources": [
+        "src/chat/pagination.js",
+        "src/chat/mls-runtime.mjs",
+        "src/api/communications-client.js",
+        "src/chat/mls-room-operations.mjs"
+      ],
+      "openGates": [
+        "ORDERING"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 22,
+      "title": "REALTIME PLANE \u2014 BEAM",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Presence/typing features are absent; native fan-out and deployed measurement acceptance remain open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-shopping-rooms.js"
+      ],
+      "openGates": [
+        "EPHEMERAL",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 23,
+      "title": "START SIMPLE, SCALE HORIZONTALLY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Platform commerce/auth remains outside Phoenix; canonical PostgreSQL writer/event ledger and supervised bounded Phoenix service exist. Deployed failure/capacity acceptance remains open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-conversations.js"
+      ],
+      "openGates": [
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 24,
+      "title": "STATE OWNERSHIP",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Platform commerce/auth remains outside Phoenix; canonical PostgreSQL writer/event ledger and supervised bounded Phoenix service exist. Deployed failure/capacity acceptance remains open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-conversations.js"
+      ],
+      "openGates": [
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 25,
+      "title": "PROCESS FAILURE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Platform commerce/auth remains outside Phoenix; canonical PostgreSQL writer/event ledger and supervised bounded Phoenix service exist. Deployed failure/capacity acceptance remains open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-conversations.js"
+      ],
+      "openGates": [
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 26,
+      "title": "NODE FAILURE",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Owned two-Phoenix-node/native retry and node-loss fixtures exist. Deployed failure, regional routing and physical reconnection evidence is not inferred; earlier operator declined extra paid scaling.",
+      "sources": [
+        "tests/helpers/phoenix-encrypted-native-exercise.js",
+        "tests/phoenix-transport.test.js",
+        "docs/conversations-completion-gates.md"
+      ],
+      "openGates": [
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 27,
+      "title": "BACKPRESSURE",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Finite socket heap/mailbox/frame/request limits, durable quotas, Room limits and bounded pending batches exist. Larger real fan-out/slow-reader/overload capacity is not proven.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "backend/encrypted-room-limits.js",
+        "tests/helpers/phoenix-load-exercise.js"
+      ],
+      "openGates": [
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 28,
+      "title": "PRESENCE",
+      "sourceStatus": "MISSING",
+      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "src/chat/ui.js"
+      ],
+      "openGates": [
+        "EPHEMERAL"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 29,
+      "title": "MULTI-DEVICE PRESENCE",
+      "sourceStatus": "MISSING",
+      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "src/chat/ui.js"
+      ],
+      "openGates": [
+        "EPHEMERAL"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 30,
+      "title": "TYPING INDICATORS",
+      "sourceStatus": "MISSING",
+      "evidence": "No dedicated Phoenix Presence/typing runtime or public device-derived presence was found. UI labels are Last message, not invented Online. Implement with opt-in audience, TTL, per-device authorization, bounded ephemeral fan-out, block enforcement and lower priority than delivery.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/application.ex",
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "src/chat/ui.js"
+      ],
+      "openGates": [
+        "EPHEMERAL"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 31,
+      "title": "SHOPPING ROOM REALTIME",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Phoenix authenticated native routing/resume and Room dispatch share a bounded plane. Durable Room state remains canonical. Presence/typing features are absent; native fan-out and deployed measurement acceptance remain open.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "backend/conversation-transport.js",
+        "backend/encrypted-shopping-rooms.js"
+      ],
+      "openGates": [
+        "EPHEMERAL",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 32,
+      "title": "GROUP ENCRYPTION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Native epoch/device admission/removal/replacement freezes writers and requires retained/new authorized endpoint acceptances. Revoked devices are denied; deleting a socket is not the crypto membership transition.",
+      "sources": [
+        "backend/encrypted-device-admissions.js",
+        "backend/encrypted-membership-replacement.js",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/mls-room-operations.mjs"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 33,
+      "title": "LARGE ROOM FAN-OUT",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Finite socket heap/mailbox/frame/request limits, durable quotas, Room limits and bounded pending batches exist. Larger real fan-out/slow-reader/overload capacity is not proven.",
+      "sources": [
+        "services/conversations/lib/winga_conversations/device_channel.ex",
+        "backend/encrypted-room-limits.js",
+        "tests/helpers/phoenix-load-exercise.js"
+      ],
+      "openGates": [
+        "CAPACITY"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 34,
+      "title": "ATTACHMENT E2EE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Endpoint-encrypted AEAD media, encrypted key descriptors, private authorization/immutability/integrity, bounded drafts and exact retries exist. Storage/provider and physical-device acceptance remain open; no CDN plaintext processing promise.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/encrypted-media-ui.js",
+        "backend/conversation-private-media.js",
+        "backend/encrypted-media-ledger.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 35,
+      "title": "ATTACHMENT INTEGRITY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Endpoint-encrypted AEAD media, encrypted key descriptors, private authorization/immutability/integrity, bounded drafts and exact retries exist. Storage/provider and physical-device acceptance remain open; no CDN plaintext processing promise.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/encrypted-media-ui.js",
+        "backend/conversation-private-media.js",
+        "backend/encrypted-media-ledger.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 36,
+      "title": "ATTACHMENT RETRY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Endpoint-encrypted AEAD media, encrypted key descriptors, private authorization/immutability/integrity, bounded drafts and exact retries exist. Storage/provider and physical-device acceptance remain open; no CDN plaintext processing promise.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/encrypted-media-ui.js",
+        "backend/conversation-private-media.js",
+        "backend/encrypted-media-ledger.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 37,
+      "title": "ATTACHMENT LIMITS",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Endpoint-encrypted AEAD media, encrypted key descriptors, private authorization/immutability/integrity, bounded drafts and exact retries exist. Storage/provider and physical-device acceptance remain open; no CDN plaintext processing promise.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/encrypted-media-ui.js",
+        "backend/conversation-private-media.js",
+        "backend/encrypted-media-ledger.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 38,
+      "title": "PUSH NOTIFICATION PRIVACY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Canonical encrypted sends enqueue a generic durable background push, not plaintext message snippets; destination grants are owner/member-authorized. Actual provider/preference acceptance remains open.",
+      "sources": [
+        "backend/message-web-push.js",
+        "backend/encrypted-conversations.js",
+        "tests/encrypted-conversations.test.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 39,
+      "title": "METADATA MINIMIZATION",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Ciphertext/minimized proofs and aggregate-only metrics/report boundaries exist. Numeric metadata retention/erasure policy and approved operational data handling remain open.",
+      "sources": [
+        "backend/conversation-metrics.js",
+        "docs/conversations-foundation-contract.md",
+        "docs/conversation-queue-retention.md"
+      ],
+      "openGates": [
+        "RETENTION",
+        "CRYPTO"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 40,
+      "title": "DATABASE CONTENT",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Native encrypted path stores ciphertext/proofs/metadata. Explicit legacy plaintext compatibility remains; this is not universal E2EE deployment acceptance or retrospective encryption of old history.",
+      "sources": [
+        "backend/encrypted-conversations.js",
+        "backend/conversation-security-mode.js",
+        "src/api/communications-client.js"
+      ],
+      "openGates": [
+        "LEGACY",
+        "CRYPTO",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 41,
+      "title": "DATABASE ENCRYPTION",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Public TLS and bounded service credentials/config exist; at-rest/backup/least-privilege assurance needs infrastructure evidence. Enabled PG TLS currently sets rejectUnauthorized:false in pooled/listener clients: transport encryption is not certificate verification. Trusted provider CA rollout must be reviewed before tightening shared marketplace DB connectivity.",
+      "sources": [
+        "backend/db.js",
+        "backend/server.js",
+        "docs/conversations-foundation-contract.md"
+      ],
+      "openGates": [
+        "INFRA_TLS",
+        "RETENTION"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 42,
+      "title": "KEY STORAGE ON DEVICE",
+      "sourceStatus": "PARTIAL",
+      "evidence": "No private identity/ratchet keys in ordinary localStorage; encrypted IDB and nonextractable native keys plus no-script-inline/no-eval CSP exist. Browser same-origin compromise, permitted third-party script trust and physical secure-store/eviction guarantees need independent review/mobile acceptance.",
+      "sources": [
+        "src/chat/crypto-devices.js",
+        "src/chat/encrypted-vault.js",
+        "_headers",
+        "docs/conversation-crypto-feasibility.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 43,
+      "title": "WEB/PWA SECURITY",
+      "sourceStatus": "PARTIAL",
+      "evidence": "No private identity/ratchet keys in ordinary localStorage; encrypted IDB and nonextractable native keys plus no-script-inline/no-eval CSP exist. Browser same-origin compromise, permitted third-party script trust and physical secure-store/eviction guarantees need independent review/mobile acceptance.",
+      "sources": [
+        "src/chat/crypto-devices.js",
+        "src/chat/encrypted-vault.js",
+        "_headers",
+        "docs/conversation-crypto-feasibility.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 44,
+      "title": "KEY BACKUP / RECOVERY",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "User-held recovery key restores bounded encrypted history, not identity/live membership. Fresh device approval and password/account auth are separate from historical decryption. No universal server decryption key; takeover and mobile recovery acceptance remain open.",
+      "sources": [
+        "src/chat/recovery-client.js",
+        "src/chat/recovery-ui.js",
+        "backend/encrypted-conversation-backups.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 45,
+      "title": "RECOVERY UX",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "User-held recovery key restores bounded encrypted history, not identity/live membership. Fresh device approval and password/account auth are separate from historical decryption. No universal server decryption key; takeover and mobile recovery acceptance remain open.",
+      "sources": [
+        "src/chat/recovery-client.js",
+        "src/chat/recovery-ui.js",
+        "backend/encrypted-conversation-backups.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 46,
+      "title": "PASSWORD RESET",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "User-held recovery key restores bounded encrypted history, not identity/live membership. Fresh device approval and password/account auth are separate from historical decryption. No universal server decryption key; takeover and mobile recovery acceptance remain open.",
+      "sources": [
+        "src/chat/recovery-client.js",
+        "src/chat/recovery-ui.js",
+        "backend/encrypted-conversation-backups.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 47,
+      "title": "ACCOUNT TAKEOVER",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "User-held recovery key restores bounded encrypted history, not identity/live membership. Fresh device approval and password/account auth are separate from historical decryption. No universal server decryption key; takeover and mobile recovery acceptance remain open.",
+      "sources": [
+        "src/chat/recovery-client.js",
+        "src/chat/recovery-ui.js",
+        "backend/encrypted-conversation-backups.js",
+        "docs/encrypted-content-and-recovery.md"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "MOBILE",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 48,
+      "title": "SECURITY NOTIFICATIONS",
+      "sourceStatus": "PARTIAL",
+      "evidence": "Explicit signed device approval/revocation and five-second refresh in the open device manager exist. No always-available durable cryptographic security-event notification stream was found; appVersion/name/date-rich device view is limited.",
+      "sources": [
+        "src/chat/device-management-ui.js",
+        "src/chat/crypto-devices.js",
+        "backend/conversation-crypto-devices.js"
+      ],
+      "openGates": [
+        "DEVICE_NOTICES",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 49,
+      "title": "REPORTING ABUSE UNDER E2EE",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Explicit selected-content abuse disclosure, canonical symmetric blocks, fresh session/device/member checks, durable quotas, library cryptographic replay plus transport dedupe and no plaintext downgrade for encrypted mode exist. Independent security and deployed abuse acceptance remain open.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-conversations.js",
+        "src/api/communications-client.js",
+        "src/chat/encrypted-policy.js",
+        "tests/phoenix-native-operation.test.js"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 50,
+      "title": "BLOCKING",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Explicit selected-content abuse disclosure, canonical symmetric blocks, fresh session/device/member checks, durable quotas, library cryptographic replay plus transport dedupe and no plaintext downgrade for encrypted mode exist. Independent security and deployed abuse acceptance remain open.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-conversations.js",
+        "src/api/communications-client.js",
+        "src/chat/encrypted-policy.js",
+        "tests/phoenix-native-operation.test.js"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 51,
+      "title": "SPAM / RATE LIMITING",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Explicit selected-content abuse disclosure, canonical symmetric blocks, fresh session/device/member checks, durable quotas, library cryptographic replay plus transport dedupe and no plaintext downgrade for encrypted mode exist. Independent security and deployed abuse acceptance remain open.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-conversations.js",
+        "src/api/communications-client.js",
+        "src/chat/encrypted-policy.js",
+        "tests/phoenix-native-operation.test.js"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 52,
+      "title": "REPLAY PROTECTION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Explicit selected-content abuse disclosure, canonical symmetric blocks, fresh session/device/member checks, durable quotas, library cryptographic replay plus transport dedupe and no plaintext downgrade for encrypted mode exist. Independent security and deployed abuse acceptance remain open.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-conversations.js",
+        "src/api/communications-client.js",
+        "src/chat/encrypted-policy.js",
+        "tests/phoenix-native-operation.test.js"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 53,
+      "title": "DOWNGRADE PROTECTION",
+      "sourceStatus": "IMPLEMENTED",
+      "evidence": "Explicit selected-content abuse disclosure, canonical symmetric blocks, fresh session/device/member checks, durable quotas, library cryptographic replay plus transport dedupe and no plaintext downgrade for encrypted mode exist. Independent security and deployed abuse acceptance remain open.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-conversations.js",
+        "src/api/communications-client.js",
+        "src/chat/encrypted-policy.js",
+        "tests/phoenix-native-operation.test.js"
+      ],
+      "openGates": [
+        "CRYPTO",
+        "CAPACITY",
+        "LIVE"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    },
+    {
+      "section": 54,
+      "title": "VERSIONING",
+      "sourceStatus": "INPUT_INCOMPLETE",
+      "evidence": "Received text stops at Do not assume every user. Current explicit capability/envelope/media/operation versions and strict failure guards exist, but the complete new versioning requirement and later sections were not supplied. Do not infer them from differently numbered old specifications.",
+      "sources": [
+        "backend/encrypted-content-contract.js",
+        "src/api/communications-client.js",
+        "docs/winga-conversations-spec-0-109.txt"
+      ],
+      "openGates": [
+        "INPUT"
+      ],
+      "productionAcceptance": "not_accepted_in_this_audit"
+    }
+  ]
+}

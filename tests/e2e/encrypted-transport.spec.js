@@ -714,6 +714,53 @@ test('rich composer lost accepted reply retries one encrypted product card and t
   }finally{for(const context of contexts)await context.close();}
 });
 
+test('partial committed ACK keeps direct message pending and reload retry reconciles one canonical ciphertext row',async({browser})=>{
+  test.setTimeout(120000);await resetStores();
+  const contexts=[await browser.newContext(),await browser.newContext()];
+  try {
+    const [alice,bob]=await Promise.all(contexts.map(c=>c.newPage()));
+    for(const page of [alice,bob])await page.goto(origin);
+    const ai=await alice.evaluate(()=>start('alice')),bi=await bob.evaluate(()=>start('bob'));
+    const native=(await db.query('SELECT owner_id,id FROM conversation_crypto_devices')).rows;
+    await alice.evaluate(({id,fp})=>client.enableEncryptedConversation('bob',id,fp),{id:native.find(d=>d.owner_id==='bob').id,fp:bi.ownFingerprint});
+    await bob.evaluate(({id,fp})=>client.enableEncryptedConversation('alice',id,fp),{id:native.find(d=>d.owner_id==='alice').id,fp:ai.ownFingerprint});
+    await alice.evaluate(()=>client.inspectEncryptedConversation('bob'));
+    const legacyBefore=(await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n;
+    let partial=0,accepted,firstWire;const attempts=[];
+    await alice.route('**/api/conversations/encrypted/operations',async route=>{
+      const wire=route.request().postDataJSON();
+      if(wire?.action==='send')attempts.push(structuredClone(wire.payload));
+      if(wire?.action==='send'&&!partial){
+        partial++;firstWire=wire.payload;const response=await route.fetch();expect(response.ok()).toBe(true);
+        const body=await response.json();accepted=structuredClone(body);
+        expect(accepted.status).toBe('sent');expect(accepted.sequence).toBe('1');expect(accepted.createdAt).toBeTruthy();
+        delete body.createdAt;
+        await route.fulfill({response,json:body});
+      }else await route.continue();
+    });
+    const payload=await alice.evaluate(()=>client.prepareMessage({receiverId:'bob',message:'Private partial ACK fixture',messageType:'text'}));
+    await expect(alice.evaluate(p=>client.sendMessage(p),payload)).rejects.toThrow('mls_send_confirmation_rejected');
+    expect(partial).toBe(1);
+    const persisted=(await db.query('SELECT id,ciphertext,sequence::text AS sequence FROM encrypted_conversation_messages')).rows;
+    expect(persisted).toHaveLength(1);expect(persisted[0].id).toBe(payload.clientMessageId);expect(persisted[0].ciphertext).toBe(firstWire.ciphertext);
+    // A normal history render starts reconciliation; inspect endpoint storage first.
+    const pending=await alice.evaluate(async id=>{
+      const vault=await WingaEncryptedVault.createEncryptedVault({owner:'alice',getSession:()=>browserSession});
+      try {const item=await vault.lookup('history:'+id),saved=await vault.snapshot();
+        return {status:item.status,outbox:saved.values['mls:outbox:'+id]?.id};}finally{vault.close();}
+    },payload.clientMessageId);
+    expect(pending.status).toBe('pending');expect(pending.outbox).toBe(payload.clientMessageId);
+    await alice.reload();await alice.evaluate(()=>start('alice',{inspect:false}));
+    const retried=(await alice.evaluate(()=>render())).find(m=>m.id===payload.clientMessageId);
+    expect(attempts).toHaveLength(2);expect(attempts[1]).toEqual(firstWire);
+    expect(retried.status).toBe('sent');expect(retried.timestamp).toBe(accepted.createdAt);expect(retried.conversationSequence).toBe('1');
+    const final=(await db.query('SELECT id,ciphertext,sequence::text AS sequence FROM encrypted_conversation_messages')).rows;
+    expect(final).toEqual(persisted);expect(JSON.stringify(final)).not.toContain(payload.message);
+    expect((await bob.evaluate(()=>render())).filter(m=>m.id===payload.clientMessageId)).toHaveLength(1);
+    expect((await db.query('SELECT COUNT(*)::int AS n FROM messages')).rows[0].n).toBe(legacyBefore);
+  }finally{for(const context of contexts)await context.close();}
+});
+
 test('offline encrypted recipient resumes all missed canonical messages once and incompatible protocol fails without plaintext downgrade',async({browser})=>{
   test.setTimeout(120000);await resetStores();
   const a=await browser.newContext(),b=await browser.newContext();

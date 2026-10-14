@@ -35,6 +35,15 @@ async function participant(owner, { multiDevice = false } = {}) {
   const session = { username: owner, sessionId: randomUUID(), token: randomUUID() };
   const identity = { owner, id: randomUUID(), fingerprint: hash(webcrypto.getRandomValues(new Uint8Array(32))), status: 'active' };
   const vault = memoryVault(), pins = [], packets = [], publications = [];
+  // Synthetic durable acceptance map: matching retries keep the original metadata.
+  const accepted=new Map(),sequences=new Map();
+  const accept=packet=>{
+    if(!accepted.has(packet.id)){
+      const sequence=(sequences.get(packet.conversationId)||0)+1;sequences.set(packet.conversationId,sequence);
+      accepted.set(packet.id,{id:packet.id,hash:packet.hash,status:'sent',sequence:String(sequence),createdAt:new Date().toISOString()});
+    }
+    return structuredClone(accepted.get(packet.id));
+  };
   const options = {
     getSession: () => session, vault, locks, crypto: webcrypto, multiDevice,
     policy: { async markEncrypted() {} },
@@ -50,11 +59,11 @@ async function participant(owner, { multiDevice = false } = {}) {
       return { version: 1, package: { hash: payload.hash, deviceId: identity.id } };
     },
     transport: { async send(packet) {
-      packets.push(structuredClone(packet)); return { id: packet.id, hash: packet.hash, status: 'sent' };
+      packets.push(structuredClone(packet)); return accept(packet);
     } },
   };
   const runtime = await createMlsRuntime(options), device = await runtime.initialize();
-  return { runtime, options, session, identity, device, vault, pins, packets, publications };
+  return { runtime, options, session, identity, device, vault, pins, packets, publications, accept };
 }
 async function pair(options) {
   const alice = await participant('alice', options), bob = await participant('bob', options);
@@ -584,8 +593,9 @@ test('lost accepted send response and runtime reload reuse exact ciphertext and 
   let calls = 0;
   alice.options.transport.send = async packet => {
     alice.packets.push(structuredClone(packet));
+    const accepted=alice.accept(packet);
     if (++calls === 1) throw new TypeError('connection_lost');
-    return { id: packet.id, hash: packet.hash, status: 'sent' };
+    return accepted;
   };
   await assert.rejects(alice.runtime.sendMessage(payload), /connection_lost/);
   const first = alice.packets[0]; await bob.runtime.receive('alice', first);
@@ -755,7 +765,7 @@ test('local intent is atomically promoted, canonical sequences persist, and post
   };
   alice.options.transport.send=async packet=>{transmissions++;alice.packets.push(structuredClone(packet));
     assert.equal((await alice.vault.snapshot()).values['send:intent:'+intent.id],undefined);
-    return {id:packet.id,hash:packet.hash,status:'sent',sequence:'17'};};
+    return {id:packet.id,hash:packet.hash,status:'sent',sequence:'17',createdAt:new Date().toISOString()};};
   const sent=await alice.runtime.sendMessage(payload);assert.equal(transmissions,1);assert.equal(sent.conversationSequence,'17');
   saved=await alice.vault.snapshot();assert.equal(saved.values['mls:outbox:'+intent.id],undefined);
   const packet={...alice.packets[0],sequence:'17'};
@@ -789,7 +799,7 @@ test('pre-send and post-ACK snapshot conflicts remain bounded and never retransm
   const {alice}=await pair(),payload=message('snapshot conflicts'),snapshot=alice.vault.snapshot.bind(alice.vault);
   let conflicts=2,transmissions=0;
   alice.vault.snapshot=async()=>{if(conflicts-->0)throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});return snapshot();};
-  alice.options.transport.send=async packet=>{transmissions++;conflicts=2;return {id:packet.id,hash:packet.hash,status:'sent',sequence:'3'};};
+  alice.options.transport.send=async packet=>{transmissions++;conflicts=2;return {id:packet.id,hash:packet.hash,status:'sent',sequence:'3',createdAt:new Date().toISOString()};};
   const sent=await alice.runtime.sendMessage(payload);assert.equal(sent.status,'sent');assert.equal(transmissions,1);
   assert.equal((await alice.runtime.history('bob')).length,1);
 });
@@ -799,4 +809,43 @@ test('read-only membership route and epoch lookups retry snapshot conflicts with
   alice.vault.snapshot=async()=>{if(conflicts-->0)throw Object.assign(Error('CAS'),{code:'crypto_vault_revision_conflict'});return snapshot();};
   assert.equal(await alice.runtime.conversationId('bob'),id);conflicts=2;
   assert.equal(await alice.runtime.conversationEpoch('bob'),'1');assert.equal(alice.packets.length,0);
+});
+
+
+test('partial or malformed canonical ACK never marks Sent or discards exact ciphertext; reload retry reconciles the committed record',async t=>{
+  const invalid=[
+    ['missing sequence',reply=>{delete reply.sequence;}],
+    ['missing committed timestamp',reply=>{delete reply.createdAt;}],
+    ['numeric sequence',reply=>{reply.sequence=1;}],
+    ['zero sequence',reply=>{reply.sequence='0';}],
+    ['nondecimal sequence',reply=>{reply.sequence='1e3';}],
+    ['invalid timestamp',reply=>{reply.createdAt='not-a-date';}],
+    ['noncanonical timestamp',reply=>{reply.createdAt='2026-10-14';}],
+    ['wrong canonical identity',reply=>{reply.id=randomUUID();}]
+  ];
+  for(const [name,mutate] of invalid)await t.test(name,async()=>{
+    const {alice,bob}=await pair(),payload=message('uncertain ACK must retain this logical send');
+    let calls=0,canonical;
+    alice.options.transport.send=async packet=>{
+      calls++;alice.packets.push(structuredClone(packet));canonical=alice.accept(packet);
+      const reply=structuredClone(canonical);if(calls===1)mutate(reply);return reply;
+    };
+    await assert.rejects(alice.runtime.sendMessage(payload),{code:'mls_send_confirmation_rejected'});
+    const before=await alice.vault.snapshot(),original=alice.packets[0];
+    assert.equal(before.values['history:'+payload.clientMessageId].status,'pending');
+    assert.equal(before.values['mls:outbox:'+payload.clientMessageId].hash,original.hash);
+    assert.deepEqual(before.values['mls:outbox:'+payload.clientMessageId].ciphertext,original.ciphertext);
+    // Recipient can already decrypt the once-accepted ciphertext despite the lost/partial ACK.
+    await bob.runtime.receive('alice',{...original,sequence:canonical.sequence,created_at:canonical.createdAt});
+    alice.runtime.close();alice.runtime=await createMlsRuntime(alice.options);
+    const confirmed=await alice.runtime.sendMessage(payload);
+    assert.equal(confirmed.status,'sent');assert.equal(confirmed.timestamp,canonical.createdAt);
+    assert.equal(confirmed.conversationSequence,canonical.sequence);assert.equal(calls,2);
+    assert.deepEqual(alice.packets[1],original);
+    const after=await alice.vault.snapshot();assert.equal(after.values['mls:outbox:'+payload.clientMessageId],undefined);
+    assert.equal(Object.keys(after.values).filter(k=>k==='history:'+payload.clientMessageId).length,1);
+    assert.equal((await bob.runtime.history('alice')).length,1);
+    await alice.runtime.sendMessage(payload);assert.equal(calls,2);
+    alice.runtime.close();bob.runtime.close();
+  });
 });

@@ -658,10 +658,13 @@ export async function createMlsRuntime({ getSession, vault, identityClient, publ
       need(typeof transport?.send === 'function', 'mls_transport_unavailable'); current();
       const reply = await transport.send(structuredClone(job)); current();
       need(reply?.id === job.id && reply.hash === job.hash && reply.status === 'sent', 'mls_send_confirmation_rejected');
-      need(reply.createdAt===undefined||typeof reply.createdAt==='string'&&Number.isFinite(Date.parse(reply.createdAt)), 'mls_send_confirmation_rejected');
-      need(reply.sequence===undefined||typeof reply.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(reply.sequence), 'mls_send_confirmation_rejected');
-      const result = { ...history, timestamp:reply.createdAt||history.timestamp, status: 'sent',
-        ...(reply.sequence?{sequence:reply.sequence,conversationSequence:reply.sequence}:{}) };
+      // Current canonical writer confirms committed time and order. A partial ACK
+      // is an unknown outcome: keep the exact outbox for the same-ID retry.
+      need(typeof reply.createdAt==='string'&&Number.isFinite(Date.parse(reply.createdAt))
+        &&new Date(reply.createdAt).toISOString()===reply.createdAt, 'mls_send_confirmation_rejected');
+      need(typeof reply.sequence==='string'&&/^[1-9][0-9]{0,18}$/.test(reply.sequence), 'mls_send_confirmation_rejected');
+      const result = { ...history, timestamp:reply.createdAt, status: 'sent',
+        sequence:reply.sequence,conversationSequence:reply.sequence };
       // Once acknowledged, retry only this local CAS commit, never the network send.
       for(let attempt=0;attempt<5;attempt++) {
         try {

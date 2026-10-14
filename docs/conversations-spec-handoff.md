@@ -117,3 +117,14 @@ release of dependent features must still respect the original acceptance gates.
 This handoff changes only documentation and the isolated crypto experiment.
 There is no production migration, frontend deployment, Render change or
 instance increase required for this commit.
+
+## New Security & Realtime contract received 14 October 2026
+
+The new user-supplied contract has different numbering and stops mid-section 54.
+[Current partial-contract audit and source gaps](conversations-security-realtime-audit-20261014.md)
+retains complete received sections 0–53 plus the incomplete versioning section.
+It supersedes no original wording and invents no remaining sections.
+Existing integrated MLS/device/media/recovery source must not be rebuilt based
+on historical “missing” checkpoints. Direct incomplete-ACK validation is hardened;
+presence/typing, security-event notices, ordering/legacy/infrastructure policies,
+independent review and real physical/deployed acceptance remain open.

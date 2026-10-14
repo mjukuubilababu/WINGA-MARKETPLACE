@@ -59,7 +59,7 @@ async function boot(page, username, { sessionId = username === 'alice' ? 'a' : '
         await window.capturePacket({ ...packet, ciphertext: Array.from(packet.ciphertext) });
         if (window.failTransport) throw new TypeError('lost_reply');
         if (rooms) return window.roomGateway('send',{...packet,ciphertext:Array.from(packet.ciphertext)});
-        return { id: packet.id, hash: packet.hash, status: 'sent' };
+        return { id: packet.id, hash: packet.hash, status: 'sent',sequence:'1',createdAt:new Date().toISOString() };
       } } });
     const identity = await runtime.initialize();
     return { ...identity, keyPackage: Array.from(identity.keyPackage), signaturePublicKey: Array.from(identity.signaturePublicKey) };
@@ -277,7 +277,7 @@ test('browser MLS replacement rotates keys under strict CSP without transferring
         policy: { async markEncrypted() {} }, identityClient: { async enroll() { return native; },
           async attestKeyPackage(bytes) { return { hash: await digest(bytes), deviceId: native.id }; } },
         async publishPackage(payload) { return { version: 1, package: payload }; },
-        transport: { async send(packet) { packets.push(packet); return { id: packet.id, hash: packet.hash, status: 'sent' }; } },
+        transport: { async send(packet) { packets.push(packet); return { id: packet.id, hash: packet.hash, status: 'sent',sequence:'1',createdAt:new Date().toISOString() }; } },
       });
       const device = await runtime.initialize(); const participant = { runtime, device, pins, packets }; records.push(participant); return participant;
     }
