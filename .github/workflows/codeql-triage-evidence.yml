@@ -1,0 +1,27 @@
+name: Winga CodeQL Baseline Triage Evidence
+on:
+  push:
+    branches: ['codex/codeql-triage-evidence-20261014']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  baseline-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Download the immutable source-baseline SARIF
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          artifact-ids: '11897467051'
+          run-id: '38570266426'
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: ${{ runner.temp }}/winga-baseline-sarif
+      - name: Project static finding messages and data-flow locations
+        env:
+          WINGA_BASELINE_SARIF: ${{ runner.temp }}/winga-baseline-sarif
+        run: python scripts/project-codeql-triage.py
