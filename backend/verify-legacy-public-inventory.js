@@ -94,10 +94,10 @@ async function main() {
   const config = readR2Config();
   check(config, "R2_CONFIGURATION_REQUIRED");
   const { Client } = require("pg");
-  const db = new Client({ connectionString: process.env.DATABASE_URL,
+  const db = new Client({
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
     connectionTimeoutMillis: 10000,
-    ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true"
-      ? { rejectUnauthorized: false } : false });
+  });
   const client = getR2Client(config);
   const directory = path.resolve(process.env.WINGA_UPLOADS_DIR);
   try {

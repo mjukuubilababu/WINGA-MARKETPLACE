@@ -22,10 +22,12 @@ async function verifyRoomSellerRequests(client){
       OR a.proof->'payload'->>'answerHash' IS DISTINCT FROM a.answer_hash) AS "invalidAnswerBindings"`)).rows[0];
   result.ok=result.health.invalidDirectBindings===0&&result.health.invalidAnswerBindings===0;return result;
 }
-async function main(){const {Client}=require('pg'),c=new Client({connectionString:process.env.DATABASE_URL,
-  ssl:String(process.env.DATABASE_SSL).toLowerCase()==='true'?{rejectUnauthorized:false}:false,connectionTimeoutMillis:10000,statement_timeout:10000});
-  try{if(!process.env.DATABASE_URL||process.argv.length>2)throw new Error();await c.connect();await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+async function main(){const {Client}=require('pg');let c;
+  try{if(!process.env.DATABASE_URL||process.argv.length>2)throw new Error();c=new Client({
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
+    connectionTimeoutMillis:10000,statement_timeout:10000
+  });await c.connect();await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const r=await verifyRoomSellerRequests(c);await c.query('COMMIT');console.log(JSON.stringify(r,null,2));if(!r.ok)process.exitCode=1;
   }catch{console.log(JSON.stringify({ok:false,errorCode:'ROOM_SELLER_CHECK_FAILED',databaseChanged:false,remoteWrites:false}));process.exitCode=1;}
-  finally{await c.end().catch(()=>{});}}
+  finally{await c?.end().catch(()=>{});}}
 if(require.main===module)main();module.exports={verifyRoomSellerRequests,migrationId};

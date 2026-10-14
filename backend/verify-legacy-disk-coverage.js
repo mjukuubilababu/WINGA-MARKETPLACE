@@ -158,8 +158,9 @@ async function main() {
   const privateConfig = readPrivateBackupConfig();
   check(publicConfig, "PUBLIC_R2_CONFIGURATION_REQUIRED");
   const { Client } = require("pg");
-  const db = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000,
-    ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true" ? { rejectUnauthorized: false } : false });
+  const db = new Client({
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }), connectionTimeoutMillis: 10000,
+  });
   const privateClient = new S3Client({ region: "auto",
     endpoint: `https://${privateConfig.accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId: privateConfig.accessKeyId, secretAccessKey: privateConfig.secretAccessKey },

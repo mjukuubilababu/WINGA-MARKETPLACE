@@ -45,8 +45,9 @@ async function main() {
   const base = publicBase(config.publicUrlBase);
   const directory = path.resolve(process.env.WINGA_UPLOADS_DIR);
   const { Client } = require("pg");
-  const db = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000,
-    ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true" ? { rejectUnauthorized: false } : false });
+  const db = new Client({
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }), connectionTimeoutMillis: 10000,
+  });
   let r2;
   try {
     await db.connect();

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-14",
+  "runtimeSourceAtPreflight": "a6fb17587f9883ec5f910d38b53338d16f5dd5cd",
+  "serviceId": "srv-d74n9ubuibrs739o39f0",
+  "previousPreflight": {
+    "jobId": "job-db7n4i2j9qps73d1sf40",
+    "status": "failed",
+    "errorCauseKnown": false
+  },
+  "currentPreflight": {
+    "jobId": "job-db7pd1id0e5s73emkuh0",
+    "command": "npm run verify:database-tls",
+    "status": "failed",
+    "startedAt": "2026-10-14T14:49:42Z",
+    "finishedAt": "2026-10-14T14:49:53Z",
+    "readOnlySql": true,
+    "verifiedProviderTrust": false,
+    "errorCauseKnown": false
+  },
+  "logs": {
+    "oldJobResourceHttpStatus": 403,
+    "currentServiceTimeWindowHttpStatus": 403,
+    "ownerIdPresent": true,
+    "operatorSafeJsonRequested": true
+  },
+  "directConfigurationObservation": {
+    "scope": "Only service-specific env-var entries; inherited environment groups and actual runtime values are not established by this listing.",
+    "primaryUrlEntryPresent": false,
+    "sslFlagEntryEnabled": false,
+    "caEntryPresent": false,
+    "replicaEntryKeys": [],
+    "credentialValuesPrinted": false
+  },
+  "sourceHardening": {
+    "canonicalHelper": "backend/database-tls.js",
+    "commands": [
+      "backend/audit-legacy-uploads.js",
+      "backend/backup-legacy-private-media.js",
+      "backend/copy-legacy-public-media.js",
+      "backend/cutover-legacy-public-media.js",
+      "backend/verify-conversation-events.js",
+      "backend/verify-encrypted-chat-readiness.js",
+      "backend/verify-encrypted-conversation-backups.js",
+      "backend/verify-legacy-disk-coverage.js",
+      "backend/verify-legacy-public-inventory.js",
+      "backend/verify-legacy-upload-compatibility.js",
+      "backend/verify-message-device-receipts.js",
+      "backend/verify-room-seller-requests.js",
+      "backend/verify-shopping-rooms.js"
+    ],
+    "explicitCertificateBypassesRemoved": 13,
+    "preflightDependencyErrorsNowInsideAggregateCatch": true,
+    "sqlAndStorageBusinessLogicChanged": false
+  },
+  "localChecks": {
+    "cliAndExistingRegressionGroup": {
+      "passed": 133,
+      "failed": 0,
+      "skipped": 0
+    },
+    "finalTlsGroupIncludingLoaderFailure": {
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0
+    },
+    "groupsOverlap": true,
+    "liveProviderHandshakeDemonstrated": false
+  },
+  "activation": {
+    "productionSslFlagChanged": false,
+    "caChanged": false,
+    "databaseUrlChanged": false,
+    "primaryTrustVerified": false,
+    "replicaTrustVerified": false,
+    "readiness": "BLOCKED_PENDING_OPERATOR_PREFLIGHT_ERROR"
+  },
+  "foundationAccepted": false,
+  "newPaidPhoenixInstanceCreated": false,
+  "productionDataDeletionPerformed": false
+}

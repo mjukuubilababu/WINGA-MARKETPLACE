@@ -254,8 +254,9 @@ async function main() {
       } else {
         if (!process.env.DATABASE_URL || !process.env.WINGA_UPLOADS_DIR) fail("BACKUP_SOURCE_CONFIGURATION_REQUIRED");
         const { Client } = require("pg");
-        db = new Client({ connectionString: process.env.DATABASE_URL,
-          ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true" ? { rejectUnauthorized: false } : false });
+        db = new Client({
+          ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
+        });
         await db.connect();
         await db.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
         await db.query("SET LOCAL statement_timeout = '20s'");

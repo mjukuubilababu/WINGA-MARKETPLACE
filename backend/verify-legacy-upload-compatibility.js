@@ -125,8 +125,9 @@ async function main() {
   check(args.length === 0 || (args.length === 1 && args[0] === "--diagnose"), "COMPAT_UNEXPECTED_ARGUMENTS");
   check(process.env.DATABASE_URL, "COMPAT_DATABASE_REQUIRED");
   const { Client } = require("pg");
-  const db = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 10000,
-    ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false });
+  const db = new Client({
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }), connectionTimeoutMillis: 10000,
+  });
   try {
     await db.connect();
     await db.query("SET default_transaction_read_only=on");

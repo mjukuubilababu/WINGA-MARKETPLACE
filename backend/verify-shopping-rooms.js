@@ -67,11 +67,13 @@ async function verifyShoppingRooms(client, env = process.env) {
 
 async function main() {
   const { Client } = require('pg');
-  const client = new Client({ connectionString: process.env.DATABASE_URL,
-    ssl: String(process.env.DATABASE_SSL).toLowerCase() === 'true' ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10000, statement_timeout: 10000 });
+  let client;
   try {
     if (!process.env.DATABASE_URL || process.argv.length > 2) throw new Error();
+    client = new Client({
+      ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
+      connectionTimeoutMillis: 10000, statement_timeout: 10000
+    });
     await client.connect();
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     const result = await verifyShoppingRooms(client);
@@ -81,7 +83,7 @@ async function main() {
   } catch {
     console.log(JSON.stringify({ ok: false, errorCode: 'SHOPPING_ROOMS_CHECK_FAILED', databaseChanged: false, remoteWrites: false }));
     process.exitCode = 1;
-  } finally { await client.end().catch(() => {}); }
+  } finally { await client?.end().catch(() => {}); }
 }
 if (require.main === module) main();
 module.exports = { verifyShoppingRooms, migrationId, preferencesMigrationId, departuresMigrationId };

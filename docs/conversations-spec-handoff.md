@@ -162,3 +162,12 @@ and other security/foundation gates remain open. It adds no new Room feature.
 ## CodeQL baseline triage and local I/O fixes — 14 October 2026
 
 [Per-finding triage and evidence](conversations-codeql-triage-20261014.md) records all 55 findings at baseline 50585d50, the actual immutable report projection, and two reproduced/fixed local I/O gaps. Six source paths are hardened and negative tests are retained. Engineering triage does not approve cryptography or rebind independent review; fresh matching-source CodeQL and physical/provider/policy gates remain explicit.
+
+## Provider TLS diagnostic and operational client follow-up — 14 October 2026
+
+[Diagnostics and remaining activation gate](conversations-tls-diagnostics-20261014.md)
+record the failed current-source read-only Render preflight and Logs API 403.
+Thirteen operational PostgreSQL clients now reuse the canonical strict TLS helper;
+sanitized CLI failures and regression checks are recorded. Production provider
+trust/activation remains blocked pending operator output; no SSL flag or CA was
+changed and Shopping Rooms §0 remains open.

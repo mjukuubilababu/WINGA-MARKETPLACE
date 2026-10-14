@@ -1,7 +1,9 @@
-const {Client}=require(require.resolve('pg',{paths:[require('node:path').join(__dirname,'..','backend')]}));
-const {databaseConnectionOptions}=require('../backend/database-tls');
-async function verify({url,ca,caBase64,ClientClass=Client}){
-  const client=new ClientClass({...databaseConnectionOptions(url,{ssl:true,ca,caBase64}),connectionTimeoutMillis:5000,statement_timeout:3000});
+async function verify({url,ca,caBase64,ClientClass}){
+  // Keep configuration/dependency failures inside main's aggregate-only catch.
+  const {databaseConnectionOptions}=require('../backend/database-tls');
+  const options=databaseConnectionOptions(url,{ssl:true,ca,caBase64});
+  const Client=ClientClass||require(require.resolve('pg',{paths:[require('node:path').join(__dirname,'..','backend')]}));
+  const client=new Client({...options,connectionTimeoutMillis:5000,statement_timeout:3000});
   try{
     await client.connect();await client.query('BEGIN READ ONLY');
     const rows=(await client.query('SELECT ssl,version FROM pg_stat_ssl WHERE pid=pg_backend_pid()')).rows;

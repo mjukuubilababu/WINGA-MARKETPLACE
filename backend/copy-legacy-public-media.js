@@ -129,9 +129,7 @@ async function main() {
   }) : null;
   const { Client } = require("pg");
   const db = new Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: String(process.env.DATABASE_SSL || "").toLowerCase() === "true"
-      ? { rejectUnauthorized: false } : false
+    ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
   });
   try {
     await db.connect();

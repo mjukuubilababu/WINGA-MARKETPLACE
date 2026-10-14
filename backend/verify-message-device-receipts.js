@@ -13,12 +13,14 @@ async function verifyDeviceReceiptSchema(client) {
 
 if (require.main === module) {
   const { Client } = require("pg");
-  const client = new Client({ connectionString: process.env.DATABASE_URL,
-    ssl: String(process.env.DATABASE_SSL).toLowerCase() === "true" ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10000, statement_timeout: 10000 });
+  let client;
   (async () => {
     try {
       if (!process.env.DATABASE_URL) throw new Error("Database unavailable");
+      client = new Client({
+        ...require('./database-tls').databaseConnectionOptions(process.env.DATABASE_URL, { ssl: String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' }),
+        connectionTimeoutMillis: 10000, statement_timeout: 10000
+      });
       await client.connect();
       await client.query("BEGIN READ ONLY");
       const result = await verifyDeviceReceiptSchema(client);
@@ -28,7 +30,7 @@ if (require.main === module) {
     } catch {
       console.log(JSON.stringify({ ok: false, errorCode: "DEVICE_RECEIPT_SCHEMA_CHECK_FAILED", databaseChanged: false }));
       process.exitCode = 1;
-    } finally { await client.end().catch(() => {}); }
+    } finally { await client?.end().catch(() => {}); }
   })();
 }
 
