@@ -20,6 +20,7 @@ async function fixture(page) {
       ops.calls.push({url,method:options.method||'GET',timeoutMs:options.timeoutMs});
       if(url.endsWith('/rooms'))throw Error('fixture analytics outage');
       if(url.endsWith('/network'))return {schemaVersion:1,windowDays:30,conversation:{entryCount:2},trust:{},follow:{}};
+      if(url.endsWith('/marketplace'))return {schemaVersion:1,windowDays:30,sellerOpportunity:{windowDays:90,responders:2},demandRequests:{windowDays:30}};
       if(url.endsWith('/events'))return {schemaVersion:1,enabled:true,states:[{status:'pending',count:3,maxAttempts:5,oldestAgeSeconds:72000}]};
       return {schemaVersion:1,windowDays:30,cohort:{entryCount:4,recipientJourneys:2,activationRate:null},userId:'SECRET_USER',inviteToken:'SECRET_TOKEN',limitations:['SECRET_MESSAGE']};
     }});
@@ -39,6 +40,7 @@ test('real browser downloads the existing aggregate reports without identities o
   expect(body.reports).toHaveLength(13);expect(body.productionReady).toBe(false);
   expect(body.reports.find(r=>r.loop==='room')).toEqual({loop:'room',status:'unavailable',windowDays:null,metrics:null});
   expect(body.reports.find(r=>r.loop==='conversation').windowDays).toBe(30);
+  const market=body.reports.find(r=>r.loop==='marketplace');expect(market.windowDays).toBe(30);expect(market.metrics['sellerOpportunity.windowDays']).toBe(90);expect(market.metrics['demandRequests.windowDays']).toBe(30);
   expect(body.reports.find(r=>r.loop==='delivery').metrics['pending.oldestAgeSeconds']).toBe(72000);
   expect(body.reports.find(r=>r.loop==='product').metrics['cohort.activationRate']).toBeNull();
   expect(await page.evaluate(()=>__ops.calls.every(c=>c.method==='GET'&&c.timeoutMs===8000))).toBe(true);

@@ -13,7 +13,7 @@
       conversation: ['entryCount','acceptedMessages','responseCount','responseRate','timeToReplySeconds','recipientReadCount'],
       trust: ['verifiedPublicReviews','reviewedProducts','reviewedSellers','averageRating'],
       follow: ['entryCount','activeFollowers','followedPeople','pairsWithNewPublicSupply','pairsWithCanonicalSave','valueRate'],
-      marketplace: ['demandResolution.linked','demandResolution.ordered','demandResolution.delivered',
+      marketplace: ['sellerOpportunity.windowDays','demandRequests.windowDays','demandResolution.linked','demandResolution.ordered','demandResolution.delivered',
         ...['responders','withPaidOrder','withDeliveredOrder','mature7','repeat7','repeat7Rate','mature30','repeat30','repeat30Rate','timeToFirstValueSeconds'].map(key=>'sellerOpportunity.'+key)],
       delivery: ['maxAttempts','lifetimeHours','reconciliationGaps.missing','reconciliationGaps.expired'],
       cohorts: []

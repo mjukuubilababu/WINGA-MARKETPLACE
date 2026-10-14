@@ -7,11 +7,11 @@
   "actualAdminExportPerformed": false,
   "automaticAlertsActivated": false,
   "sourceHashes": {
-    "src/admin/ui.js": "6efb367c8c8a1e902b648c8c49c30f21111183387fdff0888ed47eee90aa38ba",
+    "src/admin/ui.js": "50bb107a6263804434fa6f5f8a9ed73e229b3c2c366d84eb0a3f42d1571bb7ea",
     "src/api/admin-client.js": "775c771f1cc428dd60281bdca248ae04ca6061ac53f8e3ce16f92e3de5ed068c",
     "app.js": "24211b995ad032b13a906e2ff3c327c793642376c7b906e0c9ac50b198b1d832",
-    "tests/growth-dashboard.test.js": "b2c8e21c1e2fdd73fa245982c3e39b3c0e4a4acfef776f928b9bac39d109c503",
-    "tests/e2e/growth-dashboard-export.spec.js": "7d9fa03507bab299293779e292fb691d8bf2e6853a7dc5cfadcc98d4406d7a6c",
+    "tests/growth-dashboard.test.js": "cab780b99437bd5d4fa0bce839ed301446c37899e18361badf2f6aa05a4e24e3",
+    "tests/e2e/growth-dashboard-export.spec.js": "bb24a8d12222593d5f459a1c5af1cfe4a42bb2cc67382b311806e5c0b078d26a",
     "tests/sharing-ui.playwright.config.cjs": "10ad61a21473ccbeb6fe550589a746b77a1e7ab67e36619a27a0fbbd7081dac3"
   },
   "verification": {
@@ -40,7 +40,8 @@
       "passed": 27,
       "failed": 0,
       "skipped": 0
-    }
+    },
+    "marketplaceNestedWindowsPreserved": true
   },
   "limits": [
     "No real application admin session or live snapshot was used.",

@@ -54,6 +54,8 @@ test('portable metrics export uses a strict aggregate allowlist and keeps unavai
  assert.equal(exported.reports.find(r=>r.loop==='room').metrics,null);assert.equal(exported.reports.find(r=>r.loop==='reel').status,'unavailable');
  assert.doesNotMatch(JSON.stringify(exported),/private-|private message body/);
  assert.equal(exported.consistency,'independent_reports_not_atomic');
+ const market=snapshot([{loop:'marketplace',available:true,data:{schemaVersion:1,windowDays:30,sellerOpportunity:{windowDays:90}}}]).reports.find(r=>r.loop==='marketplace');
+ assert.equal(market.windowDays,30);assert.equal(market.metrics['sellerOpportunity.windowDays'],90);assert.equal(market.metrics['demandRequests.windowDays'],null);
 });
 test('delivery export preserves attempts and age but never calls missing states zero',()=>{
  const projectDelivery=data=>snapshot([{loop:'delivery',available:true,data:{schemaVersion:1,...data}}]).reports.find(r=>r.loop==='delivery');

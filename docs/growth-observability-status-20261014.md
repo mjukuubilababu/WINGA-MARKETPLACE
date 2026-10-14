@@ -21,7 +21,9 @@ retain the server's schema version and window rather than losing this provenance
 The snapshot has schemaVersion 1, kind `winga_growth_operations_snapshot`,
 collection start/completion timestamps, separate report windows and all 13
 existing dashboard projections. It is **not an atomic database snapshot**.
-`productionReady` is always false. Available does not mean healthy.
+`productionReady` is always false. Available does not mean healthy. Nested
+`sellerOpportunity.windowDays` (90 days) and `demandRequests.windowDays` are
+retained separately from the marketplace parent window (30 days).
 
 Only fixed numeric aggregate paths, boolean job enablement, known cohort loop
 types and strict UTC weekly labels are allowed. Free-text limitations, raw event
