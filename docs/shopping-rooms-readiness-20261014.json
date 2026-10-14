@@ -1,0 +1,1085 @@
+{
+  "schemaVersion": 1,
+  "title": "WINGA SHOPPING ROOMS — PRODUCTION-GRADE COLLABORATIVE COMMERCE SYSTEM — SPECIFICATION v1.0",
+  "auditDate": "2026-10-14",
+  "baselineCommit": "633c6b7d786d33e654d4820c26083a930a183da1",
+  "input": {
+    "complete": false,
+    "completeSections": {
+      "first": 0,
+      "last": 60
+    },
+    "partialSection": 61,
+    "partialTitle": "INVITE SECURITY",
+    "verbatimSourceRestored": false,
+    "provenance": "User message in this chat; this file is an implementation audit/normalized requirements map, not a verbatim source or reconstructed continuation."
+  },
+  "productionReady": false,
+  "foundationAccepted": false,
+  "newDependentFeatureImplementationAllowed": false,
+  "classificationMeaning": "IMPLEMENTED means canonical source exists; it is not live acceptance, a security audit or a production-ready claim. FUTURE means explicitly optional/future/possible scope, not mandatory work to invent. Conditional scope must be revisited if selected.",
+  "runtimeChanges": [],
+  "freshRuntimeTestsRun": [],
+  "productionChanges": [],
+  "foundationChecks": [
+    {
+      "capability": "conversation identity",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Canonical direct vs shopping-room identities exist; no duplicate messaging system.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "backend/migrations/encrypted-shopping-rooms.js"
+      ]
+    },
+    {
+      "capability": "messages",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Durable ciphertext routing/store and verified endpoint decrypt exist; real live user flow remains open.",
+      "sources": [
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ]
+    },
+    {
+      "capability": "realtime delivery",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Phoenix routing is integrated; authenticated deployed failure/capacity acceptance remains open.",
+      "sources": [
+        "docs/conversations-security-realtime-audit-20261014.md"
+      ]
+    },
+    {
+      "capability": "offline/retry behavior",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Encrypted outbox/resume/history source exists; real PWA offline/reload acceptance remains open.",
+      "sources": [
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs",
+        "src/chat/native-history-client.js",
+        "docs/conversations-room-history-20261008.md"
+      ]
+    },
+    {
+      "capability": "idempotency",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Stable IDs/exact ciphertext, reservations and transition retries exist; fixture proof does not certify all live flows.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs"
+      ]
+    },
+    {
+      "capability": "message ordering",
+      "status": "SOURCE_GAP",
+      "finding": "Room projection uses canonical sequences; direct/mixed timestamp sorting remains a foundation gap.",
+      "sources": [
+        "docs/conversations-security-realtime-audit-20261014.md",
+        "src/chat/shopping-room-content.mjs"
+      ]
+    },
+    {
+      "capability": "media/voice",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Canonical encrypted media and direct voice exist; actual device/media acceptance is open. Room voice/composer integration is a separate downstream Room gap.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/voice-ui.js",
+        "src/chat/rooms-ui.js"
+      ]
+    },
+    {
+      "capability": "product cards",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Canonical current product references/cards and Room board/comparison exist; real internal sharing acceptance remains open. Room-specific command/card UX is downstream integration.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ]
+    },
+    {
+      "capability": "participant identity",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Native signed account/device membership and UI identity exist; physical trust approval remains open.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs"
+      ]
+    },
+    {
+      "capability": "unread state",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Canonical receipts/current viewport visibility guards exist; real multi-device acceptance remains open.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/rooms-ui.js"
+      ]
+    },
+    {
+      "capability": "notifications",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Generic durable room delivery/mute source exists; granular notification policies/provider acceptance remain open.",
+      "sources": [
+        "backend/message-web-push.js",
+        "backend/migrations/encrypted-room-preferences.js",
+        "docs/conversations-room-preferences-20261007.md"
+      ]
+    },
+    {
+      "capability": "block/report",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Canonical direct block/report source exists; real acceptance remains open. Room-specific report authorization and shared-room block policy are separate downstream gaps.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ]
+    },
+    {
+      "capability": "pagination",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Bounded canonical paging, replay and endpoint history exist; projection/retention bounds need review.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/native-history-client.js",
+        "docs/conversations-room-history-20261008.md",
+        "src/chat/rooms-ui.js"
+      ]
+    },
+    {
+      "capability": "multi-device sync where implemented",
+      "status": "ACCEPTANCE_OPEN",
+      "finding": "Own-native encrypted history sync/recovery source exists; approvals and physical-device acceptance remain open.",
+      "sources": [
+        "src/chat/native-history-client.js",
+        "docs/conversations-room-history-20261008.md",
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "section": 0,
+      "title": "IMPLEMENTATION PRECONDITION",
+      "status": "BLOCKED",
+      "finding": "Conversations source exists, but production-ready foundation is not accepted. Audit existing Rooms only; new dependent feature implementation waits for applicable foundation acceptance.",
+      "sources": [
+        "docs/conversations-security-realtime-audit-20261014.md",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "FOUNDATION"
+      ]
+    },
+    {
+      "section": 1,
+      "title": "PRODUCT MISSION",
+      "status": "PARTIAL",
+      "finding": "Private decision-space guidance, chat, board, comparison and polls exist. Complete decision workflow and purchase/group-order experience remain open.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "DECISION",
+        "GROUP_ORDER"
+      ]
+    },
+    {
+      "section": 2,
+      "title": "CORE PRODUCT PRINCIPLE",
+      "status": "IMPLEMENTED",
+      "finding": "Versioned encrypted commands produce deterministic persistent board/poll/shortlist projections from committed verified history. This is structured event-sourced state, distinct from free chat. Canonical Products and Orders remain external authorities; no duplicate plaintext product/poll database is required.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/native-history-client.js",
+        "docs/conversations-room-history-20261008.md"
+      ],
+      "openGates": [
+        "STATE_POLICY"
+      ]
+    },
+    {
+      "section": 3,
+      "title": "EXAMPLE EXPERIENCE",
+      "status": "PARTIAL",
+      "finding": "Five conceptual tabs and product/poll/shortlist surfaces exist. Product reactions/discussion, live rich chat cards and complete decision UX are not equivalent to the illustrated example.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER",
+        "DECISION"
+      ]
+    },
+    {
+      "section": 4,
+      "title": "ROOM TYPES",
+      "status": "PARTIAL",
+      "finding": "One generic canonical room architecture exists. Optional template configuration and roomType UX metadata are absent; WEDDING/BABY/etc. must never become separate backends.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/migrations/encrypted-shopping-rooms.js"
+      ],
+      "openGates": [
+        "TEMPLATES"
+      ]
+    },
+    {
+      "section": 5,
+      "title": "ROOM CREATION",
+      "status": "PARTIAL",
+      "finding": "Rooms list creation and sharing into existing rooms exist. Product/Collection/Reel/Short share-to-create entry and exact-retry initial structured product attachment are absent. Initial creation currently requires three accounts and device approval; this differs from creating a personal room before inviting friends.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/growth/internal-share.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "CREATION"
+      ]
+    },
+    {
+      "section": 6,
+      "title": "ROOM MODEL",
+      "status": "PARTIAL",
+      "finding": "Canonical encrypted conversation plus encrypted_shopping_rooms identity/name/revision/createdAt exists. Templates, explicit owner lifecycle/status and update metadata are not the full proposed conceptual model; per-account archive is not room closure.",
+      "sources": [
+        "backend/migrations/encrypted-shopping-rooms.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "TEMPLATES",
+        "LIFECYCLE"
+      ]
+    },
+    {
+      "section": 7,
+      "title": "MEMBERSHIP",
+      "status": "IMPLEMENTED",
+      "finding": "Signed account roles admin/member, native admission, immutable epoch membership, admin transfer and voluntary leave exist. Conceptual OWNER maps to existing admin authority; do not add a second membership/social graph.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/mls-room-operations.mjs",
+        "src/chat/mls-runtime.mjs",
+        "backend/migrations/encrypted-room-departures.js",
+        "docs/conversations-room-lifecycle-20261008.md"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 8,
+      "title": "INVITATIONS",
+      "status": "IMPLEMENTED",
+      "finding": "Canonical native admission and shared Growth invitations have expiry, revocation, quotas, blocks and selected-public-product preview. Link creation is admin-only, which is an explicit current permission boundary.",
+      "sources": [
+        "backend/growth-loop-invites.js",
+        "src/growth/invite-ui.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 9,
+      "title": "NON-USER INVITATION / ACQUISITION LOOP",
+      "status": "PARTIAL",
+      "finding": "Guest scoped product preview, auth return, join request and invite/participation attribution source exist. A request is not canonical membership or activation; real room participation/continuation acceptance is open.",
+      "sources": [
+        "backend/growth-loop-invites.js",
+        "src/growth/invite-ui.js",
+        "src/growth/internal-share.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ]
+    },
+    {
+      "section": 10,
+      "title": "PRIVACY",
+      "status": "IMPLEMENTED",
+      "finding": "Sharing a seller product does not grant room membership. Ask Seller bridges selected question/product through encrypted direct chat with consent, without room history/roster/title disclosure.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 11,
+      "title": "ROOM NAVIGATION",
+      "status": "IMPLEMENTED",
+      "finding": "CHAT/PRODUCTS/POLLS/SHORTLIST/ORDERS tabs exist. The Orders surface contains authorized canonical references, not collective purchasing.",
+      "sources": [
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ]
+    },
+    {
+      "section": 12,
+      "title": "CHAT",
+      "status": "PARTIAL",
+      "finding": "Canonical encrypted room messages/files, typed room commands and shared product/Reel/Short/Collection reference cards exist. Room composer does not expose the complete direct voice/reply/reaction/translation workflows.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/encrypted-media-client.js",
+        "src/chat/voice-ui.js"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER"
+      ]
+    },
+    {
+      "section": 13,
+      "title": "SOCIAL BEHAVIOR MUST REMAIN NATURAL",
+      "status": "PARTIAL",
+      "finding": "Text/files and rich discovery references support natural conversation. Voice recording/playback, reactions and replies still need shared canonical composer integration.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/encrypted-media-client.js",
+        "src/chat/voice-ui.js"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER"
+      ]
+    },
+    {
+      "section": 14,
+      "title": "PERSISTENT PRODUCT BOARD",
+      "status": "IMPLEMENTED",
+      "finding": "Committed verified product-share commands project to the persistent Products surface independently of chronological scrolling. Optimistic/pending sends never count as committed products.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 15,
+      "title": "ROOM PRODUCT MODEL",
+      "status": "IMPLEMENTED",
+      "finding": "Product share records preserve canonical productId, sender, logical message/share ID, sequence, optional historical snapshot and removal state. Existing encrypted projections are canonical; no duplicate plaintext product table is needed.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 16,
+      "title": "LIVE PRODUCT STATE",
+      "status": "PARTIAL",
+      "finding": "Products hydrate current authorized catalog price/availability/stock, and missing products remain unavailable. This is view refresh, not a proven realtime room subscription for price/low-stock/restock transitions.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS"
+      ]
+    },
+    {
+      "section": 17,
+      "title": "PRODUCT SNAPSHOT VS CURRENT STATE",
+      "status": "PARTIAL",
+      "finding": "Codec supports an explicitly historical lightweight snapshot and keeps catalog truth separate. Current product-share UI/internal share sends snapshot:null, so added-at-price capture and price-drop event truth are not complete.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js",
+        "src/growth/internal-share.js"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS"
+      ]
+    },
+    {
+      "section": 18,
+      "title": "PRODUCT INTERACTIONS",
+      "status": "PARTIAL",
+      "finding": "View/shortlist/compare/Ask Seller/remove exist. Product-scoped social reactions/discussion, product-linked polls, buy/reserve integration and complete context-aware actions remain open.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/shopping-room-content.mjs",
+        "backend/encrypted-room-sellers.js",
+        "docs/conversations-spec-180-181-20261007.md"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER",
+        "POLLS",
+        "DECISION"
+      ]
+    },
+    {
+      "section": 19,
+      "title": "SHORTLIST",
+      "status": "PARTIAL",
+      "finding": "Per-account shortlist selection is persistent and replacement-safe for each shareId. UI filters the caller's selections. Repeated shares of one product are distinct records, so room-global dedupe and shared-shortlist policy are unresolved.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "STATE_POLICY",
+        "DECISION"
+      ]
+    },
+    {
+      "section": 20,
+      "title": "DECISION FUNNEL",
+      "status": "MISSING",
+      "finding": "No explicit persistent FINALIST/SELECTED room decisions were found. Likes/votes/shortlist are not purchase intent; define authorized user actions and shared state without inference.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "DECISION"
+      ]
+    },
+    {
+      "section": 21,
+      "title": "DO NOT OVER-AUTOMATE DECISIONS",
+      "status": "IMPLEMENTED",
+      "finding": "Current shortlist and votes follow explicit user commands; no automatic selected state or inferred order is introduced.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "DECISION"
+      ]
+    },
+    {
+      "section": 22,
+      "title": "POLLS",
+      "status": "PARTIAL",
+      "finding": "Text options with one account-scoped ballot, replacement/withdrawal and close exist. Structured PRODUCT_OPTIONS/IMAGE_OPTIONS and multiple selection are absent.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "POLLS"
+      ]
+    },
+    {
+      "section": 23,
+      "title": "POLL MODEL",
+      "status": "PARTIAL",
+      "finding": "Encrypted structured poll records contain creator/question/options/deadline/closure/ballots. No pollType, allowsMultiple or authorized encrypted image/product option schema is implemented.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "POLLS"
+      ]
+    },
+    {
+      "section": 24,
+      "title": "POLL CONSISTENCY",
+      "status": "PARTIAL",
+      "finding": "Committed server sequences and verified epoch senders make projection deterministic; one ballot per account is enforced by clients. Server currently validates access/ciphertext/durable send, not encrypted vote semantics. Resolve the literal server-validation requirement without server decryption or trusting client totals.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "POLL_AUTHORITY"
+      ]
+    },
+    {
+      "section": 25,
+      "title": "PRODUCT COMPARISON",
+      "status": "IMPLEMENTED",
+      "finding": "Compare two to four canonical products using actual typed price/currency/stock/availability/size/color/brand/category fields. Shortlist counts are labeled distinctly; product votes are not inferred from text poll labels.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 26,
+      "title": "COMPARISON MUST BE DYNAMIC",
+      "status": "IMPLEMENTED",
+      "finding": "Current catalog data is hydrated and explicitly missing fields remain unknown/omitted. No inferred material/quality/stock is substituted.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "LIVE"
+      ]
+    },
+    {
+      "section": 27,
+      "title": "DECISION SUMMARY",
+      "status": "PARTIAL",
+      "finding": "Product/poll/shortlist counts and comparison exist. A complete shared summary with finalists/selected counts needs the explicit decision model.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "DECISION"
+      ]
+    },
+    {
+      "section": 28,
+      "title": "ASK SELLER — MAJOR FEATURE",
+      "status": "IMPLEMENTED",
+      "finding": "Explicit selected-product question uses the canonical encrypted direct flow; no seller admission or automatic room disclosure.",
+      "sources": [
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 29,
+      "title": "STRUCTURED SELLER REQUEST",
+      "status": "PARTIAL",
+      "finding": "Immutable correlated request/answer metadata, signed proofs and ciphertext references exist. Full CLOSED/EXPIRED request lifecycle and expiry policy are absent; do not store question plaintext just to copy the suggested model.",
+      "sources": [
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md"
+      ],
+      "openGates": [
+        "SELLER_REQUESTS"
+      ]
+    },
+    {
+      "section": 30,
+      "title": "SELLER PRIVACY BOUNDARY",
+      "status": "IMPLEMENTED",
+      "finding": "Seller receives chosen product/question/requester through direct E2EE. No room title/ID/roster/history is disclosed to the seller by the bridge.",
+      "sources": [
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 31,
+      "title": "SELLER RESPONSE CARD",
+      "status": "IMPLEMENTED",
+      "finding": "Seller consents to sharing; requester explicitly relays answer into the Room. Canonical accepted message ID, signer, product/question and hashes are verified before structured projection.",
+      "sources": [
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 32,
+      "title": "AVOID DUPLICATE SELLER QUESTIONS",
+      "status": "PARTIAL",
+      "finding": "Exact IDs prevent duplicate retries of one request; different members can still create different requests for the same question. Room-level semantic request reuse/suppression is not implemented and must preserve encrypted privacy.",
+      "sources": [
+        "backend/encrypted-room-sellers.js",
+        "src/chat/shopping-room-content.mjs",
+        "docs/conversations-spec-180-181-20261007.md"
+      ],
+      "openGates": [
+        "SELLER_REQUESTS"
+      ]
+    },
+    {
+      "section": 33,
+      "title": "INDIVIDUAL PURCHASE",
+      "status": "PARTIAL",
+      "finding": "Explicit canonical order-reference sharing and per-viewer authorized hydration preserve private order details. Complete Room Buy/Reserve entry remains open; references do not grant other members buyer/seller access.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js"
+      ],
+      "openGates": [
+        "DECISION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 34,
+      "title": "GROUP ORDER",
+      "status": "MISSING",
+      "finding": "No shared quantity/variant collection or canonical group-order service was found. Existing Orders tab is not evidence of collective purchasing.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "GROUP_ORDER"
+      ]
+    },
+    {
+      "section": 35,
+      "title": "GROUP ORDER MODEL",
+      "status": "MISSING",
+      "finding": "Canonical group-order and participant quantities/variant references plus Order integration are absent. Requires commerce-owned business rules after foundation acceptance; no message-only order/payment truth.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "GROUP_ORDER"
+      ]
+    },
+    {
+      "section": 36,
+      "title": "GROUP ORDER STATES",
+      "status": "MISSING",
+      "finding": "DRAFT/COLLECTING/READY/SUBMITTED/etc. are not implemented as a group-order state machine. Adopt only states justified by approved fulfillment/cancellation/payment requirements.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js"
+      ],
+      "openGates": [
+        "GROUP_ORDER"
+      ]
+    },
+    {
+      "section": 37,
+      "title": "VARIANT COLLECTION",
+      "status": "MISSING",
+      "finding": "No Room group-order variant/quantity collection was found. Future implementation must use actual canonical Product Variant IDs and validated quantities.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "GROUP_ORDER"
+      ]
+    },
+    {
+      "section": 38,
+      "title": "SHARED BUDGET — OPTIONAL V1/FUTURE",
+      "status": "FUTURE",
+      "finding": "Optional planning-only budget is not implemented. It must never become a wallet balance, payment authorization or escrow truth.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js",
+        "backend/conversation-references.js"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 39,
+      "title": "ROOM INTELLIGENCE",
+      "status": "PARTIAL",
+      "finding": "Real shortlist/poll counts and current price/stock comparisons exist. A distinct lightweight intelligence module for price changes/common favorites/restock/similar options is incomplete.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS"
+      ]
+    },
+    {
+      "section": 40,
+      "title": "INTELLIGENCE MUST NOT BLOCK ROOM",
+      "status": "PARTIAL",
+      "finding": "Optional intelligence is not a prerequisite for chat. Current Room refresh still computes board/catalog work before its final UI refresh; complete dependency-failure/latency isolation is not established.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "ISOLATION"
+      ]
+    },
+    {
+      "section": 41,
+      "title": "DECISION ASSISTANT — FUTURE AI",
+      "status": "FUTURE",
+      "finding": "Not implemented. Future assistant is optional and must obey reviewed E2EE disclosure/consent policy; no private content sent to AI.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 42,
+      "title": "AI MUST USE STRUCTURED CONFIRMED CONTEXT",
+      "status": "FUTURE",
+      "finding": "No confirmed-criteria/AI context system exists. If implemented, distinguish MENTIONED/INFERRED/CONFIRMED and keep explicit user decisions authoritative.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 43,
+      "title": "AI MAY SUMMARIZE ROOM",
+      "status": "FUTURE",
+      "finding": "Catch-me-up AI is future scope. No speculative room summary or server plaintext extraction is introduced.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 44,
+      "title": "AI IS NEVER REQUIRED FOR CORE ROOM",
+      "status": "IMPLEMENTED",
+      "finding": "Current room chat/board/polls/shortlist do not require an AI provider.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "ISOLATION"
+      ]
+    },
+    {
+      "section": 45,
+      "title": "PRICE DROP ALERT",
+      "status": "MISSING",
+      "finding": "No canonical price-change-to-room alert workflow with opted scope, event identity, dedupe and frequency controls was found. Historical optional snapshots are not price-change events.",
+      "sources": [
+        "backend/message-web-push.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS",
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 46,
+      "title": "LOW STOCK ALERT",
+      "status": "MISSING",
+      "finding": "Stock display exists; room-specific bounded low-stock notification events are absent. Do not manufacture urgency or notify every member repeatedly.",
+      "sources": [
+        "backend/message-web-push.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS",
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 47,
+      "title": "SOLD OUT",
+      "status": "PARTIAL",
+      "finding": "Current unavailable/sold-out state does not automatically remove the committed room share. Room-specific Notify on Restock/Find Similar action wiring remains incomplete.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js",
+        "backend/growth-marketplace.js"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS"
+      ]
+    },
+    {
+      "section": 48,
+      "title": "RESTOCK",
+      "status": "PARTIAL",
+      "finding": "Canonical Demand/restock subscription infrastructure exists outside Rooms. Room opted-in restock event linkage and notifications are not implemented.",
+      "sources": [
+        "backend/growth-marketplace.js",
+        "backend/message-web-push.js",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "PRODUCT_EVENTS",
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 49,
+      "title": "SIMILAR PRODUCT DISCOVERY",
+      "status": "FUTURE",
+      "finding": "Optional room similarity module is absent. Reuse canonical discovery later; suggestions must not replace existing shortlist or decisions.",
+      "sources": [
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 50,
+      "title": "ROOM REELS / SHORTS",
+      "status": "IMPLEMENTED",
+      "finding": "Internal sharing sends canonical structured Reel/Short references; Room chat creates rich cards and reuses WingaRichUi in references-only mode for current authorized hydration/navigation. No multiple-video autoplay is introduced.",
+      "sources": [
+        "src/growth/internal-share.js",
+        "src/chat/rooms-ui.js",
+        "src/chat/rich-ui.js"
+      ],
+      "openGates": [
+        "FOUNDATION",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 51,
+      "title": "VOICE IN SHOPPING ROOMS",
+      "status": "PARTIAL",
+      "finding": "Canonical Conversations voice/encrypted-media infrastructure exists. Room UI currently offers text/file attachment, not the complete shared voice recorder/player workflow.",
+      "sources": [
+        "src/chat/encrypted-media-client.js",
+        "src/chat/voice-ui.js",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER"
+      ]
+    },
+    {
+      "section": 52,
+      "title": "REACTIONS",
+      "status": "PARTIAL",
+      "finding": "Canonical rich message reaction infrastructure exists elsewhere. Room-native reactions/product preference signals are not fully wired; no reaction is promoted to shortlist/selected/order.",
+      "sources": [
+        "src/chat/rich-content.js",
+        "src/chat/rich-ui.js",
+        "src/chat/shopping-room-content.mjs",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "ROOM_COMPOSER"
+      ]
+    },
+    {
+      "section": 53,
+      "title": "ROOM SEARCH",
+      "status": "FUTURE",
+      "finding": "Rooms list can be searched by name; this is not private in-room message/product/poll search. The latter remains future scoped, authorized endpoint-side search.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "src/chat/native-history-client.js",
+        "docs/conversations-room-history-20261008.md"
+      ],
+      "openGates": [
+        "OPTIONAL"
+      ]
+    },
+    {
+      "section": 54,
+      "title": "ROOM NOTIFICATIONS",
+      "status": "PARTIAL",
+      "finding": "Durable generic room push, own mute, dedupe/retries and exact room destination exist. Mention/poll-end/seller/product/group-order categories, per-event preferences and frequency controls remain incomplete.",
+      "sources": [
+        "backend/message-web-push.js",
+        "backend/migrations/encrypted-room-preferences.js",
+        "docs/conversations-room-preferences-20261007.md"
+      ],
+      "openGates": [
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 55,
+      "title": "MENTIONS",
+      "status": "MISSING",
+      "finding": "No canonical Room @mention parser/recipient binding and privacy-safe prioritized notification path was found.",
+      "sources": [
+        "src/chat/rooms-ui.js",
+        "backend/message-web-push.js"
+      ],
+      "openGates": [
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 56,
+      "title": "MUTE",
+      "status": "PARTIAL",
+      "finding": "Canonical account-scoped indefinite mute is implemented with enqueue/dispatch suppression and revision-safe retries. 1-hour/8-hour/week timed expiry and policy-separated critical events are not implemented.",
+      "sources": [
+        "backend/migrations/encrypted-room-preferences.js",
+        "docs/conversations-room-preferences-20261007.md",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "backend/message-web-push.js"
+      ],
+      "openGates": [
+        "NOTIFICATIONS"
+      ]
+    },
+    {
+      "section": 57,
+      "title": "LEAVE ROOM",
+      "status": "PARTIAL",
+      "finding": "Signed voluntary leave revokes server access immediately, rotates membership through retained admin, supports handoff and preserves history. Product/vote state remains historical; treatment of former-member ballots, shortlist and future group-order obligations needs explicit policy.",
+      "sources": [
+        "backend/migrations/encrypted-room-departures.js",
+        "docs/conversations-room-lifecycle-20261008.md",
+        "src/chat/shopping-room-content.mjs"
+      ],
+      "openGates": [
+        "STATE_POLICY",
+        "GROUP_ORDER",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 58,
+      "title": "DELETE / CLOSE ROOM",
+      "status": "PARTIAL",
+      "finding": "Per-account archive and terminal final-owner departure exist. Owner close/archive-for-everyone lifecycle and approved erasure/transactional retention policies are absent; own archive must not masquerade as room closure.",
+      "sources": [
+        "backend/migrations/encrypted-room-departures.js",
+        "docs/conversations-room-lifecycle-20261008.md",
+        "backend/migrations/encrypted-room-preferences.js",
+        "docs/conversations-room-preferences-20261007.md",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js"
+      ],
+      "openGates": [
+        "LIFECYCLE",
+        "RETENTION"
+      ]
+    },
+    {
+      "section": 59,
+      "title": "BLOCKING",
+      "status": "PARTIAL",
+      "finding": "Current native room access rejects a blocked pair among active roster owners; it does not silently bypass blocking. This can deny access to otherwise uninvolved members. Explicit shared-room visibility/routing policy and acceptance remain open; voluntary self-leave has separate checks.",
+      "sources": [
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/room-session.js",
+        "backend/migrations/encrypted-room-departures.js",
+        "docs/conversations-room-lifecycle-20261008.md"
+      ],
+      "openGates": [
+        "BLOCK_POLICY",
+        "LIVE"
+      ]
+    },
+    {
+      "section": 60,
+      "title": "REPORTING / SAFETY",
+      "status": "PARTIAL",
+      "finding": "Canonical explicit-consent report store exists for direct pairs, selected messages/media and reporter authorization. Its current SQL binds creator/recipient pairs; no complete Shopping Room/member/epoch report subject or room UI path is implemented. Reuse Safety after defining exact user-selected disclosure; never add universal decryption.",
+      "sources": [
+        "backend/conversation-reports.js",
+        "backend/encrypted-shopping-rooms.js",
+        "src/chat/rooms-ui.js"
+      ],
+      "openGates": [
+        "ROOM_REPORTING"
+      ]
+    },
+    {
+      "section": 61,
+      "title": "INVITE SECURITY",
+      "status": "INPUT_INCOMPLETE",
+      "finding": "Only the section heading was supplied. Existing invite controls are audited under 8/9; they do not substitute for missing section 61 wording or any later sections.",
+      "sources": [
+        "backend/growth-loop-invites.js",
+        "src/growth/invite-ui.js"
+      ],
+      "openGates": [
+        "INPUT"
+      ]
+    }
+  ],
+  "existingEvidence": [
+    "docs/conversations-security-realtime-audit-20261014.md",
+    "docs/evidence/conversations-security-realtime-ack-isolated-20261014.json",
+    "docs/shopping-rooms-postgres-acceptance-20261008.md",
+    "docs/conversations-room-lifecycle-20261008.md",
+    "docs/conversations-room-history-20261008.md",
+    "docs/conversations-spec-180-181-20261007.md"
+  ],
+  "resumptionOrder": [
+    "Resolve Conversations foundation source/security/operational acceptance gaps before new dependent feature development.",
+    "Clarify encrypted poll authority, shared shortlist/dedupe, existing-room block/report, creation-before-inviting and lifecycle policies without reducing E2EE.",
+    "After acceptance, extend existing share/create and room composer; persist first product with exact retry identity.",
+    "Extend existing encrypted decision/poll projections and canonical Safety/notification paths.",
+    "Integrate canonical product events and consented Seller-request reuse/lifecycle.",
+    "Implement group orders only through commerce-owned variant/order/fulfillment/payment contracts.",
+    "Keep optional budget, AI, room search and similarities separately gated."
+  ],
+  "standingConstraints": [
+    "Do not build duplicate messaging/realtime/media/social/product/order/payment infrastructure.",
+    "No real account/device approval or live message/invite/load activity performed by this audit.",
+    "Video failure work remains deferred.",
+    "Keep existing deployed Phoenix instance count.",
+    "Missing section 61 or later content cannot be inferred from earlier differently numbered specifications."
+  ],
+  "sourceClassificationCounts": {
+    "BLOCKED": 1,
+    "PARTIAL": 31,
+    "MISSING": 8,
+    "IMPLEMENTED": 15,
+    "FUTURE": 6,
+    "INPUT_INCOMPLETE": 1
+  }
+}

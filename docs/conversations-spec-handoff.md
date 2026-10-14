@@ -128,3 +128,21 @@ Existing integrated MLS/device/media/recovery source must not be rebuilt based
 on historical “missing” checkpoints. Direct incomplete-ACK validation is hardened;
 presence/typing, security-event notices, ordering/legacy/infrastructure policies,
 independent review and real physical/deployed acceptance remain open.
+
+## Shopping Rooms specification intake — 14 October 2026
+
+The operator supplied a separate Shopping Rooms v1.0 specification through
+section 60, followed by the heading-only section 61 `INVITE SECURITY`.
+[The received-section audit](shopping-rooms-spec-audit-20261014.md) and
+[machine-readable ledger](shopping-rooms-readiness-20261014.json) inventory
+canonical existing Room functionality and actual gaps. They are normalized
+audit records, not a verbatim source restoration or an invented continuation.
+
+Its section 0 requires a production-ready Conversations foundation before new
+dependent Room feature implementation. That precondition is not accepted.
+Preserve existing Room integration; close foundation gaps first. Poll
+server-validation versus E2EE, shared shortlist/decision policy, creation before
+inviting, room reporting/block behavior, notification/lifecycle rules and
+commerce-owned group orders need explicit resolution. The existing Orders
+surface contains individual canonical references, not a group-order service.
+This documentation-only intake does not activate features or certify production.
