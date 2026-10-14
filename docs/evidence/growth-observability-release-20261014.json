@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-14T07:47:53.943794+00:00",
+  "sourceCommit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+  "cloudflareBuild": "20261014074415",
+  "sourceBranch": "master",
+  "render": [
+    {
+      "render": "backend",
+      "deployId": "dep-db7j10e7bikc73d2tkj0",
+      "status": "live",
+      "commit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "expectedCommit": true
+    },
+    {
+      "render": "intelligence",
+      "deployId": "dep-db7j10e7bikc73d2tm2g",
+      "status": "live",
+      "commit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "expectedCommit": true
+    },
+    {
+      "render": "video",
+      "deployId": "dep-db7j10e7bikc73d2tm70",
+      "status": "live",
+      "commit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "expectedCommit": true
+    },
+    {
+      "render": "phoenix",
+      "deployId": "dep-db7j10e7bikc73d2tkd0",
+      "status": "live",
+      "commit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "expectedCommit": true
+    }
+  ],
+  "assets": [
+    {
+      "path": "app.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "24211b995ad032b13a906e2ff3c327c793642376c7b906e0c9ac50b198b1d832"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "matches": true,
+      "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+    },
+    {
+      "path": "winga-modules.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "7cc718897c72f5ac320c6c53742154986072d83b62d740525a3e38406d2176fa"
+    },
+    {
+      "path": "src/localization/catalogs/en.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "032821b7d006d5d89e2164e2eea52ff486d528d99eaee3bd32482ae25da1b95a"
+    },
+    {
+      "path": "src/localization/catalogs/sw.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "128bd89e3854f85880d6f06b0985af503ada69c7c16354ccb81c59c8d5a13dac"
+    },
+    {
+      "path": "src/localization/catalogs/fr.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "512d0bba51ceaad66f0ce42d8a1ed5d2e874c6290d59a604a5489fc2e085144f"
+    },
+    {
+      "path": "src/localization/catalogs/ar.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "0213295ea070e999064c65a815676cd64799e473c8409315909529eaeae84371"
+    }
+  ],
+  "health": [
+    {
+      "url": "https://winga-pflp.onrender.com/api/health",
+      "status": 200,
+      "commitHeader": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "identityEvidence": "backend commit header"
+    },
+    {
+      "url": "https://winga-phoenix.onrender.com/health",
+      "status": 200,
+      "commitHeader": null,
+      "identityEvidence": "Render deployed commit metadata"
+    }
+  ],
+  "workflows": {
+    "sourceCommit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+    "acceptanceRun": 38529202954,
+    "productionRun": 38530247898,
+    "jobs": [
+      {
+        "id": 115736891336,
+        "name": "functional",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115736891496,
+        "name": "static-analysis",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 115736891643,
+        "name": "dependencies",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115736891722,
+        "name": "beam",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "productionJobs": [
+      {
+        "id": 115740143548,
+        "name": "cloudflare",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "functionalEvidence": {
+      "frontend": 153,
+      "dashboardContracts": 9,
+      "encryptedBrowser": 50,
+      "sharingAndExportBrowser": 27,
+      "guestAndAuthBrowser": 28,
+      "catalogKeys": 1766,
+      "locales": 4,
+      "modules": 98
+    },
+    "superseded": {
+      "sourceCommit": "b6b16436c0a762e71e8ea1c69d120d6f96ecc096",
+      "acceptanceRun": 38528096763,
+      "functional": "cancelled",
+      "productionRun": 38529262977,
+      "productionJob": 115736909057,
+      "failure": "Required acceptance job functional did not succeed."
+    },
+    "productionReady": false
+  },
+  "security": {
+    "sourceCommit": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+    "workflowRunId": 38529202954,
+    "jobId": 115736891496,
+    "gate": "CODEQL_REVIEW_STALE",
+    "findings": 54,
+    "levels": {
+      "none": 0,
+      "note": 0,
+      "warning": 33,
+      "error": 21
+    },
+    "independentlyReviewed": 0,
+    "sourceTreeFingerprint": "9c1d070d61314a380f0d758482a5565f24b512e351a3bc876fe5095b29694c11",
+    "artifact": {
+      "id": 11876674797,
+      "name": "conversation-codeql-55edc14169ca159ffb0f56a8c83a0ba6d93841c7",
+      "size_in_bytes": 119260,
+      "url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11876674797",
+      "archive_download_url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11876674797/zip",
+      "expired": false,
+      "created_at": "2026-10-14T07:38:19Z",
+      "expires_at": "2027-01-12T07:34:25Z",
+      "updated_at": "2026-10-14T07:38:19Z",
+      "digest": "sha256:69b811c7107851e3dc0d8c8d70164b38f584f097fddb1b7a4f0c5b27e5da997a",
+      "workflow_run": {
+        "id": 38529202954,
+        "repository_id": 1194426348,
+        "head_repository_id": 1194426348,
+        "head_branch": "master",
+        "head_sha": "55edc14169ca159ffb0f56a8c83a0ba6d93841c7"
+      }
+    },
+    "productionReady": false
+  },
+  "productionReady": false,
+  "liveAcceptance": "not_performed",
+  "limits": [
+    "Manual and CI fixtures are not meaningful human Messages/Room acceptance.",
+    "No real application admin snapshot, approved operator baseline or alert integration was executed.",
+    "Artifact metadata and gate output retained; full SARIF was not downloaded or independently reviewed in this work.",
+    "Deployed staging capacity and mature retention remain open.",
+    "Video failure investigation/replay remains deferred by user instruction."
+  ]
+}
