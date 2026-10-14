@@ -1,4 +1,4 @@
-name: Winga CodeQL Baseline Triage Evidence
+name: Winga CodeQL Current Triage Evidence
 on:
   push:
     branches: ['codex/codeql-triage-evidence-20261014']
@@ -13,11 +13,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Download the immutable source-baseline SARIF
+      - name: Download the immutable current-source SARIF
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          artifact-ids: '11897467051'
-          run-id: '38570266426'
+          artifact-ids: '11903020316'
+          run-id: '38579401617'
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           path: ${{ runner.temp }}/winga-baseline-sarif

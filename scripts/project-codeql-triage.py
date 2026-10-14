@@ -30,8 +30,8 @@ def location(value):
             'message': value.get('message', {}).get('text', '')[:4096]}
 
 print(json.dumps({'mode': 'winga-codeql-baseline-report',
-    'sourceCommit': '50585d50deaa7ba4dacf65162104733f67ccbc31',
-    'artifactId': 11897467051, 'reportSha256': hashlib.sha256(raw).hexdigest(),
+    'sourceCommit': 'a6fb17587f9883ec5f910d38b53338d16f5dd5cd',
+    'artifactId': 11903020316, 'reportSha256': hashlib.sha256(raw).hexdigest(),
     'findings': len(results), 'artifactCount': len(artifacts),
     'independentReviewAccepted': False}))
 for index, result in enumerate(results):
