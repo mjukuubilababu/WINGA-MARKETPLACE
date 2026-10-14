@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-14T09:15:24.737196+00:00",
+  "sourceCommit": "633c6b7d786d33e654d4820c26083a930a183da1",
+  "cloudflareBuild": "20261014090802",
+  "render": [
+    {
+      "render": "backend",
+      "deployId": "dep-db7k6s67bikc73d471m0",
+      "status": "live",
+      "commit": "633c6b7d786d33e654d4820c26083a930a183da1",
+      "expectedCommit": true
+    },
+    {
+      "render": "intelligence",
+      "deployId": "dep-db7k6se7bikc73d473lg",
+      "status": "live",
+      "commit": "633c6b7d786d33e654d4820c26083a930a183da1",
+      "expectedCommit": true
+    },
+    {
+      "render": "video",
+      "deployId": "dep-db7k6se7bikc73d4735g",
+      "status": "live",
+      "commit": "633c6b7d786d33e654d4820c26083a930a183da1",
+      "expectedCommit": true
+    },
+    {
+      "render": "phoenix",
+      "deployId": "dep-db7k6s67bikc73d471f0",
+      "status": "live",
+      "commit": "633c6b7d786d33e654d4820c26083a930a183da1",
+      "expectedCommit": true
+    }
+  ],
+  "assets": [
+    {
+      "path": "vendor/winga-mls-candidate.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "d68636a61ba7604524bbcd40a9a2e414f409e5a41f57eb89c45a9557828dcfd1"
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "24211b995ad032b13a906e2ff3c327c793642376c7b906e0c9ac50b198b1d832"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "matches": true,
+      "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+    },
+    {
+      "path": "winga-modules.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "7cc718897c72f5ac320c6c53742154986072d83b62d740525a3e38406d2176fa"
+    },
+    {
+      "path": "src/localization/catalogs/en.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "032821b7d006d5d89e2164e2eea52ff486d528d99eaee3bd32482ae25da1b95a"
+    },
+    {
+      "path": "src/localization/catalogs/sw.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "128bd89e3854f85880d6f06b0985af503ada69c7c16354ccb81c59c8d5a13dac"
+    },
+    {
+      "path": "src/localization/catalogs/fr.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "512d0bba51ceaad66f0ce42d8a1ed5d2e874c6290d59a604a5489fc2e085144f"
+    },
+    {
+      "path": "src/localization/catalogs/ar.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "0213295ea070e999064c65a815676cd64799e473c8409315909529eaeae84371"
+    }
+  ],
+  "health": [
+    {
+      "url": "https://winga-pflp.onrender.com/api/health",
+      "status": 200,
+      "commitHeader": "633c6b7d786d33e654d4820c26083a930a183da1",
+      "identityEvidence": "commit header"
+    },
+    {
+      "url": "https://winga-phoenix.onrender.com/health",
+      "status": 200,
+      "commitHeader": null,
+      "identityEvidence": "Render deployment metadata"
+    }
+  ],
+  "workflow": {
+    "sourceCommit": "633c6b7d786d33e654d4820c26083a930a183da1",
+    "acceptanceRun": 38538559667,
+    "productionRun": 38540080662,
+    "jobs": [
+      {
+        "id": 115767381717,
+        "name": "dependencies",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115767381975,
+        "name": "static-analysis",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 115767382113,
+        "name": "beam",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 115767382199,
+        "name": "functional",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "productionJobs": [
+      {
+        "id": 115772379156,
+        "name": "cloudflare",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "functionalBrowser": {
+      "encrypted": 51,
+      "sharingAndExport": 27,
+      "guestAndAuth": 28
+    },
+    "frontend": 153,
+    "modules": 98,
+    "catalogKeys": 1766,
+    "productionReady": false,
+    "contractInputComplete": false
+  },
+  "security": {
+    "sourceCommit": "633c6b7d786d33e654d4820c26083a930a183da1",
+    "workflowRunId": 38538559667,
+    "jobId": 115767381975,
+    "gate": "CODEQL_REVIEW_STALE",
+    "totals": {
+      "reports": 1,
+      "runs": 1,
+      "results": 54,
+      "securityFindings": 54,
+      "levels": {
+        "none": 0,
+        "note": 0,
+        "warning": 33,
+        "error": 21
+      },
+      "reviewedFindings": 0,
+      "unreviewedFindings": 54
+    },
+    "sourceTreeFingerprint": "ade92321cf6e4d710f42b4bdb58dc1f16e238b8dd77a1313d58ba317e53f336a",
+    "artifact": {
+      "id": 11881650629,
+      "name": "conversation-codeql-633c6b7d786d33e654d4820c26083a930a183da1",
+      "size_in_bytes": 119292,
+      "url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11881650629",
+      "archive_download_url": "https://api.github.com/repos/mjukuubilababu/WINGA-MARKETPLACE/actions/artifacts/11881650629/zip",
+      "expired": false,
+      "created_at": "2026-10-14T08:58:41Z",
+      "expires_at": "2027-01-12T08:55:13Z",
+      "updated_at": "2026-10-14T08:58:41Z",
+      "digest": "sha256:2e9ee709146bccdd5b64b32b1166ae245ac0298a1fd83e8a53ce0b7119a7ef77",
+      "workflow_run": {
+        "id": 38538559667,
+        "repository_id": 1194426348,
+        "head_repository_id": 1194426348,
+        "head_branch": "master",
+        "head_sha": "633c6b7d786d33e654d4820c26083a930a183da1"
+      }
+    },
+    "productionReady": false,
+    "inputComplete": false
+  },
+  "productionReady": false,
+  "contractInputComplete": false,
+  "completeReceivedSections": [
+    0,
+    53
+  ],
+  "partialSection": 54,
+  "limits": [
+    "New Security & Realtime contract ends mid-section54; missing text is not reconstructed from differently numbered old specs.",
+    "No independent library/crypto review, physical-device or actual user messaging acceptance.",
+    "No device approval, flag/CSP/CA/provider/instance-count changes.",
+    "Metadata/gate evidence retained; full SARIF not downloaded or independently reviewed.",
+    "Video work remains deferred by user instruction."
+  ]
+}
