@@ -88,7 +88,10 @@ SSL flag, CA or SSL URL parameters for backend/intelligence/video; inherited
 configuration and actual runtime trust must still be verified.
 
 After diagnosing the job, run `npm run verify:database-tls` from the deployed
-repository/service with its real private configuration. It uses a READ ONLY
+repository/service with its real private configuration. Both commands are also
+registered in `backend/package.json`, so Render’s backend working directory can
+run them with its installed `pg` dependency; the wrappers resolve that backend
+dependency rather than requiring a separate root npm install. It uses a READ ONLY
 transaction and outputs only verification/protocol/error code. Verify primary
 and replica independently before activating `DATABASE_SSL=true` consistently
 on affected services, then verify health and listener/reconnect behavior. Do not

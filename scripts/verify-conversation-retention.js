@@ -1,4 +1,4 @@
-const {Client}=require('pg');
+const {Client}=require(require.resolve('pg',{paths:[require('node:path').join(__dirname,'..','backend')]}));
 const {databaseConnectionOptions}=require('../backend/database-tls');
 const {inspectConversationRetention}=require('../backend/conversation-retention-audit');
 async function main(){

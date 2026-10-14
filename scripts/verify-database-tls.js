@@ -1,4 +1,4 @@
-const {Client}=require('pg');
+const {Client}=require(require.resolve('pg',{paths:[require('node:path').join(__dirname,'..','backend')]}));
 const {databaseConnectionOptions}=require('../backend/database-tls');
 async function verify({url,ca,caBase64,ClientClass=Client}){
   const client=new ClientClass({...databaseConnectionOptions(url,{ssl:true,ca,caBase64}),connectionTimeoutMillis:5000,statement_timeout:3000});

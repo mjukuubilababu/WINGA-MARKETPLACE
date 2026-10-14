@@ -34,6 +34,8 @@
     "verify:conversation-production": "node verify-conversation-production.js",
     "verify:shopping-rooms": "node verify-shopping-rooms.js",
     "verify:room-seller-requests": "node verify-room-seller-requests.js",
-    "test:smoke": "node api-smoke-test.js"
+    "test:smoke": "node api-smoke-test.js",
+    "verify:database-tls": "node ../scripts/verify-database-tls.js",
+    "verify:conversation-retention": "node ../scripts/verify-conversation-retention.js"
   }
 }
