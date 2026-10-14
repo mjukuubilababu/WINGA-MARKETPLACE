@@ -5,6 +5,8 @@
     "growth:readiness": "node scripts/growth-readiness.js",
     "verify:growth-readiness": "node scripts/growth-readiness.js --verify",
     "test:growth:postgres": "bash scripts/run-local-growth-db-tests.sh",
+    "test:growth:resilience": "node tests/growth-event-jobs.test.mjs",
+    "test:growth:resilience:postgres": "bash scripts/run-local-growth-db-tests.sh resilience",
     "test:growth:phase3": "node --test tests/search-opportunity-n1.test.mjs tests/seller-opportunity-health.test.mjs tests/demand-resolution-resilience.test.mjs",
     "test:growth:phase3:postgres": "bash scripts/run-local-growth-db-tests.sh phase3",
     "test:growth:phase4": "node --test tests/growth-loops.test.mjs tests/growth-seller-referrals.test.mjs tests/growth-runtime.test.js tests/growth-content-ui.test.js",

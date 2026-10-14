@@ -1,6 +1,6 @@
 # Winga Growth Loops — hali ya kazi na namna ya kuendelea
 
-Updated: 13 October 2026. Specification: Growth Loops & Network Effects v1.0,
+Updated: 14 October 2026. Specification: Growth Loops & Network Effects v1.0,
 sections 1–106. Stable entry point for future work.
 
 **Messages bado hazijakamilika, kulingana na taarifa ya user ya 13 October 2026.**
@@ -17,6 +17,7 @@ not override the user-reported live blocker. See the dedicated report above.
 source/design/security preparation now; retain actual acceptance gates for later.
 
 - [Machine-readable ledger: all 106 sections](winga-growth-readiness.json)
+- [Growth worker failure-isolation/backlog evidence](growth-resilience-status-20261014.md)
 - [Messages sharing source hardening and current deferred gates](growth-messages-sharing-status-20261013.md)
 - [Phase 4 source completion and full-spec handoff](growth-phase4-status-20261013.md)
 - [Operations/security handoff and deferred validation matrix](growth-operations-handoff.md)
@@ -180,6 +181,7 @@ UNSAFE capability is asserted without finding-level evidence; SEC-01 stays open.
 | RET-01 | P2 OBSERVATION | Genuine acquisition/value/abuse/opt-out cohorts and mature D1/D7/D30 windows. Wait for real time and observations. |
 | OPT-01 | CONDITIONAL | Rewards, contact integration, guest Room voting/commenting, new creator economics and experiments require separate explicit scope/product policy. Their absence does not justify duplicate V1 infrastructure. |
 | REL-01 | P0 BLOCKED | Section 106 declaration cannot close until mandatory acceptance and current review gates actually close. |
+| SRC-08 | SOURCE PREPARED | Canonical job crash/backlog/outage verification: 7/7 disposable PostgreSQL; staging capacity stays open, video work deferred. |
 | SRC-07 | SOURCE PREPARED | Messages individual sharing source hardened; canonical results/retry/races and isolated encrypted card evidence retained. Live delivery and Room acceptance stay open. |
 | SRC-06 | SOURCE PREPARED | Phase 4 source complete: canonical Collection item Save, creator feedback/publication reporting, qualified referral value and async isolation. Dedicated report and isolated evidence retained. |
 | LIVE-04 | P1 OBSERVATION PENDING | Real Collection/creator/seller-referral utility/value remains unobserved; needs configured app sessions and genuine actors. |

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "specification": "WINGA GROWTH LOOPS & NETWORK EFFECTS v1.0",
-  "updatedAt": "2026-10-13",
+  "updatedAt": "2026-10-14",
   "sourceBaseline": "32891c76c82914684f5f0ddeb979d2c911e9be8c",
   "lastVerifiedRelease": {
-    "commit": "26056ef1e3928a5d13199fb849ed0fe430b0fc3e",
-    "cloudflareBuild": "20261013223726",
-    "verification": "Historical release immediately preceding Messages sharing hardening: all four Render services, frontend assets and production verifier passed. Required functional/dependency/Phoenix checks passed; CodeQL independent review stayed stale at 54 findings. No human delivery or live loop acceptance."
+    "commit": "7fd26609abc9f42adbaab17e25af240c8644b0c8",
+    "cloudflareBuild": "20261014000145",
+    "verification": "Historical verified release immediately preceding isolated worker resilience evidence: all four Render services, seven assets and production verifier passed; required functional/dependency/Phoenix checks passed (153 frontend, 50 encrypted, 24 sharing UI, 28 guest/auth browser). Independent CodeQL review remained stale at 54 findings. No real Messages/Rooms acceptance."
   },
   "overall": {
     "productionReady": false,
@@ -93,6 +93,33 @@
         82,
         83,
         98,
+        106
+      ]
+    },
+    {
+      "id": "SRC-08",
+      "status": "source_prepared",
+      "priority": "P1",
+      "title": "Growth worker failure isolation and backlog evidence",
+      "evidence": "Canonical job infrastructure passes 7/7 isolated PostgreSQL cases including two-worker partition, analytics SQL failure, actual owned process crash and lost commit response; no runtime/provider change or production acceptance.",
+      "nextAction": "Retain the real PostgreSQL CI gate and proceed to approved staging/operational observations when prerequisites exist. Video work is explicitly deferred by the user.",
+      "sources": [
+        "tests/growth-event-jobs.test.mjs",
+        "tests/helpers/growth-event-crash-worker.cjs",
+        "scripts/run-conversation-postgres-tests.js",
+        "scripts/run-local-growth-db-tests.sh",
+        "docs/growth-resilience-status-20261014.md",
+        "docs/evidence/growth-resilience-isolated-20261014.json"
+      ],
+      "dependsOn": [],
+      "specSections": [
+        51,
+        52,
+        53,
+        54,
+        77,
+        102,
+        103,
         106
       ]
     },
@@ -324,13 +351,15 @@
       "status": "validation_deferred",
       "priority": "P1",
       "title": "Staging load, outage and abuse acceptance",
-      "evidence": "Bounded Phase 3 synthetic PostgreSQL 18.6 exercises passed: concurrent retries/workers, 60 requests, caps, notification failure/rollback/recovery and stop/expiry/withdrawal. Full deployed staging/viral/provider-outage/real-device acceptance remains deferred. Phase 4 also has 61 isolated PostgreSQL contracts and native Chromium guest Collection/auth/save checks; these do not close deployed capacity or provider exercises.",
+      "evidence": "Bounded Phase 3 synthetic PostgreSQL 18.6 exercises passed: concurrent retries/workers, 60 requests, caps, notification failure/rollback/recovery and stop/expiry/withdrawal. Full deployed staging/viral/provider-outage/real-device acceptance remains deferred. Phase 4 also has 63 isolated PostgreSQL contracts and native Chromium guest Collection/auth/save checks; these do not close deployed capacity or provider exercises. New isolated PostgreSQL 18.6 job proof: 7/7, 8-writer SQL outage with 24 safe resolves, 60-event 50/10 partition, actual owned worker SIGKILL/rollback and lost commit response dedupe. This does not establish deployed staging or viral capacity.",
       "nextAction": "Use approved isolated staging with explicit budgets and cancellation; run replay, cache loss, signed membership races and protection matrix.",
       "sources": [
         "docs/growth-operations-handoff.md",
         "tests/growth-postgres.test.mjs",
         "tests/e2e/growth-loops.spec.js",
-        "tests/demand-resolution-resilience.test.mjs"
+        "tests/demand-resolution-resilience.test.mjs",
+        "tests/growth-event-jobs.test.mjs",
+        "docs/growth-resilience-status-20261014.md"
       ],
       "dependsOn": [
         "MSG-01",
@@ -1068,7 +1097,8 @@
       "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "SRC-06"
+        "SRC-06",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1078,7 +1108,8 @@
       "baselineEvidence": "Optional tracking off critical destination/send path; bounded original-lifetime browser outbox and durable Room/referral jobs, idempotent sources, exponential retries/DLQ/replay/reconciliation.",
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
-        "OPS-01"
+        "OPS-01",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1089,7 +1120,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "OPS-01",
-        "SRC-06"
+        "SRC-06",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1100,7 +1132,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-04",
-        "OPS-01"
+        "OPS-01",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1328,7 +1361,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-05",
-        "SRC-06"
+        "SRC-06",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1590,7 +1624,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-04",
-        "CAP-01"
+        "CAP-01",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1601,7 +1636,8 @@
       "currentDisposition": "source_reported_acceptance_open",
       "workItems": [
         "SRC-04",
-        "CAP-01"
+        "CAP-01",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     },
@@ -1639,7 +1675,8 @@
         "SRC-04",
         "CAP-01",
         "REL-01",
-        "LIVE-04"
+        "LIVE-04",
+        "SRC-08"
       ],
       "liveAcceptance": "not_performed_in_this_work"
     }

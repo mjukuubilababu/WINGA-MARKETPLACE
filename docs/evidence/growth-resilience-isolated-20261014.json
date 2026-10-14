@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-14T01:01:45.342516+00:00",
+  "sourceBaseline": "7fd26609abc9f42adbaab17e25af240c8644b0c8",
+  "scope": "Isolated Growth failure-isolation/backlog/worker-crash evidence; video work deferred",
+  "sourceFiles": {
+    "package.json": "457911f6c3c364c553e81131d04365525b234ef8e93d3d072202be50537d5df8",
+    "scripts/run-conversation-postgres-tests.js": "5b3c02c06e534e1e7eb285b750ad8b7bf3a01329b21f2c2a3f7502b294ca324d",
+    "scripts/run-local-growth-db-tests.sh": "34aca475863e91ca01b0883479d7e295fe0f49ffe0a311fdd5301ea4a2dd90f6",
+    "tests/growth-event-jobs.test.mjs": "2c167f60a80696ad7f6fcd457d8588f706def2e0e09b2744bfb03047465855bf",
+    "tests/helpers/growth-event-crash-worker.cjs": "d7a7381c535e463946e375dde37725cf81325d7a35fd663a520cb01591a806f5",
+    "winga-modules.js": "794794623d297ca87f443242603f41f43fbc83511467e5ae32239e6d43cf5bf6"
+  },
+  "specSections": [
+    51,
+    52,
+    53,
+    54,
+    77,
+    102,
+    103,
+    106
+  ],
+  "verification": {
+    "postgres": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "version": "PostgreSQL 18.6",
+      "image": "postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+      "fixtureSchemasRemoved": true,
+      "ownedContainerRemoved": true,
+      "usesProductionDatabase": false
+    },
+    "component": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 4,
+      "note": "PostgreSQL-only scenarios are intentionally not certified by the component adapter."
+    },
+    "runnerSafety": {
+      "passed": 6,
+      "failed": 0
+    },
+    "modules": {
+      "synchronized": true,
+      "count": 98
+    }
+  },
+  "scenarios": {
+    "analyticsSqlOutage": {
+      "failedWrites": 8,
+      "publicHandlerResolutions": 24,
+      "recoveredOriginalEvents": 8,
+      "ordersCreated": 0,
+      "savesCreated": 0
+    },
+    "backlog": {
+      "events": 60,
+      "workers": 2,
+      "partition": [
+        50,
+        10
+      ],
+      "publicHandlerResolutions": 24,
+      "duplicateEvents": 0
+    },
+    "workerCrash": {
+      "scope": "owned synthetic Node child only",
+      "signal": "SIGKILL",
+      "postgresBackendDisconnectObserved": true,
+      "originalEventAcceptedCount": 1
+    },
+    "lostCommitResponse": {
+      "completedMeasurementEventCount": 1,
+      "duplicateEvents": 0,
+      "originalLifetimePreserved": true
+    }
+  },
+  "boundaries": {
+    "runtimeCodeChanged": false,
+    "videoWorkPerformed": false,
+    "humanProductionJourney": false,
+    "productionCapacityEstablished": false,
+    "independentSecurityApproval": false,
+    "productionReady": false
+  }
+}

@@ -5,6 +5,7 @@ Start here when resuming the Growth Loops specification:
 - [Current status, Messages blocker and next actions](winga-growth-status.md)
 - [All 106 sections and durable work IDs](winga-growth-readiness.json)
 - [Phase 3 implementation, metrics and pending live acceptance](growth-phase3-status-20261013.md)
+- [Growth worker failure-isolation/backlog evidence](growth-resilience-status-20261014.md)
 - [Messages individual sharing hardening and deferred acceptance](growth-messages-sharing-status-20261013.md)
 - [Phase 4 implementation and full-spec acceptance handoff](growth-phase4-status-20261013.md)
 - [Operations, security review and deferred validation handoff](growth-operations-handoff.md)
