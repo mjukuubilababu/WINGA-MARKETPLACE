@@ -1,0 +1,161 @@
+{
+  "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31",
+  "cloudflareBuild": "20261014132858",
+  "assets": [
+    {
+      "path": "vendor/winga-mls-candidate.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "eacb4025cce6abc7b71c15c47bfac125c194912974a9d310b34f2b1695b0fb4a"
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "070d74d7c77c254a48ba974473046115c6235a90e2b2121da872a9a237a2313f"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "matches": true,
+      "sha256": "a825c378db37f7678d339a334731e19519efc1832ffb4722e410f1caa8f4cffd"
+    },
+    {
+      "path": "winga-modules.js",
+      "status": 200,
+      "matches": true,
+      "sha256": "79f97e498e2280678119316e740995aba78b8329391c6cb5bd8a8571d069f3e1"
+    },
+    {
+      "path": "src/localization/catalogs/en.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "b97a7e381788076aa725a968d54d277f52b0b0e3c10dac2774fb79b6d7302880"
+    },
+    {
+      "path": "src/localization/catalogs/sw.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "a98975a864eebd9127eebae751e81d06ac9c41fd9d43b69fd47230636ad05b8d"
+    },
+    {
+      "path": "src/localization/catalogs/fr.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "0b3be3af44db13ce30c6d34f9dfeff3d7a918f0cb935641985ba0d4e4da46a37"
+    },
+    {
+      "path": "src/localization/catalogs/ar.json",
+      "status": 200,
+      "matches": true,
+      "sha256": "ded8d97a774506099f3fe6c85cb32dd54652db322e40cc97af2403b9b98f0040"
+    }
+  ],
+  "health": [
+    {
+      "url": "https://winga-pflp.onrender.com/api/health",
+      "status": 200,
+      "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31",
+      "expectedBackendCommit": true
+    },
+    {
+      "url": "https://winga-phoenix.onrender.com/health",
+      "status": 200,
+      "commit": null,
+      "expectedBackendCommit": false
+    }
+  ],
+  "allAssetsMatch": true,
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-14T13:32:00.203319+00:00",
+  "sourceCommits": [
+    "f3476a808536d7a18bd20a984737bee53f36d954",
+    "50585d50deaa7ba4dacf65162104733f67ccbc31"
+  ],
+  "github": {
+    "acceptance": {
+      "runId": 38570266426,
+      "conclusion": "failure",
+      "jobs": {
+        "functional": {
+          "id": 115873736622,
+          "conclusion": "success"
+        },
+        "beam": {
+          "id": 115873736081,
+          "conclusion": "success"
+        },
+        "dependencies": {
+          "id": 115873736374,
+          "conclusion": "success"
+        },
+        "static-analysis": {
+          "id": 115873736818,
+          "conclusion": "failure",
+          "errorCode": "CODEQL_REVIEW_STALE"
+        }
+      }
+    },
+    "production": {
+      "runId": 38572105065,
+      "jobId": 115879695365,
+      "conclusion": "success",
+      "requiredJobs": [
+        "functional",
+        "dependencies",
+        "beam"
+      ],
+      "existingPolicyUnchanged": true
+    },
+    "earlierAttempt": {
+      "runId": 38570395451,
+      "jobId": 115873758307,
+      "conclusion": "failure",
+      "reason": "Required functional check did not succeed after preceding run cancellation on follow-up push; final matching-source pipeline subsequently passed."
+    }
+  },
+  "render": [
+    {
+      "service": "backend",
+      "serviceId": "srv-d74n9ubuibrs739o39f0",
+      "deployId": "dep-db7o0qegekts73e576d0",
+      "status": "live",
+      "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31"
+    },
+    {
+      "service": "intelligence",
+      "serviceId": "srv-dajuloeq1p3s739k819g",
+      "deployId": "dep-db7o0qegekts73e577sg",
+      "status": "live",
+      "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31"
+    },
+    {
+      "service": "video",
+      "serviceId": "srv-dafp68740ujc73ca2lag",
+      "deployId": "dep-db7o0qegekts73e57810",
+      "status": "live",
+      "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31"
+    },
+    {
+      "service": "phoenix",
+      "serviceId": "srv-davf9be7bikc73drgumg",
+      "deployId": "dep-db7o0qegekts73e57670",
+      "status": "live",
+      "commit": "50585d50deaa7ba4dacf65162104733f67ccbc31"
+    }
+  ],
+  "phoenixHealthIdentityNote": "Public Phoenix health has no commit field; its source identity is verified from Render deployment metadata, not fabricated from health.",
+  "productionReady": false,
+  "foundationAccepted": false,
+  "externalGates": {
+    "physicalDevices": false,
+    "providerTrustActivation": false,
+    "fullHistoryRetentionErasureBackupPolicy": false,
+    "independentCryptoAndCodeQLReview": false
+  },
+  "codeqlEvidence": "docs/evidence/conversations-activity-codeql-20261014.json",
+  "deviceAcceptanceTemplate": "docs/evidence/conversations-device-acceptance-template.json",
+  "newPaidPhoenixInstanceCreated": false,
+  "newProductionHistoryPurgeExecuted": false,
+  "videoFailureInvestigationPerformed": false
+}
